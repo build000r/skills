@@ -1,6 +1,6 @@
 import React from "react";
 import { AbsoluteFill, Audio, Sequence, staticFile, useVideoConfig } from "remotion";
-import { COLORS, TIMINGS } from "./colors";
+import { COLORS, TIMINGS, TITLE_CARD_DURATION } from "./colors";
 import { HookScene } from "./scenes/HookScene";
 import { ContextScene } from "./scenes/ContextScene";
 import { Act1Scene } from "./scenes/Act1Scene";
@@ -59,6 +59,39 @@ export const SkillsDemo: React.FC = () => {
 
   return (
     <AbsoluteFill style={{ backgroundColor: COLORS.bg }}>
+      {/* Static title card — visible as the poster/thumbnail frame */}
+      <Sequence durationInFrames={TITLE_CARD_DURATION * fps}>
+        <AbsoluteFill
+          style={{
+            backgroundColor: COLORS.bg,
+            justifyContent: "center",
+            alignItems: "center",
+          }}
+        >
+          <div
+            style={{
+              width: 1400,
+              display: "flex",
+              flexDirection: "column",
+              gap: 24,
+              fontFamily: '"JetBrains Mono", "Fira Code", monospace',
+              fontSize: 42,
+              fontWeight: 500,
+              lineHeight: 1.5,
+              color: COLORS.text,
+            }}
+          >
+            <div>
+              This video was planned and scripted by the skills in this repo.
+            </div>
+            <div style={{ color: COLORS.white }}>
+              Here's the proof.
+              <span style={{ color: COLORS.cursor }}>▎</span>
+            </div>
+          </div>
+        </AbsoluteFill>
+      </Sequence>
+
       {SCENES.map(({ key, timing, Scene, audio }) => {
         const startFrame = timing.start * fps;
         const durationFrames = timing.duration * fps;

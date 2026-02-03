@@ -22,13 +22,15 @@ export const FPS = 30;
 // Scene timings derived from actual audio durations + minimal visual buffer.
 // Audio: 4.69 + 18.48 + 19.50 + 32.55 + 26.61 + 7.94 = 109.77s
 // Each scene = ceil(audio) + 1–2s settle, CTA gets +5s for end card hold.
+export const TITLE_CARD_DURATION = 2; // 2s static poster frame
+
 export const TIMINGS = {
-  hook: { start: 0, duration: 6 }, // audio 4.69s
-  context: { start: 6, duration: 20 }, // audio 18.48s
-  act1: { start: 26, duration: 21 }, // audio 19.50s
-  act2: { start: 47, duration: 34 }, // audio 32.55s
-  act3: { start: 81, duration: 28 }, // audio 26.61s
-  cta: { start: 109, duration: 13 }, // audio 7.94s + end card
+  hook: { start: TITLE_CARD_DURATION, duration: 6 }, // audio 4.69s
+  context: { start: TITLE_CARD_DURATION + 6, duration: 20 }, // audio 18.48s
+  act1: { start: TITLE_CARD_DURATION + 26, duration: 21 }, // audio 19.50s
+  act2: { start: TITLE_CARD_DURATION + 47, duration: 34 }, // audio 32.55s
+  act3: { start: TITLE_CARD_DURATION + 81, duration: 28 }, // audio 26.61s
+  cta: { start: TITLE_CARD_DURATION + 109, duration: 13 }, // audio 7.94s + end card
 } as const;
 
-export const TOTAL_DURATION = 122; // 2:02
+export const TOTAL_DURATION = TITLE_CARD_DURATION + 122; // 2:04

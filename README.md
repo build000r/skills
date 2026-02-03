@@ -2,7 +2,7 @@
 
 A collection of open-source skills for [Claude Code](https://claude.ai/claude-code).
 
-https://github.com/user-attachments/assets/ab9e6406-bed8-4d20-8b38-2d3a876443bb
+https://github.com/user-attachments/assets/531fe967-ed44-4863-80be-c21e36b9331a
 
 ## Skills
 

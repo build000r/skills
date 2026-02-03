@@ -9,7 +9,10 @@ Find what's trending to fuel content creation.
 **Base URL**: `https://api.virlo.ai` (NOT `.com`, NOT `/api/` prefix)
 **Auth**: `Authorization: Bearer $VIRLO_API_KEY`
 
-If `$VIRLO_API_KEY` is empty, source it: `source ~/.zshrc` or find it with `grep VIRLO ~/.zshrc`.
+If `$VIRLO_API_KEY` is empty (Claude Code runs bash, not zsh — never `source ~/.zshrc`):
+```bash
+export VIRLO_API_KEY=$(grep 'VIRLO_API_KEY' ~/.zshrc | grep -o '"[^"]*"' | tr -d '"')
+```
 
 ```bash
 # Trending topics digest

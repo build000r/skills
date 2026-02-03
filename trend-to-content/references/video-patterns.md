@@ -279,7 +279,10 @@ curl -s -X POST \
   --output voiceover.mp3
 ```
 
-If `$ELEVENLABS_API_KEY` is empty, source it: `source ~/.zshrc` or find it with `grep ELEVENLABS ~/.zshrc`.
+If `$ELEVENLABS_API_KEY` is empty (Claude Code runs bash, not zsh — never `source ~/.zshrc`):
+```bash
+export ELEVENLABS_API_KEY=$(grep 'ELEVENLABS_API_KEY' ~/.zshrc | grep -o '"[^"]*"' | tr -d '"')
+```
 
 ### Step 3: Assemble
 

@@ -14,7 +14,11 @@ A collection of open-source skills for [Claude Code](https://claude.ai/claude-co
 ## Install
 
 ```bash
-npx skills add build000r/<skill-name>
+# Install a specific skill
+npx skills add build000r/skills -s divide-and-conquer
+
+# Install all skills
+npx skills add build000r/skills --all
 ```
 
 ## License

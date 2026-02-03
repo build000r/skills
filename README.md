@@ -2,6 +2,8 @@
 
 A collection of open-source skills for [Claude Code](https://claude.ai/claude-code).
 
+https://github.com/build000r/skills/releases/download/v1.0.0/skills-demo.mp4
+
 ## Skills
 
 | Skill | Description |
@@ -14,11 +16,17 @@ A collection of open-source skills for [Claude Code](https://claude.ai/claude-co
 ## Install
 
 ```bash
-# Install a specific skill
-npx skills add build000r/skills -s divide-and-conquer
-
 # Install all skills
 npx skills add build000r/skills --all
+```
+
+Or install individually:
+
+```bash
+npx skills add build000r/skills -s divide-and-conquer
+npx skills add build000r/skills -s prompt-reviewer
+npx skills add build000r/skills -s trend-to-content
+npx skills add build000r/skills -s skill-issue
 ```
 
 ## License

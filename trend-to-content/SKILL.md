@@ -26,7 +26,11 @@ export VIRLO_API_KEY="virlo_tkn_..."       # Trend research
 export ELEVENLABS_API_KEY="sk_..."          # Text-to-speech for video voiceovers
 ```
 
-If env vars are empty in Bash, source them: `source ~/.zshrc` or grep for them and export manually.
+**If env vars are empty in Bash** (Claude Code runs bash, not zsh — `source ~/.zshrc` will break):
+```bash
+export VIRLO_API_KEY=$(grep 'VIRLO_API_KEY' ~/.zshrc | grep -o '"[^"]*"' | tr -d '"')
+export ELEVENLABS_API_KEY=$(grep 'ELEVENLABS_API_KEY' ~/.zshrc | grep -o '"[^"]*"' | tr -d '"')
+```
 
 ## The Workflow
 

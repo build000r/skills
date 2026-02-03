@@ -2,7 +2,7 @@
 
 A collection of open-source skills for [Claude Code](https://claude.ai/claude-code).
 
-https://github.com/build000r/skills/releases/download/v1.0.0/skills-demo.mp4
+https://github.com/user-attachments/assets/ab9e6406-bed8-4d20-8b38-2d3a876443bb
 
 ## Skills
 

@@ -29,8 +29,8 @@ modes/
 ├── my-saas/
 │   ├── page-template.tsx         # Project-specific component template
 │   └── reference-data.md         # Project-specific reference data
-├── my-health-app.md
-└── my-health-app/
+├── my-social-app.md
+└── my-social-app/
     └── db-queries.md
 ```
 
@@ -75,9 +75,9 @@ Write the mode file to `modes/{project-name}.md` using `references/mode-template
 ## Step 2: Parse Topic
 
 Extract the topic from skill arguments. Derive:
-- **slug**: kebab-case URL segment (e.g. `gut-health`, `ai-agents`)
-- **display name**: Title case for headings (e.g. "Gut Health", "AI Agents")
-- **component name**: PascalCase for code (e.g. `GutHealthResearchPage`)
+- **slug**: kebab-case URL segment (e.g. `creator-economy`, `ai-agents`)
+- **display name**: Title case for headings (e.g. "Creator Economy", "AI Agents")
+- **component name**: PascalCase for code (e.g. `CreatorEconomyResearchPage`)
 
 ## Step 3: Gather Data
 

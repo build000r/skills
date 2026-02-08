@@ -71,7 +71,7 @@ if __name__ == "__main__":
 ## Why This Works
 
 1. **Trigger-rich description**: Includes action phrases ("analyze CSV") and file patterns (".csv files")
-2. **Concise body**: ~30 lines of instructions, assumes Claude knows pandas
+2. **Concise body**: ~30 lines of instructions, assumes the agent knows pandas
 3. **Script for repetitive task**: `summarize.py` avoids rewriting the same analysis code
 4. **No over-explanation**: Doesn't explain what CSV is or how pandas works
 5. **Progressive disclosure**: Quick start for simple needs, script for detailed analysis

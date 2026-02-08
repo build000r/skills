@@ -43,9 +43,11 @@ Read the conversation to understand:
 ### 2. Identify Split Boundaries
 
 Find natural seams where work can be divided. Good boundaries:
-- **File boundaries**: Different agents own different files
 - **Domain boundaries**: Frontend vs backend vs database vs tests
 - **Concern boundaries**: Research vs implementation, different features
+- **Goal boundaries**: Different outcomes that don't interact
+
+Scope agents by **concern**, not by file list. "Handle authentication changes" is better than "Modify src/auth.ts". The agent discovers which files are relevant; you verify no overlap in the conflict check.
 
 ### 3. Verify Independence
 
@@ -69,10 +71,9 @@ Present the decomposition as a numbered list of agents. For each agent specify:
 **Type**: Explore | general-purpose | Bash
 **Model**: haiku (simple research) | sonnet (default) | opus (complex reasoning)
 **Background**: true if non-blocking, false if results needed before next step
-**Scope**: [Files/directories this agent owns]
-**Task**: [Self-contained instructions. For general-purpose, can reference conversation context concisely.]
-**Reads**: [Files it may read for context]
-**Writes**: [Files it will create or modify — MUST NOT overlap with other agents. Must be "None" for Explore/Bash types.]
+**Concern**: [Domain/goal this agent owns — scope by concern, not file list]
+**Task**: [Goal-focused instructions. For general-purpose, can reference conversation context concisely.]
+**Writes**: [Expected files — verified for no overlap, but agent discovers actual files needed. "None" for Explore/Bash types.]
 ```
 
 Then add a **Conflict Check** section:
@@ -101,7 +102,8 @@ Once all agents complete:
 ## Rules
 
 - **2-5 agents** is the sweet spot. More than 5 signals over-decomposition.
-- **Never split same-file edits** across agents. One file = one owner.
+- **Scope by concern, not files**. "Handle auth changes" > "Modify src/auth.ts". Agent discovers files; you verify no overlap.
+- **Never split same-concern work** across agents. One domain = one owner.
 - **Use Explore for research agents** — physically cannot write, so file conflicts are impossible.
 - **Use general-purpose for write agents** — they see conversation history, so prompts can be concise.
 - **Use haiku model for simple research** — faster and cheaper. Reserve sonnet/opus for complex work.

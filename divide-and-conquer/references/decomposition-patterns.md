@@ -4,14 +4,16 @@
 
 These patterns produce agents that are guaranteed conflict-free:
 
-### 1. File-Disjoint Split
-Each agent owns a distinct set of files. No two agents touch the same file.
+### 1. Concern-Disjoint Split
+Each agent owns a distinct domain/concern. Agents discover which files are relevant.
 
 ```
-Agent A: Modify src/auth.ts, src/auth.test.ts
-Agent B: Modify src/billing.ts, src/billing.test.ts
-Agent C: Modify src/notifications.ts, src/notifications.test.ts
+Agent A: Handle authentication — token refresh, session management
+Agent B: Handle billing — payment processing, invoicing
+Agent C: Handle notifications — email templates, delivery logic
 ```
+
+Conflict check verifies these concerns don't overlap in files, but prompts stay goal-focused.
 
 ### 2. Explore + Single Writer
 Multiple Explore agents (physically read-only) gather context, one general-purpose agent writes.
@@ -27,16 +29,16 @@ research-only and C is the sole implementor. If C depends on A/B findings,
 they cannot all be parallel — launch A+B together, then C after they return.
 Since C is general-purpose, it sees the full conversation including A/B results.
 
-### 3. Domain-Disjoint Split
-Each agent works in a completely separate domain/layer.
+### 3. Layer-Disjoint Split
+Each agent works in a completely separate architectural layer.
 
 ```
-Agent A: Backend API endpoint (server/)
-Agent B: Frontend component (client/)
-Agent C: Database migration (migrations/)
+Agent A: Implement the API endpoint for user preferences
+Agent B: Build the frontend component to display/edit preferences
+Agent C: Add the database migration for the preferences table
 ```
 
-Caution: Only safe if domains don't share files (e.g., shared types file).
+Caution: Only safe if layers don't share files (e.g., shared types file). Conflict check catches this.
 
 ### 4. Independent Investigation Split
 Each agent investigates a different hypothesis or area. All Explore type (cannot write).
@@ -91,10 +93,10 @@ Agent B: Update all files that import the old module
 
 Before finalizing a split, verify:
 
-- [ ] No two agents write to the same file
+- [ ] Each agent is scoped by concern/goal, not by file list
+- [ ] No two agents' concerns would touch the same files (verify, don't micromanage)
 - [ ] No agent needs another agent's output to begin work
 - [ ] Each agent has all context it needs in its prompt (or is general-purpose and can reference conversation)
-- [ ] File ownership boundaries are explicit and non-overlapping
 - [ ] Research agents use Explore type (physically cannot write)
 - [ ] Write agents use general-purpose type
 - [ ] Command-only agents use Bash type

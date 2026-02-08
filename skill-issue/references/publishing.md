@@ -45,7 +45,7 @@ my-skill/
 
 ### README.md for GitHub
 
-**Exception to the "no README" rule**: GitHub repos need a README for visibility. This is for humans browsing GitHub, not for Claude.
+**Exception to the "no README" rule**: GitHub repos need a README for visibility. This is for humans browsing GitHub, not for the agent.
 
 ```markdown
 # skill-name

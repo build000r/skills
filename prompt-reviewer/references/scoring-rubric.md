@@ -31,16 +31,16 @@ Does the user provide what's needed to start?
 **Red flags:** "Check X" with no details, environment-only starts
 
 ### 3. Autonomy & Scope Control (0-2)
-Does the user set boundaries for agent work?
+Does the user scope by concern rather than location?
 
 | Score | Criteria |
 |-------|----------|
-| 2 | Explicit scope: files in play, exclusions, stop conditions |
-| 1 | Partial boundaries, some areas undefined |
-| 0 | No scope, agent must guess limits |
+| 2 | Scopes by domain/concern, asks for approach, lets agent decide files |
+| 1 | Partial boundaries, some micromanaging of location |
+| 0 | No scope, or over-constrains with "only touch X" patterns |
 
-**Look for:** "Only touch X", "Don't modify Y", "Stop after Z"
-**Red flags:** Open-ended "fix everything", no files specified
+**Look for:** "We're fixing the OAuth refresh", "What files need to change?", domain-scoped goals
+**Red flags:** "Only modify src/X/", "Don't touch Y" — these micromanage; scope by concern instead
 
 ### 4. Constraint Handling (0-2)
 Are safety/quality constraints stated?
@@ -55,16 +55,16 @@ Are safety/quality constraints stated?
 **Red flags:** Direct production changes requested without safeguards
 
 ### 5. Iterative Checkpoints (0-2)
-Does the user request progress updates?
+Does the user use phase-based checkpoints?
 
 | Score | Criteria |
 |-------|----------|
-| 2 | Explicit checkpoints: "Pause after X", "Show me Y before continuing" |
-| 1 | Implicit checkpoints via multi-step instructions |
-| 0 | No checkpoints, run until done |
+| 2 | Phase-based: "Create a plan", "What's your approach?", uses Plan Mode |
+| 1 | Some structure via multi-step instructions |
+| 0 | No checkpoints, or micromanaging step-by-step pauses |
 
-**Look for:** "Stop and show me", "Confirm before", "Let's discuss X first"
-**Red flags:** Long tasks with no intermediate validation
+**Look for:** "Create a plan first", "What's your approach?", mode-switching (explore → plan → implement)
+**Red flags:** "Pause after step 1", "Show me before continuing" — these interrupt flow; use phases instead
 
 ### 6. Follow-up Efficiency (0-3)
 Do follow-up messages maintain momentum?

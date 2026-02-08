@@ -1,18 +1,22 @@
 #!/usr/bin/env python3
 """
-Extract Claude Code and/or Codex sessions for prompt review analysis.
+Extract Claude Code, Codex, and/or OpenCode sessions for prompt review analysis.
 
 Usage:
   extract_sessions.py [--source SOURCE] [--project PATH] [--since DATE] [--until DATE] [--limit N]
 
 Options:
-  --source SOURCE  Which tool: 'claude', 'codex', or 'both' (default: both)
+  --source SOURCE  Which tool: 'claude', 'codex', 'opencode', 'all', or 'both' (default: both)
+                   'both' = claude + codex (legacy), 'all' = claude + codex + opencode
   --project PATH   Filter to sessions from this project path (Claude Code only)
   --since DATE     Start date (YYYY-MM-DD or 'today', 'yesterday', 'week', 'month')
   --until DATE     End date (YYYY-MM-DD), defaults to now
   --limit N        Max sessions to return (default: 50)
 
 Output: JSON with session metadata and user prompts.
+
+Note: OpenCode stores prompts without timestamps, so all prompts are returned as a
+single session using the file's mtime. Date filtering is based on file mtime only.
 """
 
 import argparse
@@ -86,6 +90,7 @@ def extract_codex_messages(jsonl_path: Path) -> list[dict]:
     """Extract user messages from a Codex session file."""
     messages = []
     seen_content = set()  # Deduplicate messages
+    session_timestamp = None  # Capture from session metadata
     try:
         with open(jsonl_path, "r") as f:
             for line in f:
@@ -94,10 +99,26 @@ def extract_codex_messages(jsonl_path: Path) -> list[dict]:
                 try:
                     entry = json.loads(line)
                     content = None
-                    timestamp = entry.get("timestamp")
+                    timestamp = entry.get("timestamp", session_timestamp)
 
-                    # Codex format: response_item with role=user
-                    if entry.get("type") == "response_item":
+                    # Capture session timestamp from first entry (metadata)
+                    if session_timestamp is None and "timestamp" in entry:
+                        session_timestamp = entry.get("timestamp")
+
+                    # Codex format: type=message with role=user
+                    if entry.get("type") == "message" and entry.get("role") == "user":
+                        content_list = entry.get("content", [])
+                        text_parts = []
+                        for item in content_list:
+                            if isinstance(item, dict) and item.get("type") == "input_text":
+                                text = item.get("text", "")
+                                # Skip environment context blocks
+                                if not text.startswith("<environment_context>"):
+                                    text_parts.append(text)
+                        content = "\n".join(text_parts)
+
+                    # Legacy format: response_item with role=user
+                    elif entry.get("type") == "response_item":
                         payload = entry.get("payload", {})
                         if payload.get("role") == "user":
                             content_list = payload.get("content", [])
@@ -105,12 +126,11 @@ def extract_codex_messages(jsonl_path: Path) -> list[dict]:
                             for item in content_list:
                                 if isinstance(item, dict) and item.get("type") == "input_text":
                                     text = item.get("text", "")
-                                    # Skip environment context blocks
                                     if not text.startswith("<environment_context>"):
                                         text_parts.append(text)
                             content = "\n".join(text_parts)
 
-                    # Also check event_msg type for user messages
+                    # Legacy format: event_msg type for user messages
                     elif entry.get("type") == "event_msg":
                         payload = entry.get("payload", {})
                         if payload.get("type") == "user_message":
@@ -233,10 +253,89 @@ def find_codex_sessions(
     return sessions
 
 
+def extract_opencode_messages(jsonl_path: Path) -> list[dict]:
+    """Extract user messages from OpenCode prompt history file.
+
+    OpenCode stores prompts without timestamps, so we use None for timestamp.
+    Format: {"input": "...", "parts": [...]}
+    """
+    messages = []
+    try:
+        with open(jsonl_path, "r") as f:
+            for line in f:
+                if not line.strip():
+                    continue
+                try:
+                    entry = json.loads(line)
+                    content = entry.get("input", "")
+
+                    # Skip empty prompts
+                    if not content or not content.strip():
+                        continue
+
+                    # Include parts context if present (pasted text, files)
+                    parts = entry.get("parts", [])
+                    context_note = ""
+                    for part in parts:
+                        if isinstance(part, dict):
+                            if part.get("type") == "file":
+                                filename = part.get("filename", "unknown")
+                                context_note += f" [+file: {filename}]"
+                            elif part.get("type") == "text" and part.get("source", {}).get("text", {}).get("value"):
+                                # Pasted text reference
+                                context_note += " [+pasted text]"
+
+                    full_content = content + context_note if context_note else content
+
+                    messages.append({
+                        "timestamp": None,  # OpenCode doesn't store timestamps
+                        "content": full_content[:2000],
+                    })
+                except json.JSONDecodeError:
+                    continue
+    except Exception as e:
+        print(f"Error reading {jsonl_path}: {e}", file=sys.stderr)
+    return messages
+
+
+def find_opencode_sessions(
+    opencode_state_dir: Path,
+    since: datetime,
+    until: datetime,
+) -> list[dict]:
+    """Find OpenCode sessions.
+
+    OpenCode stores all prompts in a single prompt-history.jsonl file without
+    timestamps or session boundaries. We treat the entire file as one "session"
+    and use the file's mtime for date filtering.
+    """
+    history_file = opencode_state_dir / "prompt-history.jsonl"
+    if not history_file.exists():
+        return []
+
+    mtime = datetime.fromtimestamp(history_file.stat().st_mtime)
+    if mtime < since or mtime > until:
+        return []
+
+    user_messages = extract_opencode_messages(history_file)
+    if not user_messages:
+        return []
+
+    return [{
+        "source": "opencode",
+        "file": str(history_file),
+        "project": "all",  # OpenCode doesn't track per-project
+        "timestamp": mtime.isoformat(),
+        "message_count": len(user_messages),
+        "user_prompts": user_messages,
+        "_note": "OpenCode lacks timestamps; all prompts returned as single batch",
+    }]
+
+
 def main():
     parser = argparse.ArgumentParser(description="Extract sessions for prompt review analysis")
-    parser.add_argument("--source", choices=["claude", "codex", "both"], default="both",
-                        help="Which tool to analyze")
+    parser.add_argument("--source", choices=["claude", "codex", "opencode", "both", "all"], default="both",
+                        help="Which tool to analyze (both=claude+codex, all=claude+codex+opencode)")
     parser.add_argument("--project", help="Filter to sessions from this project path (Claude only)")
     parser.add_argument("--since", default="today",
                         help="Start date (YYYY-MM-DD or today/yesterday/week/month)")
@@ -247,20 +346,24 @@ def main():
     home = Path.home()
     claude_dir = home / ".claude"
     codex_dir = home / ".codex"
+    opencode_state_dir = home / ".local" / "state" / "opencode"
 
     since = parse_date(args.since)
     until = datetime.now() if not args.until else parse_date(args.until) + timedelta(days=1)
 
     sessions = []
 
-    if args.source in ("claude", "both"):
+    if args.source in ("claude", "both", "all"):
         sessions.extend(find_claude_sessions(claude_dir, args.project, since, until))
 
-    if args.source in ("codex", "both"):
+    if args.source in ("codex", "both", "all"):
         sessions.extend(find_codex_sessions(codex_dir, since, until))
 
+    if args.source in ("opencode", "all"):
+        sessions.extend(find_opencode_sessions(opencode_state_dir, since, until))
+
     # Sort by timestamp (newest first) and limit
-    sessions.sort(key=lambda s: s["timestamp"], reverse=True)
+    sessions.sort(key=lambda s: s["timestamp"] or "", reverse=True)
     sessions = sessions[:args.limit]
 
     result = {
@@ -275,6 +378,7 @@ def main():
         "total_prompts": sum(s["message_count"] for s in sessions),
         "claude_sessions": len([s for s in sessions if s["source"] == "claude"]),
         "codex_sessions": len([s for s in sessions if s["source"] == "codex"]),
+        "opencode_sessions": len([s for s in sessions if s["source"] == "opencode"]),
         "sessions": sessions,
     }
 

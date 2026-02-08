@@ -1,18 +1,18 @@
 ---
 name: skill-issue
-description: Create, update, and package Claude Code skills. Use when asked to "create a skill", "make a skill", "new skill", "skill template", "design a skill", "build a skill", or when working with SKILL.md files, frontmatter, bundled resources (scripts/, references/, assets/), or .skill packaging. Also triggers on "how do I make a skill", "skill best practices", "skill structure", or requests to extend Claude's capabilities with reusable workflows.
+description: Create, update, and package skills for AI coding agents. Use when asked to "create a skill", "make a skill", "new skill", "skill template", "design a skill", "build a skill", or when working with SKILL.md files, frontmatter, bundled resources (scripts/, references/, assets/), or .skill packaging. Also triggers on "how do I make a skill", "skill best practices", "skill structure", or requests to extend an agent's capabilities with reusable workflows.
 license: Complete terms in LICENSE.txt
 ---
 
 # Skill Creator
 
-Create effective Claude Code skills: modular packages that extend Claude with specialized workflows, domain expertise, and reusable tools.
+Create effective skills for AI coding agents: modular packages that extend agents with specialized workflows, domain expertise, and reusable tools.
 
 ## Core Principles
 
 ### Concise is Key
 
-The context window is a public good. Only add context Claude doesn't already have. Challenge each piece: "Does this paragraph justify its token cost?"
+The context window is a public good. Only add context the agent doesn't already have. Challenge each piece: "Does this paragraph justify its token cost?"
 
 Prefer concise examples over verbose explanations.
 
@@ -68,7 +68,7 @@ Creates a template skill directory with SKILL.md, example `scripts/`, `reference
 
 ### Step 4: Edit the Skill
 
-The skill is for another Claude instance. Include non-obvious procedural knowledge, domain-specific details, and reusable assets.
+The skill is for another agent instance. Include non-obvious procedural knowledge, domain-specific details, and reusable assets.
 
 #### Consult Design Pattern Guides
 
@@ -98,7 +98,7 @@ Add to `~/.zshrc`: `export MY_API_KEY="your-key"`
 
 #### Local Development with Symlinks
 
-Store skill source in a version-controlled repo, symlink into `~/.claude/skills/` for Claude to discover:
+Store skill source in a version-controlled repo, symlink into your agent's skills directory (e.g., `~/.claude/skills/`) for discovery:
 
 ```bash
 cp -r ~/.claude/skills/my-skill ~/repos/skills/my-skill

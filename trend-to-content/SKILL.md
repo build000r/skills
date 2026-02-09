@@ -18,6 +18,28 @@ description: |
 
 Transform trending topics into content at scale: PSEO pages, videos, and copy.
 
+## Modes
+
+Modes customize content generation for specific brands or projects — brand voice, target audience, content types, SEO settings, video format, trend sources, and publishing workflow. Stored in `modes/` (gitignored, never committed).
+
+### How Modes Work
+
+Each mode is a markdown file: `modes/{project-name}.md`. It contains everything brand-specific: name, voice, tone, target audience, which content pipelines to use (PSEO, video, social), SEO keywords and URL patterns, Remotion project paths, preferred trend sources, and publishing/deploy commands.
+
+### Mode Selection (Step 0)
+
+1. List `.md` files in `modes/` (if directory exists)
+2. Each mode file has a `cwd_match` field — a path prefix to match against cwd
+3. If cwd matches exactly one mode, use it automatically
+4. If cwd matches multiple or none, ask the user which mode (or use generic defaults)
+5. If `modes/` doesn't exist, use generic mode (no brand customization)
+
+### Creating a Mode
+
+Copy `references/mode-template.md` to `modes/{project-name}.md` and fill in brand details, content types, SEO config, and publishing workflow. When a user runs the skill with no matching mode, offer to create one.
+
+Modes are gitignored — they contain brand-specific settings and API details that should not be committed to the skill repo.
+
 ## Prerequisites
 
 Required env vars (should be in `~/.zshrc`):

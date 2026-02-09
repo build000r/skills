@@ -7,6 +7,28 @@ description: Review and score your AI prompting quality. Analyzes Claude Code an
 
 Evaluate user prompting quality across AI coding tools. Supports Claude Code, Codex, AMP, OpenCode, and any other tool.
 
+## Modes
+
+Modes customize scoring and review behavior for specific teams or projects — axis weights, review cadence, output format preferences, and team context that affects expectations. Stored in `modes/` (gitignored, never committed).
+
+### How Modes Work
+
+Each mode is a markdown file: `modes/{project-name}.md`. It contains team-specific configuration: scoring weight adjustments (e.g., weight Autonomy higher for junior developers), review cadence, custom session source paths, and output format preferences.
+
+### Mode Selection (Step 0)
+
+1. List `.md` files in `modes/` (if directory exists)
+2. Each mode file has a `cwd_match` field — a path prefix to match against cwd
+3. If cwd matches exactly one mode, use it automatically
+4. If cwd matches multiple or none, ask the user which mode (or use default scoring)
+5. If `modes/` doesn't exist, use standard scoring with no adjustments
+
+### Creating a Mode
+
+Copy `references/mode-template.md` to `modes/{project-name}.md` and fill in scoring adjustments, team context, and output preferences. When a user runs the skill with no matching mode, offer to create one.
+
+Modes are gitignored — they contain team-specific preferences that should not be committed to the skill repo.
+
 ## Workflow Overview
 
 **Review flow** (default):

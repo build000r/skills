@@ -8,6 +8,28 @@ license: Complete terms in LICENSE.txt
 
 Create effective skills for AI coding agents: modular packages that extend agents with specialized workflows, domain expertise, and reusable tools.
 
+## Modes
+
+Modes customize skill creation for specific organizations or projects — naming conventions, required sections, publishing targets, testing workflows, and review processes. Stored in `modes/` (gitignored, never committed).
+
+### How Modes Work
+
+Each mode is a markdown file: `modes/{project-name}.md`. It contains org-specific configuration: skill naming patterns, required SKILL.md sections, publishing target (marketplace, GitHub org, internal registry), validation commands, standard bundled resources, and the review/approval workflow.
+
+### Mode Selection (Step 0)
+
+1. List `.md` files in `modes/` (if directory exists)
+2. Each mode file has a `cwd_match` field — a path prefix to match against cwd
+3. If cwd matches exactly one mode, use it automatically
+4. If cwd matches multiple or none, ask the user which mode (or use generic defaults)
+5. If `modes/` doesn't exist, use generic skill creation (no org-specific standards)
+
+### Creating a Mode
+
+Copy `references/mode-template.md` to `modes/{project-name}.md` and fill in org standards, publishing targets, and review process. When a user runs the skill with no matching mode, offer to create one.
+
+Modes are gitignored — they contain org-specific paths and workflows that should not be committed to the skill repo.
+
 ## Core Principles
 
 ### Concise is Key

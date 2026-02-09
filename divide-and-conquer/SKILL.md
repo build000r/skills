@@ -15,6 +15,28 @@ license: MIT
 
 Decompose a task into sub-agents that run fully in parallel with zero conflicts.
 
+## Modes
+
+Modes customize decomposition for specific projects — split boundaries, agent preferences, repo structure, naming conventions, and validation commands. Stored in `modes/` (gitignored, never committed).
+
+### How Modes Work
+
+Each mode is a markdown file: `modes/{project-name}.md`. It contains project-specific configuration: where the natural split boundaries are, what agent types and models to prefer, what commands to run for validation, and how to label agents.
+
+### Mode Selection (Step 0)
+
+1. List `.md` files in `modes/` (if directory exists)
+2. Each mode file has a `cwd_match` field — a path prefix to match against cwd
+3. If cwd matches exactly one mode, use it automatically
+4. If cwd matches multiple or none, ask the user which mode (or use generic defaults)
+5. If `modes/` doesn't exist, use generic decomposition (no project-specific config)
+
+### Creating a Mode
+
+Copy `references/mode-template.md` to `modes/{project-name}.md` and fill in split boundaries, agent preferences, and validation commands for your project. When a user runs the skill with no matching mode, offer to create one.
+
+Modes are gitignored — they contain project-specific paths and preferences that should not be committed to the skill repo.
+
 ## Agent Types
 
 Know what each type can and cannot do:

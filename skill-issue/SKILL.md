@@ -177,3 +177,49 @@ Packaging validates automatically, then creates a `.skill` file (zip with .skill
 4. Promote to drive downloads (downloads = ranking)
 
 **Read `references/publishing.md`** for the complete checklist and promotion strategies.
+
+## Environment Management
+
+Beyond individual skills, skill-issue can audit your entire Claude environment.
+
+### Audit
+
+Scan `~/.claude/` and project directories, generate a context registry, and produce a health report:
+
+```bash
+scripts/audit_context.py                                 # Scan ~/repos, write to ~/.claude/context/
+scripts/audit_context.py --scan-root ~/projects          # Custom scan root
+scripts/audit_context.py --report-only                   # Print report without writing registry
+scripts/audit_context.py --scan-root ~/repos --scan-root ~/work  # Multiple roots
+```
+
+The audit discovers: projects with `.claude/` config, CLAUDE.md files, MCP servers, project-level hooks and skills, global skills (symlinked, packaged, local), and skill modes.
+
+Issues detected: secrets in MCP configs, broken skill symlinks, stale empty `.claude/` directories, duplicate MCP definitions across projects, mode files targeting nonexistent paths, parent CLAUDE.md inheritance.
+
+Registry output goes to `~/.claude/context/` with `manifest.yaml`, `projects/*.yaml`, `mcps/*.yaml`, and `machines/*.yaml`.
+
+### Init
+
+Bootstrap `~/.claude/context/` for a new machine or add a single project:
+
+```bash
+scripts/init_context.py                              # Interactive machine setup
+scripts/init_context.py --non-interactive            # Accept all defaults
+scripts/init_context.py --project ~/repos/my-app     # Add one project to existing registry
+scripts/init_context.py --scan-root ~/projects       # Custom scan root
+```
+
+Full init walks through: machine name, scan roots, project discovery, and registry creation. Use `--project` to add a single project without re-scanning everything.
+
+### Sync
+
+Detect drift between the registry and filesystem:
+
+```bash
+scripts/sync_context.py                    # Check for drift (exit code 1 if drift found)
+scripts/sync_context.py --check            # Same as above
+scripts/sync_context.py --update           # Re-scan and update registry
+```
+
+Drift detection compares: project paths still exist, config files unchanged (by content hash), skills added/removed, hooks changed, MCP servers changed. Exit code 0 means no drift, 1 means drift detected.

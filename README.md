@@ -13,6 +13,11 @@ https://github.com/user-attachments/assets/531fe967-ed44-4863-80be-c21e36b9331a
 | [trend-to-content](./trend-to-content/) | Transform social media trends into SEO pages, videos, and copy at scale |
 | [research-paper](./research-paper/) | Generate dense, academic research papers on any topic with project-specific modes |
 | [skill-issue](./skill-issue/) | Create, update, and package skills for AI coding agents |
+| [domain-planner](./domain-planner/) | 6-phase human-in-the-loop planning for multi-repo domain slices |
+| [domain-scaffolder-backend](./domain-scaffolder-backend/) | TDD-first backend code generation from domain plans |
+| [domain-scaffolder-frontend](./domain-scaffolder-frontend/) | Pattern-adherent frontend code generation from domain plans |
+| [domain-reviewer](./domain-reviewer/) | Audit, retire, and clean up domain slice implementations |
+| [openclaw-client-bootstrap](./openclaw-client-bootstrap/) | Generate a production OpenClaw client kit for DigitalOcean + Tailscale + Telegram with read-only governance |
 
 ## Install
 
@@ -29,7 +34,34 @@ npx skills add build000r/skills -s prompt-reviewer
 npx skills add build000r/skills -s trend-to-content
 npx skills add build000r/skills -s research-paper
 npx skills add build000r/skills -s skill-issue
+npx skills add build000r/skills -s domain-planner
+npx skills add build000r/skills -s domain-scaffolder-backend
+npx skills add build000r/skills -s domain-scaffolder-frontend
+npx skills add build000r/skills -s domain-reviewer
+npx skills add build000r/skills -s openclaw-client-bootstrap
 ```
+
+## Quick Usage
+
+Yes. You can just tell your AI to use the skill directly, for example:
+
+```text
+Use $openclaw-client-bootstrap to create a new client kit for DigitalOcean + Tailscale + Telegram.
+Set it to read-only by default and approval-gated for writes.
+```
+
+## Local Development (Claude + Codex)
+
+For local iteration, symlink each skill directory into both agent homes:
+
+```bash
+./scripts/link-skills.sh
+```
+
+This creates/updates links in:
+
+- `~/.claude/skills/`
+- `~/.codex/skills/`
 
 ## License
 

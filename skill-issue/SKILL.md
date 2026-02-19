@@ -120,15 +120,16 @@ Add to `~/.zshrc`: `export MY_API_KEY="your-key"`
 
 #### Local Development with Symlinks
 
-Store skill source in a version-controlled repo, symlink into your agent's skills directory (e.g., `~/.claude/skills/`) for discovery:
+Store skill source in a version-controlled repo, then symlink into each agent's skills directory (Claude + Codex) for discovery:
 
 ```bash
-cp -r ~/.claude/skills/my-skill ~/repos/skills/my-skill
-rm -r ~/.claude/skills/my-skill
 ln -s ~/repos/skills/my-skill ~/.claude/skills/my-skill
+ln -s ~/repos/skills/my-skill ~/.codex/skills/my-skill
 ```
 
-The marketplace plugin version (if installed) takes precedence over `~/.claude/skills/` — use a different name to avoid conflicts.
+In this repo specifically, use `./scripts/link-skills.sh` to link all skills into both directories automatically.
+
+The marketplace plugin version (if installed) takes precedence over local skills directories — use a different name to avoid conflicts.
 
 #### Implement Resources First
 

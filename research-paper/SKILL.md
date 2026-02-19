@@ -70,6 +70,7 @@ Write the mode file to `modes/{project-name}.md` using `references/mode-template
 6. Write the page using divide-and-conquer
 7. Add routing (if mode requires it)
 8. Type-check / validate
+9. Post-creation tasks (mode-specific: homepage links, nav updates, etc.)
 ```
 
 ## Step 2: Parse Topic
@@ -137,6 +138,12 @@ Only if the mode specifies routing steps (e.g. "add import to AppRoutes.tsx" or 
 ## Step 8: Validate
 
 Run the mode's validation command if specified (e.g. `npx tsc --noEmit`). For generic mode, verify the file was written correctly.
+
+## Step 9: Post-Creation Tasks
+
+Check the mode file for a "Post-Creation" section. If present, execute every step — these are required, not optional. Common post-creation tasks include adding the paper to a homepage link array, updating a navigation component, or registering the paper in a manifest. **Do not skip this step.** Also update the mode's "Existing Papers" list with the new paper.
+
+For generic mode, skip.
 
 ## Output
 

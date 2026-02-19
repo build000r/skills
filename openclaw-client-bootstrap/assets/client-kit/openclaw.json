@@ -1,0 +1,110 @@
+{
+  "agents": {
+    "defaults": {
+      "sandbox": {
+        "mode": "all",
+        "scope": "agent",
+        "workspaceAccess": "ro"
+      },
+      "model": {
+        "primary": "anthropic/claude-haiku-4-5-20251001"
+      }
+    },
+    "list": [
+      {
+        "id": "analyst",
+        "name": "Client Analyst"
+      }
+    ]
+  },
+  "tools": {
+    "deny": [
+      "write",
+      "edit",
+      "apply_patch",
+      "browser",
+      "canvas",
+      "nodes",
+      "gateway",
+      "mcp",
+      "npx",
+      "cron",
+      "sessions_spawn",
+      "session_spawn",
+      "bash -lc *",
+      "python *",
+      "node *"
+    ],
+    "exec": {
+      "ask": "always",
+      "safeBins": [
+        "jq",
+        "grep",
+        "cut",
+        "sort",
+        "uniq",
+        "head",
+        "tail",
+        "tr",
+        "wc",
+        "echo",
+        "printf"
+      ]
+    }
+  },
+  "commands": {
+    "native": "auto",
+    "nativeSkills": "auto"
+  },
+  "approvals": {
+    "exec": {
+      "enabled": true,
+      "mode": "targets",
+      "agentFilter": [
+        "analyst"
+      ],
+      "targets": [
+        {
+          "channel": "telegram",
+          "to": "{{TELEGRAM_USER_ID}}"
+        }
+      ]
+    }
+  },
+  "channels": {
+    "telegram": {
+      "enabled": true,
+      "dmPolicy": "allowlist",
+      "botToken": "${OPENCLAW_TG_TOKEN}",
+      "allowFrom": [
+        "{{TELEGRAM_USER_ID}}"
+      ],
+      "groupPolicy": "disabled",
+      "streamMode": "partial"
+    }
+  },
+  "gateway": {
+    "port": 18789,
+    "mode": "local",
+    "bind": "loopback",
+    "auth": {
+      "mode": "token",
+      "token": "${OPENCLAW_GATEWAY_TOKEN}",
+      "allowTailscale": true
+    },
+    "tailscale": {
+      "mode": "serve"
+    }
+  },
+  "plugins": {
+    "entries": {
+      "telegram": {
+        "enabled": true
+      }
+    }
+  },
+  "meta": {
+    "lastTouchedVersion": "2026.2.17",
+    "lastTouchedAt": "2026-02-18T00:00:00.000Z"
+  }
+}

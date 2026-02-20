@@ -14,16 +14,16 @@ openclaw-client-bootstrap/assets/instances/*/
 briefs/
 modes/
 
+# project-specific frontend templates (mode-dependent, not generic)
+domain-planner/assets/templates/frontend-*.md
+!domain-planner/assets/templates/frontend.md
+
 # in progress
 find-customers/
 find-customers-buildooor/
 find-customers-openclawth/
 session-to-tweet/
 ssh-info/
-domain-planner/
-domain-reviewer/
-domain-scaffolder-backend/
-domain-scaffolder-frontend/
 audit-plans/
 video/
 video-assets/

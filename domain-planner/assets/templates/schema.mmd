@@ -1,0 +1,28 @@
+%% {slice_name} - Entity Relationships
+%% Conceptual ERD — implementation details (column types, indexes, constraints) belong in backend.md
+
+erDiagram
+    {slice_name} {
+        id PK
+        owner_id FK "owners"
+        name
+        description
+        created_at
+        updated_at
+    }
+
+    %% Existing entities (show only fields relevant to this slice)
+
+    owners {
+        id PK
+    }
+
+    consumers {
+        id PK
+        owner_id FK
+    }
+
+    %% Relationships
+
+    owners ||--o{ {slice_name} : "owns"
+    consumers ||--o{ {slice_name} : "receives"

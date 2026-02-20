@@ -1,5 +1,6 @@
 ---
 name: commit
+type: utility
 description: >
   Batch-commit working changes with clean, high-level messages. Use when:
   "commit", "commit my changes", "commit what you did", "save progress",

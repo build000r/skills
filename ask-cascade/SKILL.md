@@ -1,5 +1,6 @@
 ---
 name: ask-cascade
+type: utility
 description: |
   Enforce hierarchical, dependency-aware question ordering when using AskUserQuestion.
   High-level decisions first, detail questions only after strategic choices are settled.

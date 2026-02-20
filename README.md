@@ -15,6 +15,16 @@ https://github.com/user-attachments/assets/531fe967-ed44-4863-80be-c21e36b9331a
 | [skill-issue](./skill-issue/) | Create, update, and package skills for AI coding agents |
 | [openclaw-client-bootstrap](./openclaw-client-bootstrap/) | Generate a production OpenClaw client kit for DigitalOcean + Tailscale + Telegram with read-only governance |
 
+## Utility Skills
+
+Small, composable primitives called by other skills.
+
+| Skill | Description |
+|-------|-------------|
+| [codex-tmux](./codex-tmux/) | Run Codex in a persistent tmux session with signal-based completion |
+| [ask-cascade](./ask-cascade/) | Hierarchical, dependency-aware question ordering |
+| [commit](./commit/) | Batch-commit working changes with clean messages |
+
 ## Install
 
 ```bash
@@ -31,6 +41,9 @@ npx skills add build000r/skills -s trend-to-content
 npx skills add build000r/skills -s research-paper
 npx skills add build000r/skills -s skill-issue
 npx skills add build000r/skills -s openclaw-client-bootstrap
+npx skills add build000r/skills -s codex-tmux
+npx skills add build000r/skills -s ask-cascade
+npx skills add build000r/skills -s commit
 ```
 
 ## Quick Usage

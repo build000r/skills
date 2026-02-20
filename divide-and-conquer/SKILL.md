@@ -2,18 +2,20 @@
 name: divide-and-conquer
 description: >
   Decompose complex tasks into independent, parallel sub-agents with no overlapping
-  concerns, race conditions, or inter-agent dependencies. Use BEFORE spawning Task
-  agents when the work involves multiple files, domains, or concerns that could be
-  parallelized. Triggers on: planning multi-agent work, "split this into agents",
-  "parallelize this", "divide and conquer", or when about to launch 2+ Task agents
-  for a complex task. Also use when a task feels too large for a single agent but
-  the right decomposition isn't obvious.
+  concerns, race conditions, or inter-agent dependencies. Autonomous execution: plans
+  the split, launches immediately, then runs a Codex review agent to verify, fix, and
+  commit. Use BEFORE spawning Task agents when the work involves multiple files,
+  domains, or concerns that could be parallelized. Triggers on: planning multi-agent
+  work, "split this into agents", "parallelize this", "divide and conquer", or when
+  about to launch 2+ Task agents for a complex task. Also use when a task feels too
+  large for a single agent but the right decomposition isn't obvious.
 license: MIT
 ---
 
 # Divide and Conquer
 
 Decompose a task into sub-agents that run fully in parallel with zero conflicts.
+Autonomous: plan → launch → Codex review → commit → report. No approval gates.
 
 ## Modes
 
@@ -83,9 +85,13 @@ If any check fails, merge those agents or restructure the split.
 
 See `references/decomposition-patterns.md` for safe/unsafe patterns and the full checklist.
 
-### 4. Output the Plan
+### 4. Plan, Launch, and Report (Single Flow)
 
-Present the decomposition as a numbered list of agents. For each agent specify:
+This is autonomous — **do NOT ask for approval** between planning and launching. Output the plan for transparency, then launch immediately in the same response.
+
+#### 4a. Output the Decomposition (Transparent, Not a Gate)
+
+Print the decomposition as a numbered list. For each agent:
 
 ```
 ## Agent [N]: [Short Label]
@@ -98,7 +104,7 @@ Present the decomposition as a numbered list of agents. For each agent specify:
 **Writes**: [Expected files — verified for no overlap, but agent discovers actual files needed. "None" for Explore/Bash types.]
 ```
 
-Then add a **Conflict Check** section:
+Then the **Conflict Check**:
 
 ```
 ## Conflict Check
@@ -108,18 +114,148 @@ Then add a **Conflict Check** section:
 - Verdict: Ready to launch | Needs restructuring
 ```
 
-### 5. Launch
+If verdict is "Needs restructuring", fix the split before continuing. Otherwise, proceed immediately.
 
-All parallel agents MUST be launched in a single message with multiple Task tool calls.
+#### 4b. Launch (Same Message — No Approval Gate)
+
+All parallel agents MUST be launched in the **same message** as the plan output above. Do not wait for user confirmation. The conflict check IS the safety gate.
+
 Agents that depend on prior results must be launched sequentially in a follow-up message.
 
-### 6. After Agents Return
+#### 4c. Collect Agent Results
 
-Once all agents complete:
-1. Read each agent's output
-2. Verify the work is consistent across agents
-3. Run any integration checks (tests, type-checking, linting)
-4. Report the combined result to the user
+Once all agents complete, read each agent's output. Do NOT manually review, fix, or verify — that's the Codex reviewer's job (Step 5).
+
+**Save the original task description** — the reviewer needs it.
+
+### 5. Codex Review (via codex-tmux)
+
+After all agents return, launch a Codex review via the `codex-tmux` utility skill. See `~/.claude/skills/codex-tmux/SKILL.md` for the full tmux protocol details.
+
+#### 5a. Build the Review Prompt
+
+```
+You are the REVIEW AGENT for a divide-and-conquer parallel execution.
+Multiple sub-agents just completed work in this repository. Your job:
+
+1. Understand what was requested:
+   Task: <original task description>
+
+2. Review what was done:
+   - Run `git status` and `git diff` to see all changes
+   - Read modified files to understand the changes
+   - Assess whether the changes correctly and completely address the task
+
+3. Fix issues:
+   - If you find bugs, incomplete work, or inconsistencies, fix them
+   - If tests exist and are relevant, run them: fix failures
+   - If linting/type-checking is configured, run it: fix errors
+   - Do NOT add unnecessary improvements beyond what the task requires
+
+4. Commit:
+   - If there are uncommitted changes (from agents or your fixes), stage and commit
+   - Use a clear commit message summarizing what was accomplished
+   - Format: "feat: <what was done>" or "fix: <what was fixed>"
+   - If nothing was changed (no git modifications), skip the commit
+
+5. Report:
+   After committing (or determining no commit needed), print EXACTLY this
+   block at the end of your output (the orchestrator parses it):
+
+   ```json
+   {
+     "commit_hash": "<hash or null if no commit>",
+     "summary": "<1-2 sentence summary of what was done and any fixes applied>",
+     "files_changed": <number of files changed>,
+     "status": "success"
+   }
+   ```
+
+   If you encounter an unrecoverable error, use status "error" with a
+   summary explaining what went wrong.
+
+Guardrails:
+- Work ONLY in <repo>
+- Do NOT push to remote
+- Do NOT modify files outside the repo
+- Keep fixes minimal and targeted
+```
+
+#### 5b. Launch the Reviewer
+
+```bash
+python3 ~/.claude/skills/codex-tmux/scripts/run.py launch \
+    --task "<review prompt from 5a>" \
+    --cd "<repo working directory>" \
+    --prefix dac-review
+```
+
+#### 5c. Start Background Waiter
+
+Parse the `wait_command` from the launch output:
+
+```bash
+# run_in_background: true, timeout: 600000
+tmux wait-for <signal_channel> && cat <result_file>
+```
+
+#### 5d. Tell User the Session Name
+
+```
+Agents completed. Codex review running in: dac-review-20260220-143022
+
+  Watch live:  tmux a -t dac-review-20260220-143022
+  Status:      python3 ~/.claude/skills/codex-tmux/scripts/run.py status --session dac-review-20260220-143022
+```
+
+The conversation can continue normally or end here — the background waiter handles both.
+
+#### 5e. Collect Result
+
+If the conversation is still alive, periodically check the background task via `TaskOutput`:
+
+- First check after ~60 seconds
+- Subsequent checks every ~30 seconds
+- If the background task timed out (max 10 min), check the result file directly:
+
+```bash
+python3 ~/.claude/skills/codex-tmux/scripts/run.py result \
+    --session <session-name>
+```
+
+### 6. Report to User
+
+When the result is available (via background task or manual check):
+
+#### If commit was made (commit_hash is not null)
+
+```bash
+git -C <repo> show --stat <commit_hash>  # files changed summary
+```
+
+Report:
+```
+Codex reviewed and committed: <commit_hash_short>
+
+<commit_message>
+
+Files changed:
+<git show --stat output>
+```
+
+#### If no commit (non-commitable work like DB writes, API calls)
+
+```
+Done. No files modified (work involved external operations).
+Review session: <session_name>
+```
+
+#### If reviewer errored
+
+```
+Codex review failed. Agent work is in the repo but uncommitted.
+Inspect: tmux a -t <session-name>
+```
 
 ## Rules
 

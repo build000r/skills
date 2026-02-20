@@ -79,9 +79,9 @@ Bad:
 - "Confirm this is right?"
 
 Good (specific uncertainties with recommendation):
-- "Should `patient_id` be in request body or inferred from auth? (Recommend: infer)"
+- "Should `user_id` be in request body or inferred from auth? (Recommend: infer)"
 - "The notes field - max 500 chars or unlimited? (Recommend: 2000)"
-- "Return full recipe or just { id, name }? (Recommend: full)"
+- "Return full resource or just { id, name }? (Recommend: full)"
 
 **Pattern:** When drafting a contract/spec, identify 2-3 specific points where you're genuinely unsure, and ask about those. Don't ask for blanket approval.
 
@@ -124,8 +124,8 @@ Ask these sequentially instead.
 ```
 "What's the slice name (snake_case) and one-sentence business value?"
 
-Example: "recipe_recommendations - enable practitioners to recommend
-recipes to patients based on their mineral profile"
+Example: "task_assignments - enable managers to assign and track
+tasks for team members based on their workload"
 ```
 
 **Q2: User Types** - Use Multi-select: yes since features often serve multiple user types:
@@ -153,11 +153,11 @@ Convert response to: "As a [role], I need to [action], so that [outcome]"
 
 First determine the highest-level intent, then drill down:
 
-**Question:** "You said 'manage recipes'. Did you mean:"
+**Question:** "You said 'manage resources'. Did you mean:"
 **Multi-select:** no
 **Options:**
-- Assignment only (Recommended) — Assign existing recipes to patients - simplest scope
-- CRUD operations — Create, edit, delete recipes - more complex
+- Assignment only (Recommended) — Assign existing resources to users - simplest scope
+- CRUD operations — Create, edit, delete resources - more complex
 - View + filter — Browse and filter, no mutations
 
 **Red Flag: Missing "So That"**

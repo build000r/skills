@@ -99,6 +99,90 @@ The skill is for another agent instance. Include non-obvious procedural knowledg
 - **Complete example**: Read references/example-minimal-skill.md
 - **Publishing**: Read references/publishing.md
 
+#### Open-Source Readiness (Privacy Gate)
+
+Before committing or packaging any skill for public release, scrub ALL files (SKILL.md, scripts/, references/, assets/) for:
+
+- **Personal info**: Names, emails, phone numbers, social handles (@handle)
+- **Secrets**: API keys, tokens, passwords, connection strings — even in examples
+- **Hardcoded paths**: `/Users/<name>/`, `/root/dev/`, `~/repos/<specific-project>`
+- **Business names**: Company names, product names, internal project names, domain names (*.yourcompany.com)
+- **Real IPs/hostnames**: Server IPs, internal DNS names, container names tied to deployments
+- **Referral/affiliate links**: URLs with tracking parameters (?fpr=, ?ref=, etc.)
+- **Business intelligence**: Customer lists, personas, targeting criteria, pricing, competitor data
+
+**Mode files are safe** — `modes/` is gitignored and never committed. Project-specific config belongs there, not in tracked files.
+
+**Pattern**: Use `{placeholder}` syntax for values that vary per deployment. Scripts should accept CLI args or mode config instead of hardcoded defaults. Reference files should use generic examples ("auth service", "your-project") instead of real names.
+
+**Quick check**: `grep -rE 'your-real-company|/Users/you|real-ip|@yourhandle' <skill-dir>/` before committing.
+
+#### Open-Source Skill Architecture
+
+Skills intended for public repos use a dual-layer pattern: **generic tracked files + private mode overlays**.
+
+```
+my-skill/                      ← public (git tracked)
+├── SKILL.md                   ← generic instructions, {placeholder} variables
+├── references/                ← generic patterns, workflows
+├── scripts/                   ← generic utilities
+├── assets/templates/          ← generic templates
+│   ├── default.md             ← tracked
+│   └── my-project.md          ← gitignored (project-specific template)
+└── modes/                     ← gitignored entirely
+    └── my-project.md          ← project-specific: paths, names, conventions
+```
+
+**The SKILL.md reads mode config at runtime** to fill in `{placeholder}` values:
+- `{auth_packages_root}` → mode provides `../auth-service/packages`
+- `{plan_root}` → mode provides `~/.claude/plans/my-project`
+- `{backend_repo}` → mode provides `~/repos/my-api`
+
+Anyone cloning the public repo gets a working generic skill. You keep your project-specific overlay locally.
+
+#### Repo-Level .gitignore for Skill Collections
+
+For repos containing multiple skills, the root `.gitignore` should cover:
+
+```gitignore
+# All modes across all skills (private project config)
+modes/
+
+# Python artifacts
+__pycache__/
+*.pyc
+
+# Build artifacts
+*.skill
+*.zip
+dist/
+
+# Project-specific skills that should never be public
+my-private-skill/
+
+# Project-specific asset variants (template naming convention)
+# Example: gitignore frontend-*.md but track frontend.md
+my-skill/assets/templates/frontend-*.md
+!my-skill/assets/templates/frontend.md
+```
+
+**Key patterns:**
+- `modes/` at the root catches all nested `*/modes/` directories
+- Use `skillname/` entries for entire skills that must stay private
+- Use `!` exceptions to track generic templates while ignoring project-specific variants
+- Private deployment data (instance configs, deployed IPs) should have dedicated gitignore entries
+
+#### Sanitization Workflow (Existing Repo → Public)
+
+When preparing an existing skill repo for open source:
+
+1. **Audit tracked files**: `git ls-files | xargs grep -lE 'project-name|internal-domain|api-key-name'`
+2. **Extract project content → modes/**: Move project-specific references from SKILL.md body into mode files. Replace with `{placeholder}` syntax referencing mode config.
+3. **Genericize examples**: Replace domain-specific slice names with generic ones ("task_assignments"). Replace internal service names with generic terms ("backend API"). Keep generic role names (practitioner, admin, user).
+4. **Verify gitignore coverage**: Ensure `modes/`, project-specific templates, and deployment data are all excluded.
+5. **Final audit**: `git ls-files | xargs grep -lE 'project|company|internal'` — zero tolerance for the real names.
+6. **Check git history**: If project names exist in past commits, consider `git filter-repo` or starting a clean history.
+
 #### Handling API Keys and Secrets
 
 Never hardcode API keys. Use `$ENV_VAR` references in curl/script templates and document the required variable.

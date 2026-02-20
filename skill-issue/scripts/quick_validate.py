@@ -50,7 +50,7 @@ def validate_skill(skill_path, strict=False):
         return False, f"Invalid YAML in frontmatter: {e}"
 
     # Define allowed properties
-    ALLOWED_PROPERTIES = {'name', 'description', 'license', 'allowed-tools', 'metadata'}
+    ALLOWED_PROPERTIES = {'name', 'description', 'type', 'license', 'allowed-tools', 'metadata'}
 
     # Check for unexpected properties (excluding nested keys under metadata)
     unexpected_keys = set(frontmatter.keys()) - ALLOWED_PROPERTIES
@@ -101,6 +101,45 @@ def validate_skill(skill_path, strict=False):
     todo_matches = re.findall(r'\[TODO[:\]].{0,50}', body, re.IGNORECASE)
     if todo_matches:
         return False, f"Incomplete skill: found TODO marker(s): {todo_matches[0]}..."
+
+    # Privacy scan — check all tracked files for personal/business info leaks
+    PRIVACY_PATTERNS = [
+        (r'/Users/\w+/', "Hardcoded user path"),
+        (r'/root/dev/', "Hardcoded server path"),
+        (r'\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b', "IP address"),
+        (r'(?:api[_-]?key|token|password|secret)\s*[=:]\s*["\'][^"\']{8,}', "Possible secret/credential"),
+        (r'\?fpr=|\?ref=|\?affiliate=', "Referral/affiliate link"),
+    ]
+    gitignore_path = skill_path / '.gitignore'
+    gitignore_patterns = set()
+    if gitignore_path.exists():
+        for line in gitignore_path.read_text().splitlines():
+            line = line.strip()
+            if line and not line.startswith('#'):
+                gitignore_patterns.add(line.rstrip('/'))
+
+    def _is_gitignored(rel: str) -> bool:
+        parts = Path(rel).parts
+        for pat in gitignore_patterns:
+            if pat in parts or rel.startswith(pat):
+                return True
+        return False
+
+    for file_path in skill_path.rglob('*'):
+        if not file_path.is_file():
+            continue
+        rel = str(file_path.relative_to(skill_path))
+        if _is_gitignored(rel) or rel.startswith('.git'):
+            continue
+        try:
+            text = file_path.read_text(encoding='utf-8', errors='ignore')
+        except Exception:
+            continue
+        for pattern, label in PRIVACY_PATTERNS:
+            matches = re.findall(pattern, text, re.IGNORECASE)
+            if matches:
+                sample = matches[0] if isinstance(matches[0], str) else str(matches[0])
+                warnings.append(f"Privacy: {label} in {rel} ({sample[:40]}...)")
 
     # Check SKILL.md line count (recommended max 500)
     line_count = len(content.splitlines())

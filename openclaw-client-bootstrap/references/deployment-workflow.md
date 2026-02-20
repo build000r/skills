@@ -126,7 +126,7 @@ Make this decision alongside the droplet architecture choice.
 | Logs | ✅ (on root disk) | ❌ | Lost on rebuild — useful for debugging |
 | Workspace scratch files | ✅ (on root disk) | ❌ | Claw-created files during operation |
 
-**Key insight:** If the claw's real state lives in an external database (e.g., draft content in ingredient_server), a restart loses nothing meaningful — the claw re-queries on next run and picks up where it left off. Persistent volumes matter most for claws that accumulate local context or where logs are critical.
+**Key insight:** If the claw's real state lives in an external database (e.g., draft content in a backend API), a restart loses nothing meaningful — the claw re-queries on next run and picks up where it left off. Persistent volumes matter most for claws that accumulate local context or where logs are critical.
 
 ---
 

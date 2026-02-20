@@ -84,13 +84,13 @@ proposal-only vs direct draft-safe writes.
 
 ## 6) Future endpoint/skill examples
 
-### Example A: Ingredient data skill (current pattern)
+### Example A: Data catalog skill (current pattern)
 
 Allowed read:
 
 ```bash
-ccurl -s -H "X-API-Key: ${INGREDIENT_SERVER_AGENT_API_KEY}" \
-  "https://api.your-service.example.com/v1/practitioner/ingredients/stats" | jq .
+ccurl -s -H "X-API-Key: ${BACKEND_AGENT_API_KEY}" \
+  "https://api.your-service.example.com/v1/catalog/stats" | jq .
 ```
 
 Why it works:

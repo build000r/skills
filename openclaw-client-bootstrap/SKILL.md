@@ -34,11 +34,11 @@ See [references/deployment-workflow.md](references/deployment-workflow.md) — "
 Resolve the bundled generator script, then create a client kit directory.
 
 ```bash
-GEN="$(ls ~/.codex/skills/openclaw-client-bootstrap/scripts/new_client_kit.sh ~/.claude/skills/openclaw-client-bootstrap/scripts/new_client_kit.sh ~/repos/opensource/skills/openclaw-client-bootstrap/scripts/new_client_kit.sh 2>/dev/null | head -1)"
+GEN="$(ls ~/.codex/skills/openclaw-client-bootstrap/scripts/new_client_kit.sh ~/.claude/skills/openclaw-client-bootstrap/scripts/new_client_kit.sh ./scripts/new_client_kit.sh 2>/dev/null | head -1)"
 bash "$GEN" --dest /tmp/<client>-openclaw --interactive
 ```
 
-If no skill path resolves, use the local repo copy of this skill directory.
+If `./scripts/...` is used, run the command from the skill directory.
 
 ## Required Inputs Before Deployment
 
@@ -89,7 +89,7 @@ Use the bundled `scripts/talk.sh` for all agent interaction, log tailing, and SS
 ```bash
 TALK="$(ls ~/.codex/skills/openclaw-client-bootstrap/scripts/talk.sh \
            ~/.claude/skills/openclaw-client-bootstrap/scripts/talk.sh \
-           ~/repos/opensource/skills/openclaw-client-bootstrap/scripts/talk.sh \
+           ./scripts/talk.sh \
            2>/dev/null | head -1)"
 
 bash "$TALK" --list                                        # see all claws + live agent IDs
@@ -100,7 +100,7 @@ bash "$TALK" --claw ingredient-claw --tail                 # tail logs live (Ctr
 bash "$TALK" --claw ingredient-claw --logs 100             # last 100 log lines
 bash "$TALK" --health                                      # health summary for all claws
 bash "$TALK" --health --claw ingredient-claw                # health summary for one claw
-bash "$TALK" --health --emit-logs --log-dir ~/repos/.env-manager/.run/logs --log-prefix openclaw  # health + persisted snapshots
+bash "$TALK" --health --emit-logs --log-dir ~/.openclaw/logs --log-prefix openclaw  # health + persisted snapshots
 bash "$TALK" --ssh                                         # plain SSH into the droplet
 bash "$TALK" --claw ingredient-claw --ssh                  # SSH with claw env pre-loaded
 ```
@@ -115,8 +115,8 @@ bash "$TALK" --claw ingredient-claw --ssh                  # SSH with claw env p
 
 **Additional flags:** `--thinking medium` for more deliberate reasoning, `--agent <id>` to override auto-discovery, `--json` for machine-readable `--health` output.
 
-For local integration workflows (`.env-manager`), use:
-`--emit-logs`, `--log-dir` and `--log-prefix` to persist remote claw health snapshots into `.env-manager/.run/logs/openclaw-*.log`.
+For local integration workflows, use:
+`--emit-logs`, `--log-dir`, and `--log-prefix` to persist remote claw health snapshots.
 
 ## Continuous Improvement Loop (Use skill-issue)
 
@@ -139,7 +139,7 @@ After every incident or rollout, run this loop to keep the bootstrap skill accur
 Run the bundled validation script against the generated kit:
 
 ```bash
-VAL="$(ls ~/.codex/skills/openclaw-client-bootstrap/scripts/validate_client_kit.sh ~/.claude/skills/openclaw-client-bootstrap/scripts/validate_client_kit.sh 2>/dev/null | head -1)"
+VAL="$(ls ~/.codex/skills/openclaw-client-bootstrap/scripts/validate_client_kit.sh ~/.claude/skills/openclaw-client-bootstrap/scripts/validate_client_kit.sh ./scripts/validate_client_kit.sh 2>/dev/null | head -1)"
 bash "$VAL" /tmp/<client>-openclaw
 ```
 

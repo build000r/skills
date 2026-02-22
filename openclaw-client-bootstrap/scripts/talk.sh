@@ -199,8 +199,8 @@ json_escape() {
 
 resolve_openclaw_log_dir() {
   local default_paths=(
-    "${HOME}/repos/.env-manager/.run/logs"
-    "${HOME}/.env-manager/.run/logs"
+    "${HOME}/.openclaw/logs"
+    "${HOME}/.local/state/openclaw/logs"
   )
 
   if [[ -n "${LOG_DIR_OVERRIDE}" ]]; then

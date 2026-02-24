@@ -20,6 +20,7 @@ https://github.com/user-attachments/assets/531fe967-ed44-4863-80be-c21e36b9331a
 | [domain-scaffolder-backend](./domain-scaffolder-backend/) | Engineering | Scaffold backend domain code from plans using a tests-first flow |
 | [domain-scaffolder-frontend](./domain-scaffolder-frontend/) | Engineering | Scaffold frontend domain code from plans using project UI patterns |
 | [skill-issue](./skill-issue/) | Engineering | Create, iterate, validate, and package reusable skills |
+| [reproduce](./reproduce/) | Engineering | Enforce command-first verification and keep browser DevTools as a strict last resort |
 | [codex-tmux](./codex-tmux/) | Utility | Run Codex in persistent tmux sessions with completion signaling |
 | [ask-cascade](./ask-cascade/) | Utility | Enforce high-level-to-detail question ordering for user decisions |
 | [commit](./commit/) | Utility | Batch and commit working changes with clean conventional messages |
@@ -39,6 +40,7 @@ npx skills add build000r/skills -s domain-reviewer
 npx skills add build000r/skills -s domain-scaffolder-backend
 npx skills add build000r/skills -s domain-scaffolder-frontend
 npx skills add build000r/skills -s skill-issue
+npx skills add build000r/skills -s reproduce
 npx skills add build000r/skills -s codex-tmux
 npx skills add build000r/skills -s ask-cascade
 npx skills add build000r/skills -s commit
@@ -59,6 +61,7 @@ npx skills add build000r/skills -s prompt-reviewer
 npx skills add build000r/skills -s trend-to-content
 npx skills add build000r/skills -s research-paper
 npx skills add build000r/skills -s skill-issue
+npx skills add build000r/skills -s reproduce
 npx skills add build000r/skills -s openclaw-client-bootstrap
 npx skills add build000r/skills -s domain-planner
 npx skills add build000r/skills -s domain-reviewer

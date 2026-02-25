@@ -28,6 +28,10 @@ https://github.com/user-attachments/assets/531fe967-ed44-4863-80be-c21e36b9331a
 | [trend-to-content](./trend-to-content/) | Content | Turn trends into SEO pages, video scripts, and copy workflows |
 | [research-paper](./research-paper/) | Content | Generate dense, research-paper style writing from a topic |
 | [openclaw-client-bootstrap](./openclaw-client-bootstrap/) | Ops | Bootstrap production OpenClaw client kits with guarded defaults |
+| [unclawg-onboard](./unclawg-onboard/) | OpenClaw | Self-service onboarding — account, agent, machine keys, env block |
+| [unclawg-discover](./unclawg-discover/) | OpenClaw | Multi-platform social listening and customer discovery |
+| [unclawg-feed](./unclawg-feed/) | OpenClaw | Generate proposed replies and submit approval cards to the portal |
+| [unclawg-respond](./unclawg-respond/) | OpenClaw | Poll revision requests, generate edits, fulfill via API |
 
 ## If You Only Want Coding Skills
 
@@ -63,6 +67,10 @@ npx skills add build000r/skills -s research-paper
 npx skills add build000r/skills -s skill-issue
 npx skills add build000r/skills -s reproduce
 npx skills add build000r/skills -s openclaw-client-bootstrap
+npx skills add build000r/skills -s unclawg-onboard
+npx skills add build000r/skills -s unclawg-discover
+npx skills add build000r/skills -s unclawg-feed
+npx skills add build000r/skills -s unclawg-respond
 npx skills add build000r/skills -s domain-planner
 npx skills add build000r/skills -s domain-reviewer
 npx skills add build000r/skills -s domain-scaffolder-backend

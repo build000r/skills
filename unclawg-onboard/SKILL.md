@@ -31,11 +31,11 @@ That's it. Your agents now need human approval before acting.
 ## Config
 
 ```
-OPENCLAW_PORTAL_URL=http://localhost:5173
-SPAPS_URL=http://localhost:3301
-APPROVAL_API_URL=http://localhost:8010
+OPENCLAW_PORTAL_URL=https://unclawg.com
+SPAPS_URL=https://api.unclawg.com
+APPROVAL_API_URL=https://api.unclawg.com
 SPAPS_API_KEY=<set-me>
-TENANT_ID=tenant-dev
+TENANT_ID=tenant-prod
 ```
 
 ## Flow

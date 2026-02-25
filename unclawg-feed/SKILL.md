@@ -19,7 +19,7 @@ Same 6 env vars as unclawg-respond. Auto-discovered from `.claude/agents/<agent-
 
 | Variable | Purpose |
 |----------|---------|
-| `OPENCLAW_API_URL` | Base URL (e.g. `http://localhost:8010`) |
+| `OPENCLAW_API_URL` | Base URL (e.g. `https://api.unclawg.com`) |
 | `OPENCLAW_API_KEY` | API key for the app binding |
 | `OPENCLAW_TENANT_ID` | Tenant context |
 | `OPENCLAW_MACHINE_KEY_ID` | Machine key ID |
@@ -261,7 +261,7 @@ Print summary:
 - Posts submitted: N
 - Cards created: N (HTTP 201)
 - Failed: N
-- Portal: http://localhost:5173/approvals
+- Portal: https://unclawg.com/approvals
 ```
 
 ## Cross-References

@@ -24,7 +24,7 @@ Six environment variables. Auto-discovered from `.claude/agents/<agent-id>.env` 
 
 ## NEVER Do These Things
 
-- **NEVER use `/api/v1/` routes.** All endpoints are `/api/v2/`. There are no v1 equivalents.
+- **NEVER use `/api/v1/` or `/api/v2/` routes.** All endpoints are `/v0/`.
 - **NEVER guess header names.** Use exact casing: `X-API-Key`, `X-Tenant-Id`, `X-Machine-Key-Id`, `X-Machine-Secret`.
 - **NEVER store auth headers in a bash variable** like `AUTH="-H ..."` — it breaks quoting. Always write each `-H` flag inline.
 - **NEVER assume a POST succeeded.** Check the HTTP status code on every request.
@@ -41,7 +41,7 @@ curl -s -w "\nHTTP_STATUS:%{http_code}" \
   -H "X-Tenant-Id: ${OPENCLAW_TENANT_ID}" \
   -H "X-Machine-Key-Id: ${OPENCLAW_MACHINE_KEY_ID}" \
   -H "X-Machine-Secret: ${OPENCLAW_MACHINE_SECRET}" \
-  "${OPENCLAW_API_URL}/api/v2/..."
+  "${OPENCLAW_API_URL}/v0/..."
 ```
 
 Always append `-w "\nHTTP_STATUS:%{http_code}"` to capture the status code. Parse it after every call.
@@ -99,7 +99,7 @@ SMOKE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" \
   -H "X-Tenant-Id: ${OPENCLAW_TENANT_ID}" \
   -H "X-Machine-Key-Id: ${OPENCLAW_MACHINE_KEY_ID}" \
   -H "X-Machine-Secret: ${OPENCLAW_MACHINE_SECRET}" \
-  "${OPENCLAW_API_URL}/api/v2/agents/${OPENCLAW_AGENT_ID}/revision-requests?status=pending&limit=1")
+  "${OPENCLAW_API_URL}/v0/agents/${OPENCLAW_AGENT_ID}/revision-requests?status=pending&limit=1")
 
 STATUS=$(echo "$SMOKE" | grep "HTTP_STATUS:" | cut -d: -f2)
 if [ "$STATUS" != "200" ]; then
@@ -111,7 +111,7 @@ echo "SMOKE TEST PASSED"
 ```
 
 **If smoke test fails:**
-- `401` / `MACHINE_KEY_NOT_FOUND` → machine keys are in-memory only, lost on API restart. Tell user to create a new key via governance API and update `.env`.
+- `401` / `MACHINE_KEY_NOT_FOUND` → wrong key, revoked/expired key, wrong tenant/app binding, or stale local env. Re-check key material and recreate/rotate if needed.
 - `403 MACHINE_AGENT_MISMATCH` → key bound to wrong agent. Check `OPENCLAW_AGENT_ID`.
 - `TENANT_CONTEXT_REQUIRED` → `X-Tenant-Id` header missing or empty. Check `OPENCLAW_TENANT_ID`.
 - Connection refused → API not running. Check `docker ps` or `OPENCLAW_API_URL`.
@@ -124,7 +124,7 @@ curl -s -w "\nHTTP_STATUS:%{http_code}" \
   -H "X-Tenant-Id: ${OPENCLAW_TENANT_ID}" \
   -H "X-Machine-Key-Id: ${OPENCLAW_MACHINE_KEY_ID}" \
   -H "X-Machine-Secret: ${OPENCLAW_MACHINE_SECRET}" \
-  "${OPENCLAW_API_URL}/api/v2/agents/${OPENCLAW_AGENT_ID}/revision-requests?status=pending"
+  "${OPENCLAW_API_URL}/v0/agents/${OPENCLAW_AGENT_ID}/revision-requests?status=pending"
 ```
 
 - If `items` is empty → print "No pending revision requests." → exit
@@ -135,9 +135,9 @@ curl -s -w "\nHTTP_STATUS:%{http_code}" \
 
 For each revision request, fetch in parallel:
 
-1. **Approval detail:** `GET /api/v2/approval-requests/{approval_id}`
-2. **Feedback thread:** `GET /api/v2/approval-requests/{approval_id}/messages`
-3. **Feedback digest:** `GET /api/v2/agents/{OPENCLAW_AGENT_ID}/feedback-digest?limit=100`
+1. **Approval detail:** `GET /v0/approval-requests/{approval_id}`
+2. **Feedback thread:** `GET /v0/approval-requests/{approval_id}/messages`
+3. **Feedback digest:** `GET /v0/agents/{OPENCLAW_AGENT_ID}/feedback-digest?limit=100`
 
 All use the same header pattern from the curl template above. Verify each returns HTTP 200.
 
@@ -187,7 +187,7 @@ RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST \
   -H "X-Machine-Key-Id: ${OPENCLAW_MACHINE_KEY_ID}" \
   -H "X-Machine-Secret: ${OPENCLAW_MACHINE_SECRET}" \
   -H "Content-Type: application/json" \
-  "${OPENCLAW_API_URL}/api/v2/approval-requests/${APPROVAL_ID}/messages/fulfill" \
+  "${OPENCLAW_API_URL}/v0/approval-requests/${APPROVAL_ID}/messages/fulfill" \
   -d "{
     \"content\": \"<edit description>\",
     \"edited_content\": \"<revised reply>\",
@@ -205,8 +205,9 @@ echo "Body: $BODY"
 **Response validation:**
 - `201` → success. Record it.
 - `409 VERSION_CONFLICT` → re-fetch approval detail for current version, retry once.
-- `409 REVISION_ALREADY_FULFILLED` → already done (idempotent). Treat as success.
-- `410 REVISION_REQUEST_EXPIRED` → 30min TTL expired. Tell user.
+- `409 REVISION_REQUEST_STALE` → request already fulfilled/closed. Treat as terminal; don't retry.
+- `409 REVISION_REQUEST_EXPIRED` → TTL expired. Tell user and stop retrying.
+- `409 IDEMPOTENCY_CONFLICT` → same idempotency key reused with different payload. Generate a new key and retry once.
 - Any other non-2xx → **STOP. Print the full response. Do not retry blindly.**
 
 Print results table:
@@ -220,7 +221,7 @@ Print results table:
 
 ### Phase 6 — Re-Pull and Verify
 
-Re-fetch `GET /api/v2/agents/{OPENCLAW_AGENT_ID}/revision-requests?status=pending`
+Re-fetch `GET /v0/agents/{OPENCLAW_AGENT_ID}/revision-requests?status=pending`
 
 - If empty: "All revisions fulfilled."
 - If non-empty: show remaining, offer retry (may be version conflicts)
@@ -243,7 +244,7 @@ RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST \
   -H "X-Machine-Key-Id: ${OPENCLAW_MACHINE_KEY_ID}" \
   -H "X-Machine-Secret: ${OPENCLAW_MACHINE_SECRET}" \
   -H "Content-Type: application/json" \
-  "${OPENCLAW_API_URL}/api/v2/instruction-proposals" \
+  "${OPENCLAW_API_URL}/v0/instruction-proposals" \
   -d "{
     \"scope\": \"agent\",
     \"title\": \"<short title>\",
@@ -255,7 +256,7 @@ RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST \
 ```
 
   Print the proposal ID and payload summary. Tell user:
-  > "Instruction proposal `{id}` created. Approve or reject it via the portal or `POST /api/v2/instruction-proposals/{id}/decisions`."
+  > "Instruction proposal `{id}` created. Approve or reject it via the portal or `POST /v0/instruction-proposals/{id}/decisions`."
 
   **Machine key must have scope `instruction_proposal.create`.** If denied (403), tell user to add the scope to their machine key.
 

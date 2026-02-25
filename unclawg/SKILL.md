@@ -38,6 +38,8 @@ SPAPS_API_KEY=<set-me>
 TENANT_ID=tenant-prod
 ```
 
+`SPAPS_URL` is the Unclawg auth facade (`/api/auth/*`), not a direct client call to SPAPS.
+
 ## Flow
 
 ### Step 1 — Ask
@@ -68,7 +70,7 @@ This creates your account and provisions API keys.
 Continue?
 ```
 
-### Step 4 — Register Account
+### Step 4 — Register Account (via Unclawg auth facade)
 
 ```bash
 RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST \
@@ -122,7 +124,7 @@ Tell the user: "Opening the portal in your browser — you're logged in automati
 
 ```bash
 RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST \
-  "${APPROVAL_API_URL}/api/v2/claw-governance/machine-keys" \
+  "${APPROVAL_API_URL}/v0/claw-governance/machine-keys" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer ${ACCESS_TOKEN}" \
   -H "X-API-Key: ${SPAPS_API_KEY}" \
@@ -214,7 +216,7 @@ curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST \
   -H "X-Machine-Secret: ${KEY_SECRET}" \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: $(uuidgen)" \
-  "${APPROVAL_API_URL}/api/v2/approval-requests/social-reply" \
+  "${APPROVAL_API_URL}/v0/approval-requests/social-reply" \
   -d "{
     \"agent_id\": \"${AGENT_ID}\",
     \"action\": \"social_reply_approval\",

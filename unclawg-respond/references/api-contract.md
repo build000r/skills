@@ -1,6 +1,6 @@
 # API Contract Reference
 
-All endpoints use the OpenClaw Approval Feedback API v2.
+All endpoints use the OpenClaw Approval Feedback API v0.
 
 ## Authentication Headers (Machine Auth)
 
@@ -18,7 +18,7 @@ X-Machine-Secret: {OPENCLAW_MACHINE_SECRET}
 ### 1. List Pending Revision Requests
 
 ```
-GET /api/v2/agents/{agent_id}/revision-requests?status=pending
+GET /v0/agents/{agent_id}/revision-requests?status=pending
 ```
 
 **Auth:** Machine key with scope `approval_revision.fulfill`
@@ -65,7 +65,7 @@ GET /api/v2/agents/{agent_id}/revision-requests?status=pending
 ### 2. Get Approval Request Detail
 
 ```
-GET /api/v2/approval-requests/{approval_id}
+GET /v0/approval-requests/{approval_id}
 ```
 
 **Auth:** Machine key OR human governance identity (dual-auth via `require_approval_read_identity`)
@@ -122,7 +122,7 @@ GET /api/v2/approval-requests/{approval_id}
 ### 3. List Messages (Feedback Thread)
 
 ```
-GET /api/v2/approval-requests/{approval_id}/messages
+GET /v0/approval-requests/{approval_id}/messages
 ```
 
 **Auth:** Machine key OR human governance identity (dual-auth)
@@ -185,7 +185,7 @@ GET /api/v2/approval-requests/{approval_id}/messages
 ### 3a. Timeline
 
 ```
-GET /api/v2/approval-requests/{approval_id}/timeline
+GET /v0/approval-requests/{approval_id}/timeline
 ```
 
 **Auth:** Machine key OR human governance identity (dual-auth via `require_approval_read_identity`)
@@ -207,7 +207,7 @@ GET /api/v2/approval-requests/{approval_id}/timeline
 ### 3b. Approval Reaction Summary
 
 ```
-GET /api/v2/approval-requests/{approval_id}/reaction-summary
+GET /v0/approval-requests/{approval_id}/reaction-summary
 ```
 
 **Auth:** Machine key OR human governance identity (dual-auth via `require_approval_read_identity`)
@@ -219,7 +219,7 @@ GET /api/v2/approval-requests/{approval_id}/reaction-summary
 ### 3c. Message Reaction Summary
 
 ```
-GET /api/v2/approval-requests/{approval_id}/messages/{message_id}/reaction-summary
+GET /v0/approval-requests/{approval_id}/messages/{message_id}/reaction-summary
 ```
 
 **Auth:** Machine key OR human governance identity (dual-auth via `require_approval_read_identity`)
@@ -231,7 +231,7 @@ GET /api/v2/approval-requests/{approval_id}/messages/{message_id}/reaction-summa
 ### 4. Feedback Digest
 
 ```
-GET /api/v2/agents/{agent_id}/feedback-digest?limit=100
+GET /v0/agents/{agent_id}/feedback-digest?limit=100
 ```
 
 **Auth:** Machine key with scope `agent_feedback_digest.read`, or legacy agent identity
@@ -268,7 +268,7 @@ GET /api/v2/agents/{agent_id}/feedback-digest?limit=100
 ### 5. Fulfill Revision Request
 
 ```
-POST /api/v2/approval-requests/{approval_id}/messages/fulfill
+POST /v0/approval-requests/{approval_id}/messages/fulfill
 ```
 
 **Auth:** Machine key only (via `require_machine_governance_identity`)
@@ -318,15 +318,16 @@ POST /api/v2/approval-requests/{approval_id}/messages/fulfill
 - `403` — machine key not bound to this approval's agent
 - `404 APPROVAL_NOT_FOUND` — invalid approval_id
 - `409 VERSION_CONFLICT` — `expected_version` doesn't match current; re-fetch and retry
-- `409 REVISION_ALREADY_FULFILLED` — idempotency_key already processed
-- `410 REVISION_REQUEST_EXPIRED` — revision request expired (30min TTL)
+- `409 REVISION_REQUEST_STALE` — revision request is no longer open (already fulfilled/closed)
+- `409 REVISION_REQUEST_EXPIRED` — revision request expired (TTL)
+- `409 IDEMPOTENCY_CONFLICT` — idempotency key reused with different payload fingerprint
 
 ---
 
 ### 6. Create Instruction Proposal
 
 ```
-POST /api/v2/instruction-proposals
+POST /v0/instruction-proposals
 ```
 
 **Auth:** Machine key only (via `require_machine_governance_identity`)
@@ -403,7 +404,7 @@ curl -s -w "\nHTTP_STATUS:%{http_code}" \
   -H "X-Tenant-Id: ${OPENCLAW_TENANT_ID}" \
   -H "X-Machine-Key-Id: ${OPENCLAW_MACHINE_KEY_ID}" \
   -H "X-Machine-Secret: ${OPENCLAW_MACHINE_SECRET}" \
-  "${OPENCLAW_API_URL}/api/v2/agents/${OPENCLAW_AGENT_ID}/revision-requests?status=pending"
+  "${OPENCLAW_API_URL}/v0/agents/${OPENCLAW_AGENT_ID}/revision-requests?status=pending"
 
 # 2. Get approval detail
 curl -s -w "\nHTTP_STATUS:%{http_code}" \
@@ -411,7 +412,7 @@ curl -s -w "\nHTTP_STATUS:%{http_code}" \
   -H "X-Tenant-Id: ${OPENCLAW_TENANT_ID}" \
   -H "X-Machine-Key-Id: ${OPENCLAW_MACHINE_KEY_ID}" \
   -H "X-Machine-Secret: ${OPENCLAW_MACHINE_SECRET}" \
-  "${OPENCLAW_API_URL}/api/v2/approval-requests/${APPROVAL_ID}"
+  "${OPENCLAW_API_URL}/v0/approval-requests/${APPROVAL_ID}"
 
 # 3. Get feedback thread
 curl -s -w "\nHTTP_STATUS:%{http_code}" \
@@ -419,7 +420,7 @@ curl -s -w "\nHTTP_STATUS:%{http_code}" \
   -H "X-Tenant-Id: ${OPENCLAW_TENANT_ID}" \
   -H "X-Machine-Key-Id: ${OPENCLAW_MACHINE_KEY_ID}" \
   -H "X-Machine-Secret: ${OPENCLAW_MACHINE_SECRET}" \
-  "${OPENCLAW_API_URL}/api/v2/approval-requests/${APPROVAL_ID}/messages"
+  "${OPENCLAW_API_URL}/v0/approval-requests/${APPROVAL_ID}/messages"
 
 # 4. Get feedback digest
 curl -s -w "\nHTTP_STATUS:%{http_code}" \
@@ -427,7 +428,7 @@ curl -s -w "\nHTTP_STATUS:%{http_code}" \
   -H "X-Tenant-Id: ${OPENCLAW_TENANT_ID}" \
   -H "X-Machine-Key-Id: ${OPENCLAW_MACHINE_KEY_ID}" \
   -H "X-Machine-Secret: ${OPENCLAW_MACHINE_SECRET}" \
-  "${OPENCLAW_API_URL}/api/v2/agents/${OPENCLAW_AGENT_ID}/feedback-digest?limit=100"
+  "${OPENCLAW_API_URL}/v0/agents/${OPENCLAW_AGENT_ID}/feedback-digest?limit=100"
 
 # 5. Fulfill revision (check for 201!)
 curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST \
@@ -436,7 +437,7 @@ curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST \
   -H "X-Machine-Key-Id: ${OPENCLAW_MACHINE_KEY_ID}" \
   -H "X-Machine-Secret: ${OPENCLAW_MACHINE_SECRET}" \
   -H "Content-Type: application/json" \
-  "${OPENCLAW_API_URL}/api/v2/approval-requests/${APPROVAL_ID}/messages/fulfill" \
+  "${OPENCLAW_API_URL}/v0/approval-requests/${APPROVAL_ID}/messages/fulfill" \
   -d "{
     \"content\": \"Adjusted tone per feedback\",
     \"edited_content\": \"Updated reply text here...\",

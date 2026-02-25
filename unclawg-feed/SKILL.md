@@ -30,7 +30,7 @@ Same 6 env vars as unclawg-respond. Auto-discovered from `.claude/agents/<agent-
 
 ## NEVER Do These Things
 
-- **NEVER use `/api/v1/` routes.** All approval endpoints are `/api/v2/`. Policy endpoints are `/v1/integrations/claw-runtime/`.
+- **NEVER use `/api/v1/` or `/api/v2/` routes.** All endpoints are `/v0/`.
 - **NEVER guess header names.** Exact casing: `X-API-Key`, `X-Tenant-Id`, `X-Machine-Key-Id`, `X-Machine-Secret`.
 - **NEVER store auth headers in a bash variable.** Always write each `-H` flag inline.
 - **NEVER assume a POST succeeded.** Check HTTP status code on every request.
@@ -46,7 +46,7 @@ curl -s -w "\nHTTP_STATUS:%{http_code}" \
   -H "X-Tenant-Id: ${OPENCLAW_TENANT_ID}" \
   -H "X-Machine-Key-Id: ${OPENCLAW_MACHINE_KEY_ID}" \
   -H "X-Machine-Secret: ${OPENCLAW_MACHINE_SECRET}" \
-  "${OPENCLAW_API_URL}/api/v2/..."
+  "${OPENCLAW_API_URL}/v0/..."
 ```
 
 Always append `-w "\nHTTP_STATUS:%{http_code}"` to capture the status code. Parse it after every call.
@@ -104,7 +104,7 @@ SMOKE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" \
   -H "X-Tenant-Id: ${OPENCLAW_TENANT_ID}" \
   -H "X-Machine-Key-Id: ${OPENCLAW_MACHINE_KEY_ID}" \
   -H "X-Machine-Secret: ${OPENCLAW_MACHINE_SECRET}" \
-  "${OPENCLAW_API_URL}/api/v2/approval-requests?limit=1")
+  "${OPENCLAW_API_URL}/v0/approval-requests?limit=1")
 
 STATUS=$(echo "$SMOKE" | grep "HTTP_STATUS:" | cut -d: -f2)
 if [ "$STATUS" != "200" ]; then
@@ -123,7 +123,9 @@ Fetch the agent's published soul from the policy API:
 curl -s -w "\nHTTP_STATUS:%{http_code}" \
   -H "X-API-Key: ${OPENCLAW_API_KEY}" \
   -H "X-Tenant-Id: ${OPENCLAW_TENANT_ID}" \
-  "${OPENCLAW_API_URL}/v1/integrations/claw-runtime/policies/soul_md?agent_id=${OPENCLAW_AGENT_ID}"
+  -H "X-Machine-Key-Id: ${OPENCLAW_MACHINE_KEY_ID}" \
+  -H "X-Machine-Secret: ${OPENCLAW_MACHINE_SECRET}" \
+  "${OPENCLAW_API_URL}/v0/integrations/claw-runtime/policies/soul_md?agent_id=${OPENCLAW_AGENT_ID}"
 ```
 
 Parse `data.published.content` — this is the agent's voice/tone guide.
@@ -189,7 +191,7 @@ RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST \
   -H "X-Machine-Secret: ${OPENCLAW_MACHINE_SECRET}" \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: $(uuidgen)" \
-  "${OPENCLAW_API_URL}/api/v2/approval-requests/social-reply" \
+  "${OPENCLAW_API_URL}/v0/approval-requests/social-reply" \
   -d "{
     \"agent_id\": \"${OPENCLAW_AGENT_ID}\",
     \"action\": \"social_reply_approval\",
@@ -239,7 +241,7 @@ curl -s -w "\nHTTP_STATUS:%{http_code}" \
   -H "X-Tenant-Id: ${OPENCLAW_TENANT_ID}" \
   -H "X-Machine-Key-Id: ${OPENCLAW_MACHINE_KEY_ID}" \
   -H "X-Machine-Secret: ${OPENCLAW_MACHINE_SECRET}" \
-  "${OPENCLAW_API_URL}/api/v2/approval-requests/${APPROVAL_ID}"
+  "${OPENCLAW_API_URL}/v0/approval-requests/${APPROVAL_ID}"
 ```
 
 Optional: list pending social approvals for spot-check visibility:
@@ -250,7 +252,7 @@ curl -s -w "\nHTTP_STATUS:%{http_code}" \
   -H "X-Tenant-Id: ${OPENCLAW_TENANT_ID}" \
   -H "X-Machine-Key-Id: ${OPENCLAW_MACHINE_KEY_ID}" \
   -H "X-Machine-Secret: ${OPENCLAW_MACHINE_SECRET}" \
-  "${OPENCLAW_API_URL}/api/v2/approval-requests?status=pending&context_type=social_reply&limit=5"
+  "${OPENCLAW_API_URL}/v0/approval-requests?status=pending&context_type=social_reply&limit=5"
 ```
 
 Print summary:

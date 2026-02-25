@@ -4,13 +4,18 @@ All endpoints use the OpenClaw Approval Feedback API v0.
 
 ## Authentication Headers (Machine Auth)
 
-Every request must include these headers:
+Required headers:
 
 ```
-X-API-Key: {OPENCLAW_API_KEY}
 X-Tenant-Id: {OPENCLAW_TENANT_ID}
 X-Machine-Key-Id: {OPENCLAW_MACHINE_KEY_ID}
 X-Machine-Secret: {OPENCLAW_MACHINE_SECRET}
+```
+
+Optional header for gateways that do not inject server-side app binding:
+
+```
+X-API-Key: {OPENCLAW_API_KEY}
 ```
 
 ## Endpoints
@@ -396,11 +401,10 @@ POST /v0/instruction-proposals
 
 ```bash
 # Source env vars first
-set -a && source services/approval_feedback_api/.env && set +a
+set -a && source .claude/agents/<agent-id>.env && set +a
 
 # 1. List pending revisions
 curl -s -w "\nHTTP_STATUS:%{http_code}" \
-  -H "X-API-Key: ${OPENCLAW_API_KEY}" \
   -H "X-Tenant-Id: ${OPENCLAW_TENANT_ID}" \
   -H "X-Machine-Key-Id: ${OPENCLAW_MACHINE_KEY_ID}" \
   -H "X-Machine-Secret: ${OPENCLAW_MACHINE_SECRET}" \
@@ -408,7 +412,6 @@ curl -s -w "\nHTTP_STATUS:%{http_code}" \
 
 # 2. Get approval detail
 curl -s -w "\nHTTP_STATUS:%{http_code}" \
-  -H "X-API-Key: ${OPENCLAW_API_KEY}" \
   -H "X-Tenant-Id: ${OPENCLAW_TENANT_ID}" \
   -H "X-Machine-Key-Id: ${OPENCLAW_MACHINE_KEY_ID}" \
   -H "X-Machine-Secret: ${OPENCLAW_MACHINE_SECRET}" \
@@ -416,7 +419,6 @@ curl -s -w "\nHTTP_STATUS:%{http_code}" \
 
 # 3. Get feedback thread
 curl -s -w "\nHTTP_STATUS:%{http_code}" \
-  -H "X-API-Key: ${OPENCLAW_API_KEY}" \
   -H "X-Tenant-Id: ${OPENCLAW_TENANT_ID}" \
   -H "X-Machine-Key-Id: ${OPENCLAW_MACHINE_KEY_ID}" \
   -H "X-Machine-Secret: ${OPENCLAW_MACHINE_SECRET}" \
@@ -424,7 +426,6 @@ curl -s -w "\nHTTP_STATUS:%{http_code}" \
 
 # 4. Get feedback digest
 curl -s -w "\nHTTP_STATUS:%{http_code}" \
-  -H "X-API-Key: ${OPENCLAW_API_KEY}" \
   -H "X-Tenant-Id: ${OPENCLAW_TENANT_ID}" \
   -H "X-Machine-Key-Id: ${OPENCLAW_MACHINE_KEY_ID}" \
   -H "X-Machine-Secret: ${OPENCLAW_MACHINE_SECRET}" \
@@ -432,7 +433,6 @@ curl -s -w "\nHTTP_STATUS:%{http_code}" \
 
 # 5. Fulfill revision (check for 201!)
 curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST \
-  -H "X-API-Key: ${OPENCLAW_API_KEY}" \
   -H "X-Tenant-Id: ${OPENCLAW_TENANT_ID}" \
   -H "X-Machine-Key-Id: ${OPENCLAW_MACHINE_KEY_ID}" \
   -H "X-Machine-Secret: ${OPENCLAW_MACHINE_SECRET}" \

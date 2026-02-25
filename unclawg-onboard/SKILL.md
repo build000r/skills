@@ -3,7 +3,7 @@ name: unclawg-onboard
 description: >
   Self-service OpenClaw onboarding. Registers the user, creates their agent,
   provisions machine keys, and outputs the env block for their local Claude Code.
-  Use when: "/unclawg-onboard", "/onboard", "set me up", "connect to openclaw",
+  Use when: "/unclawg-onboard", "set me up", "connect to openclaw",
   "get started", "onboard me", "sign up for openclaw", "I want approval gates"
 ---
 
@@ -34,11 +34,16 @@ That's it. Your agents now need human approval before acting.
 OPENCLAW_PORTAL_URL=https://unclawg.com
 SPAPS_URL=https://api.unclawg.com
 APPROVAL_API_URL=https://api.unclawg.com
-SPAPS_API_KEY=<set-me>
+# Optional only for self-hosted gateways that do not inject server-side app binding:
+OPENCLAW_API_KEY=
 TENANT_ID=tenant-prod
+# Proof-of-humanity fallback contacts (used when signup is pending):
+OPENCLAW_PROOF_PRIMARY_X=buildooor
+OPENCLAW_PROOF_SECONDARY_X=https://x.com/gmoneyNFT
 ```
 
 `SPAPS_URL` is the Unclawg auth facade (`/api/auth/*`), not a direct client call to SPAPS.
+On `api.unclawg.com`, the gateway injects `X-API-Key` server-side, so do not ask users for `SPAPS_API_KEY`.
 
 ## Flow
 
@@ -76,7 +81,6 @@ Continue?
 RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST \
   "${SPAPS_URL}/api/auth/register" \
   -H "Content-Type: application/json" \
-  -H "X-API-Key: ${SPAPS_API_KEY}" \
   -d "{
     \"email\": \"${USER_EMAIL}\",
     \"password\": \"$(openssl rand -base64 24)\"
@@ -86,10 +90,19 @@ STATUS=$(echo "$RESPONSE" | grep "HTTP_STATUS:" | cut -d: -f2)
 BODY=$(echo "$RESPONSE" | sed '/HTTP_STATUS:/d')
 ```
 
+If using a self-hosted gateway that requires client-supplied app binding, add:
+`-H "X-API-Key: ${OPENCLAW_API_KEY}"`.
+
 - `201` → extract from response JSON:
   - `ACCESS_TOKEN` from `data.tokens.access_token`
   - `REFRESH_TOKEN` from `data.tokens.refresh_token`
   - `USER_ID` from `data.user.id`
+- `202` with `data.status = pending_human_proof` → **Stop onboarding here (no key provisioning yet).**
+  1. Tell user signup was created but is pending proof-of-humanity review.
+  2. Show `pending_approval_id` (if present) and `proof_of_humanity` instructions from API response.
+  3. Tell user to DM proof of humanity on X to `@buildooor` (fallback `https://x.com/gmoneyNFT`).
+  4. Tell user API keys are blocked until approval is marked approved.
+  5. Do **not** run Step 4b or Step 5.
 - `409` or email exists → **Do NOT bail.** Handle gracefully:
   1. Tell user: "Account already exists for that email."
   2. Ask: "Want to add a new agent? Two options:"
@@ -120,14 +133,13 @@ Tell the user: "Opening the portal in your browser — you're logged in automati
 
 **Important:** Open the browser immediately after registration. The access token expires in 1 hour, but the callback page auto-refreshes stale tokens via the refresh token.
 
-### Step 5 — Provision Machine Key
+### Step 5 — Provision Machine Key (Only after approved signup)
 
 ```bash
 RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST \
   "${APPROVAL_API_URL}/v0/claw-governance/machine-keys" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer ${ACCESS_TOKEN}" \
-  -H "X-API-Key: ${SPAPS_API_KEY}" \
   -H "X-Tenant-Id: ${TENANT_ID}" \
   -d "{
     \"agent_id\": \"${AGENT_ID}\",
@@ -144,6 +156,9 @@ STATUS=$(echo "$RESPONSE" | grep "HTTP_STATUS:" | cut -d: -f2)
 BODY=$(echo "$RESPONSE" | sed '/HTTP_STATUS:/d')
 ```
 
+If using a self-hosted gateway that requires client-supplied app binding, add:
+`-H "X-API-Key: ${OPENCLAW_API_KEY}"`.
+
 - `201` → extract `key_id` and `key_secret` from `data.key`
 - `403` → scope issue, print error
 - Other → print error, stop
@@ -157,11 +172,12 @@ Print this exactly — the user copies it into their `.env` or shell profile:
 # Add these to your project's .env or ~/.zshrc
 
 OPENCLAW_API_URL=${APPROVAL_API_URL}
-OPENCLAW_API_KEY=${SPAPS_API_KEY}
 OPENCLAW_TENANT_ID=${TENANT_ID}
 OPENCLAW_AGENT_ID=${AGENT_ID}
 OPENCLAW_MACHINE_KEY_ID=${KEY_ID}
 OPENCLAW_MACHINE_SECRET=${KEY_SECRET}
+# Optional for non-default gateways:
+OPENCLAW_API_KEY=${OPENCLAW_API_KEY}
 
 # ⚠️  Save OPENCLAW_MACHINE_SECRET now.
 #     It cannot be retrieved again.
@@ -169,17 +185,21 @@ OPENCLAW_MACHINE_SECRET=${KEY_SECRET}
 # ─────────────────────────────────────────────────
 ```
 
-Then save the identity file for skill auto-discovery:
+Ask before writing any file with secrets:
+
+> "Save this identity to `.claude/agents/${AGENT_ID}.env` for auto-discovery?"
+
+Only if the user says yes, save the identity file for skill auto-discovery:
 
 ```bash
 mkdir -p .claude/agents
-cat > .claude/agents/${AGENT_ID}.env << 'ENVEOF'
+cat > .claude/agents/${AGENT_ID}.env << ENVEOF
 OPENCLAW_API_URL=${APPROVAL_API_URL}
-OPENCLAW_API_KEY=${SPAPS_API_KEY}
 OPENCLAW_TENANT_ID=${TENANT_ID}
 OPENCLAW_AGENT_ID=${AGENT_ID}
 OPENCLAW_MACHINE_KEY_ID=${KEY_ID}
 OPENCLAW_MACHINE_SECRET=${KEY_SECRET}
+OPENCLAW_API_KEY=${OPENCLAW_API_KEY}
 ENVEOF
 ```
 
@@ -210,7 +230,6 @@ If yes, create a test approval request:
 
 ```bash
 curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST \
-  -H "X-API-Key: ${SPAPS_API_KEY}" \
   -H "X-Tenant-Id: ${TENANT_ID}" \
   -H "X-Machine-Key-Id: ${KEY_ID}" \
   -H "X-Machine-Secret: ${KEY_SECRET}" \
@@ -232,6 +251,9 @@ curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST \
     }
   }"
 ```
+
+If using a self-hosted gateway that requires client-supplied app binding, add:
+`-H "X-API-Key: ${OPENCLAW_API_KEY}"`.
 
 If `201`: "Check your portal — you should see a test card. Approve or dismiss it."
 If error: print it and suggest checking the env vars.

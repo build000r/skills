@@ -15,12 +15,12 @@ Take social posts → pull the agent's soul → generate proposed replies → cr
 
 ## Prerequisites
 
-Same 6 env vars as unclawg-respond. Auto-discovered from `.claude/agents/<agent-id>.env` (preferred) or `services/approval_feedback_api/.env` (legacy fallback):
+Agent identity env vars. Auto-discovered from `.claude/agents/<agent-id>.env` (preferred). Legacy fallback to `services/approval_feedback_api/.env` only works if that file already includes `OPENCLAW_*` identity vars.
 
 | Variable | Purpose |
 |----------|---------|
 | `OPENCLAW_API_URL` | Base URL (e.g. `https://api.unclawg.com`) |
-| `OPENCLAW_API_KEY` | API key for the app binding |
+| `OPENCLAW_API_KEY` | Optional app key for gateways that do not inject server-side app binding |
 | `OPENCLAW_TENANT_ID` | Tenant context |
 | `OPENCLAW_MACHINE_KEY_ID` | Machine key ID |
 | `OPENCLAW_MACHINE_SECRET` | Machine key secret |
@@ -38,16 +38,18 @@ Same 6 env vars as unclawg-respond. Auto-discovered from `.claude/agents/<agent-
 
 ## Curl Template
 
-Every API call uses this exact header pattern:
+Every API call uses this header pattern:
 
 ```bash
 curl -s -w "\nHTTP_STATUS:%{http_code}" \
-  -H "X-API-Key: ${OPENCLAW_API_KEY}" \
   -H "X-Tenant-Id: ${OPENCLAW_TENANT_ID}" \
   -H "X-Machine-Key-Id: ${OPENCLAW_MACHINE_KEY_ID}" \
   -H "X-Machine-Secret: ${OPENCLAW_MACHINE_SECRET}" \
   "${OPENCLAW_API_URL}/v0/..."
 ```
+
+If your gateway requires client-supplied app binding, also add:
+`-H "X-API-Key: ${OPENCLAW_API_KEY}"`.
 
 Always append `-w "\nHTTP_STATUS:%{http_code}"` to capture the status code. Parse it after every call.
 
@@ -87,9 +89,9 @@ fi
 
 set -a && source "$AGENT_ENV" && set +a
 
-# Validate all 6 vars exist
+# Validate required vars exist (`OPENCLAW_API_KEY` is optional)
 missing=""
-for var in OPENCLAW_API_URL OPENCLAW_API_KEY OPENCLAW_TENANT_ID \
+for var in OPENCLAW_API_URL OPENCLAW_TENANT_ID \
            OPENCLAW_MACHINE_KEY_ID OPENCLAW_MACHINE_SECRET OPENCLAW_AGENT_ID; do
   eval val=\$$var
   [ -z "$val" ] && missing="$missing $var"
@@ -100,7 +102,6 @@ done
 # Note: list returns only approvals where this machine is a participant.
 # An empty list (200 with 0 items) is still a successful smoke test.
 SMOKE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" \
-  -H "X-API-Key: ${OPENCLAW_API_KEY}" \
   -H "X-Tenant-Id: ${OPENCLAW_TENANT_ID}" \
   -H "X-Machine-Key-Id: ${OPENCLAW_MACHINE_KEY_ID}" \
   -H "X-Machine-Secret: ${OPENCLAW_MACHINE_SECRET}" \
@@ -121,7 +122,6 @@ Fetch the agent's published soul from the policy API:
 
 ```bash
 curl -s -w "\nHTTP_STATUS:%{http_code}" \
-  -H "X-API-Key: ${OPENCLAW_API_KEY}" \
   -H "X-Tenant-Id: ${OPENCLAW_TENANT_ID}" \
   -H "X-Machine-Key-Id: ${OPENCLAW_MACHINE_KEY_ID}" \
   -H "X-Machine-Secret: ${OPENCLAW_MACHINE_SECRET}" \
@@ -185,7 +185,6 @@ For each approved post+reply pair:
 
 ```bash
 RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST \
-  -H "X-API-Key: ${OPENCLAW_API_KEY}" \
   -H "X-Tenant-Id: ${OPENCLAW_TENANT_ID}" \
   -H "X-Machine-Key-Id: ${OPENCLAW_MACHINE_KEY_ID}" \
   -H "X-Machine-Secret: ${OPENCLAW_MACHINE_SECRET}" \
@@ -237,7 +236,6 @@ After all POSTs:
 
 ```bash
 curl -s -w "\nHTTP_STATUS:%{http_code}" \
-  -H "X-API-Key: ${OPENCLAW_API_KEY}" \
   -H "X-Tenant-Id: ${OPENCLAW_TENANT_ID}" \
   -H "X-Machine-Key-Id: ${OPENCLAW_MACHINE_KEY_ID}" \
   -H "X-Machine-Secret: ${OPENCLAW_MACHINE_SECRET}" \
@@ -248,7 +246,6 @@ Optional: list pending social approvals for spot-check visibility:
 
 ```bash
 curl -s -w "\nHTTP_STATUS:%{http_code}" \
-  -H "X-API-Key: ${OPENCLAW_API_KEY}" \
   -H "X-Tenant-Id: ${OPENCLAW_TENANT_ID}" \
   -H "X-Machine-Key-Id: ${OPENCLAW_MACHINE_KEY_ID}" \
   -H "X-Machine-Secret: ${OPENCLAW_MACHINE_SECRET}" \

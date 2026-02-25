@@ -1,1 +1,1 @@
-../../respond-feedback/references/api-contract.md
+../../unclawg-respond/references/api-contract.md

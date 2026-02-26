@@ -88,10 +88,10 @@ Options (via AskUserQuestion with markdown previews):
 
 | Option | Preview |
 |--------|---------|
-| **Empathetic educator** | "That 3pm crash is real. Your body is burning through magnesium faster than you're replacing it — especially with the stress load you're describing. Have you looked at your mineral balance?" |
+| **Empathetic educator** | "That's a real pattern. When your system is under that kind of load, it burns through resources faster than you'd expect — especially with everything else you're managing. Have you looked at what's actually going on under the surface?" |
 | **Direct builder** | "Streaming responses are the gotcha here. Edge function + fetch event stream does the trick. I shipped exactly this pattern last week." |
-| **Warm conversational** | "Oh I've been there! The 'labs are normal' thing is so frustrating. One thing that actually helped me understand what was going on was looking at the mineral ratios, not just individual levels." |
-| **Professional consultant** | "Based on the symptoms you're describing, there's likely a mineral imbalance that standard blood panels don't capture. HTMA testing reveals ratios that explain exactly this pattern." |
+| **Warm conversational** | "Oh I've been there! The 'everything looks fine on paper' thing is so frustrating. One thing that actually helped me was looking at the ratios between things, not just the individual numbers." |
+| **Professional consultant** | "Based on what you're describing, there's likely an underlying imbalance that standard assessments don't capture. Deeper testing often reveals the patterns that explain exactly this." |
 
 > Q3: "How should your agent vary its approach? Pick the reply styles it should use."
 
@@ -178,12 +178,12 @@ Options (multiselect via AskUserQuestion):
 
 > Q2: "Any competitors or types of accounts your agent should never engage with?"
 
-Free text. Examples: "other mineral testing companies", "anyone with RD/RDN credentials selling services", "recruiters".
+Free text. Examples: "other companies in our space", "anyone with competing professional credentials", "recruiters".
 
 Store `API_KEYS_AVAILABLE`, `EXCLUSION_RULES`.
 
 **Important:** Competitor exclusion has two sides:
-- **Personality side** (goes in soul): "Never engage with competing mineral testing companies. Never claim credentials we don't have."
+- **Personality side** (goes in soul): "Never engage with direct competitors. Never claim credentials we don't have."
 - **Technical side** (goes in mode file): Regex patterns, bio keyword filters, account-type skip rules.
 
 Generate both from the user's answer.

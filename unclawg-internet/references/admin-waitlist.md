@@ -45,16 +45,12 @@ If API auth is unavailable, use:
 
 ```bash
 export WAITLIST_SSH_HOST="root@your-server"
-export WAITLIST_DB_CONTAINER="spaps-python-db"
-export WAITLIST_DB_USER="spaps"
-export WAITLIST_DB_NAME="spaps"
+export WAITLIST_DB_CONTAINER="your-db-container"
+export WAITLIST_DB_USER="your-db-user"
+export WAITLIST_DB_NAME="your-db-name"
 bash scripts/waitlist.sh ssh-list 200
 ```
 
-## Local Mode (Gitignored)
-
-Put private host/db defaults in:
+Put real host/db values in your local mode file (gitignored):
 
 `../modes/unclawg.local.md`
-
-`modes/` is gitignored in `../opensource/skills/.gitignore`, so this stays local.

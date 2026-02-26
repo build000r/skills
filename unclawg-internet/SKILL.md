@@ -25,6 +25,7 @@ Get set up with OpenClaw — account, agent, soul, and discovery config in one s
 - **NEVER show the machine key secret more than once.** It cannot be retrieved after creation.
 - **NEVER store passwords or secrets in any file the user didn't ask for.**
 - **NEVER skip the confirmation before creating the account.**
+- **NEVER invent placeholder credentials.** If auth fails, stop and fix the auth path first.
 - **NEVER run search/research in the main conversation context.** Always delegate to Task tool subagents (see Rule below).
 
 ## Subagent Rule
@@ -44,6 +45,8 @@ The main conversation should only contain: questions, user answers, confirmation
 OPENCLAW_PORTAL_URL=https://unclawg.com
 SPAPS_URL=https://api.unclawg.com
 APPROVAL_API_URL=https://api.unclawg.com
+# Device-flow client_id must be the SPAPS application slug (NOT UUID).
+OPENCLAW_CLIENT_ID=unclawg
 # Optional only for self-hosted gateways that do not inject server-side app binding:
 OPENCLAW_API_KEY=
 TENANT_ID=d0000000-0000-0000-0000-000000000001
@@ -54,6 +57,7 @@ OPENCLAW_PROOF_SECONDARY_X=https://x.com/your-backup-proof-handle
 
 `SPAPS_URL` is the Unclawg auth facade (`/api/auth/*` and `/api/cli/device/*`), not a direct client call to SPAPS.
 On `api.unclawg.com`, the gateway injects `X-API-Key` server-side, so do not ask users for `SPAPS_API_KEY`.
+The Unclawg proxy also backfills missing device-flow fields (`client_id`, `grant_type`) for legacy callers, but keep sending them explicitly in this skill for deterministic behavior across environments.
 
 ## References
 
@@ -181,10 +185,16 @@ Continue?
 ### Step 4 — Start CLI Device Flow (via Unclawg auth facade)
 
 ```bash
+# client_id must be app slug, e.g. "unclawg" or "buildooor" (not application UUID)
+OPENCLAW_CLIENT_ID="${OPENCLAW_CLIENT_ID:-unclawg}"
+
 DEVICE_START_RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST \
   "${SPAPS_URL}/api/cli/device/authorize" \
   -H "Content-Type: application/json" \
-  -d '{"scope":"approval_request.create.social_reply approval_revision.fulfill instruction_proposal.create agent_feedback_digest.read"}')
+  -d "{
+    \"client_id\":\"${OPENCLAW_CLIENT_ID}\",
+    \"scope\":\"approval_request.create.social_reply approval_revision.fulfill instruction_proposal.create agent_feedback_digest.read\"
+  }")
 
 DEVICE_START_STATUS=$(echo "$DEVICE_START_RESPONSE" | grep "HTTP_STATUS:" | cut -d: -f2)
 DEVICE_START_BODY=$(echo "$DEVICE_START_RESPONSE" | sed '/HTTP_STATUS:/d')
@@ -194,6 +204,7 @@ If using a self-hosted gateway that requires client-supplied app binding, add:
 `-H "X-API-Key: ${OPENCLAW_API_KEY}"`.
 
 - `200` → continue
+- `400` with `UNKNOWN_CLIENT` → wrong `client_id` format/value. Use the application **slug** (for example `unclawg`), not UUID.
 - `404`/`405` with `AUTH_PROXY_ROUTE_NOT_FOUND` → stop and tell the user the API gateway must be updated to proxy `/api/cli/device/*`.
 - Other error → print and stop
 
@@ -206,6 +217,11 @@ DEVICE_CODE=$(echo "$DEVICE_START_BODY" | jq -r '.data.device_code // .device_co
 USER_CODE=$(echo "$DEVICE_START_BODY" | jq -r '.data.user_code // .user_code // empty')
 VERIFY_URL=$(echo "$DEVICE_START_BODY" | jq -r '.data.verification_uri_complete // .data.auth_url // .data.verification_uri // .verification_uri_complete // .auth_url // .verification_uri // empty')
 POLL_INTERVAL=$(echo "$DEVICE_START_BODY" | jq -r '.data.interval // .interval // 5')
+
+# Safety: if upstream returns only '?user_code=...' build a full URL.
+if [ -n "$VERIFY_URL" ] && [[ "$VERIFY_URL" = \?* ]]; then
+  VERIFY_URL="${OPENCLAW_PORTAL_URL}/device${VERIFY_URL}"
+fi
 ```
 
 If any required value is missing, print the response and stop.
@@ -232,6 +248,8 @@ while true; do
     "${SPAPS_URL}/api/cli/device/token" \
     -H "Content-Type: application/json" \
     -d "{
+      \"grant_type\": \"urn:ietf:params:oauth:grant-type:device_code\",
+      \"client_id\": \"${OPENCLAW_CLIENT_ID}\",
       \"device_code\": \"${DEVICE_CODE}\"
     }")
 
@@ -244,7 +262,7 @@ while true; do
     break
   fi
 
-  ERROR_CODE=$(echo "$TOKEN_BODY" | jq -r '.error.code // .code // .error // empty')
+  ERROR_CODE=$(echo "$TOKEN_BODY" | jq -r '.error.code // .error.error // .code // .error // empty')
   case "$ERROR_CODE" in
     authorization_pending)
       sleep "${POLL_INTERVAL}"

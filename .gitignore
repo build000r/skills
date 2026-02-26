@@ -19,12 +19,17 @@ domain-planner/assets/templates/frontend-*.md
 !domain-planner/assets/templates/frontend.md
 
 # in progress
+deploy-debug/
 find-customers/
 find-customers-buildooor/
-find-customers-openclawth/
+find-customers-unclawg/
 session-to-tweet/
 ssh-info/
 audit-plans/
 video/
 video-assets/
 video-script.md
+erac-portal-api
+broadcast-verify
+spaps-register/
+unclawg-admin/

@@ -59,7 +59,7 @@ On `api.unclawg.com`, the gateway injects `X-API-Key` server-side, so do not ask
 
 - **[references/soul-interview.md](references/soul-interview.md)** — Full soul interview cascade (Phase B, Rounds 1-5). Read when entering the interview phase.
 - **[references/artifact-templates.md](references/artifact-templates.md)** — Soul draft templates, mode file template, smoke test, and summary output (Phase C/D). Read when writing artifacts.
-- **[references/admin-waitlist.md](references/admin-waitlist.md)** — Operator waitlist triage (Step 4c). Read only when a signup returns `pending_human_proof`.
+- **`/unclawg-admin`** — Operator waitlist triage (Step 4c). Separate skill for approving/denying signups that return `pending_human_proof`.
 - **[references/default-soul.md](references/default-soul.md)** — Default soul template for users who skip the interview.
 
 ---
@@ -229,7 +229,7 @@ MAGIC_RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST \
   3. Tell user to DM proof of humanity on X to `${OPENCLAW_PROOF_PRIMARY_X}` (fallback `${OPENCLAW_PROOF_SECONDARY_X}`).
   4. Tell user API keys are blocked until approval is marked approved.
   5. Do **not** run Step 4b or Step 5. **Do still run Phase B (Soul Interview)** — read `references/soul-interview.md`.
-  6. For admin triage of waitlist entries, read `references/admin-waitlist.md`.
+  6. For admin triage of waitlist entries, tell the operator to use `/unclawg-admin`.
 - `409` or email exists → **Do NOT bail.** Handle gracefully:
   1. Tell user: "Account already exists for that email."
   2. Ask: "Want me to send a magic link so you can sign in instantly?"

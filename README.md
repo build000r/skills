@@ -29,7 +29,7 @@ https://github.com/user-attachments/assets/531fe967-ed44-4863-80be-c21e36b9331a
 | [research-paper](./research-paper/) | Content | Generate dense, research-paper style writing from a topic |
 | [openclaw-client-bootstrap](./openclaw-client-bootstrap/) | Ops | Bootstrap production OpenClaw client kits with guarded defaults |
 | [unclawg](./unclawg/) | OpenClaw | Starter skill for Unclawg onboarding and first-run setup |
-| [unclawg-onboard](./unclawg-onboard/) | OpenClaw | Self-service onboarding — account, agent, machine keys, env block |
+| [unclawg-internet](./unclawg-internet/) | OpenClaw | Self-service onboarding — account, agent, machine keys, env block |
 | [unclawg-discover](./unclawg-discover/) | OpenClaw | Multi-platform social listening and customer discovery |
 | [unclawg-feed](./unclawg-feed/) | OpenClaw | Generate proposed replies and submit approval cards to the portal |
 | [unclawg-respond](./unclawg-respond/) | OpenClaw | Poll revision requests, generate edits, fulfill via API |

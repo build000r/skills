@@ -1,6 +1,6 @@
 ---
 name: clawgs
-description: Extract structured JSON from Claude Code and Codex JSONL session logs with a local Rust binary. Use when asked to parse agent transcripts, normalize .jsonl sessions, auto-discover current Claude/Codex logs by cwd, or generate machine-readable context snapshots for downstream tools.
+description: Extract structured JSON from Claude Code and Codex JSONL session logs and run a reusable thought-emission daemon over stdio. Use when asked to parse agent transcripts, normalize .jsonl sessions, auto-discover current Claude/Codex logs by cwd, or generate thought updates from live session snapshots for downstream tools.
 license: MIT
 ---
 
@@ -8,7 +8,7 @@ license: MIT
 
 ## Purpose
 
-Use this skill to run a deterministic transcript extractor outside the thought loop.
+Use this skill to run deterministic transcript extraction and daemonized thought emission outside the main app process.
 
 ## Prerequisites
 
@@ -32,6 +32,15 @@ bash scripts/check.sh
 ```bash
 target/release/clawgs extract --tool auto --cwd "$PWD"
 ```
+
+## Emit Daemon (stdio)
+
+```bash
+target/release/clawgs emit --stdio
+```
+
+Send one JSON `sync` message per line on stdin, read `sync_result` lines from stdout.
+Protocol details are in [references/emit-protocol-v1.md](references/emit-protocol-v1.md).
 
 ## Useful Flags
 

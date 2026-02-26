@@ -1,8 +1,14 @@
+use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
+use serde::Serialize;
+use serde_json::Value;
 
+use clawgs::emit::engine::EmitEngine;
+use clawgs::emit::model_client::OpenRouterModelClient;
+use clawgs::emit::protocol::{ErrorMessage, HelloMessage, SyncRequest};
 use clawgs::{extract, resolve_input, ExtractOptions, ToolSelection};
 
 #[derive(Debug, Parser)]
@@ -17,6 +23,7 @@ struct Cli {
 #[derive(Debug, Subcommand)]
 enum Commands {
     Extract(ExtractArgs),
+    Emit(EmitArgs),
 }
 
 #[derive(Debug, Args)]
@@ -46,6 +53,12 @@ struct ExtractArgs {
     include_raw: bool,
 }
 
+#[derive(Debug, Args)]
+struct EmitArgs {
+    #[arg(long)]
+    stdio: bool,
+}
+
 #[derive(Clone, Copy, Debug, ValueEnum)]
 enum ToolArg {
     Auto,
@@ -64,6 +77,7 @@ fn run() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Commands::Extract(args) => run_extract(args),
+        Commands::Emit(args) => run_emit(args),
     }
 }
 
@@ -112,5 +126,95 @@ fn run_extract(args: ExtractArgs) -> Result<()> {
         println!("{}", serde_json::to_string(&output)?);
     }
 
+    Ok(())
+}
+
+fn run_emit(args: EmitArgs) -> Result<()> {
+    if !args.stdio {
+        anyhow::bail!("emit requires --stdio");
+    }
+
+    let model_client = OpenRouterModelClient::new()
+        .map_err(|error| anyhow::anyhow!("failed to initialize model client: {error}"))?;
+    let mut engine = EmitEngine::new(Box::new(model_client));
+
+    let stdin = io::stdin();
+    let mut stdout = io::stdout().lock();
+
+    write_json_line(&mut stdout, &HelloMessage::new())?;
+
+    for line in stdin.lock().lines() {
+        let line = line.context("failed to read stdin line")?;
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        let value: Value = match serde_json::from_str(trimmed) {
+            Ok(value) => value,
+            Err(error) => {
+                write_json_line(
+                    &mut stdout,
+                    &ErrorMessage::new(None, "invalid_json", format!("invalid JSON: {error}")),
+                )?;
+                continue;
+            }
+        };
+
+        let request_id = value
+            .get("id")
+            .and_then(Value::as_str)
+            .map(|value| value.to_string());
+        let msg_type = value
+            .get("type")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+
+        if msg_type != "sync" {
+            write_json_line(
+                &mut stdout,
+                &ErrorMessage::new(
+                    request_id,
+                    "unknown_message_type",
+                    format!("unsupported message type: {msg_type}"),
+                ),
+            )?;
+            continue;
+        }
+
+        let request: SyncRequest = match serde_json::from_value(value) {
+            Ok(request) => request,
+            Err(error) => {
+                write_json_line(
+                    &mut stdout,
+                    &ErrorMessage::new(
+                        request_id,
+                        "invalid_request",
+                        format!("invalid sync request shape: {error}"),
+                    ),
+                )?;
+                continue;
+            }
+        };
+
+        if let Err(error) = request.config.validate() {
+            write_json_line(
+                &mut stdout,
+                &ErrorMessage::new(Some(request.id), "invalid_config", error),
+            )?;
+            continue;
+        }
+
+        let response = engine.sync(&request);
+        write_json_line(&mut stdout, &response)?;
+    }
+
+    Ok(())
+}
+
+fn write_json_line<W: Write, T: Serialize>(writer: &mut W, value: &T) -> Result<()> {
+    serde_json::to_writer(&mut *writer, value).context("failed to write JSON response")?;
+    writer.write_all(b"\n").context("failed to write newline")?;
+    writer.flush().context("failed to flush output")?;
     Ok(())
 }

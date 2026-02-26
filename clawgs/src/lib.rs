@@ -1,3 +1,4 @@
+pub mod emit;
 pub mod parsers;
 
 use std::fs;

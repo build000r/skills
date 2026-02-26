@@ -5,8 +5,9 @@ set -euo pipefail
 #
 # Usage:
 #   review_live.sh                         # auto-detect from local deployed-instances.md (if present)
-#   review_live.sh root@100.64.0.10        # specific host
+#   review_live.sh openclaw@100.64.0.10    # specific host
 #   review_live.sh --host 203.0.113.10     # alternate flag
+#   review_live.sh --host 100.64.0.10 --ssh-user aiops
 #   review_live.sh --service openclaw-foo  # review a non-default systemd unit
 #   review_live.sh --home /home/openclaw-foo/.openclaw  # override config home
 #   review_live.sh --user openclaw         # override app user
@@ -26,12 +27,16 @@ STRICT_MODE="false"
 SERVICE_NAME="openclaw"
 APP_USER="openclaw"
 OPENCLAW_HOME_OVERRIDE=""
+SSH_LOGIN_USER="${SSH_LOGIN_USER:-openclaw}"
+SSH_EFFECTIVE_USER=""
+SSH_HOST_OVERRIDE=""
 
 # --- Parse arguments ---
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --host) SSH_TARGET="root@${2:-}"; shift 2 ;;
+    --host) SSH_HOST_OVERRIDE="${2:-}"; shift 2 ;;
+    --ssh-user) SSH_LOGIN_USER="${2:?--ssh-user requires a user}"; shift 2 ;;
     --strict) STRICT_MODE="true"; shift ;;
     --service) SERVICE_NAME="${2:-}"; shift 2 ;;
     --user) APP_USER="${2:-}"; shift 2 ;;
@@ -40,6 +45,10 @@ while [[ $# -gt 0 ]]; do
     *) SSH_TARGET="$1"; shift ;;
   esac
 done
+
+if [[ -n "${SSH_HOST_OVERRIDE}" ]]; then
+  SSH_TARGET="${SSH_LOGIN_USER}@${SSH_HOST_OVERRIDE}"
+fi
 
 # Auto-detect from local deployment index (gitignored)
 if [[ -z "${SSH_TARGET}" ]]; then
@@ -50,7 +59,7 @@ if [[ -z "${SSH_TARGET}" ]]; then
     if [[ -f "${INSTANCES}" ]]; then
       ts_ip="$(grep -oE '100\.[0-9]+\.[0-9]+\.[0-9]+' "${INSTANCES}" | head -1 || true)"
       if [[ -n "${ts_ip}" ]]; then
-        SSH_TARGET="root@${ts_ip}"
+        SSH_TARGET="${SSH_LOGIN_USER}@${ts_ip}"
         echo "Auto-detected: ${SSH_TARGET} (from ${INSTANCES##*/})"
         break
       fi
@@ -58,11 +67,16 @@ if [[ -z "${SSH_TARGET}" ]]; then
   done
   if [[ -z "${SSH_TARGET}" ]]; then
     echo "No host specified."
-    echo "Usage: review_live.sh root@<host> or --host <ip>"
+    echo "Usage: review_live.sh <user>@<host> or --host <ip> [--ssh-user <user>]"
     echo "Optional: create references/deployed-instances.md from deployed-instances.example.md"
     exit 1
   fi
 fi
+
+if [[ "${SSH_TARGET}" != *"@"* ]]; then
+  SSH_TARGET="${SSH_LOGIN_USER}@${SSH_TARGET}"
+fi
+SSH_EFFECTIVE_USER="${SSH_TARGET%@*}"
 
 APP_HOME=""
 USER_HOME=""
@@ -179,7 +193,6 @@ fi
 removed=0
 echo "${live_config}" | jq -e '.agents.list[0].prompt' >/dev/null 2>&1 && removed=$((removed + 1)) && echo "       found: agents.list[0].prompt"
 echo "${live_config}" | jq -e '.channels.pairing' >/dev/null 2>&1 && removed=$((removed + 1)) && echo "       found: channels.pairing"
-echo "${live_config}" | jq -e '.tools.elevated' >/dev/null 2>&1 && removed=$((removed + 1)) && echo "       found: tools.elevated"
 echo "${live_config}" | jq -e '.channels.telegram.token' >/dev/null 2>&1 && removed=$((removed + 1)) && echo "       found: channels.telegram.token"
 if [[ ${removed} -eq 0 ]]; then pass "L4.2 No removed keys"; else fail "L4.2 Found ${removed} removed key(s)"; fi
 
@@ -191,6 +204,14 @@ elif [[ -n "${has_legacy_token}" ]]; then
   fail "L4.3 Uses legacy token key"
 else
   fail "L4.3 No bot token found"
+fi
+
+if echo "${live_config}" | jq -e '.channels.telegram.groupPolicy == "allowlist"' >/dev/null 2>&1 \
+  && echo "${live_config}" | jq -e '.channels.telegram.groupAllowFrom | type == "array" and length > 0' >/dev/null 2>&1 \
+  && echo "${live_config}" | jq -e '(.channels.telegram.groups // empty) | ((type == "array" and length > 0) or (type == "object" and (keys | length) > 0))' >/dev/null 2>&1; then
+  pass "L4.3b Telegram group allowlist policy present"
+else
+  fail "L4.3b Telegram group allowlist policy missing/incomplete"
 fi
 
 ask_type="$(echo "${live_config}" | jq -r '.tools.exec.ask | type' 2>/dev/null || echo 'null')"
@@ -216,6 +237,13 @@ else
   else
     pass "L4.4b tools.exec.safeBins uses executable names"
   fi
+fi
+
+if echo "${live_config}" | jq -e '.tools.elevated.enabled == true' >/dev/null 2>&1 \
+  && echo "${live_config}" | jq -e '.tools.elevated.allowFrom.telegram | type == "array" and length > 0' >/dev/null 2>&1; then
+  pass "L4.4c tools.elevated Telegram allowlist present"
+else
+  fail "L4.4c tools.elevated Telegram allowlist missing/incomplete"
 fi
 
 ws="$(echo "${live_config}" | jq -r '.agents.defaults.sandbox.workspaceAccess // "unknown"' 2>/dev/null)"
@@ -353,18 +381,18 @@ else
   fi
 fi
 
-portal_url="$(echo "${live_env}" | grep '^OPENCLAWTH_PORTAL_URL=' | cut -d= -f2- || true)"
+portal_url="$(echo "${live_env}" | grep '^UNCLAWG_PORTAL_URL=' | cut -d= -f2- || true)"
 if [[ -n "${portal_url}" ]]; then
   if remote "curl -sf --max-time 10 \"${portal_url}\" >/dev/null 2>&1"; then
-    pass "L7.2 OpenClawth portal reachable"
+    pass "L7.2 Unclawg portal reachable"
   else
-    fail "L7.2 OpenClawth portal NOT reachable"
+    fail "L7.2 Unclawg portal NOT reachable"
   fi
 else
   if [[ "${STRICT_MODE}" == "true" ]]; then
-    fail "L7.2 OPENCLAWTH_PORTAL_URL not set"
+    fail "L7.2 UNCLAWG_PORTAL_URL not set"
   else
-    pass "L7.2 OPENCLAWTH_PORTAL_URL not set (optional)"
+    pass "L7.2 UNCLAWG_PORTAL_URL not set (optional)"
   fi
 fi
 echo
@@ -372,7 +400,11 @@ echo
 # --- L8. OpenClaw Runtime ---
 echo "=== L8. OpenClaw Runtime ==="
 
-oc_cmd="sudo -u ${APP_USER} env HOME=${APP_HOME} PATH=${OPENCLAW_CLI_PATH}"
+if [[ "${SSH_EFFECTIVE_USER}" == "${APP_USER}" ]]; then
+  oc_cmd="env HOME=${APP_HOME} PATH=${OPENCLAW_CLI_PATH}"
+else
+  oc_cmd="sudo -n -u ${APP_USER} env HOME=${APP_HOME} PATH=${OPENCLAW_CLI_PATH}"
+fi
 
 oc_version="$(remote "${oc_cmd} openclaw --version 2>/dev/null || echo unknown")"
 if [[ "${oc_version}" != "unknown" ]]; then
@@ -412,20 +444,37 @@ echo
 # --- L9. Security Posture ---
 echo "=== L9. Security Posture ==="
 
-sshd_config="$(remote 'sshd -T 2>/dev/null | grep -i passwordauthentication || echo unknown')"
-if echo "${sshd_config}" | grep -qi 'passwordauthentication no'; then
+sshd_config="$(remote 'sshd -T 2>/dev/null || echo unknown')"
+if echo "${sshd_config}" | grep -qi '^passwordauthentication no$'; then
   pass "L9.1 SSH password auth disabled"
 else
-  warn "L9.1 SSH password auth may be enabled"
+  fail "L9.1 SSH password auth is not disabled"
 fi
 
-pass "L9.2 Write credential check -- manual review recommended"
+if echo "${sshd_config}" | grep -qi '^permitrootlogin no$'; then
+  pass "L9.2 Root SSH login disabled"
+else
+  fail "L9.2 Root SSH login is not disabled"
+fi
+
+ufw_status="$(remote 'ufw status 2>/dev/null || sudo -n ufw status 2>/dev/null || echo unavailable')"
+if [[ "${ufw_status}" == "unavailable" ]]; then
+  warn "L9.3 UFW status unavailable"
+elif echo "${ufw_status}" | grep -Eq '22/tcp[[:space:]]+ALLOW IN[[:space:]]+Anywhere'; then
+  fail "L9.3 Public SSH ingress still allowed by UFW"
+elif echo "${ufw_status}" | grep -Eq '22/tcp[[:space:]]+ALLOW IN[[:space:]]+(100\.64\.0\.0/10|tailscale0)'; then
+  pass "L9.3 UFW SSH ingress scoped to Tailnet"
+else
+  warn "L9.3 Could not confirm Tailnet-only SSH UFW rule"
+fi
+
+pass "L9.4 Write credential check -- manual review recommended"
 
 audit_out="$(remote "${oc_cmd} openclaw security audit --deep 2>&1 || true")"
 if echo "${audit_out}" | grep -qi 'too many arguments for .security.\|Unknown command.*security\|No such command.*security'; then
-  warn "L9.3 Security audit command unsupported on this runtime"
+  warn "L9.5 Security audit command unsupported on this runtime"
 elif echo "${audit_out}" | grep -qi 'error\|invalid config'; then
-  fail "L9.3 Security audit errored"
+  fail "L9.5 Security audit errored"
   echo "       ${audit_out}" | head -3
 else
   critical_count="$(echo "${audit_out}" | awk '/Summary:/ { for (i=1; i<=NF; i++) if ($i == "critical") { print $(i-1); exit } }')"
@@ -435,9 +484,9 @@ else
     critical_count=0
   fi
   if [[ "${critical_count}" -gt 0 ]]; then
-    fail "L9.3 Security audit flagged ${critical_count} critical issue(s)"
+    fail "L9.5 Security audit flagged ${critical_count} critical issue(s)"
   else
-    pass "L9.3 Security audit clean (0 critical)"
+    pass "L9.5 Security audit clean (0 critical)"
   fi
 fi
 echo

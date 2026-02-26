@@ -59,7 +59,7 @@ or
 
 ## 5. Operator UX
 
-- Telegram sends a notification with a link to the OpenClawth portal.
+- Telegram sends a notification with a link to the Unclawg portal.
 - The portal displays the full proposal:
   - proposal_id
   - impact

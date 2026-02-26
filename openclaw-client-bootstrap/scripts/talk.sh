@@ -20,6 +20,9 @@ set -euo pipefail
 #   --new                              Start a fresh session (ignore saved session)
 #   --thinking <level>                 off|minimal|low|medium|high (default: off)
 #   --host <ip>                        Override SSH target (ignores deployed-instances.md)
+#   --ssh-user <user>                  SSH login user (default: openclaw)
+#   --ssh-fallback-users <csv>         Fallback SSH users for --health (default: root)
+#   --require-root-proof               For --health, fail if SSH/UFW checks are not root-verified
 #   --json                             JSON output for --health
 #   --emit-logs                        Write --health output to .run/logs
 #   --log-dir <path>                   Override OpenClaw health log dir for --emit-logs
@@ -41,6 +44,7 @@ set -euo pipefail
 #   talk.sh --claw ingredient-claw --logs 100
 #   talk.sh --ssh
 #   talk.sh --claw ingredient-claw --ssh     # SSH with env vars pre-loaded for that claw
+#   talk.sh --health --require-root-proof --json
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTANCES_FILE="${SCRIPT_DIR}/../references/deployed-instances.md"
@@ -61,7 +65,12 @@ MESSAGE=""
 THINKING="off"
 LOG_LINES="50"
 HOST_OVERRIDE=""
+SSH_LOGIN_USER="${SSH_LOGIN_USER:-openclaw}"
+SSH_FALLBACK_USERS="${SSH_FALLBACK_USERS:-root}"
+REQUIRE_ROOT_PROOF="0"
 SESSION_DIR="${HOME}/.cache/openclaw-talk"
+HEALTH_FAIL_COUNT=0
+HEALTH_WARN_COUNT=0
 
 # ── Parse arguments ──────────────────────────────────────────────────────────
 
@@ -85,6 +94,11 @@ usage() { sed -n '4,30p' "$0" | sed 's/^# //; s/^#$//'; exit 0; }
     --new)        NEW_SESSION="true"; shift ;;
     --thinking)   THINKING="${2:-off}"; shift 2 ;;
     --host)       HOST_OVERRIDE="${2:?--host requires an ip}"; shift 2 ;;
+    --ssh-user)   SSH_LOGIN_USER="${2:?--ssh-user requires a user}"; shift 2 ;;
+    --ssh-fallback-users)
+                  SSH_FALLBACK_USERS="${2:?--ssh-fallback-users requires csv users}"; shift 2 ;;
+    --require-root-proof)
+                  REQUIRE_ROOT_PROOF="1"; shift ;;
     -h|--help)    usage ;;
     # Positional shorthand: talk.sh [claw-name] [message]
     *)
@@ -142,19 +156,25 @@ get_claw() {
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-ssh_target() {
+ssh_target_for_user() {
   local ip="$1"
-  [[ -n "${HOST_OVERRIDE}" ]] && echo "root@${HOST_OVERRIDE}" || echo "root@${ip}"
+  local ssh_user="$2"
+  [[ -n "${HOST_OVERRIDE}" ]] && echo "${ssh_user}@${HOST_OVERRIDE}" || echo "${ssh_user}@${ip}"
 }
 
-# Returns "OPENCLAW_STATE_DIR=... OPENCLAW_CONFIG_PATH=..." for co-located claws.
-# Returns empty string for the primary claw (no override needed).
+ssh_target() {
+  local ip="$1"
+  ssh_target_for_user "${ip}" "${SSH_LOGIN_USER}"
+}
+
+# Returns env setup string for any claw, including the primary.
+# Always sets HOME, OPENCLAW_STATE_DIR, OPENCLAW_CONFIG_PATH, and sources .env
+# so OPENCLAW_GATEWAY_TOKEN is available to the CLI when connecting to the
+# gateway (the systemd service loads .env, but ad-hoc shells often do not).
 claw_env_prefix() {
   local home="$1"
-  local primary="/home/${PRIMARY_USER}/.openclaw"
-  if [[ "${home}" != "${primary}" ]]; then
-    echo "OPENCLAW_STATE_DIR=${home} OPENCLAW_CONFIG_PATH=${home}/openclaw.json"
-  fi
+  local app_home="${home%/.openclaw}"
+  echo "set -a; [ -f '${home}/.env' ] && . '${home}/.env'; set +a; export HOME='${app_home}' OPENCLAW_STATE_DIR='${home}' OPENCLAW_CONFIG_PATH='${home}/openclaw.json';"
 }
 
 remote() {
@@ -247,18 +267,26 @@ emit_health() {
   local error_count="${14}"
   local version="${15}"
   local notes="${16}"
+  local ssh_password_auth="${17}"
+  local ssh_root_login="${18}"
+  local ufw_status="${19}"
+  local ufw_service="${20}"
+  local fail2ban_service="${21}"
+  local security_root_proof="${22}"
+  local sshd_root_proof="${23}"
+  local ufw_root_proof="${24}"
 
   local timestamp
   local summary
   timestamp="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-  summary="OPENCLAW_HEALTH|ts=${timestamp}|name=${name}|service=${svc}|host=${host}|status=${status}|ssh=${ssh_status}|active=${service_active}|enabled=${service_enabled}|config=${config_present}|env=${env_present}|spaps_set=${spaps_set}|spaps_ok=${spaps_ok}|portal_set=${portal_set}|portal_ok=${portal_ok}|errors=${error_count}|version=${version}|notes=${notes}"
+  summary="OPENCLAW_HEALTH|ts=${timestamp}|name=${name}|service=${svc}|host=${host}|status=${status}|ssh=${ssh_status}|active=${service_active}|enabled=${service_enabled}|config=${config_present}|env=${env_present}|spaps_set=${spaps_set}|spaps_ok=${spaps_ok}|portal_set=${portal_set}|portal_ok=${portal_ok}|errors=${error_count}|version=${version}|ssh_password_auth=${ssh_password_auth}|ssh_root_login=${ssh_root_login}|ufw_status=${ufw_status}|ufw_service=${ufw_service}|fail2ban_service=${fail2ban_service}|security_root_proof=${security_root_proof}|sshd_root_proof=${sshd_root_proof}|ufw_root_proof=${ufw_root_proof}|notes=${notes}"
 
   if [[ "${EMIT_LOGS}" == "1" ]]; then
     log_health_status "$name" "$summary" || true
   fi
 
   if [[ "${JSON_OUTPUT}" == "1" ]]; then
-    printf '{"name":"%s","service":"%s","host":"%s","status":"%s","ssh":"%s","service_active":"%s","service_enabled":"%s","config_present":%s,"env_present":%s,"spaps_set":%s,"spaps_ok":%s,"portal_set":%s,"portal_ok":%s,"error_lines":%s,"version":"%s","notes":"%s"}\n' \
+    printf '{"name":"%s","service":"%s","host":"%s","status":"%s","ssh":"%s","service_active":"%s","service_enabled":"%s","config_present":%s,"env_present":%s,"spaps_set":%s,"spaps_ok":%s,"portal_set":%s,"portal_ok":%s,"error_lines":%s,"version":"%s","ssh_password_auth":"%s","ssh_root_login":"%s","ufw_status":"%s","ufw_service":"%s","fail2ban_service":"%s","security_root_proof":"%s","sshd_root_proof":"%s","ufw_root_proof":"%s","notes":"%s"}\n' \
       "$(json_escape "$name")" \
       "$(json_escape "$svc")" \
       "$(json_escape "$host")" \
@@ -274,6 +302,14 @@ emit_health() {
       "$portal_ok" \
       "$error_count" \
       "$(json_escape "$version")" \
+      "$(json_escape "$ssh_password_auth")" \
+      "$(json_escape "$ssh_root_login")" \
+      "$(json_escape "$ufw_status")" \
+      "$(json_escape "$ufw_service")" \
+      "$(json_escape "$fail2ban_service")" \
+      "$(json_escape "$security_root_proof")" \
+      "$(json_escape "$sshd_root_proof")" \
+      "$(json_escape "$ufw_root_proof")" \
       "$(json_escape "$notes")"
     return 0
   fi
@@ -284,6 +320,7 @@ emit_health() {
 check_one_claw_health() {
   local name="$1" svc="$2" home="$3" ip="$4"
   local target env_prefix app_home path_prepend
+  local -a health_ssh_users=()
   local status="ok"
   local ssh_ok="yes"
   local service_active="unknown"
@@ -296,21 +333,63 @@ check_one_claw_health() {
   local portal_ok="0"
   local error_count="0"
   local version="unknown"
+  local ssh_password_auth="unknown"
+  local ssh_root_login="unknown"
+  local ufw_status="unknown"
+  local ufw_service_active="unknown"
+  local fail2ban_service_active="unknown"
+  local security_root_proof="none"
+  local sshd_root_proof="no"
+  local ufw_root_proof="no"
   local notes=()
   local severity=0
   local remote_ctx=""
 
-  target="$(ssh_target "${ip}")"
+  health_ssh_users+=("${SSH_LOGIN_USER}")
+  if [[ -n "${SSH_FALLBACK_USERS}" ]]; then
+    local -a fallback_users=()
+    local fallback_user candidate_user existing_user seen
+    IFS=',' read -r -a fallback_users <<< "${SSH_FALLBACK_USERS}"
+    for fallback_user in "${fallback_users[@]}"; do
+      candidate_user="${fallback_user//[[:space:]]/}"
+      [[ -n "${candidate_user}" ]] || continue
+      seen=0
+      for existing_user in "${health_ssh_users[@]}"; do
+        if [[ "${existing_user}" == "${candidate_user}" ]]; then
+          seen=1
+          break
+        fi
+      done
+      if [[ "$seen" == "0" ]]; then
+        health_ssh_users+=("${candidate_user}")
+      fi
+    done
+  fi
+
+  target="$(ssh_target_for_user "${ip}" "${health_ssh_users[0]}")"
   env_prefix="$(claw_env_prefix "${home}")"
   app_home="${home%/.openclaw}"
   path_prepend="${app_home}/.npm-global/bin:${app_home}/.local/bin:/home/openclaw/.npm-global/bin:/home/openclaw/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
   if [[ -n "${env_prefix}" ]]; then
-    remote_ctx="export ${env_prefix}; "
+    remote_ctx="${env_prefix} "
   fi
 
-  if ! remote "${target}" "echo ok" >/dev/null 2>&1; then
-    emit_health "${name}" "${svc}" "${target}" "fail" "no" "down" "down" 0 0 0 0 0 0 0 "unreachable" "ssh_unreachable"
+  local ssh_ready=0
+  local ssh_user_target
+  for ssh_user_target in "${health_ssh_users[@]}"; do
+    local candidate_target
+    candidate_target="$(ssh_target_for_user "${ip}" "${ssh_user_target}")"
+    if remote "${candidate_target}" "echo ok" >/dev/null 2>&1; then
+      target="${candidate_target}"
+      ssh_ready=1
+      break
+    fi
+  done
+
+  if [[ "$ssh_ready" == "0" ]]; then
+    emit_health "${name}" "${svc}" "${target}" "fail" "no" "down" "down" 0 0 0 0 0 0 0 "unreachable" "ssh_unreachable" "unknown" "unknown" "unknown" "unknown" "unknown" "none" "no" "no"
+    HEALTH_FAIL_COUNT=$((HEALTH_FAIL_COUNT + 1))
     return 0
   fi
 
@@ -336,10 +415,24 @@ check_one_claw_health() {
     notes+=("missing_env")
   fi
 
+  ufw_service_active="$(remote "${target}" "systemctl is-active ufw 2>/dev/null || echo unknown")"
+  ufw_service_active="${ufw_service_active%$'\r'}"
+  fail2ban_service_active="$(remote "${target}" "systemctl is-active fail2ban 2>/dev/null || echo unknown")"
+  fail2ban_service_active="${fail2ban_service_active%$'\r'}"
+
+  if [[ "${ufw_service_active}" != "active" ]]; then
+    [[ "$severity" -lt 1 ]] && severity=1
+    notes+=("ufw_service_not_active")
+  fi
+  if [[ "${fail2ban_service_active}" != "active" ]]; then
+    [[ "$severity" -lt 1 ]] && severity=1
+    notes+=("fail2ban_service_not_active")
+  fi
+
   local spaps_url portal_url
   spaps_url="$(remote "${target}" "grep '^SPAPS_API_URL=' '${home}/.env' 2>/dev/null | tail -1 | cut -d= -f2- || true")"
   spaps_url="${spaps_url%$'\r'}"
-  portal_url="$(remote "${target}" "grep '^OPENCLAWTH_PORTAL_URL=' '${home}/.env' 2>/dev/null | tail -1 | cut -d= -f2- || true")"
+  portal_url="$(remote "${target}" "grep '^UNCLAWG_PORTAL_URL=' '${home}/.env' 2>/dev/null | tail -1 | cut -d= -f2- || true")"
   portal_url="${portal_url%$'\r'}"
 
   if [[ -n "${spaps_url}" ]]; then
@@ -391,12 +484,140 @@ check_one_claw_health() {
   version="$(remote "${target}" "${remote_ctx}PATH='${path_prepend}'; if command -v openclaw >/dev/null 2>&1; then openclaw --version 2>/dev/null | head -1; else echo missing; fi")"
   version="${version%$'\r'}"
 
+  local sshd_effective password_auth_setting root_login_setting ufw_raw
+  local sshd_inferred inferred_password_setting inferred_root_setting sshd_unreadable_count
+  local password_setting_source="effective" root_setting_source="effective"
+  sshd_effective="$(remote "${target}" "sudo -n /usr/sbin/sshd -T 2>/dev/null || sudo -n sshd -T 2>/dev/null || true")"
+  if [[ -n "${sshd_effective}" ]]; then
+    sshd_root_proof="yes"
+  else
+    sshd_effective="$(remote "${target}" "/usr/sbin/sshd -T 2>/dev/null || sshd -T 2>/dev/null || true")"
+  fi
+  sshd_effective="${sshd_effective%$'\r'}"
+  password_auth_setting="$(printf '%s\n' "${sshd_effective}" | awk '/^passwordauthentication / {print $2; exit}')"
+  root_login_setting="$(printf '%s\n' "${sshd_effective}" | awk '/^permitrootlogin / {print $2; exit}')"
+
+  if [[ -z "${password_auth_setting:-}" || -z "${root_login_setting:-}" ]]; then
+    sshd_inferred="$(remote "${target}" "{ cat /etc/ssh/sshd_config 2>/dev/null; for f in /etc/ssh/sshd_config.d/*.conf; do [ -e \"\$f\" ] || continue; [ -r \"\$f\" ] || continue; cat \"\$f\" 2>/dev/null; done; } | awk 'BEGIN{IGNORECASE=1} /^[[:space:]]*#/ {next} /^[[:space:]]*PermitRootLogin[[:space:]]+/ {print \"permitrootlogin \" tolower(\$2)} /^[[:space:]]*PasswordAuthentication[[:space:]]+/ {print \"passwordauthentication \" tolower(\$2)}' || true")"
+    sshd_inferred="${sshd_inferred%$'\r'}"
+    inferred_password_setting="$(printf '%s\n' "${sshd_inferred}" | awk '/^passwordauthentication / {v=$2} END {print v}')"
+    inferred_root_setting="$(printf '%s\n' "${sshd_inferred}" | awk '/^permitrootlogin / {v=$2} END {print v}')"
+    sshd_unreadable_count="$(remote "${target}" "count=0; for f in /etc/ssh/sshd_config.d/*.conf; do [ -e \"\$f\" ] || continue; [ -r \"\$f\" ] || count=\$((count+1)); done; echo \"\$count\"")"
+    sshd_unreadable_count="${sshd_unreadable_count%$'\r'}"
+
+    if [[ -z "${password_auth_setting:-}" && -n "${inferred_password_setting:-}" ]]; then
+      password_auth_setting="${inferred_password_setting}"
+      password_setting_source="inferred"
+    fi
+    if [[ -z "${root_login_setting:-}" && -n "${inferred_root_setting:-}" ]]; then
+      root_login_setting="${inferred_root_setting}"
+      root_setting_source="inferred"
+    fi
+
+    if [[ "${password_setting_source}" == "inferred" || "${root_setting_source}" == "inferred" ]]; then
+      [[ "$severity" -lt 1 ]] && severity=1
+      notes+=("sshd_settings_inferred")
+      if [[ "${sshd_unreadable_count:-0}" =~ ^[0-9]+$ ]] && (( sshd_unreadable_count > 0 )); then
+        notes+=("sshd_config_partial_visibility")
+      fi
+    fi
+  fi
+
+  case "${password_auth_setting:-}" in
+    no)
+      ssh_password_auth="disabled"
+      ;;
+    yes)
+      ssh_password_auth="enabled"
+      severity=2
+      notes+=("ssh_password_auth_enabled")
+      ;;
+    *)
+      ssh_password_auth="unknown"
+      [[ "$severity" -lt 1 ]] && severity=1
+      notes+=("ssh_password_auth_unknown")
+      ;;
+  esac
+
+  case "${root_login_setting:-}" in
+    no)
+      ssh_root_login="disabled"
+      ;;
+    prohibit-password|without-password|forced-commands-only)
+      ssh_root_login="restricted"
+      [[ "$severity" -lt 1 ]] && severity=1
+      notes+=("ssh_root_login_restricted")
+      ;;
+    yes)
+      ssh_root_login="enabled"
+      severity=2
+      notes+=("ssh_root_login_enabled")
+      ;;
+    *)
+      ssh_root_login="unknown"
+      [[ "$severity" -lt 1 ]] && severity=1
+      notes+=("ssh_root_login_unknown")
+      ;;
+  esac
+
+  ufw_raw="$(remote "${target}" "sudo -n ufw status 2>/dev/null || true")"
+  if printf '%s\n' "${ufw_raw}" | grep -qi '^Status:[[:space:]]*(active|inactive)'; then
+    ufw_root_proof="yes"
+  else
+    ufw_raw="$(remote "${target}" "ufw status 2>/dev/null || true")"
+  fi
+  ufw_raw="${ufw_raw%$'\r'}"
+  if printf '%s\n' "${ufw_raw}" | grep -qi '^Status:[[:space:]]*active'; then
+    ufw_status="active"
+  elif printf '%s\n' "${ufw_raw}" | grep -qi '^Status:[[:space:]]*inactive'; then
+    ufw_status="inactive"
+    [[ "$severity" -lt 1 ]] && severity=1
+    notes+=("ufw_inactive")
+  elif [[ -n "${ufw_raw}" ]]; then
+    ufw_status="unknown"
+    [[ "$severity" -lt 1 ]] && severity=1
+    notes+=("ufw_status_unknown")
+  else
+    if [[ "${ufw_service_active}" == "active" ]]; then
+      ufw_status="active_inferred"
+      [[ "$severity" -lt 1 ]] && severity=1
+      notes+=("ufw_status_inferred_from_service")
+    else
+      ufw_status="unavailable"
+      [[ "$severity" -lt 1 ]] && severity=1
+      notes+=("ufw_status_unavailable")
+    fi
+  fi
+
+  if [[ "${sshd_root_proof}" == "yes" && "${ufw_root_proof}" == "yes" ]]; then
+    security_root_proof="verified"
+  elif [[ "${sshd_root_proof}" == "yes" || "${ufw_root_proof}" == "yes" ]]; then
+    security_root_proof="partial"
+  else
+    security_root_proof="none"
+  fi
+
+  if [[ "${security_root_proof}" != "verified" ]]; then
+    [[ "$severity" -lt 1 ]] && severity=1
+    notes+=("security_root_proof_${security_root_proof}")
+    if [[ "${REQUIRE_ROOT_PROOF}" == "1" ]]; then
+      severity=2
+      notes+=("root_proof_required_but_unavailable")
+    fi
+  fi
+
   if [[ "${severity}" -eq 2 ]]; then
     status="fail"
   elif [[ "${severity}" -eq 1 ]]; then
     status="warn"
   else
     status="ok"
+  fi
+
+  if [[ "${status}" == "fail" ]]; then
+    HEALTH_FAIL_COUNT=$((HEALTH_FAIL_COUNT + 1))
+  elif [[ "${status}" == "warn" ]]; then
+    HEALTH_WARN_COUNT=$((HEALTH_WARN_COUNT + 1))
   fi
 
   local note_text
@@ -407,12 +628,14 @@ check_one_claw_health() {
     note_text="ok"
   fi
 
-  emit_health "${name}" "${svc}" "${target}" "${status}" "${ssh_ok}" "${service_active}" "${service_enabled}" "${config_present}" "${env_present}" "${spaps_set}" "${spaps_ok}" "${portal_set}" "${portal_ok}" "${error_count}" "${version}" "${note_text}"
+  emit_health "${name}" "${svc}" "${target}" "${status}" "${ssh_ok}" "${service_active}" "${service_enabled}" "${config_present}" "${env_present}" "${spaps_set}" "${spaps_ok}" "${portal_set}" "${portal_ok}" "${error_count}" "${version}" "${note_text}" "${ssh_password_auth}" "${ssh_root_login}" "${ufw_status}" "${ufw_service_active}" "${fail2ban_service_active}" "${security_root_proof}" "${sshd_root_proof}" "${ufw_root_proof}"
 }
 
 do_health() {
   require_instances
   local had_target=0
+  HEALTH_FAIL_COUNT=0
+  HEALTH_WARN_COUNT=0
 
   if [[ -n "${CLAW_NAME}" ]]; then
     local info
@@ -435,6 +658,10 @@ do_health() {
 
   if [[ "${had_target}" -eq 0 ]]; then
     echo "No claw instances found in deployed-instances.md"
+  fi
+
+  if (( HEALTH_FAIL_COUNT > 0 )); then
+    return 2
   fi
 }
 
@@ -621,7 +848,7 @@ do_ssh() {
     echo "  OPENCLAW_STATE_DIR and OPENCLAW_CONFIG_PATH are set"
     echo "  Run: openclaw agents list   or   openclaw agent --agent <id> --message \"...\""
     echo ""
-    remote_tty "${target}" "export ${env_prefix}; export PATH=/home/${PRIMARY_USER}/.npm-global/bin:\$PATH; exec bash -l"
+    remote_tty "${target}" "${env_prefix} export PATH=/home/${PRIMARY_USER}/.npm-global/bin:\$PATH; exec bash -l"
   else
     echo "→ SSH to ${target}"
     echo ""

@@ -31,12 +31,12 @@
       "cron",
       "sessions_spawn",
       "session_spawn",
-      "bash -lc *",
       "python *",
       "node *"
     ],
     "exec": {
       "ask": "always",
+      "host": "sandbox",
       "safeBins": [
         "jq",
         "grep",
@@ -46,10 +46,16 @@
         "head",
         "tail",
         "tr",
-        "wc",
-        "echo",
-        "printf"
+        "wc"
       ]
+    },
+    "elevated": {
+      "enabled": true,
+      "allowFrom": {
+        "telegram": [
+          "{{TELEGRAM_ALLOWED_USER_ID}}"
+        ]
+      }
     }
   },
   "commands": {
@@ -66,7 +72,7 @@
       "targets": [
         {
           "channel": "telegram",
-          "to": "{{TELEGRAM_USER_ID}}"
+          "to": "{{TELEGRAM_GROUP_CHAT_ID}}"
         }
       ]
     }
@@ -74,12 +80,14 @@
   "channels": {
     "telegram": {
       "enabled": true,
-      "dmPolicy": "allowlist",
       "botToken": "${OPENCLAW_TG_TOKEN}",
-      "allowFrom": [
-        "{{TELEGRAM_USER_ID}}"
+      "groupPolicy": "allowlist",
+      "groupAllowFrom": [
+        "{{TELEGRAM_ALLOWED_USER_ID}}"
       ],
-      "groupPolicy": "disabled",
+      "groups": {
+        "{{TELEGRAM_GROUP_CHAT_ID}}": {}
+      },
       "streamMode": "partial"
     }
   },

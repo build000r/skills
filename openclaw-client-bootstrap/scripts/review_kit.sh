@@ -9,7 +9,7 @@ set -euo pipefail
 #   review_kit.sh /path/to/kit             # review a generated kit
 #   review_kit.sh --skill                  # explicit: review the skill template
 #   review_kit.sh --live                   # SSH into droplet (delegates to review_live.sh)
-#   review_kit.sh --live root@<tailscale-ip> # SSH into specific host
+#   review_kit.sh --live openclaw@<tailscale-ip> # SSH into specific host
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILL_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -89,7 +89,6 @@ else
     jq -e '.agents.list[0].prompt' "${CONFIG}" >/dev/null 2>&1 && removed_keys=$((removed_keys + 1)) && echo "       found: agents.list[0].prompt"
     jq -e '.telegram' "${CONFIG}" >/dev/null 2>&1 && removed_keys=$((removed_keys + 1)) && echo "       found: top-level telegram block"
     jq -e '.channels.pairing' "${CONFIG}" >/dev/null 2>&1 && removed_keys=$((removed_keys + 1)) && echo "       found: channels.pairing"
-    jq -e '.tools.elevated' "${CONFIG}" >/dev/null 2>&1 && removed_keys=$((removed_keys + 1)) && echo "       found: tools.elevated"
     jq -e '.channels.telegram.token' "${CONFIG}" >/dev/null 2>&1 && removed_keys=$((removed_keys + 1)) && echo "       found: channels.telegram.token"
     if [[ ${removed_keys} -eq 0 ]]; then pass "1.2 No removed keys"; else fail "1.2 Found ${removed_keys} removed key(s)"; fi
 
@@ -122,10 +121,12 @@ else
       fi
     fi
 
-    if jq -e '.channels.telegram.dmPolicy // .telegram.dmPolicy' "${CONFIG}" >/dev/null 2>&1; then
-      pass "1.5 telegram.dmPolicy present"
+    if jq -e '.channels.telegram.groupPolicy == "allowlist"' "${CONFIG}" >/dev/null 2>&1 \
+      && jq -e '.channels.telegram.groupAllowFrom | type == "array" and length > 0' "${CONFIG}" >/dev/null 2>&1 \
+      && jq -e '(.channels.telegram.groups // empty) | ((type == "array" and length > 0) or (type == "object" and (keys | length) > 0))' "${CONFIG}" >/dev/null 2>&1; then
+      pass "1.5 Telegram group allowlist policy present"
     else
-      fail "1.5 telegram.dmPolicy missing or incomplete"
+      fail "1.5 Telegram group allowlist policy missing or incomplete"
     fi
 
     if jq -e '.approvals.exec.mode' "${CONFIG}" >/dev/null 2>&1; then
@@ -185,11 +186,13 @@ else
   for check in \
     "2.1:OPENCLAW_GATEWAY_TOKEN" \
     "2.2:OPENCLAW_TG_TOKEN" \
+    "2.2b:TELEGRAM_GROUP_CHAT_IDS" \
+    "2.2c:TELEGRAM_ALLOWED_USER_IDS" \
     "2.3a:SPAPS_API_URL" \
     "2.3b:SPAPS_API_KEY" \
     "2.3c:SPAPS_AGENT_ID" \
     "2.3d:SPAPS_AGENT_SECRET" \
-    "2.4:OPENCLAWTH_PORTAL_URL"; do
+    "2.4:UNCLAWG_PORTAL_URL"; do
     num="${check%%:*}"
     var="${check##*:}"
     if grep -q "^${var}=" "${ENV_FILE}"; then
@@ -228,7 +231,8 @@ if [[ -f "${BOOTSTRAP}" ]]; then
   bs_ok=true
   grep -q 'nodesource\|setup_22' "${BOOTSTRAP}" 2>/dev/null || { bs_ok=false; echo "       missing: Node.js install"; }
   grep -q 'docker' "${BOOTSTRAP}" 2>/dev/null || { bs_ok=false; echo "       missing: Docker install"; }
-  if [[ "${bs_ok}" == "true" ]]; then pass "3.2 Bootstrap installs Node.js + Docker"; else fail "3.2 Bootstrap missing prereqs"; fi
+  grep -q 'tmux' "${BOOTSTRAP}" 2>/dev/null || { bs_ok=false; echo "       missing: tmux install"; }
+  if [[ "${bs_ok}" == "true" ]]; then pass "3.2 Bootstrap installs Node.js + Docker + tmux"; else fail "3.2 Bootstrap missing prereqs"; fi
 else
   fail "3.2 01-bootstrap-do.sh missing"
 fi
@@ -243,6 +247,28 @@ else
   fail "3.3 03-install-openclaw.sh missing"
 fi
 
+TAILSCALE_INSTALL="${TARGET}/scripts/02-install-tailscale.sh"
+if [[ -f "${TAILSCALE_INSTALL}" ]]; then
+  hardening_ok=true
+  grep -q 'PermitRootLogin no' "${TAILSCALE_INSTALL}" 2>/dev/null || { hardening_ok=false; echo "       missing: PermitRootLogin no"; }
+  grep -q 'AllowUsers' "${TAILSCALE_INSTALL}" 2>/dev/null || { hardening_ok=false; echo "       missing: AllowUsers"; }
+  grep -q '100\.64\.0\.0/10\|TAILNET_SSH_CIDR' "${TAILSCALE_INSTALL}" 2>/dev/null || { hardening_ok=false; echo "       missing: Tailnet SSH rule"; }
+  if [[ "${hardening_ok}" == "true" ]]; then
+    pass "3.10 Tailscale install enforces Tailnet-only non-root SSH"
+  else
+    fail "3.10 Tailscale install missing SSH hardening"
+  fi
+else
+  fail "3.10 02-install-tailscale.sh missing"
+fi
+
+COLLAB_SCRIPT="${TARGET}/scripts/05-setup-collab-tmux.sh"
+if [[ -f "${COLLAB_SCRIPT}" ]]; then
+  pass "3.11 Optional tmux collaboration hardening script present"
+else
+  warn "3.11 Optional tmux collaboration hardening script missing"
+fi
+
 if [[ -f "${INSTALL}" ]]; then
   config_line="$(grep -n 'install.*openclaw.json\|install.*\.env' "${INSTALL}" 2>/dev/null | head -1 | cut -d: -f1 || echo 999)"
   cli_line="$(grep -n 'curl.*install\.sh\|openclaw.ai' "${INSTALL}" 2>/dev/null | head -1 | cut -d: -f1 || echo 0)"
@@ -255,7 +281,8 @@ fi
 
 if [[ -f "${INSTALL}" ]]; then
   if [[ "${REVIEWING_TEMPLATE}" == "true" ]]; then
-    if grep -q '{{TELEGRAM_USER_ID}}' "${INSTALL}" && ! grep -q '<YOUR_TELEGRAM_USER_ID>' "${INSTALL}"; then
+    if grep -Eq '{{TELEGRAM_ALLOWED_USER_ID}}|{{TELEGRAM_GROUP_CHAT_ID}}' "${INSTALL}" \
+      && ! grep -q '<YOUR_TELEGRAM_USER_ID>' "${INSTALL}"; then
       pass "3.5 Install uses new placeholder format"
     else
       fail "3.5 Install uses legacy placeholder format"
@@ -263,7 +290,7 @@ if [[ -f "${INSTALL}" ]]; then
   else
     if grep -q '<YOUR_TELEGRAM_USER_ID>' "${INSTALL}"; then
       fail "3.5 Generated kit still contains legacy placeholder format"
-    elif grep -q '{{TELEGRAM_USER_ID}}' "${INSTALL}"; then
+    elif grep -Eq '{{TELEGRAM_ALLOWED_USER_ID}}|{{TELEGRAM_GROUP_CHAT_ID}}' "${INSTALL}"; then
       fail "3.5 Generated kit still contains unresolved placeholder"
     else
       pass "3.5 Install placeholders resolved in generated kit"
@@ -274,7 +301,7 @@ fi
 VALIDATE="${TARGET}/scripts/04-validate.sh"
 if [[ -f "${VALIDATE}" ]]; then
   if grep -q 'SPAPS' "${VALIDATE}"; then pass "3.6 Validate checks SPAPS"; else fail "3.6 Validate missing SPAPS check"; fi
-  if grep -q 'OPENCLAWTH\|portal' "${VALIDATE}"; then pass "3.7 Validate checks portal"; else fail "3.7 Validate missing portal check"; fi
+  if grep -q 'UNCLAWG\|portal' "${VALIDATE}"; then pass "3.7 Validate checks portal"; else fail "3.7 Validate missing portal check"; fi
   if grep -q 'channels\.telegram\.enabled' "${VALIDATE}"; then
     pass "3.8 Validate checks channels.telegram.enabled"
   elif grep -q 'telegram\.enabled' "${VALIDATE}"; then
@@ -338,7 +365,7 @@ if [[ ${spaps_count} -ge 3 ]]; then pass "4.2 SPAPS referenced in ${spaps_count}
 
 portal_count=0
 for f in "${DOC_FILES[@]}"; do
-  grep -qi 'openclawth\|portal' "${f}" 2>/dev/null && portal_count=$((portal_count + 1))
+  grep -qi 'unclawg\|portal' "${f}" 2>/dev/null && portal_count=$((portal_count + 1))
 done
 if [[ ${portal_count} -ge 3 ]]; then pass "4.3 Portal referenced in ${portal_count} docs"; else fail "4.3 Portal only in ${portal_count} doc(s)"; fi
 
@@ -381,13 +408,13 @@ if [[ ${channels_pairing} -eq 0 ]]; then pass "4.7 No channels.pairing reference
 
 tools_elevated=0
 for f in "${DOC_FILES[@]}"; do
-  matches="$(grep -n 'tools\.elevated\|tools.elevated\|allowWhenRequestedBy' "${f}" 2>/dev/null || true)"
-  filtered="$(echo "${matches}" | grep -vi 'not.*recognized\|removed\|is not\|no longer' || true)"
+  matches="$(grep -n 'allowWhenRequestedBy\|tools\.elevated\.require' "${f}" 2>/dev/null || true)"
+  filtered="$(echo "${matches}" | grep -vi 'not.*recognized\|removed\|is not\|no longer\|legacy' || true)"
   if [[ -n "${filtered}" ]]; then
     tools_elevated=$((tools_elevated + 1))
   fi
 done
-if [[ ${tools_elevated} -eq 0 ]]; then pass "4.8 No tools.elevated references"; else fail "4.8 ${tools_elevated} doc(s) reference removed config"; fi
+if [[ ${tools_elevated} -eq 0 ]]; then pass "4.8 No legacy tools.elevated references"; else fail "4.8 ${tools_elevated} doc(s) reference legacy elevated keys"; fi
 
 echo
 
@@ -412,7 +439,9 @@ else
     done
     if [[ "${spaps_flags}" == "true" ]]; then pass "5.2 SPAPS flags present"; else fail "5.2 Missing SPAPS flags"; fi
 
-    if grep -q '{{TELEGRAM_USER_ID}}' "${GEN}" && grep -q '{{CLIENT_NAME}}' "${GEN}"; then
+    if grep -q '{{TELEGRAM_ALLOWED_USER_ID}}' "${GEN}" \
+      && grep -q '{{TELEGRAM_GROUP_CHAT_ID}}' "${GEN}" \
+      && grep -q '{{CLIENT_NAME}}' "${GEN}"; then
       pass "5.3 Substitutes placeholders"
     else
       fail "5.3 Missing placeholder substitution"
@@ -446,7 +475,7 @@ else
     fail "6.0 validate_client_kit.sh missing"
   else
     schema_checks=true
-    for pattern in 'agents.*prompt\|\.prompt' 'channels.*pairing\|pairing' 'tools.*elevated\|elevated' 'channels\.telegram\.token'; do
+    for pattern in 'agents.*prompt\|\.prompt' 'channels.*pairing\|pairing' 'channels\.telegram\.token' 'groupPolicy' 'groupAllowFrom' 'tools\.elevated\.enabled'; do
       if ! grep -q "${pattern}" "${VAL}" 2>/dev/null; then
         schema_checks=false
       fi
@@ -458,6 +487,11 @@ else
       pass "6.2b Checks exec.safeBins semantics"
     else
       fail "6.2b Missing exec.safeBins semantic checks"
+    fi
+    if grep -q 'PermitRootLogin no' "${VAL}" && grep -q 'AllowUsers' "${VAL}" && grep -q 'Tailnet SSH firewall rule\|TAILNET_SSH_CIDR' "${VAL}"; then
+      pass "6.2d Checks SSH hardening expectations"
+    else
+      fail "6.2d Missing SSH hardening checks"
     fi
     if grep -q 'spaps-api-key\|replace-with-spaps\|SPAPS_API_KEY' "${VAL}"; then pass "6.3 SPAPS placeholder checks"; else fail "6.3 Missing SPAPS checks"; fi
     if grep -q '{{' "${VAL}"; then pass "6.4 Template marker catch-all"; else fail "6.4 Missing marker check"; fi

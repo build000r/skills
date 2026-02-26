@@ -20,7 +20,7 @@
 ## Approval Routing
 
 - All approval events create SPAPS requests; Telegram notifies with a portal link.
-- Operators review and approve/reject proposals at the OpenClawth portal.
+- Operators review and approve/reject proposals at the Unclawg portal.
 - Only operator Telegram IDs in the allowlist can interact with the bot.
 - Group use requires explicit mention policy when enabled by channel profile.
 

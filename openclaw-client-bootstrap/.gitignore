@@ -1,0 +1,8 @@
+# Private deployment state (never ship in public package)
+references/deployed-instances.md
+references/deployed-instances.local.md
+assets/instances/
+
+# Local/operator artifacts
+assets/client-kit/.env
+*.bak.*

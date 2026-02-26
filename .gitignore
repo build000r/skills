@@ -19,6 +19,7 @@ domain-planner/assets/templates/frontend-*.md
 !domain-planner/assets/templates/frontend.md
 
 # in progress
+deploy/
 deploy-debug/
 find-customers/
 find-customers-buildooor/

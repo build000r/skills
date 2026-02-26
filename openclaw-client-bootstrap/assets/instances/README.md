@@ -36,14 +36,16 @@ If the droplet root disk is lost:
 
 ```bash
 # Copy this instance's config to the new droplet
-scp -r assets/instances/<claw-name>/ root@<new-droplet>:/opt/<claw-name>-openclaw/
+scp -r assets/instances/<claw-name>/ openclaw@<tailnet-ip>:/opt/<claw-name>-openclaw/
 
 # Re-create .env from your secrets manager, then:
-ssh root@<new-droplet>
+ssh openclaw@<tailnet-ip>
 cd /opt/<claw-name>-openclaw
 scripts/03-install-openclaw.sh
 scripts/04-validate.sh
 ```
+
+If this is a brand-new droplet, run bootstrap + tailscale scripts first as root, then switch to non-root Tailnet SSH for day-2 operations.
 
 ## Adding a New Instance
 

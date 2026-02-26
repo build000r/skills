@@ -2,7 +2,7 @@
 name: openclaw-client-bootstrap
 description: >
   Build a production-ready OpenClaw client setup for DigitalOcean + Tailscale + Telegram + SPAPS
-  using a reusable hardened template with read-only defaults and human approval through the OpenClawth portal.
+  using a reusable hardened template with read-only defaults and human approval through the Unclawg portal.
   Use when asked to "set up OpenClaw on a droplet", "create a first claw kit", "bootstrap client box",
   "DigitalOcean + Tailscale + Telegram OpenClaw", "read-only OpenClaw config", or "approval-gated OpenClaw setup".
 ---
@@ -12,8 +12,9 @@ description: >
 Create and apply a reusable client kit for OpenClaw with strict governance:
 
 - private gateway exposure through Tailscale
+- Tailnet-only SSH with non-root logins by default
 - Telegram notification channel (sends portal links for approval events)
-- SPAPS approval backend with OpenClawth portal for human review
+- SPAPS approval backend with Unclawg portal for human review
 - read-only credentials in OpenClaw
 - explicit write-gateway contract for all external mutations
 
@@ -46,18 +47,22 @@ Collect these before touching the droplet:
 
 1. Client name and environment label
 2. Telegram operator user ID allowlist
-3. Telegram bot token (from BotFather)
-4. SPAPS credentials (API URL, API key, agent ID, agent secret)
-5. OpenClawth portal URL
-6. Tailscale auth key and node hostname
-7. Integration inventory with read-only scopes
+3. Telegram group chat ID (and optional topic ID)
+4. Telegram bot token (from BotFather)
+5. SPAPS credentials (API URL, API key, agent ID, agent secret)
+6. Unclawg portal URL
+7. Tailscale auth key and node hostname
+8. Integration inventory with read-only scopes
 
 Reference: [references/deployment-workflow.md](references/deployment-workflow.md)
 
 ## Customize the Kit
 
 1. Fill `.env` values (including SPAPS credentials).
-2. Replace all `{{TELEGRAM_USER_ID}}` placeholders in `openclaw.json`.
+2. Replace Telegram placeholders in `openclaw.json`:
+   - `{{TELEGRAM_ALLOWED_USER_ID}}`
+   - `{{TELEGRAM_GROUP_CHAT_ID}}`
+   - Optional: add `topicId` per group entry when topic-scoped.
    - Keep `approvals.exec.targets[*].to` concrete (numeric ID or explicit chat ID), not `${env:...}`.
 3. Review `SOUL.md`, `AGENTS.md`, and `USER.md` for client-specific constraints.
 4. Keep `security/WRITE_GATEWAY_CONTRACT.md` intact unless compliance requires stricter rules.
@@ -72,7 +77,8 @@ REV="$(ls ~/.codex/skills/openclaw-client-bootstrap/scripts/review_kit.sh ~/.cla
 bash "$REV" --skill                    # review the skill template
 bash "$REV" /tmp/<client>-openclaw     # review a generated kit
 bash "$REV" --live                     # SSH into droplet and review live deployment
-bash "$REV" --live root@<tailscale-ip> # specific host
+bash "$REV" --live openclaw@<tailscale-ip> # specific host
+bash "$REV" --live --host <tailscale-ip> --ssh-user aiops # dedicated collab login
 bash "$REV" --live --service openclaw-<claw>.service --home /home/<claw-user>/.openclaw --user openclaw
 bash "$REV" --live --strict            # production gate: missing SPAPS/portal vars fail
 ```
@@ -101,7 +107,8 @@ bash "$TALK" --claw ingredient-claw --logs 100             # last 100 log lines
 bash "$TALK" --health                                      # health summary for all claws
 bash "$TALK" --health --claw ingredient-claw                # health summary for one claw
 bash "$TALK" --health --emit-logs --log-dir ~/.openclaw/logs --log-prefix openclaw  # health + persisted snapshots
-bash "$TALK" --ssh                                         # plain SSH into the droplet
+bash "$TALK" --ssh                                         # plain SSH into the droplet (non-root)
+bash "$TALK" --ssh-user aiops --ssh                        # use dedicated collab user
 bash "$TALK" --claw ingredient-claw --ssh                  # SSH with claw env pre-loaded
 ```
 
@@ -117,6 +124,43 @@ bash "$TALK" --claw ingredient-claw --ssh                  # SSH with claw env p
 
 For local integration workflows, use:
 `--emit-logs`, `--log-dir`, and `--log-prefix` to persist remote claw health snapshots.
+
+## Provider/Auth Rotation (Codex Default)
+
+Use `scripts/update-oauth-token.sh` as the single path for credential updates across co-located claws.
+
+```bash
+# Default provider: Codex OAuth from ~/.codex/auth.json -> OPENAI_API_KEY
+bash scripts/update-oauth-token.sh --dry-run
+bash scripts/update-oauth-token.sh
+bash scripts/update-oauth-token.sh --ssh-user aiops   # when using dedicated collab login
+
+# Anthropic swap (stdin preferred)
+echo "sk-ant-..." | bash scripts/update-oauth-token.sh --anthropic
+```
+
+What this script now enforces:
+- Updates shared env (`<openclaw-home>/shared.env` by default) and each claw `.env`
+- For Codex, writes canonical `auth-profiles.json` store (`version/profiles/order`) for `openai-codex` under every agent dir
+- Warns on model/provider mismatch (`openai/*-codex` vs `anthropic/*`)
+- Warns if `agents.defaults.model.reasoningEffort` exists (can trigger `Unknown config keys` on this runtime)
+
+Do not hand-edit `auth-profiles.json` unless diagnosing parser behavior.
+
+## Deterministic Recovery Order
+
+When a claw fails after provider/model changes, recover in this exact order:
+
+1. Fix model in each `openclaw.json` (`agents.defaults.model.primary` only).
+2. Run `bash scripts/update-oauth-token.sh ...` for the target provider.
+3. Restart services (script does this unless `--no-restart`).
+4. Verify:
+   - `bash scripts/talk.sh --list`
+   - `bash scripts/talk.sh --health`
+   - `bash scripts/talk.sh --health --require-root-proof --json` (definitive SSH/UFW proof; fails if checks are inferred)
+   - `bash scripts/talk.sh --claw <name> --new --message "Reply ONLY: OK"`
+
+If `talk.sh` says `Could not auto-discover agent ID`, re-run with `--agent <id>` from `--list`.
 
 ## Continuous Improvement Loop (Use skill-issue)
 
@@ -158,8 +202,11 @@ Use the generated kit's scripts in this order on the droplet:
 2. `scripts/02-install-tailscale.sh`
 3. `scripts/03-install-openclaw.sh`
 4. `scripts/04-validate.sh`
+5. Optional for shared operator sessions: `scripts/05-setup-collab-tmux.sh`
 
 Then verify Telegram notification delivery and SPAPS/portal connectivity.
+
+Cloud firewall requirement: remove public `22/tcp` and rely on Tailnet SSH only.
 
 Reference: [references/deployment-workflow.md](references/deployment-workflow.md)
 
@@ -167,7 +214,7 @@ Reference: [references/deployment-workflow.md](references/deployment-workflow.md
 
 1. OpenClaw stores read-only credentials only.
 2. External writes are proposed, never executed directly.
-3. Write execution requires human approval through the OpenClawth portal, backed by SPAPS.
+3. Write execution requires human approval through the Unclawg portal, backed by SPAPS.
 4. Operator approvals must be logged with identity, timestamp, payload hash, and result.
 
 Reference: [references/read-only-governance.md](references/read-only-governance.md)
@@ -195,11 +242,11 @@ After bootstrapping any new claw: copy its non-secret files into `assets/instanc
 
 The kit template may need these fixes for current OpenClaw versions:
 
-- `channels.pairing` is not a valid channel — use `dmPolicy` inside `channels.telegram`
+- `channels.pairing` is not a valid channel — use `channels.telegram.groupPolicy` + `groupAllowFrom` + `groups`
 - Telegram token key is `botToken`, not `token`
 - `tools.exec.ask` expects `"off"|"on-miss"|"always"`, not an array
 - `tools.policyMode`, `tools.exec.fallback`, `tools.exec.rules` are not recognized — do not add them
-- `tools.elevated.require` / `allowWhenRequestedBy` are not recognized
+- `tools.elevated.require` / `allowWhenRequestedBy` are not recognized; use `tools.elevated.enabled` + `tools.elevated.allowFrom.telegram`
 - Run `tailscale set --operator=<app_user>` for Tailscale serve permissions
 
 ### Updates for v2026.2.17–2026.2.18

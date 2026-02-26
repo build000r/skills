@@ -2,7 +2,7 @@
 
 This skill enforces:
 
-`Read-only discovery in OpenClaw, write execution through human approval at the OpenClawth portal backed by SPAPS.`
+`Read-only discovery in OpenClaw, write execution through human approval at the Unclawg portal backed by SPAPS.`
 
 ## Controls in OpenClaw
 
@@ -20,10 +20,10 @@ This skill enforces:
 ## Approval Surface
 
 - **Telegram** = notification channel ("doorbell") — sends links to the approval portal
-- **openclawth.com** = approval UI ("front door") — operator reviews and approves/rejects
+- **unclawg.com** = approval UI ("front door") — operator reviews and approves/rejects
 - **SPAPS** = approval backend — manages approval state and audit trail
 
-Operators never approve inline in Telegram. They click the portal link, review the full proposal, and approve or reject in the OpenClawth portal.
+Operators never approve inline in Telegram. They click the portal link, review the full proposal, and approve or reject in the Unclawg portal.
 
 ## Required Proposal Contents
 
@@ -39,7 +39,7 @@ Every suggested write action should include:
 
 ## Approval Ownership
 
-- OpenClawth portal is the single approval surface for all operators
+- Unclawg portal is the single approval surface for all operators
 - Telegram delivers notification links to designated operators
 - High-risk changes use two-person approval
 - SPAPS records approver identity, timestamp, payload hash, and result

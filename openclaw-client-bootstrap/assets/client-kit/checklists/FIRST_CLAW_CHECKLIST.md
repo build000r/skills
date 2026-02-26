@@ -12,7 +12,8 @@ Use this for every new client deployment.
 ## 2. Host Security
 
 - [ ] Run `scripts/01-bootstrap-do.sh` (installs Node.js 22, Docker, hardening).
-- [ ] Confirm UFW active with only SSH open.
+- [ ] Confirm UFW active with SSH allowed only from Tailnet (`100.64.0.0/10` or `tailscale0`).
+- [ ] Remove public `22/tcp` allow at the cloud firewall/security-group layer.
 - [ ] Confirm `fail2ban` running.
 - [ ] Confirm Node.js 22+ and Docker installed.
 
@@ -21,26 +22,34 @@ Use this for every new client deployment.
 - [ ] Run `scripts/02-install-tailscale.sh`.
 - [ ] Confirm node appears in tailnet.
 - [ ] Confirm SSH over Tailscale works.
+- [ ] Confirm `PermitRootLogin no` and `PasswordAuthentication no`.
 
 ## 4. OpenClaw Install
 
 - [ ] Copy `.env.example` to `.env` and fill secrets (including SPAPS credentials).
-- [ ] Replace `{{TELEGRAM_USER_ID}}` placeholders in `openclaw.json`.
+- [ ] Replace Telegram group + allowlist placeholders in `openclaw.json`.
 - [ ] Run `scripts/03-install-openclaw.sh`.
 - [ ] Run `scripts/04-validate.sh`.
+
+## 4b. Optional Shared Tmux Collaboration
+
+- [ ] Run `scripts/05-setup-collab-tmux.sh` if multi-operator shell collaboration is required.
+- [ ] Confirm `tmux -S /var/run/tmux-ai/shared.sock attach -t ai` works for allowed members.
 
 ## 5. SPAPS and Portal
 
 - [ ] Confirm SPAPS API URL, API key, agent ID, and agent secret are set in `.env`.
 - [ ] Confirm `04-validate.sh` reports SPAPS API reachable.
-- [ ] Confirm `04-validate.sh` reports OpenClawth portal reachable.
+- [ ] Confirm `04-validate.sh` reports Unclawg portal reachable.
 - [ ] Trigger a test approval and verify it appears in the portal.
 
 ## 6. Telegram Notifications
 
 - [ ] Create bot via BotFather and set token.
-- [ ] Confirm only operator IDs are in `channels.telegram.allowFrom`.
-- [ ] Send `/start` from approved operator account.
+- [ ] Confirm `channels.telegram.groupPolicy` is `allowlist`.
+- [ ] Confirm only operator IDs are in `channels.telegram.groupAllowFrom`.
+- [ ] Confirm `channels.telegram.groups` has the target group chat ID as a key.
+- [ ] Send a test message from an allowlisted operator account in the configured group.
 - [ ] Trigger an approval event and confirm Telegram sends a portal link.
 
 ## 7. Read-Only Integrations

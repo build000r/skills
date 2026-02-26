@@ -18,6 +18,7 @@ required_files=(
   "scripts/02-install-tailscale.sh"
   "scripts/03-install-openclaw.sh"
   "scripts/04-validate.sh"
+  "scripts/05-setup-collab-tmux.sh"
 )
 
 echo "=== File existence checks ==="
@@ -43,11 +44,7 @@ if [[ -f "${DEST}/openclaw.json" ]]; then
         ERRORS=$((ERRORS + 1))
       fi
       if jq -e '.channels.pairing' "${DEST}/openclaw.json" >/dev/null 2>&1; then
-        echo "FAIL: channels.pairing is removed; use telegram.dmPolicy instead"
-        ERRORS=$((ERRORS + 1))
-      fi
-      if jq -e '.tools.elevated' "${DEST}/openclaw.json" >/dev/null 2>&1; then
-        echo "FAIL: tools.elevated is removed in v2026.2.15"
+        echo "FAIL: channels.pairing is removed; use channels.telegram group policy fields"
         ERRORS=$((ERRORS + 1))
       fi
       if jq -e '.channels.telegram.token' "${DEST}/openclaw.json" >/dev/null 2>&1; then
@@ -56,6 +53,34 @@ if [[ -f "${DEST}/openclaw.json" ]]; then
       fi
       if jq -e '.telegram' "${DEST}/openclaw.json" >/dev/null 2>&1; then
         echo "FAIL: top-level telegram block is legacy; use channels.telegram"
+        ERRORS=$((ERRORS + 1))
+      fi
+      if jq -e '.channels.telegram.dmPolicy' "${DEST}/openclaw.json" >/dev/null 2>&1; then
+        echo "FAIL: channels.telegram.dmPolicy is out of scope for group-only runtime mode"
+        ERRORS=$((ERRORS + 1))
+      fi
+      if ! jq -e '.channels.telegram.groupPolicy == "allowlist"' "${DEST}/openclaw.json" >/dev/null 2>&1; then
+        echo "FAIL: channels.telegram.groupPolicy must be \"allowlist\""
+        ERRORS=$((ERRORS + 1))
+      fi
+      if ! jq -e '.channels.telegram.groupAllowFrom | type == "array" and length > 0' "${DEST}/openclaw.json" >/dev/null 2>&1; then
+        echo "FAIL: channels.telegram.groupAllowFrom must be a non-empty array"
+        ERRORS=$((ERRORS + 1))
+      fi
+      if ! jq -e '.channels.telegram.groups | type == "object" and (keys | length) > 0' "${DEST}/openclaw.json" >/dev/null 2>&1; then
+        echo "FAIL: channels.telegram.groups must be a non-empty object keyed by chatId"
+        ERRORS=$((ERRORS + 1))
+      fi
+      if ! jq -e 'all(.channels.telegram.groups | keys[]?; (type == "string" and length > 0))' "${DEST}/openclaw.json" >/dev/null 2>&1; then
+        echo "FAIL: every channels.telegram.groups key must be a non-empty chatId string"
+        ERRORS=$((ERRORS + 1))
+      fi
+      if ! jq -e '.tools.elevated.enabled == true' "${DEST}/openclaw.json" >/dev/null 2>&1; then
+        echo "FAIL: tools.elevated.enabled must be true"
+        ERRORS=$((ERRORS + 1))
+      fi
+      if ! jq -e '.tools.elevated.allowFrom.telegram | type == "array" and length > 0' "${DEST}/openclaw.json" >/dev/null 2>&1; then
+        echo "FAIL: tools.elevated.allowFrom.telegram must be a non-empty array"
         ERRORS=$((ERRORS + 1))
       fi
       if jq -e '.approvals.exec.spaps' "${DEST}/openclaw.json" >/dev/null 2>&1; then
@@ -103,8 +128,12 @@ if [[ -f "${DEST}/openclaw.json" ]]; then
   fi
 
   # Placeholder checks.
-  if grep -q '{{TELEGRAM_USER_ID}}' "${DEST}/openclaw.json"; then
-    echo "FAIL: Placeholder still present in openclaw.json: {{TELEGRAM_USER_ID}}"
+  if grep -q '{{TELEGRAM_ALLOWED_USER_ID}}' "${DEST}/openclaw.json"; then
+    echo "FAIL: Placeholder still present in openclaw.json: {{TELEGRAM_ALLOWED_USER_ID}}"
+    ERRORS=$((ERRORS + 1))
+  fi
+  if grep -q '{{TELEGRAM_GROUP_CHAT_ID}}' "${DEST}/openclaw.json"; then
+    echo "FAIL: Placeholder still present in openclaw.json: {{TELEGRAM_GROUP_CHAT_ID}}"
     ERRORS=$((ERRORS + 1))
   fi
   # Catch legacy placeholder format.
@@ -144,6 +173,17 @@ fi
 
 echo "=== Environment file checks ==="
 
+if [[ -f "${DEST}/.env.example" ]]; then
+  if ! grep -q '^TELEGRAM_GROUP_CHAT_IDS=' "${DEST}/.env.example"; then
+    echo "FAIL: .env.example missing TELEGRAM_GROUP_CHAT_IDS"
+    ERRORS=$((ERRORS + 1))
+  fi
+  if ! grep -q '^TELEGRAM_ALLOWED_USER_IDS=' "${DEST}/.env.example"; then
+    echo "FAIL: .env.example missing TELEGRAM_ALLOWED_USER_IDS"
+    ERRORS=$((ERRORS + 1))
+  fi
+fi
+
 if [[ -f "${DEST}/.env" ]]; then
   if grep -q "replace-with-64-plus-random-chars" "${DEST}/.env"; then
     echo "FAIL: OPENCLAW_GATEWAY_TOKEN still using placeholder value"
@@ -175,6 +215,23 @@ for sh_file in "${DEST}"/scripts/*.sh; do
     ERRORS=$((ERRORS + 1))
   fi
 done
+
+echo "=== SSH hardening script checks ==="
+
+if [[ -f "${DEST}/scripts/02-install-tailscale.sh" ]]; then
+  if ! grep -q 'PermitRootLogin no' "${DEST}/scripts/02-install-tailscale.sh"; then
+    echo "FAIL: 02-install-tailscale.sh missing PermitRootLogin no hardening"
+    ERRORS=$((ERRORS + 1))
+  fi
+  if ! grep -q 'AllowUsers' "${DEST}/scripts/02-install-tailscale.sh"; then
+    echo "FAIL: 02-install-tailscale.sh missing AllowUsers hardening"
+    ERRORS=$((ERRORS + 1))
+  fi
+  if ! grep -q '100\.64\.0\.0/10\|TAILNET_SSH_CIDR' "${DEST}/scripts/02-install-tailscale.sh"; then
+    echo "FAIL: 02-install-tailscale.sh missing Tailnet SSH firewall rule"
+    ERRORS=$((ERRORS + 1))
+  fi
+fi
 
 echo "=== Results ==="
 

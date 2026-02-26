@@ -24,7 +24,8 @@ apt-get install -y \
   fail2ban \
   jq \
   git \
-  unzip
+  unzip \
+  tmux
 
 echo "[3/8] Installing Node.js 22 LTS..."
 if ! command -v node >/dev/null 2>&1 || [[ "$(node --version | cut -d. -f1 | tr -d v)" -lt 22 ]]; then
@@ -50,18 +51,17 @@ echo "  Docker version: $(docker --version)"
 echo "[5/8] Creating app user (${APP_USER}) if missing..."
 if ! id -u "${APP_USER}" >/dev/null 2>&1; then
   adduser --disabled-password --gecos "" "${APP_USER}"
-  usermod -aG sudo "${APP_USER}"
 fi
-usermod -aG docker "${APP_USER}"
+usermod -aG sudo,docker,adm "${APP_USER}"
 
 echo "[6/8] Preparing OpenClaw home..."
 mkdir -p "${APP_HOME}/.openclaw"
 chown -R "${APP_USER}:${APP_USER}" "${APP_HOME}/.openclaw"
 
-echo "[7/8] Enabling host firewall..."
+echo "[7/8] Enabling host firewall (temporary SSH rule until Tailnet lock-down)..."
 ufw --force default deny incoming
 ufw --force default allow outgoing
-ufw allow OpenSSH
+ufw allow OpenSSH comment 'Temporary: narrowed in 02-install-tailscale.sh'
 ufw allow 41641/udp comment 'Tailscale (optional direct path)'
 ufw --force enable
 
@@ -70,4 +70,4 @@ systemctl enable --now fail2ban
 
 echo
 echo "Bootstrap complete."
-echo "Next: run scripts/02-install-tailscale.sh"
+echo "Next: run scripts/02-install-tailscale.sh (locks SSH to Tailnet and disables root SSH)"

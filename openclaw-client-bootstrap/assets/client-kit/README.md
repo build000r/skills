@@ -5,7 +5,7 @@ Production template for spinning up a new client "first claw" box with:
 - DigitalOcean Droplet (Ubuntu 24.04, minimum 2GB RAM)
 - Tailscale private access
 - Telegram notification channel (sends portal links)
-- SPAPS approval backend with OpenClawth portal for human review
+- SPAPS approval backend with Unclawg portal for human review
 - Read-only by default behavior with human-gated escalations
 
 This kit is designed to make the agent useful on day 1:
@@ -13,6 +13,38 @@ This kit is designed to make the agent useful on day 1:
 - It cannot silently perform writes.
 - Any `exec` outside an allowlist creates an approval event; Telegram notifies operators.
 - Any external `POST`/`PUT`/`PATCH`/`DELETE` must go through your write gateway process.
+
+## TL;DR Business Flow (ASCII)
+
+```text
+[User]
+   |
+   v
+[Claw (AI)] --read-only work--> [Answer back to User]
+   |
+   | if write needed
+   v
+[SPAPS Pending Queue] -> [Unclawg Approver]
+                              |
+                    approve?  | yes
+                              v
+                        [Write Gateway] -> [External System]
+                              |
+                              v
+                         [Result to Claw]
+                              |
+                              v
+                          [User notified]
+
+If approver says NO:
+[Unclawg Approver] -> reject -> [Claw] -> [User notified]
+```
+
+Security proof check (strict):
+
+```bash
+bash scripts/talk.sh --health --require-root-proof --json
+```
 
 ## Directory Layout
 
@@ -27,6 +59,7 @@ This kit is designed to make the agent useful on day 1:
 - `scripts/02-install-tailscale.sh`: Tailscale install and join
 - `scripts/03-install-openclaw.sh`: OpenClaw install + systemd service
 - `scripts/04-validate.sh`: post-install validation + SPAPS/portal connectivity
+- `scripts/05-setup-collab-tmux.sh`: optional shared tmux collaboration hardening
 - `security/WRITE_GATEWAY_CONTRACT.md`: outbound write control pattern
 - `security/PERMISSIONS_PLAYBOOK.md`: wrapper + allowlist patterns for new skill/endpoint combos
 
@@ -34,7 +67,7 @@ This kit is designed to make the agent useful on day 1:
 
 1. Create a new Ubuntu 24.04 droplet (minimum 2GB RAM, recommend 4GB).
    - DigitalOcean offers `$200` free credit for new signups at `https://www.digitalocean.com/`.
-2. SSH in as root and copy this folder to `/opt/openclaw-client-kit`.
+2. SSH in as root once for bootstrap and copy this folder to `/opt/openclaw-client-kit`.
 3. Run host bootstrap (installs Node.js 22, Docker, hardening):
 ```bash
 cd /opt/openclaw-client-kit/scripts
@@ -44,12 +77,14 @@ sudo ./01-bootstrap-do.sh
 ```bash
 sudo TAILSCALE_AUTHKEY="tskey-..." TAILSCALE_HOSTNAME="client-a-openclaw" ./02-install-tailscale.sh
 ```
+   - This step narrows SSH to Tailnet-only and disables root SSH login.
+   - Remove any cloud firewall allow rule for public `22/tcp`.
 5. Prepare environment and config:
 ```bash
 cd /opt/openclaw-client-kit
 cp .env.example .env
 # edit .env (gateway token, bot token, SPAPS credentials)
-# edit openclaw.json: replace {{TELEGRAM_USER_ID}} placeholders
+# edit openclaw.json: replace Telegram group/allowlist placeholders
 ```
 6. Install OpenClaw and start service:
 ```bash
@@ -65,28 +100,37 @@ sudo KIT_DIR="/opt/<claw>-openclaw" APP_USER="openclaw" APP_HOME="/home/<claw>" 
 sudo APP_USER="openclaw" APP_HOME="/home/<claw>" OPENCLAW_HOME="/home/<claw>/.openclaw" \
   OPENCLAW_SERVICE_NAME="openclaw-<claw>.service" ./04-validate.sh
 ```
-7. In Telegram, message your bot with `/start` to connect.
+7. Optional shared operator tmux session:
+```bash
+sudo COLLAB_USER="aiops" ./05-setup-collab-tmux.sh
+```
+8. From now on, operate over Tailnet as a non-root user (`openclaw` or `aiops`).
+9. In Telegram, message your bot with `/start` to connect.
 
 ## Required Edits Before Go-Live
 
 - Update `.env`:
   - `OPENCLAW_GATEWAY_TOKEN` — tip: `openssl rand -hex 48`
   - `OPENCLAW_TG_TOKEN`
+  - `TELEGRAM_GROUP_CHAT_IDS` (CSV `chatId[:topicId]`)
+  - `TELEGRAM_ALLOWED_USER_IDS` (CSV `userId1,userId2`)
   - `SPAPS_API_URL`, `SPAPS_API_KEY`, `SPAPS_AGENT_ID`, `SPAPS_AGENT_SECRET`
-  - `OPENCLAWTH_PORTAL_URL`
+  - `UNCLAWG_PORTAL_URL`
 - Update `openclaw.json`:
-  - Replace `"{{TELEGRAM_USER_ID}}"` placeholders in:
-    - `channels.telegram.allowFrom`
-    - `approvals.exec.targets[0].to`
+  - Replace placeholders:
+    - `{{TELEGRAM_ALLOWED_USER_ID}}`
+    - `{{TELEGRAM_GROUP_CHAT_ID}}`
+  - Optional: add per-group settings in `channels.telegram.groups["<chatId>"]` (for example `topics`/`requireMention`) when topic-scoped.
   - Keep `approvals.exec.targets[*].to` as a concrete value (numeric user ID or fixed chat ID), not `${env:...}` interpolation
-  - Tip: get your Telegram user ID from `@userinfobot` or via `getUpdates`.
+  - Tip: get Telegram user/chat IDs from `@userinfobot` and Bot API `getUpdates`.
 
 ## Security Defaults
 
 - Gateway binds to loopback (`gateway.bind: "loopback"`).
 - Access is via Tailscale Serve (`--tailscale serve`).
-- Telegram DM policy is allowlist-only.
-- Telegram control is limited to configured operator IDs.
+- SSH is scoped to Tailnet and root SSH is disabled.
+- Telegram group policy is allowlist-only.
+- Telegram control is limited to configured allowlisted operator IDs.
 - Workspace access is read-only.
 - Write/edit tools are denied.
 - `exec` is operator-gated with `ask: "always"`.

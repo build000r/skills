@@ -12,9 +12,13 @@ tailscale status
 ```bash
 jq '.approvals.exec.targets' /home/openclaw/.openclaw/openclaw.json
 ```
-3. Review pending approval requests at the OpenClawth portal.
+3. Review pending approval requests at the Unclawg portal.
 4. Triage top proposals and approve/reject with rationale in the portal.
 5. Check Telegram for any missed notification links.
+6. If shared tmux is enabled, confirm socket/session:
+```bash
+tmux -S /var/run/tmux-ai/shared.sock ls
+```
 
 ## Weekly
 
@@ -41,6 +45,13 @@ sudo systemctl stop openclaw
 3. Remove suspicious pairings and tighten allowlists.
 4. Diff configuration against version-controlled template.
 5. Restore from known-good snapshot if integrity is uncertain.
+
+## Access Baseline
+
+1. SSH access is Tailnet-only.
+2. Root SSH login should remain disabled.
+3. Use non-root users (`openclaw` and optional `aiops`).
+4. If shared tmux is enabled: `tmux -S /var/run/tmux-ai/shared.sock attach -t ai`.
 
 ## Change Management
 

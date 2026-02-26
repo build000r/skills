@@ -16,25 +16,28 @@ run_openclaw() {
   sudo -u "${APP_USER}" env HOME="${APP_HOME}" PATH="${OPENCLAW_PATH}" openclaw "$@"
 }
 
-echo "[1/9] openclaw service status..."
+echo "[1/11] openclaw service status..."
 sudo systemctl status "${OPENCLAW_SERVICE_UNIT}" --no-pager
 
-echo "[2/9] openclaw recent logs..."
+echo "[2/11] openclaw recent logs..."
 sudo journalctl -u "${OPENCLAW_SERVICE_UNIT}" -n 80 --no-pager
 
-echo "[3/9] tailscale status..."
+echo "[3/11] tailscale status..."
 tailscale status
 
-echo "[4/9] openclaw version..."
+echo "[4/11] openclaw version..."
 run_openclaw --version
 
-echo "[5/9] openclaw config test..."
+echo "[5/11] openclaw config test..."
 run_openclaw config get gateway.mode
 if ! run_openclaw config get channels.telegram.enabled; then
   run_openclaw config get telegram.enabled
 fi
+run_openclaw config get channels.telegram.groupPolicy
+run_openclaw config get channels.telegram.groupAllowFrom
+run_openclaw config get channels.telegram.groups
 
-echo "[6/9] approval target sanity..."
+echo "[6/11] approval target sanity..."
 if python3 - "${OPENCLAW_HOME}/openclaw.json" <<'PY'
 import json
 import sys
@@ -63,10 +66,10 @@ else
   exit 1
 fi
 
-echo "[7/9] security audit (deep)..."
+echo "[7/11] security audit (deep)..."
 run_openclaw security audit --deep
 
-echo "[8/9] SPAPS connectivity..."
+echo "[8/11] SPAPS connectivity..."
 if [[ -f "${OPENCLAW_HOME}/.env" ]]; then
   # shellcheck disable=SC1091
   source "${OPENCLAW_HOME}/.env"
@@ -82,16 +85,40 @@ else
   echo "  SKIPPED: SPAPS_API_URL not set in .env"
 fi
 
-echo "[9/9] OpenClawth portal connectivity..."
-PORTAL_URL="${OPENCLAWTH_PORTAL_URL:-}"
+echo "[9/11] Unclawg portal connectivity..."
+PORTAL_URL="${UNCLAWG_PORTAL_URL:-}"
 if [[ -n "${PORTAL_URL}" ]]; then
   if curl -sf --max-time 10 "${PORTAL_URL}" >/dev/null 2>&1; then
-    echo "  OpenClawth portal reachable at ${PORTAL_URL}"
+    echo "  Unclawg portal reachable at ${PORTAL_URL}"
   else
-    echo "  WARNING: OpenClawth portal not reachable at ${PORTAL_URL}"
+    echo "  WARNING: Unclawg portal not reachable at ${PORTAL_URL}"
   fi
 else
-  echo "  SKIPPED: OPENCLAWTH_PORTAL_URL not set in .env"
+  echo "  SKIPPED: UNCLAWG_PORTAL_URL not set in .env"
+fi
+
+echo "[10/11] sshd hardening check..."
+sshd_state="$(sshd -T 2>/dev/null || true)"
+if ! echo "${sshd_state}" | grep -q '^permitrootlogin no$'; then
+  echo "  ERROR: sshd permitrootlogin is not set to no"
+  exit 1
+fi
+if ! echo "${sshd_state}" | grep -q '^passwordauthentication no$'; then
+  echo "  ERROR: sshd passwordauthentication is not set to no"
+  exit 1
+fi
+echo "  SSH hardening flags are set."
+
+echo "[11/11] UFW SSH boundary check..."
+ufw_status="$(sudo ufw status 2>/dev/null || true)"
+if echo "${ufw_status}" | grep -Eq '22/tcp[[:space:]]+ALLOW IN[[:space:]]+Anywhere'; then
+  echo "  ERROR: public SSH ingress still allowed by UFW"
+  exit 1
+fi
+if echo "${ufw_status}" | grep -Eq '22/tcp[[:space:]]+ALLOW IN[[:space:]]+(100\.64\.0\.0/10|tailscale0)'; then
+  echo "  UFW SSH ingress is scoped to Tailnet."
+else
+  echo "  WARNING: could not confirm Tailnet-only UFW rule for SSH."
 fi
 
 echo

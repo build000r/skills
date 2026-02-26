@@ -11,13 +11,15 @@ Usage:
 Options:
   --dest            Destination directory for the generated kit (required)
   --client-name     Value to replace {{CLIENT_NAME}} placeholder
-  --telegram-id     Telegram user ID for operator allowlists
+  --telegram-allowed-user  Telegram user ID allowed to command the bot in group chats
+  --telegram-group-chat    Telegram group chat ID for bot listening/approval routing
+  --telegram-id     Backward-compatible alias for --telegram-allowed-user
   --bot-token       Telegram bot token from BotFather
   --spaps-url       SPAPS API URL
   --spaps-key       SPAPS API key
   --spaps-agent-id  SPAPS agent ID
   --spaps-secret    SPAPS agent secret
-  --portal-url      OpenClawth portal URL
+  --portal-url      Unclawg portal URL
   --ts-hostname     Tailscale node hostname
   --interactive     Prompt for missing values interactively (default when TTY)
   --no-interactive  Never prompt; use defaults for missing values
@@ -28,7 +30,8 @@ EOF
 
 DEST=""
 CLIENT_NAME=""
-TELEGRAM_USER_ID=""
+TELEGRAM_ALLOWED_USER_ID=""
+TELEGRAM_GROUP_CHAT_ID=""
 BOT_TOKEN=""
 SPAPS_URL=""
 SPAPS_KEY=""
@@ -50,7 +53,15 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     --telegram-id)
-      TELEGRAM_USER_ID="${2:-}"
+      TELEGRAM_ALLOWED_USER_ID="${2:-}"
+      shift 2
+      ;;
+    --telegram-allowed-user)
+      TELEGRAM_ALLOWED_USER_ID="${2:-}"
+      shift 2
+      ;;
+    --telegram-group-chat)
+      TELEGRAM_GROUP_CHAT_ID="${2:-}"
       shift 2
       ;;
     --bot-token)
@@ -113,7 +124,7 @@ fi
 
 # Default to interactive when TTY is available and key values are missing.
 if [[ -z "${INTERACTIVE}" ]]; then
-  if [[ -t 0 ]] && [[ -z "${CLIENT_NAME}" || -z "${TELEGRAM_USER_ID}" || -z "${BOT_TOKEN}" ]]; then
+  if [[ -t 0 ]] && [[ -z "${CLIENT_NAME}" || -z "${TELEGRAM_ALLOWED_USER_ID}" || -z "${TELEGRAM_GROUP_CHAT_ID}" || -z "${BOT_TOKEN}" ]]; then
     INTERACTIVE="true"
   else
     INTERACTIVE="false"
@@ -151,13 +162,14 @@ if [[ "${INTERACTIVE}" == "true" ]]; then
 fi
 
 prompt_value CLIENT_NAME "Client name"
-prompt_value TELEGRAM_USER_ID "Telegram operator user ID"
+prompt_value TELEGRAM_ALLOWED_USER_ID "Telegram operator user ID (allowlist)"
+prompt_value TELEGRAM_GROUP_CHAT_ID "Telegram group chat ID"
 prompt_value BOT_TOKEN "Telegram bot token (from BotFather)"
-prompt_value SPAPS_URL "SPAPS API URL" "https://spaps.openclawth.com/api"
+prompt_value SPAPS_URL "SPAPS API URL" "https://api.unclawg.com"
 prompt_value SPAPS_KEY "SPAPS API key"
 prompt_value SPAPS_AGENT_ID "SPAPS agent ID"
 prompt_value SPAPS_SECRET "SPAPS agent secret"
-prompt_value PORTAL_URL "OpenClawth portal URL" "https://openclawth.com"
+prompt_value PORTAL_URL "Unclawg portal URL" "https://unclawg.com"
 prompt_value TS_HOSTNAME "Tailscale node hostname" "client-openclaw"
 
 # --- Copy assets ---
@@ -212,7 +224,10 @@ substitute_placeholder() {
 }
 
 substitute_placeholder '{{CLIENT_NAME}}' "${CLIENT_NAME}"
-substitute_placeholder '{{TELEGRAM_USER_ID}}' "${TELEGRAM_USER_ID}"
+substitute_placeholder '{{TELEGRAM_ALLOWED_USER_ID}}' "${TELEGRAM_ALLOWED_USER_ID}"
+substitute_placeholder '{{TELEGRAM_GROUP_CHAT_ID}}' "${TELEGRAM_GROUP_CHAT_ID}"
+# Backward-compatible fill for any older templates still using this marker.
+substitute_placeholder '{{TELEGRAM_USER_ID}}' "${TELEGRAM_ALLOWED_USER_ID}"
 
 # .env-specific substitutions.
 if [[ -f "${DEST}/.env" ]]; then
@@ -234,7 +249,7 @@ if [[ -f "${DEST}/.env" ]]; then
     /^SPAPS_API_KEY=/ && spaps_key != "" { print "SPAPS_API_KEY=" spaps_key; next }
     /^SPAPS_AGENT_ID=/ && spaps_agent_id != "" { print "SPAPS_AGENT_ID=" spaps_agent_id; next }
     /^SPAPS_AGENT_SECRET=/ && spaps_secret != "" { print "SPAPS_AGENT_SECRET=" spaps_secret; next }
-    /^OPENCLAWTH_PORTAL_URL=/ && portal_url != "" { print "OPENCLAWTH_PORTAL_URL=" portal_url; next }
+    /^UNCLAWG_PORTAL_URL=/ && portal_url != "" { print "UNCLAWG_PORTAL_URL=" portal_url; next }
     /^CLIENT_NAME=/ && client_name != "" { print "CLIENT_NAME=" client_name; next }
     /^TAILSCALE_HOSTNAME=/ && ts_hostname != "" { print "TAILSCALE_HOSTNAME=" ts_hostname; next }
     { print }
@@ -263,7 +278,8 @@ check_field() {
 }
 
 check_field "Client name" "${CLIENT_NAME}"
-check_field "Telegram user ID" "${TELEGRAM_USER_ID}"
+check_field "Telegram allowlisted user ID" "${TELEGRAM_ALLOWED_USER_ID}"
+check_field "Telegram group chat ID" "${TELEGRAM_GROUP_CHAT_ID}"
 check_field "Bot token" "${BOT_TOKEN}"
 check_field "Gateway token" "${GATEWAY_TOKEN}"
 check_field "SPAPS API URL" "${SPAPS_URL}"

@@ -110,6 +110,32 @@ OPENCLAW_STATE_DIR=... openclaw agent \
 
 **Gateway port:** Each co-located claw uses a different gateway port (configured in its `openclaw.json`). If the WebSocket gateway closes with code 1006, `openclaw agent` falls back to embedded mode automatically — this is safe for debugging but the 1006 itself is worth investigating separately.
 
+## Provider Swap Runbook (Codex <-> Anthropic)
+
+Use this ordered runbook when switching providers or rotating tokens:
+
+1. Update model IDs first (`agents.defaults.model.primary`) in each target `openclaw.json`.
+   - Codex: `openai/gpt-5.3-codex` (or another supported `openai/*-codex`)
+   - Anthropic: `anthropic/<model>`
+2. Deploy config files and restart services once.
+3. Rotate credentials with:
+   - Codex default: `bash scripts/update-oauth-token.sh`
+   - Anthropic: `echo "sk-ant-..." | bash scripts/update-oauth-token.sh --anthropic`
+4. Verify with:
+   - `bash scripts/talk.sh --list`
+   - `bash scripts/talk.sh --health`
+   - `bash scripts/talk.sh --health --require-root-proof --json` (definitive SSH/UFW proof; fails if checks are only inferred)
+   - `bash scripts/talk.sh --claw <name> --new --message "Reply ONLY: OK"`
+
+Why this order matters:
+- `openai/gpt-5.3-codex` resolves to the `openai-codex` provider, which needs token auth state (`auth-profiles.json`) in addition to env sync.
+- Updating credentials before model alignment can produce misleading `No API key found for provider ...` errors.
+
+Common failure signatures:
+- `No API key found for provider "openai-codex"`: provider auth store missing or wrong schema.
+- `No API key found for provider "anthropic"` while model is OpenAI (or inverse): model/provider mismatch.
+- `Unknown config keys`: remove unsupported keys (notably `reasoningEffort` on this runtime).
+
 ---
 
 ## Storage Decision: Persistent Volume vs Root Disk
@@ -209,7 +235,7 @@ Container B mounts: /mnt/claw-storage/claw-b/  → /data
 - Operator Telegram user IDs
 - Telegram bot token (BotFather)
 - SPAPS credentials (API URL, API key, agent ID, agent secret)
-- OpenClawth portal URL
+- Unclawg portal URL
 - Tailscale auth key (ephemeral or reusable per policy)
 - List of integrations and their read-only scopes
 
@@ -281,7 +307,7 @@ Use fixed IDs/handles in `approvals.exec.targets[*].to`.
 1. Instantiate from skill assets (interactive mode prompts for all values):
    - `scripts/new_client_kit.sh --dest /tmp/<client>-openclaw --interactive`
 2. Or use flags directly:
-   - `scripts/new_client_kit.sh --dest /tmp/<client>-openclaw --client-name "Client" --telegram-id 123456789 --bot-token "..." --spaps-url "..." --spaps-key "..." --spaps-agent-id "..." --spaps-secret "..."`
+   - `scripts/new_client_kit.sh --dest /tmp/<client>-openclaw --client-name "Client" --telegram-allowed-user 123456789 --telegram-group-chat -1001234567890 --bot-token "..." --spaps-url "..." --spaps-key "..." --spaps-agent-id "..." --spaps-secret "..."`
 3. Verify no remaining placeholders:
    - `scripts/validate_client_kit.sh /tmp/<client>-openclaw`
 4. Optional for `review_live.sh` auto-detection:
@@ -295,9 +321,17 @@ Use fixed IDs/handles in `approvals.exec.targets[*].to`.
    - `/opt/openclaw-client-kit`
 3. Run scripts in strict order:
    - `scripts/01-bootstrap-do.sh` (installs Node.js 22, Docker, hardening)
-   - `scripts/02-install-tailscale.sh`
+   - `scripts/02-install-tailscale.sh` (enforces Tailnet-only SSH + disables root SSH)
    - `scripts/03-install-openclaw.sh` (pre-places config, installs CLI, starts service)
    - `scripts/04-validate.sh` (includes SPAPS + portal connectivity checks)
+   - Optional: `scripts/05-setup-collab-tmux.sh` (shared `tmux` socket + non-root collab user)
+4. Remove any public `22/tcp` allow rule in the cloud firewall/security group.
+
+If shared tmux is enabled, operators attach with:
+
+```bash
+tmux -S /var/run/tmux-ai/shared.sock attach -t ai
+```
 
 ## Notification and Approval Test
 
@@ -305,7 +339,7 @@ Use fixed IDs/handles in `approvals.exec.targets[*].to`.
 2. Confirm non-allowlisted account cannot interact
 3. Trigger an exec action that requires approval
 4. Confirm Telegram sends a notification with a portal link
-5. Open the link in the OpenClawth portal and approve/reject
+5. Open the link in the Unclawg portal and approve/reject
 6. Confirm SPAPS records the approval state change
 
 ## Post-Deploy Stabilization Checks (First 15 Minutes)
@@ -313,7 +347,7 @@ Use fixed IDs/handles in `approvals.exec.targets[*].to`.
 1. Validate bot token directly:
    - `curl -s "https://api.telegram.org/bot$OPENCLAW_TG_TOKEN/getMe"`
 2. Confirm the right operator IDs are allowlisted:
-   - `jq '.channels.telegram.allowFrom' <openclaw-home>/openclaw.json`
+   - `jq '.channels.telegram.groupAllowFrom, .channels.telegram.groups' <openclaw-home>/openclaw.json`
 3. Verify model id is runtime-supported (watch logs for `Unknown model`):
    - `journalctl -u <service> -n 120 --no-pager`
 4. Confirm service auto-recovers from config-triggered restarts:

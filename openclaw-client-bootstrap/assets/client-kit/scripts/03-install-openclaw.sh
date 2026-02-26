@@ -72,8 +72,37 @@ if [[ ! -f "${KIT_DIR}/openclaw.json" ]]; then
   exit 1
 fi
 
-if grep -q '{{TELEGRAM_USER_ID}}' "${KIT_DIR}/openclaw.json"; then
-  echo "Replace all {{TELEGRAM_USER_ID}} placeholders in ${KIT_DIR}/openclaw.json before install."
+if grep -Eq '{{TELEGRAM_ALLOWED_USER_ID}}|{{TELEGRAM_GROUP_CHAT_ID}}' "${KIT_DIR}/openclaw.json"; then
+  echo "Replace all Telegram placeholder IDs in ${KIT_DIR}/openclaw.json before install."
+  exit 1
+fi
+
+if ! python3 - "${KIT_DIR}/openclaw.json" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+with open(path, "r", encoding="utf-8") as fh:
+    cfg = json.load(fh)
+
+telegram = ((cfg.get("channels") or {}).get("telegram") or {})
+group_policy = telegram.get("groupPolicy")
+group_allow_from = telegram.get("groupAllowFrom") or []
+groups = telegram.get("groups") or []
+
+if group_policy != "allowlist":
+    raise SystemExit(1)
+if not isinstance(group_allow_from, list) or not group_allow_from:
+    raise SystemExit(1)
+if not isinstance(groups, list) or not groups:
+    raise SystemExit(1)
+
+for entry in groups:
+    if not isinstance(entry, dict) or not str(entry.get("chatId", "")).strip():
+        raise SystemExit(1)
+PY
+then
+  echo "openclaw.json must define channels.telegram.groupPolicy=\"allowlist\" with non-empty groupAllowFrom and groups[]."
   exit 1
 fi
 

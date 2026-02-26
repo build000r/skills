@@ -46,7 +46,7 @@ SPAPS_URL=https://api.unclawg.com
 APPROVAL_API_URL=https://api.unclawg.com
 # Optional only for self-hosted gateways that do not inject server-side app binding:
 OPENCLAW_API_KEY=
-TENANT_ID=tenant-prod
+TENANT_ID=d0000000-0000-0000-0000-000000000001
 # Proof-of-humanity fallback contacts (used when signup is pending):
 OPENCLAW_PROOF_PRIMARY_X=@your-primary-proof-handle
 OPENCLAW_PROOF_SECONDARY_X=https://x.com/your-backup-proof-handle

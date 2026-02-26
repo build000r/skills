@@ -1,0 +1,4 @@
+{"type":"session_meta","payload":{"cwd":"/tmp/project"}}
+{"type":"event_msg","payload":{"type":"user_message","message":"Build a parser"}}
+{"type":"response","payload":{"usage":{"input_tokens":1212}}}
+{"type":"response_item","payload":{"type":"function_call","name":"exec_command","arguments":"{\"command\":\"ls -la\"}"}}

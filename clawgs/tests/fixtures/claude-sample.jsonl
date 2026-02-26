@@ -1,0 +1,2 @@
+{"type":"user","message":{"role":"user","content":"Summarize logs"}}
+{"type":"assistant","message":{"role":"assistant","usage":{"input_tokens":88},"content":[{"type":"tool_use","name":"read_file","input":{"file_path":"/tmp/demo.txt"}},{"type":"text","text":"I read the file"}]}}

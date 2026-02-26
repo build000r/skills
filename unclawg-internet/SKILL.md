@@ -1,8 +1,8 @@
 ---
 name: unclawg-internet
 description: >
-  Self-service OpenClaw onboarding with soul interview. Registers the user, creates their agent,
-  provisions machine keys, conducts an ask-cascade soul interview to define voice/personas/target market,
+  Self-service OpenClaw onboarding with soul interview. Uses CLI device flow for browser auth,
+  creates the user's agent machine key, conducts an ask-cascade soul interview to define voice/personas/target market,
   writes the soul draft and discovery mode file, and outputs the env block.
   Use when: "/unclawg-internet", "set me up", "connect to openclaw",
   "get started", "onboard me", "sign up for openclaw", "I want approval gates"
@@ -52,14 +52,14 @@ OPENCLAW_PROOF_PRIMARY_X=@your-primary-proof-handle
 OPENCLAW_PROOF_SECONDARY_X=https://x.com/your-backup-proof-handle
 ```
 
-`SPAPS_URL` is the Unclawg auth facade (`/api/auth/*`), not a direct client call to SPAPS.
+`SPAPS_URL` is the Unclawg auth facade (`/api/auth/*` and `/api/cli/device/*`), not a direct client call to SPAPS.
 On `api.unclawg.com`, the gateway injects `X-API-Key` server-side, so do not ask users for `SPAPS_API_KEY`.
 
 ## References
 
 - **[references/soul-interview.md](references/soul-interview.md)** — Full soul interview cascade (Phase B, Rounds 1-5). Read when entering the interview phase.
 - **[references/artifact-templates.md](references/artifact-templates.md)** — Soul draft templates, mode file template, smoke test, and summary output (Phase C/D). Read when writing artifacts.
-- **`/unclawg-admin`** — Operator waitlist triage (Step 4c). Separate skill for approving/denying signups that return `pending_human_proof`.
+- **`/unclawg-admin`** — Operator waitlist triage when signup proof-of-humanity is pending.
 - **[references/default-soul.md](references/default-soul.md)** — Default soul template for users who skip the interview.
 
 ---
@@ -127,7 +127,7 @@ Existing setup found:
 
 Then offer to fill gaps:
 
-- **Key invalid** → need to re-authenticate and provision a new key (jump to Step 4, 409 path)
+- **Key invalid** → need to re-authenticate and provision a new key (jump to Step 4 — device flow)
 - **Soul missing** → jump to Phase B (read `references/soul-interview.md`)
 - **Mode file missing** → jump to Phase C Step 8 (read `references/artifact-templates.md`)
 - **Everything present and valid** → "You're all set. Run `/unclawg-discover` to start finding people."
@@ -162,101 +162,119 @@ Ready to set up:
   Agent:    my-trading-bot
   Portal:   ${OPENCLAW_PORTAL_URL}
 
-This creates your account and provisions API keys.
-A temporary password is generated automatically for this setup.
+This starts browser-based device sign-in (no password sharing in chat),
+then provisions API keys for your agent.
 Continue?
 ```
 
-### Step 4 — Register Account (via Unclawg auth facade)
+### Step 4 — Start CLI Device Flow (via Unclawg auth facade)
 
 ```bash
-# Generate a strong onboarding password in-memory (do not persist to disk)
-ONBOARD_PASSWORD=$(openssl rand -base64 18)
-
-RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST \
-  "${SPAPS_URL}/api/auth/register" \
+DEVICE_START_RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST \
+  "${SPAPS_URL}/api/cli/device/authorize" \
   -H "Content-Type: application/json" \
-  -d "{
-    \"email\": \"${USER_EMAIL}\",
-    \"password\": \"${ONBOARD_PASSWORD}\"
-  }")
+  -d '{"scope":"approval_request.create.social_reply approval_revision.fulfill instruction_proposal.create agent_feedback_digest.read"}')
 
-STATUS=$(echo "$RESPONSE" | grep "HTTP_STATUS:" | cut -d: -f2)
-BODY=$(echo "$RESPONSE" | sed '/HTTP_STATUS:/d')
+DEVICE_START_STATUS=$(echo "$DEVICE_START_RESPONSE" | grep "HTTP_STATUS:" | cut -d: -f2)
+DEVICE_START_BODY=$(echo "$DEVICE_START_RESPONSE" | sed '/HTTP_STATUS:/d')
 ```
 
 If using a self-hosted gateway that requires client-supplied app binding, add:
 `-H "X-API-Key: ${OPENCLAW_API_KEY}"`.
 
-- `201`:
-  1. Extract `ACCESS_TOKEN` from `data.tokens.access_token` and `REFRESH_TOKEN` from `data.tokens.refresh_token`.
-  2. If either token is missing/null, immediately login using the generated onboarding password:
+- `200` → continue
+- `404`/`405` with `AUTH_PROXY_ROUTE_NOT_FOUND` → stop and tell the user the API gateway must be updated to proxy `/api/cli/device/*`.
+- Other error → print and stop
+
+### Step 5 — Complete Browser Authorization
+
+Extract device-flow fields (supports both envelope and plain payload):
 
 ```bash
-LOGIN_RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST \
-  "${SPAPS_URL}/api/auth/login" \
-  -H "Content-Type: application/json" \
-  -d "{
-    \"email\": \"${USER_EMAIL}\",
-    \"password\": \"${ONBOARD_PASSWORD}\"
-  }")
-
-LOGIN_STATUS=$(echo "$LOGIN_RESPONSE" | grep "HTTP_STATUS:" | cut -d: -f2)
-LOGIN_BODY=$(echo "$LOGIN_RESPONSE" | sed '/HTTP_STATUS:/d')
+DEVICE_CODE=$(echo "$DEVICE_START_BODY" | jq -r '.data.device_code // .device_code // empty')
+USER_CODE=$(echo "$DEVICE_START_BODY" | jq -r '.data.user_code // .user_code // empty')
+VERIFY_URL=$(echo "$DEVICE_START_BODY" | jq -r '.data.verification_uri_complete // .data.auth_url // .data.verification_uri // .verification_uri_complete // .auth_url // .verification_uri // empty')
+POLL_INTERVAL=$(echo "$DEVICE_START_BODY" | jq -r '.data.interval // .interval // 5')
 ```
 
-  3. Require `LOGIN_STATUS=200` and extract `ACCESS_TOKEN`/`REFRESH_TOKEN` from `LOGIN_BODY`.
-  4. If login fallback also fails, send a **magic link** as last resort:
+If any required value is missing, print the response and stop.
+
+Open the verification URL:
 
 ```bash
-MAGIC_RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST \
-  "${SPAPS_URL}/api/auth/magic-link" \
-  -H "Content-Type: application/json" \
-  -d "{
-    \"email\": \"${USER_EMAIL}\",
-    \"redirect_url\": \"${OPENCLAW_PORTAL_URL}/auth/cli-callback\"
-  }")
+open "$VERIFY_URL" 2>/dev/null \
+  || xdg-open "$VERIFY_URL" 2>/dev/null \
+  || echo "Open this URL to continue: $VERIFY_URL"
 ```
 
-  5. If magic link sends (200), tell the user:
-     "Check your email for a sign-in link from OpenClaw. Click it to log in to the portal."
-  6. Then prompt: "Once you're logged in, paste your password here so I can provision your agent keys."
-     (The user can set a password via the portal sidebar or `/forgot-password` page.)
-  7. When the user provides a password, login via API to get tokens and continue to Step 5.
-- `202` with `data.status = pending_human_proof` → **Stop onboarding here (no key provisioning yet).**
-  1. Tell user signup was created but is pending proof-of-humanity review.
-  2. Show `pending_approval_id` (if present) and `proof_of_humanity` instructions from API response.
-  3. Tell user to DM proof of humanity on X to `${OPENCLAW_PROOF_PRIMARY_X}` (fallback `${OPENCLAW_PROOF_SECONDARY_X}`).
-  4. Tell user API keys are blocked until approval is marked approved.
-  5. Do **not** run Step 4b or Step 5. **Do still run Phase B (Soul Interview)** — read `references/soul-interview.md`.
-  6. For admin triage of waitlist entries, tell the operator to use `/unclawg-admin`.
-- `409` or email exists → **Do NOT bail.** Handle gracefully:
-  1. Tell user: "Account already exists for that email."
-  2. Ask: "Want me to send a magic link so you can sign in instantly?"
-  3. If yes, send magic link:
+Tell the user:
+
+- "Browser opened. Sign in and approve this device request."
+- "If asked, enter code: `${USER_CODE}`."
+- "If this email is new, create the account in that browser flow first."
+
+### Step 6 — Poll for Tokens (No password needed)
 
 ```bash
-MAGIC_RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST \
-  "${SPAPS_URL}/api/auth/magic-link" \
-  -H "Content-Type: application/json" \
-  -d "{
-    \"email\": \"${USER_EMAIL}\",
-    \"redirect_url\": \"${OPENCLAW_PORTAL_URL}/auth/cli-callback\"
-  }")
+while true; do
+  TOKEN_RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST \
+    "${SPAPS_URL}/api/cli/device/token" \
+    -H "Content-Type: application/json" \
+    -d "{
+      \"device_code\": \"${DEVICE_CODE}\"
+    }")
+
+  TOKEN_STATUS=$(echo "$TOKEN_RESPONSE" | grep "HTTP_STATUS:" | cut -d: -f2)
+  TOKEN_BODY=$(echo "$TOKEN_RESPONSE" | sed '/HTTP_STATUS:/d')
+
+  if [ "$TOKEN_STATUS" = "200" ]; then
+    ACCESS_TOKEN=$(echo "$TOKEN_BODY" | jq -r '.data.access_token // .access_token // empty')
+    REFRESH_TOKEN=$(echo "$TOKEN_BODY" | jq -r '.data.refresh_token // .refresh_token // empty')
+    break
+  fi
+
+  ERROR_CODE=$(echo "$TOKEN_BODY" | jq -r '.error.code // .code // .error // empty')
+  case "$ERROR_CODE" in
+    authorization_pending)
+      sleep "${POLL_INTERVAL}"
+      ;;
+    slow_down)
+      POLL_INTERVAL=$((POLL_INTERVAL + 5))
+      sleep "${POLL_INTERVAL}"
+      ;;
+    access_denied|expired_token|invalid_grant)
+      echo "Device flow ended: ${ERROR_CODE}"
+      echo "$TOKEN_BODY"
+      exit 1
+      ;;
+    *)
+      echo "Unexpected device-flow token response:"
+      echo "$TOKEN_BODY"
+      exit 1
+      ;;
+  esac
+done
 ```
 
-  4. Tell user: "Check your email — click the sign-in link to open the portal."
-  5. Then ask: "Do you know your password? I need it to provision agent keys."
-     - If yes: login via `POST ${SPAPS_URL}/api/auth/login`, extract tokens, continue to Step 5.
-     - If no: tell them to set one at `${OPENCLAW_PORTAL_URL}/forgot-password` (offers magic link or reset), then come back with the password.
-  6. If user does not want CLI continuation, direct them to `${OPENCLAW_PORTAL_URL}/approvals` and stop.
-- Other error → print it, stop
+If token polling keeps returning pending because signup proof is blocked, direct operators to `/unclawg-admin` and continue with Phase B only.
 
-**Note:** For new signups, `ONBOARD_PASSWORD` exists in-memory only for this run. Do not write it to disk.
+### Step 6b — Verify Authenticated Account
 
-### Step 4b — Auto-Login via Token Handoff
+Confirm the signed-in account and compare against requested email:
 
-Immediately after obtaining tokens (from register response or login fallback), open the portal with token handoff. The `/auth/cli-callback` route stores tokens in the browser and redirects to `/approvals`.
+```bash
+WHOAMI_RESPONSE=$(curl -s -X GET \
+  "${SPAPS_URL}/api/auth/user" \
+  -H "Authorization: Bearer ${ACCESS_TOKEN}")
+WHOAMI_EMAIL=$(echo "$WHOAMI_RESPONSE" | jq -r '.data.user.email // .user.email // empty' | tr '[:upper:]' '[:lower:]')
+EXPECTED_EMAIL=$(echo "${USER_EMAIL}" | tr '[:upper:]' '[:lower:]')
+```
+
+If `WHOAMI_EMAIL` differs from `EXPECTED_EMAIL`, show both and ask whether to continue with the authenticated account.
+
+### Step 6c — Auto-Login via Token Handoff
+
+Immediately after obtaining tokens, open the portal with token handoff. The `/auth/cli-callback` route stores tokens in the browser and redirects to `/approvals`.
 
 ```bash
 # JWT tokens are base64url — no URL-encoding needed
@@ -267,9 +285,9 @@ open "${OPENCLAW_PORTAL_URL}/auth/cli-callback?access_token=${ACCESS_TOKEN}&refr
 
 Tell the user: "Opening the portal in your browser — you're logged in automatically."
 
-**Important:** Open the browser immediately after registration. The access token expires in 1 hour, but the callback page auto-refreshes stale tokens via the refresh token.
+**Important:** Open the browser immediately after tokens are issued. The access token expires in 1 hour, but the callback page auto-refreshes stale tokens via the refresh token.
 
-### Step 5 — Provision Machine Key (Only after approved signup)
+### Step 7 — Provision Machine Key (Only after approved auth)
 
 ```bash
 RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST \
@@ -300,7 +318,7 @@ If using a self-hosted gateway that requires client-supplied app binding, add:
 - `403` → scope issue, print error
 - Other → print error, stop
 
-### Step 6 — Output the Env Block
+### Step 8 — Output the Env Block
 
 Print this exactly — the user copies it into their `.env` or shell profile:
 
@@ -354,12 +372,6 @@ Account provisioned.
   Identity:   .claude/agents/${AGENT_ID}.env
 
 Now let's define your agent's soul.
-```
-
-If this run created a new account, show once:
-```
-  Temporary Password: ${ONBOARD_PASSWORD}
-  Tip: Rotate it later at ${OPENCLAW_PORTAL_URL}/forgot-password.
 ```
 
 ---

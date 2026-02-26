@@ -129,6 +129,9 @@ def validate_skill(skill_path, strict=False):
         if not file_path.is_file():
             continue
         rel = str(file_path.relative_to(skill_path))
+        # Avoid self-referential false positives from validator regex definitions.
+        if rel == 'scripts/quick_validate.py':
+            continue
         if _is_gitignored(rel) or rel.startswith('.git'):
             continue
         try:

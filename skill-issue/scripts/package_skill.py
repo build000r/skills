@@ -12,8 +12,39 @@ Example:
 
 import sys
 import zipfile
+from fnmatch import fnmatch
 from pathlib import Path
 from quick_validate import validate_skill
+
+
+def _load_ignore_patterns(skill_path):
+    """Load ignore patterns from skill-local .gitignore."""
+    patterns = {".git", "__pycache__", "*.pyc"}
+    gitignore_path = skill_path / ".gitignore"
+    if not gitignore_path.exists():
+        return patterns
+    for line in gitignore_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or line.startswith("!"):
+            continue
+        patterns.add(line.rstrip("/"))
+    return patterns
+
+
+def _is_ignored(rel_path, patterns):
+    """Check if a relative path should be excluded from packaging."""
+    rel = rel_path.replace("\\", "/")
+    parts = Path(rel).parts
+    name = Path(rel).name
+    for pattern in patterns:
+        pat = pattern.strip().rstrip("/")
+        if not pat:
+            continue
+        if pat in parts or rel.startswith(f"{pat}/"):
+            return True
+        if fnmatch(rel, pattern) or fnmatch(name, pattern):
+            return True
+    return False
 
 
 def package_skill(skill_path, output_dir=None):
@@ -62,6 +93,7 @@ def package_skill(skill_path, output_dir=None):
         output_path = Path.cwd()
 
     skill_filename = output_path / f"{skill_name}.skill"
+    ignore_patterns = _load_ignore_patterns(skill_path)
 
     # Create the .skill file (zip format)
     try:
@@ -69,6 +101,9 @@ def package_skill(skill_path, output_dir=None):
             # Walk through the skill directory
             for file_path in skill_path.rglob('*'):
                 if file_path.is_file():
+                    rel = str(file_path.relative_to(skill_path))
+                    if _is_ignored(rel, ignore_patterns):
+                        continue
                     # Calculate the relative path within the zip
                     arcname = file_path.relative_to(skill_path.parent)
                     zipf.write(file_path, arcname)

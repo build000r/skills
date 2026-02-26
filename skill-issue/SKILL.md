@@ -105,10 +105,10 @@ Before committing or packaging any skill for public release, scrub ALL files (SK
 
 - **Personal info**: Names, emails, phone numbers, social handles (@handle)
 - **Secrets**: API keys, tokens, passwords, connection strings — even in examples
-- **Hardcoded paths**: `/Users/<name>/`, `/root/dev/`, `~/repos/<specific-project>`
+- **Hardcoded paths**: `/Users/<name>/`, `/srv/<workspace>/`, `~/repos/<specific-project>`
 - **Business names**: Company names, product names, internal project names, domain names (*.yourcompany.com)
 - **Real IPs/hostnames**: Server IPs, internal DNS names, container names tied to deployments
-- **Referral/affiliate links**: URLs with tracking parameters (?fpr=, ?ref=, etc.)
+- **Referral/affiliate links**: URLs with tracking parameters (`fpr=...`, `ref=...`, etc.)
 - **Business intelligence**: Customer lists, personas, targeting criteria, pricing, competitor data
 
 **Mode files are safe** — `modes/` is gitignored and never committed. Project-specific config belongs there, not in tracked files.
@@ -190,7 +190,7 @@ Never hardcode API keys. Use `$ENV_VAR` references in curl/script templates and 
 Users should set keys in their shell profile (`~/.zshrc` or `~/.bash_profile`):
 
 ```bash
-export MY_API_KEY="your-key-here"
+export MY_API_KEY
 ```
 
 **Known issue:** The `env` field in `~/.claude/settings.json` does not reliably expand variables in Bash tool commands. Shell profile exports work correctly.
@@ -199,7 +199,7 @@ In SKILL.md, document requirements like:
 
 ```markdown
 ## Prerequisites
-Add to `~/.zshrc`: `export MY_API_KEY="your-key"`
+Add to `~/.zshrc`: `export MY_API_KEY`
 ```
 
 #### Local Development with Symlinks

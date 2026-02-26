@@ -28,6 +28,14 @@ Agent identity env vars. Auto-discovered from `.claude/agents/<agent-id>.env` (p
 
 **Machine key must have scope `approval_request.create.social_reply`.**
 
+## Soul / Skill Separation
+
+This skill is **mechanical**. It fetches, generates, and POSTs. All personality — voice, tone, reply archetypes, persona voice calibration, engagement principles, boundaries — comes from the **soul** (`soul_md` policy document fetched in Phase 1).
+
+- The soul says HOW to talk. This skill says HOW to call the API.
+- If the soul changes, replies change. If this skill changes, only plumbing changes.
+- When generating replies in Phase 3, use the soul's Voice, Reply Archetypes, Personas, and Boundaries sections. Do not invent personality guidance that isn't in the soul.
+
 ## NEVER Do These Things
 
 - **NEVER use `/api/v1/` or `/api/v2/` routes.** All endpoints are `/v0/`.
@@ -35,6 +43,7 @@ Agent identity env vars. Auto-discovered from `.claude/agents/<agent-id>.env` (p
 - **NEVER store auth headers in a bash variable.** Always write each `-H` flag inline.
 - **NEVER assume a POST succeeded.** Check HTTP status code on every request.
 - **NEVER proceed past bootstrap if the smoke test fails.**
+- **NEVER hardcode voice or personality guidance in this skill.** Pull it from the soul.
 
 ## Curl Template
 
@@ -128,10 +137,18 @@ curl -s -w "\nHTTP_STATUS:%{http_code}" \
   "${OPENCLAW_API_URL}/v0/integrations/claw-runtime/policies/soul_md?agent_id=${OPENCLAW_AGENT_ID}"
 ```
 
-Parse `data.published.content` — this is the agent's voice/tone guide.
+Parse `data.published.content` — this is the agent's complete personality document. It contains:
+
+- **Identity** — who the agent is
+- **Voice** — core tone, platform calibration, reply archetypes with examples
+- **Personas** — target audience definitions with per-persona voice adjustments
+- **Boundaries** — off-limits topics, competitor avoidance, honesty constraints
+- **Engagement Principles** — rules for reply quality
+
+Use ALL of these sections when generating replies in Phase 3. The soul is the single source of truth for personality.
 
 If no published soul exists (`data.published` is null), tell the user:
-> "No published soul for this agent. Generate replies without a soul, or create one first via the governance API?"
+> "No published soul for this agent. Generate replies without a soul (generic voice), or run `/unclawg-internet` to create one first?"
 
 ### Phase 2 — Gather Posts
 
@@ -158,14 +175,17 @@ Present a summary table and ask:
 
 ### Phase 3 — Generate Proposed Replies
 
-For each selected post, generate a proposed reply using:
-- The soul from Phase 1 (tone, length, platform calibration)
-- The post content and context
-- The Unclawg angle (what problem does OpenClaw solve for this person?)
+For each selected post, generate a proposed reply using the soul:
+
+1. **Match persona** — which soul persona does this post's author best fit? Use that persona's voice adjustment and preferred archetypes.
+2. **Pick archetype** — select a reply archetype from the soul's list. Vary across replies (never same archetype twice in a row).
+3. **Apply platform calibration** — use the soul's platform-specific style rules for this post's platform.
+4. **Check boundaries** — verify the reply doesn't violate any of the soul's off-limits rules or honesty constraints.
+5. **Generate** — write the reply in the soul's voice, with the persona adjustment applied.
 
 Also generate:
 - `summary` — 1-sentence description of why this post is worth engaging
-- `reply_strategy` — `educational`, `empathetic`, `shitpost`, `consultative`, etc.
+- `reply_strategy` — maps to the archetype used (e.g., `mechanism_drop`, `reframe`, `validate_only`, `quick_solve`)
 - `action` — `social:reply`, `social:engage`, `social:quote-tweet`, `dm:reply`, `email:respond`
 
 Present each proposed reply for quick review:

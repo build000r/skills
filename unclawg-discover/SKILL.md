@@ -47,9 +47,22 @@ Resolution rules:
 2. If none match, run the generic flow below.
 3. If multiple match, ask user which mode file to apply.
 
+## Soul / Mode / Skill Separation
+
+| Layer | What it owns | Files |
+|-------|-------------|-------|
+| **Soul** (`soul_md` via API) | Voice, tone, personas (with voice calibration), reply archetypes, engagement principles, boundaries | Fetched from `/v0/integrations/claw-runtime/policies/soul_md` |
+| **Mode** (`modes/*.md`, gitignored) | Query packs, subreddit targets, ranking weights, exclusion regex, platform scope, handoff schema | Local `modes/<project>.md` |
+| **Skill** (this file) | API calls, script execution, data flow, error handling | `SKILL.md` + `scripts/` |
+
+**This skill is personality-agnostic.** It searches, filters, scores, and outputs candidates. How the agent *talks* is the soul's job. What the agent *searches for* is the mode file's job.
+
+If no soul is published, fall back to `references/voice-guide.md` (generic defaults).
+
 ## NEVER Do These Things
 
 - **NEVER hardcode project/company strategy in tracked core files.** Keep it in `modes/*.md`.
+- **NEVER put voice, tone, or personality guidance in mode files.** That belongs in the soul.
 - **NEVER submit actions directly from discovery.** Discovery outputs candidates; execution is downstream.
 - **NEVER skip source links or raw post text.** Every candidate needs provenance.
 - **NEVER skip quality gates.** Use the checklist in `references/feed-quality-checklist.md`.
@@ -189,7 +202,9 @@ Handoff should reference mode contract when available (for example, a feed-submi
 
 ## Notes
 
-- Keep project-specific keywords, personas, and brand voice in `modes/`.
+- **Persona voice** lives in the soul, not in mode files. Mode files only map persona IDs to search queries.
+- Keep project-specific keywords and query packs in `modes/`.
 - Keep core scripts and references reusable across domains.
 - If discovery quality degrades, tune mode-level ranking weights before touching core logic.
+- If reply quality degrades, tune the soul (voice, archetypes, persona calibration) — not the mode or skill.
 - For public packaging, use `scripts/package_public.sh` to exclude local `modes/` overlays.

@@ -22,6 +22,14 @@ Agent identity env vars. Auto-discovered from `.claude/agents/<agent-id>.env` (p
 | `OPENCLAW_MACHINE_SECRET` | Machine key secret |
 | `OPENCLAW_AGENT_ID` | Agent ID the machine key is bound to |
 
+## Soul / Skill Separation
+
+This skill is **mechanical**. It polls revision requests, reads feedback, generates revised outputs, and creates instruction proposals. All personality comes from the **soul** (`soul_md`).
+
+- When generating revised outputs in Phase 4, pull the agent's published soul and use its Voice, Personas, Reply Archetypes, and Boundaries sections.
+- When detecting patterns in Phase 3 and proposing soul updates in Phase 7, the proposal should target the soul's personality sections (voice calibration, persona adjustments, boundary refinements) — not add personality to the skill itself.
+- Instruction proposals are about evolving the soul, not the skill.
+
 ## NEVER Do These Things
 
 - **NEVER use `/api/v1/` or `/api/v2/` routes.** All endpoints are `/v0/`.
@@ -30,6 +38,7 @@ Agent identity env vars. Auto-discovered from `.claude/agents/<agent-id>.env` (p
 - **NEVER assume a POST succeeded.** Check the HTTP status code on every request.
 - **NEVER proceed past bootstrap if the smoke test fails.** Stop and tell the user what broke.
 - **NEVER retry the same failing curl with different header casing or variations.** If auth fails, check the env vars and the api-contract reference.
+- **NEVER hardcode voice or personality guidance in this skill.** Pull it from the soul.
 
 ## Curl Template
 
@@ -133,11 +142,12 @@ curl -s -w "\nHTTP_STATUS:%{http_code}" \
 
 ### Phase 2 — Fetch Full Context (parallel)
 
-For each revision request, fetch in parallel:
+Fetch the soul and per-revision context in parallel:
 
-1. **Approval detail:** `GET /v0/approval-requests/{approval_id}`
-2. **Feedback thread:** `GET /v0/approval-requests/{approval_id}/messages`
-3. **Feedback digest:** `GET /v0/agents/{OPENCLAW_AGENT_ID}/feedback-digest?limit=100`
+1. **Agent soul:** `GET /v0/integrations/claw-runtime/policies/soul_md?agent_id=${OPENCLAW_AGENT_ID}` — parse `data.published.content` for the agent's voice, personas, archetypes, and boundaries. If no published soul, use generic defaults.
+2. **Approval detail:** `GET /v0/approval-requests/{approval_id}` (per revision)
+3. **Feedback thread:** `GET /v0/approval-requests/{approval_id}/messages` (per revision)
+4. **Feedback digest:** `GET /v0/agents/{OPENCLAW_AGENT_ID}/feedback-digest?limit=100`
 
 All use the same header pattern from the curl template above. Verify each returns HTTP 200.
 
@@ -168,11 +178,14 @@ For each revision request, generate:
 - `content` — brief edit description (e.g. "Made tone more casual per feedback")
 
 Use all available context:
+- **The soul** from Phase 2 — apply the voice, persona match, archetype selection, and boundary checks
 - Original proposal from approval detail (`context.payload`)
 - Feedback messages (trigger messages from thread)
 - Prior `edit_diff` messages in thread (previous revision attempts)
 - Pattern analysis from Phase 3
 - Feedback digest patterns (what gets approved vs denied)
+
+When revising, the feedback tells you WHAT to change. The soul tells you HOW to talk while making that change.
 
 For batches > 3 revision requests, use `/divide-and-conquer` to launch parallel sub-agents.
 

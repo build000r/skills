@@ -1,8 +1,22 @@
 # Soul Interview (Ask-Cascade)
 
-This phase defines the agent's identity, target market, and engagement strategy through a structured question cascade. Apply ask-cascade rules throughout: strategic questions first and alone, tactical questions batched only when independent, re-evaluate after each answer.
+This phase defines the agent's complete personality — identity, voice, personas, engagement principles, and boundaries. The soul is the **single source of truth for all personality**. Skills read the soul to know how to behave. Mode files and skill definitions are purely mechanical.
+
+Apply ask-cascade rules throughout: strategic questions first and alone, tactical questions batched only when independent, re-evaluate after each answer.
 
 **If the user's signup is pending human proof (202 in Step 4):** still run the full soul interview. The soul draft and mode file can be prepared locally and published once the account is approved.
+
+## The Separation Principle
+
+| Concern | Where it lives | Examples |
+|---------|---------------|----------|
+| **Personality** | `soul_md` (this interview's output) | Voice, tone, reply archetypes, persona voice calibration, engagement principles, boundaries, off-limits topics |
+| **Technical config** | `modes/<agent>.local.md` | Query packs, subreddit targets, ranking weights, platform API scope, exclusion regex, handoff schema |
+| **Mechanics** | Skill SKILL.md files | API calls, loops, error handling, data flow, curl commands |
+
+**Test:** if you swap the soul for a different one, the skills should still work mechanically — they just talk differently. If you swap the mode file, the personality shouldn't change — just the search targets.
+
+---
 
 ## Round 1 — Goal (Strategic, ask alone)
 
@@ -51,11 +65,11 @@ Ask two questions (batchable):
 
 Store all answers. These feed into soul generation.
 
-## Round 3 — Audience & Voice (depends on Round 2)
+## Round 3 — Audience, Voice & Archetypes (depends on Round 2)
 
 **Only for brand engagement or customer discovery goals.** Skip for operations/trading.
 
-Ask three questions (Q1 and Q2 are independent, batchable; Q3 is independent):
+**Q1 and Q2** are independent and batchable. **Q3 and Q4** are independent and batchable. Ask them in two rounds or one if all four are clearly independent.
 
 > Q1: "Where does your audience hang out online?"
 
@@ -79,17 +93,30 @@ Options (via AskUserQuestion with markdown previews):
 | **Warm conversational** | "Oh I've been there! The 'labs are normal' thing is so frustrating. One thing that actually helped me understand what was going on was looking at the mineral ratios, not just individual levels." |
 | **Professional consultant** | "Based on the symptoms you're describing, there's likely a mineral imbalance that standard blood panels don't capture. HTMA testing reveals ratios that explain exactly this pattern." |
 
-> Q3: "Any topics or behaviors that are absolutely off-limits for your agent?"
+> Q3: "How should your agent vary its approach? Pick the reply styles it should use."
 
-Free text. Examples: "never discuss competitors by name", "no medical claims", "don't engage with political content".
+Options (multiselect via AskUserQuestion):
 
-Store `PLATFORMS`, `VOICE_STYLE`, `OFF_LIMITS`.
+| Archetype | Description |
+|-----------|-------------|
+| **The Mechanism Drop** | Share one specific technical/science fact that reframes their problem |
+| **The Reframe** | Validate frustration, offer a different lens on the situation |
+| **The Question** | Ask something useful that makes them think differently |
+| **The Quick Solve** | Give a specific, actionable answer (shows expertise) |
+| **The Validate-Only** | Pure empathy, no pitch — just "I hear you" (use 1 in 4 replies) |
+| **The "I Built This"** | When you've solved this exact problem before — share the specifics |
+
+> Q4: "Any topics or behaviors that are absolutely off-limits for your agent?"
+
+Free text. Examples: "never discuss competitors by name", "no medical claims", "don't engage with political content", "never claim personal health experience (agent is AI-drafted)".
+
+Store `PLATFORMS`, `VOICE_STYLE`, `REPLY_ARCHETYPES`, `OFF_LIMITS`.
 
 ## Round 4 — Persona Generation (system-generated, user-validated)
 
 **Only for brand engagement or customer discovery goals.**
 
-Using all context from Rounds 1-3, generate 2-3 starter personas. Follow the structure from the unclawg-discover persona framework.
+Using all context from Rounds 1-3, generate 2-3 starter personas. Each persona includes **voice calibration** — this is personality, not config.
 
 **If the user provided a website or product URL in Round 2:** the subagent research from that step informs persona generation. Use discovered audience signals, testimonials, feature pages, and existing marketing language to make personas concrete.
 
@@ -101,22 +128,25 @@ Based on what you've told me, here are your starter personas:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 P1: [Name] — [1-sentence description]          [PRIORITY]
-    Pain:      [What they're struggling with]
-    Platforms: [Where they are — from Round 3]
-    Queries:   ["exact search query 1", "exact search query 2"]
-    Voice:     [How to talk to this persona specifically]
+    Pain:       [What they're struggling with — in their words, not yours]
+    Platforms:  [Where they are — from Round 3]
+    Voice:      [How to talk to THIS persona — tone, length, warmth level]
+    Archetypes: [Which reply styles work best — from Round 3 selections]
+    Example:    "[A 1-2 sentence example reply to this persona in the agent's voice]"
 
 P2: [Name] — [1-sentence description]
-    Pain:      [...]
-    Platforms: [...]
-    Queries:   [...]
-    Voice:     [...]
+    Pain:       [...]
+    Platforms:  [...]
+    Voice:      [...]
+    Archetypes: [...]
+    Example:    [...]
 
 P3: [Name] — [1-sentence description]
-    Pain:      [...]
-    Platforms: [...]
-    Queries:   [...]
-    Voice:     [...]
+    Pain:       [...]
+    Platforms:  [...]
+    Voice:      [...]
+    Archetypes: [...]
+    Example:    [...]
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
@@ -127,7 +157,7 @@ Then ask:
 
 Iterate until the user is satisfied. Keep persona count between 2-5.
 
-**Persona query generation rules:**
+**Persona query generation rules** (these go into the MODE FILE, not the soul):
 - Use colloquial language matching real user pain, not clinical/marketing terms
 - Include platform-specific query formats (Reddit: subreddit + query, Twitter: keyword phrase, HN: topic query, LinkedIn: professional context query)
 - Each persona gets 2-4 queries per platform they're active on
@@ -152,13 +182,21 @@ Free text. Examples: "other mineral testing companies", "anyone with RD/RDN cred
 
 Store `API_KEYS_AVAILABLE`, `EXCLUSION_RULES`.
 
+**Important:** Competitor exclusion has two sides:
+- **Personality side** (goes in soul): "Never engage with competing mineral testing companies. Never claim credentials we don't have."
+- **Technical side** (goes in mode file): Regex patterns, bio keyword filters, account-type skip rules.
+
+Generate both from the user's answer.
+
+---
+
 ## Ask-Cascade Quick Reference
 
 | Round | Type | Can batch? | Depends on |
 |-------|------|-----------|------------|
 | 1 — Goal | Strategic | No — ask alone | Nothing |
 | 2 — Context | Tactical | Yes (Q1+Q2 independent) | Round 1 |
-| 3 — Audience & Voice | Tactical | Yes (Q1+Q2+Q3 independent) | Round 2 |
+| 3 — Audience, Voice & Archetypes | Tactical | Yes (Q1+Q2 batchable, Q3+Q4 batchable) | Round 2 |
 | 4 — Personas | System-generated | N/A — present for validation | Rounds 1-3 |
 | 5 — Tools & Exclusions | Detail | Yes (Q1+Q2 independent) | Round 3 |
 

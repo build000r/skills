@@ -13,15 +13,24 @@ objective_default: prospecting
 handoff_command: /your-next-step
 ```
 
+## What Goes Here vs. What Goes in the Soul
+
+| This file (mode) | The soul (`soul_md`) |
+|-------------------|---------------------|
+| Search queries per persona per platform | Persona definitions (name, pain, voice) |
+| Subreddit/community targets | Reply archetypes and mix guidance |
+| Ranking weights | Engagement principles |
+| Exclusion regex and bio keyword filters | Boundary reasoning ("never engage with X because...") |
+| Platform scope and API key requirements | Platform tone calibration |
+| Handoff schema | Voice and personality |
+
+**Rule:** If swapping this file changes how the agent *talks*, something is in the wrong place. This file should only change what the agent *searches for* and where.
+
 ## Configuration
 
-### Personas
+### Persona Query Packs
 
-List persona priorities and fit rules.
-
-### Query Packs
-
-Define per-platform queries.
+Map personas (defined in the soul) to search queries. Persona names here should match the soul's persona IDs.
 
 - reddit:
   - query: "..."
@@ -41,9 +50,13 @@ Define per-platform queries.
     total_posts: 20
     sort_by: date_posted
 
-### Exclusion Rules
+### Exclusion Patterns
 
-List project-specific competitor/vendor filters.
+Mechanical filters only. Personality-level exclusions ("never engage with competing companies because...") live in the soul.
+
+- Bio keyword skip list
+- CTA language regex
+- Account-type filters (recruiter, aggregator)
 
 ### Ranking Weights
 
@@ -54,9 +67,9 @@ Provide weights totaling 100.
 - freshness: 20
 - engagement: 20
 
-### Output Contract
+### Platform Scope
 
-Define required candidate fields and any extra downstream metadata.
+List available platforms and their API key requirements.
 
 ### Ask-Cascade Questions
 

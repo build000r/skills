@@ -92,7 +92,7 @@ if [ -z "$AGENT_ENV" ] && [ -f "services/approval_feedback_api/.env" ]; then
 fi
 
 if [ -z "$AGENT_ENV" ]; then
-  echo "No agent identity found. Run /unclawg-internet or create .claude/agents/<agent-id>.env"
+  echo "No agent identity found. Run /unclawg-internet (CLI device flow) or create .claude/agents/<agent-id>.env"
   exit 1
 fi
 

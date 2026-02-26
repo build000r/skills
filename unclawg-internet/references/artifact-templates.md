@@ -208,7 +208,7 @@ Escalate to human operators when:
 
 ## Writing the Soul to API
 
-Only if tokens are available — skip if pending human proof:
+Only if machine key credentials are available — skip if pending human proof:
 
 ```bash
 SOUL_CONTENT=$(cat << 'SOULEOF'
@@ -219,12 +219,12 @@ SOULEOF
 SOUL_JSON=$(echo "$SOUL_CONTENT" | python3 -c "import sys,json; print(json.dumps(sys.stdin.read()))")
 
 curl -s -w "\nHTTP_STATUS:%{http_code}" -X PUT \
-  "${APPROVAL_API_URL}/v0/integrations/claw-runtime/policies/soul_md/draft" \
+  "${APPROVAL_API_URL}/v0/integrations/claw-runtime/policies/soul_md/draft?agent_id=${AGENT_ID}" \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer ${ACCESS_TOKEN}" \
   -H "X-Tenant-Id: ${TENANT_ID}" \
+  -H "X-Machine-Key-Id: ${KEY_ID}" \
+  -H "X-Machine-Secret: ${KEY_SECRET}" \
   -d "{
-    \"agent_id\": \"${AGENT_ID}\",
     \"content\": ${SOUL_JSON},
     \"change_summary\": \"Initial soul from onboarding interview\"
   }"

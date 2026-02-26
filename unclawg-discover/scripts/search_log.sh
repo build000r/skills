@@ -13,6 +13,50 @@
 #   - "none" → first-time search, caller should use default time window
 #   - timestamp → refresh search, caller should use this as "since" cutoff
 
+set -euo pipefail
+
+usage() {
+  echo "Usage: search_log.sh <get|get-dataset|set|check-dataset> <platform> <search_term> [result_count] [dataset_id]" >&2
+}
+
+require_tool() {
+  local tool="$1"
+  if ! command -v "$tool" >/dev/null 2>&1; then
+    echo "Missing required tool: $tool" >&2
+    exit 1
+  fi
+}
+
+load_apify_key_from_zshrc() {
+  if [[ -n "${APIFY_API_KEY:-}" ]]; then
+    return
+  fi
+  if [[ ! -f "${HOME}/.zshrc" ]]; then
+    return
+  fi
+  local extracted
+  extracted="$(
+    awk '/^[[:space:]]*export[[:space:]]+APIFY_API_KEY=/{line=$0; sub(/^[^=]*=/, "", line); print line}' "${HOME}/.zshrc" \
+      | tail -n1 \
+      | sed -E "s/^[\"']|[\"']$//g"
+  )"
+  if [[ -n "${extracted}" ]]; then
+    export APIFY_API_KEY="${extracted}"
+  fi
+}
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  usage
+  exit 0
+fi
+
+if [[ $# -lt 1 ]]; then
+  usage
+  exit 1
+fi
+
+require_tool jq
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 LOG_FILE="${SCRIPT_DIR}/../.search_log.json"
 
@@ -21,7 +65,7 @@ if [ ! -f "$LOG_FILE" ]; then
   echo '{}' > "$LOG_FILE"
 fi
 
-MODE="${1:?Usage: search_log.sh <get|get-dataset|set|check-dataset> <platform> <search_term> [result_count] [dataset_id]}"
+MODE="$1"
 
 case "$MODE" in
   get)
@@ -60,11 +104,10 @@ case "$MODE" in
     ;;
 
   check-dataset)
+    require_tool curl
     DATASET_ID="${2:?Missing dataset_id}"
-    if [ -z "$APIFY_API_KEY" ]; then
-      export APIFY_API_KEY=$(grep 'APIFY_API_KEY' ~/.zshrc | grep -o '"[^"]*"' | tr -d '"')
-    fi
-    if [ -z "$APIFY_API_KEY" ]; then
+    load_apify_key_from_zshrc
+    if [ -z "${APIFY_API_KEY:-}" ]; then
       echo "expired"
       exit 0
     fi

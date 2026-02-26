@@ -79,6 +79,8 @@ If identity files exist, read each one and extract `OPENCLAW_AGENT_ID`, `OPENCLA
 ### Verify the machine key works
 
 ```bash
+# For self-hosted gateways requiring client app binding, add:
+#   -H "X-API-Key: ${OPENCLAW_API_KEY}" \
 RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST \
   -H "X-Tenant-Id: ${TENANT_ID}" \
   -H "X-Machine-Key-Id: ${KEY_ID}" \
@@ -103,6 +105,15 @@ RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST \
 
 STATUS=$(echo "$RESPONSE" | grep "HTTP_STATUS:" | cut -d: -f2)
 ```
+
+Interpret key-check failures before deciding next step:
+- `201` → key works and has `approval_request.create.social_reply`.
+- `401 MACHINE_KEY_NOT_FOUND` → key ID is unknown in this tenant/app context.
+- `401 UNAUTHORIZED` → key secret is wrong.
+- `403 MACHINE_KEY_EXPIRED` → key expired; re-run device flow and provision a replacement key.
+- `403 MACHINE_KEY_REVOKED` → key revoked; provision a replacement key.
+- `403 APP_BINDING_MISMATCH` → missing/wrong `X-API-Key` on self-hosted gateways.
+- `403 MACHINE_AGENT_MISMATCH` → key is bound to a different agent than `${AGENT_ID}`.
 
 ### Check for missing pieces
 

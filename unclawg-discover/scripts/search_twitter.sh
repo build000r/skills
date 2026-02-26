@@ -14,22 +14,75 @@
 #
 # Output: JSON array of tweets with author, text, likes, replies, url
 
+set -euo pipefail
+
+usage() {
+  echo "Usage: search_twitter.sh <query> [results_limit] [days_ago]" >&2
+}
+
+require_tool() {
+  local tool="$1"
+  if ! command -v "$tool" >/dev/null 2>&1; then
+    echo "Missing required tool: $tool" >&2
+    exit 1
+  fi
+}
+
+load_apify_key_from_zshrc() {
+  if [[ -n "${APIFY_API_KEY:-}" ]]; then
+    return
+  fi
+  if [[ ! -f "${HOME}/.zshrc" ]]; then
+    return
+  fi
+  local extracted
+  extracted="$(
+    awk '/^[[:space:]]*export[[:space:]]+APIFY_API_KEY=/{line=$0; sub(/^[^=]*=/, "", line); print line}' "${HOME}/.zshrc" \
+      | tail -n1 \
+      | sed -E "s/^[\"']|[\"']$//g"
+  )"
+  if [[ -n "${extracted}" ]]; then
+    export APIFY_API_KEY="${extracted}"
+  fi
+}
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  usage
+  exit 0
+fi
+
+if [[ $# -lt 1 ]]; then
+  usage
+  exit 1
+fi
+
+require_tool curl
+require_tool jq
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-QUERY="${1:?Usage: search_twitter.sh <query> [results_limit] [days_ago]}"
+QUERY="$1"
 LIMIT="${2:-20}"
 DAYS_AGO="${3:-7}"
+
+if ! [[ "${LIMIT}" =~ ^[0-9]+$ ]]; then
+  echo "results_limit must be an integer: ${LIMIT}" >&2
+  exit 1
+fi
+
+if ! [[ "${DAYS_AGO}" =~ ^[0-9]+$ ]]; then
+  echo "days_ago must be an integer: ${DAYS_AGO}" >&2
+  exit 1
+fi
 
 # Actor requires numberOfTweets >= 20
 if [ "$LIMIT" -lt 20 ]; then
   LIMIT=20
 fi
 
-if [ -z "$APIFY_API_KEY" ]; then
-  export APIFY_API_KEY=$(grep 'APIFY_API_KEY' ~/.zshrc | grep -o '"[^"]*"' | tr -d '"')
-fi
+load_apify_key_from_zshrc
 
-if [ -z "$APIFY_API_KEY" ]; then
+if [ -z "${APIFY_API_KEY:-}" ]; then
   echo '{"error": "APIFY_API_KEY not set. Sign up at https://apify.com and add to ~/.zshrc: export APIFY_API_KEY=\"your-key\""}'
   exit 1
 fi

@@ -408,7 +408,12 @@ curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST \
 If using a self-hosted gateway, add: `-H "X-API-Key: ${OPENCLAW_API_KEY}"`.
 
 - `201`: "Check your portal — you should see a test card. Approve or dismiss it."
-- Error: print it and suggest checking the env vars.
+- `401 MACHINE_KEY_NOT_FOUND`: key ID is unknown in this tenant/app context.
+- `401 UNAUTHORIZED`: machine secret is wrong.
+- `403 MACHINE_KEY_EXPIRED`: key expired; re-run `/unclawg-internet` key provisioning.
+- `403 MACHINE_KEY_REVOKED`: key revoked; provision a fresh key.
+- `403 APP_BINDING_MISMATCH`: missing/wrong `X-API-Key` on self-hosted gateways.
+- Other error: print body + status and verify env vars and API URL.
 
 ---
 

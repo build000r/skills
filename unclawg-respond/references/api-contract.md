@@ -62,7 +62,11 @@ GET /v0/agents/{agent_id}/revision-requests?status=pending
 ```
 
 **Errors:**
-- `401` — missing/invalid machine key
+- `401 MACHINE_KEY_NOT_FOUND` — key ID not found in this tenant/app context
+- `401 UNAUTHORIZED` — machine secret is invalid
+- `403 MACHINE_KEY_EXPIRED` — key expired; rotate or re-provision
+- `403 MACHINE_KEY_REVOKED` — key revoked; provision new key
+- `403 APP_BINDING_MISMATCH` — app binding mismatch (`X-API-Key` / gateway binding issue)
 - `403 MACHINE_AGENT_MISMATCH` — key bound to different agent
 
 ---
@@ -319,8 +323,12 @@ POST /v0/approval-requests/{approval_id}/messages/fulfill
 **Errors:**
 - `400 VALIDATION_ERROR` — missing `revision_request_id`
 - `400 EDIT_DIFF_INVALID` — missing `edited_content`
-- `401` — invalid machine key
-- `403` — machine key not bound to this approval's agent
+- `401 MACHINE_KEY_NOT_FOUND` — key ID not found in this tenant/app context
+- `401 UNAUTHORIZED` — machine secret is invalid
+- `403 MACHINE_KEY_EXPIRED` — key expired
+- `403 MACHINE_KEY_REVOKED` — key revoked
+- `403 APP_BINDING_MISMATCH` — app binding mismatch (`X-API-Key` / gateway binding issue)
+- `403 MACHINE_AGENT_MISMATCH` — machine key not bound to this approval's agent
 - `404 APPROVAL_NOT_FOUND` — invalid approval_id
 - `409 VERSION_CONFLICT` — `expected_version` doesn't match current; re-fetch and retry
 - `409 REVISION_REQUEST_STALE` — revision request is no longer open (already fulfilled/closed)
@@ -389,7 +397,11 @@ POST /v0/instruction-proposals
 ```
 
 **Errors:**
-- `401` — missing/invalid machine key
+- `401 MACHINE_KEY_NOT_FOUND` — key ID not found in this tenant/app context
+- `401 UNAUTHORIZED` — machine secret is invalid
+- `403 MACHINE_KEY_EXPIRED` — key expired
+- `403 MACHINE_KEY_REVOKED` — key revoked
+- `403 APP_BINDING_MISMATCH` — app binding mismatch (`X-API-Key` / gateway binding issue)
 - `403 MACHINE_SCOPE_DENIED` — key missing `instruction_proposal.create` scope
 - `409 IDEMPOTENCY_CONFLICT` — same key reused with different payload fingerprint
 

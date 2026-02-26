@@ -27,6 +27,7 @@ Agent identity env vars. Auto-discovered from `.claude/agents/<agent-id>.env` (p
 | `OPENCLAW_AGENT_ID` | Agent ID the machine key is bound to |
 
 **Machine key must have scope `approval_request.create.social_reply`.**
+If machine auth fails with `MACHINE_KEY_EXPIRED` or `MACHINE_KEY_REVOKED`, rotate or re-provision the key via `/unclawg-internet` before continuing.
 
 ## Soul / Skill Separation
 
@@ -110,6 +111,8 @@ done
 # Smoke test: hit list approvals and confirm 200 (auth/connectivity only)
 # Note: list returns only approvals where this machine is a participant.
 # An empty list (200 with 0 items) is still a successful smoke test.
+# For self-hosted gateways requiring client app binding, add:
+#   -H "X-API-Key: ${OPENCLAW_API_KEY}" \
 SMOKE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" \
   -H "X-Tenant-Id: ${OPENCLAW_TENANT_ID}" \
   -H "X-Machine-Key-Id: ${OPENCLAW_MACHINE_KEY_ID}" \
@@ -124,6 +127,16 @@ if [ "$STATUS" != "200" ]; then
 fi
 echo "SMOKE TEST PASSED"
 ```
+
+**If smoke test fails:**
+- `401 MACHINE_KEY_NOT_FOUND` → key ID is unknown in this tenant/app context. Confirm key ID and tenant, then re-provision if needed.
+- `401 UNAUTHORIZED` → machine secret is wrong. Re-copy the secret or rotate the key.
+- `403 MACHINE_KEY_EXPIRED` → key expired. Run `/unclawg-internet` (or rotate in portal) and update `.claude/agents/<agent-id>.env`.
+- `403 MACHINE_KEY_REVOKED` → key was revoked. Provision a fresh key.
+- `403 APP_BINDING_MISMATCH` → missing/wrong `X-API-Key` on self-hosted gateways.
+- `403 MACHINE_AGENT_MISMATCH` → key is bound to a different `OPENCLAW_AGENT_ID`.
+- `TENANT_CONTEXT_REQUIRED` → missing/empty `OPENCLAW_TENANT_ID`.
+- Connection refused / DNS errors → verify `OPENCLAW_API_URL` and service health.
 
 ### Phase 1 — Pull the Soul
 
@@ -242,6 +255,11 @@ fi
 
 **Response validation:**
 - `201` → success, card created (machine key is auto-added as observer participant for future reads)
+- `401 MACHINE_KEY_NOT_FOUND` → key ID is unknown in this tenant/app context
+- `401 UNAUTHORIZED` → machine secret is wrong
+- `403 MACHINE_KEY_EXPIRED` → key expired; rotate/re-provision before retry
+- `403 MACHINE_KEY_REVOKED` → key revoked; provision a fresh key
+- `403 APP_BINDING_MISMATCH` → missing/wrong `X-API-Key` on self-hosted gateways
 - `403 MACHINE_AGENT_MISMATCH` → machine key bound to wrong agent
 - `403 MACHINE_SCOPE_DENIED` → key missing `approval_request.create.social_reply` scope
 - `409` → idempotency conflict (already submitted)

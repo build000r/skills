@@ -17,17 +17,65 @@
 #
 # Output: JSON array of posts with author, text, reactions, url
 
+set -euo pipefail
+
+usage() {
+  echo "Usage: search_linkedin.sh <query> [total_posts] [sort_by]" >&2
+}
+
+require_tool() {
+  local tool="$1"
+  if ! command -v "$tool" >/dev/null 2>&1; then
+    echo "Missing required tool: $tool" >&2
+    exit 1
+  fi
+}
+
+load_apify_key_from_zshrc() {
+  if [[ -n "${APIFY_API_KEY:-}" ]]; then
+    return
+  fi
+  if [[ ! -f "${HOME}/.zshrc" ]]; then
+    return
+  fi
+  local extracted
+  extracted="$(
+    awk '/^[[:space:]]*export[[:space:]]+APIFY_API_KEY=/{line=$0; sub(/^[^=]*=/, "", line); print line}' "${HOME}/.zshrc" \
+      | tail -n1 \
+      | sed -E "s/^[\"']|[\"']$//g"
+  )"
+  if [[ -n "${extracted}" ]]; then
+    export APIFY_API_KEY="${extracted}"
+  fi
+}
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  usage
+  exit 0
+fi
+
+if [[ $# -lt 1 ]]; then
+  usage
+  exit 1
+fi
+
+require_tool curl
+require_tool jq
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-QUERY="${1:?Usage: search_linkedin.sh <query> [total_posts] [sort_by]}"
+QUERY="$1"
 TOTAL="${2:-20}"
 SORT="${3:-date_posted}"
 
-if [ -z "$APIFY_API_KEY" ]; then
-  export APIFY_API_KEY=$(grep 'APIFY_API_KEY' ~/.zshrc | grep -o '"[^"]*"' | tr -d '"')
+if ! [[ "${TOTAL}" =~ ^[0-9]+$ ]]; then
+  echo "total_posts must be an integer: ${TOTAL}" >&2
+  exit 1
 fi
 
-if [ -z "$APIFY_API_KEY" ]; then
+load_apify_key_from_zshrc
+
+if [ -z "${APIFY_API_KEY:-}" ]; then
   echo '{"error": "APIFY_API_KEY not set. Sign up at https://apify.com and add to ~/.zshrc: export APIFY_API_KEY=\"your-key\""}'
   exit 1
 fi

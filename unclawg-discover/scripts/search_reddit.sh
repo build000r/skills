@@ -13,10 +13,38 @@
 #
 # Output: JSON array of posts with title, author, score, url, selftext preview
 
+set -euo pipefail
+
+usage() {
+  echo "Usage: search_reddit.sh <query> <subreddit> [time_filter] [limit]" >&2
+}
+
+require_tool() {
+  local tool="$1"
+  if ! command -v "$tool" >/dev/null 2>&1; then
+    echo "Missing required tool: $tool" >&2
+    exit 1
+  fi
+}
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  usage
+  exit 0
+fi
+
+if [[ $# -lt 2 ]]; then
+  usage
+  exit 1
+fi
+
+require_tool curl
+require_tool jq
+require_tool python3
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-QUERY="${1:?Usage: search_reddit.sh <query> <subreddit> [time_filter] [limit]}"
-SUBREDDIT="${2:?Usage: search_reddit.sh <query> <subreddit> [time_filter] [limit]}"
+QUERY="$1"
+SUBREDDIT="$2"
 TIME_FILTER="${3:-week}"
 LIMIT="${4:-25}"
 

@@ -22,6 +22,8 @@ Agent identity env vars. Auto-discovered from `.claude/agents/<agent-id>.env` (p
 | `OPENCLAW_MACHINE_SECRET` | Machine key secret |
 | `OPENCLAW_AGENT_ID` | Agent ID the machine key is bound to |
 
+If machine auth fails with `MACHINE_KEY_EXPIRED` or `MACHINE_KEY_REVOKED`, rotate or re-provision the key via `/unclawg-internet` before continuing.
+
 ## Soul / Skill Separation
 
 This skill is **mechanical**. It polls revision requests, reads feedback, generates revised outputs, and creates instruction proposals. All personality comes from the **soul** (`soul_md`).
@@ -105,6 +107,8 @@ done
 [ -n "$missing" ] && echo "MISSING:$missing" && exit 1
 
 # Smoke test: hit the list-revisions endpoint and confirm 200
+# For self-hosted gateways requiring client app binding, add:
+#   -H "X-API-Key: ${OPENCLAW_API_KEY}" \
 SMOKE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" \
   -H "X-Tenant-Id: ${OPENCLAW_TENANT_ID}" \
   -H "X-Machine-Key-Id: ${OPENCLAW_MACHINE_KEY_ID}" \
@@ -121,10 +125,14 @@ echo "SMOKE TEST PASSED"
 ```
 
 **If smoke test fails:**
-- `401` / `MACHINE_KEY_NOT_FOUND` → wrong key, revoked/expired key, wrong tenant/app binding, or stale local env. Re-check key material and recreate/rotate if needed.
+- `401 MACHINE_KEY_NOT_FOUND` → key ID is unknown in this tenant/app context. Confirm key ID and tenant, then re-provision if needed.
+- `401 UNAUTHORIZED` → machine secret is wrong. Re-copy the secret or rotate the key.
+- `403 MACHINE_KEY_EXPIRED` → key expired. Run `/unclawg-internet` (or rotate in portal) and update `.claude/agents/<agent-id>.env`.
+- `403 MACHINE_KEY_REVOKED` → key was revoked. Provision a fresh key.
+- `403 APP_BINDING_MISMATCH` → missing/wrong `X-API-Key` on self-hosted gateways.
 - `403 MACHINE_AGENT_MISMATCH` → key bound to wrong agent. Check `OPENCLAW_AGENT_ID`.
 - `TENANT_CONTEXT_REQUIRED` → `X-Tenant-Id` header missing or empty. Check `OPENCLAW_TENANT_ID`.
-- Connection refused → API not running. Check `docker ps` or `OPENCLAW_API_URL`.
+- Connection refused / DNS errors → verify `OPENCLAW_API_URL` and service health.
 
 ### Phase 1 — Fetch Pending Revision Requests
 
@@ -216,6 +224,11 @@ echo "Body: $BODY"
 
 **Response validation:**
 - `201` → success. Record it.
+- `401 MACHINE_KEY_NOT_FOUND` → key ID is unknown in this tenant/app context.
+- `401 UNAUTHORIZED` → machine secret is wrong.
+- `403 MACHINE_KEY_EXPIRED` → key expired; rotate/re-provision before retry.
+- `403 MACHINE_KEY_REVOKED` → key revoked; provision a fresh key.
+- `403 APP_BINDING_MISMATCH` → missing/wrong `X-API-Key` on self-hosted gateways.
 - `409 VERSION_CONFLICT` → re-fetch approval detail for current version, retry once.
 - `409 REVISION_REQUEST_STALE` → request already fulfilled/closed. Treat as terminal; don't retry.
 - `409 REVISION_REQUEST_EXPIRED` → TTL expired. Tell user and stop retrying.
@@ -269,7 +282,7 @@ RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST \
   Print the proposal ID and payload summary. Tell user:
   > "Instruction proposal `{id}` created. Approve or reject it via the portal or `POST /v0/instruction-proposals/{id}/decisions`."
 
-  **Machine key must have scope `instruction_proposal.create`.** If denied (403), tell user to add the scope to their machine key.
+  **Machine key must have scope `instruction_proposal.create`.** If denied, check for `MACHINE_SCOPE_DENIED` (add scope) versus `MACHINE_KEY_EXPIRED`/`MACHINE_KEY_REVOKED` (rotate/re-provision key).
 
 - "Looks good" → proceed to Phase 8
 

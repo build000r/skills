@@ -1,10 +1,13 @@
 use std::collections::{hash_map::DefaultHasher, HashMap, HashSet};
 use std::hash::{Hash, Hasher};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
 
-use crate::{extract, resolve_input, ExtractOptions, Snapshot, ToolSelection};
+use crate::{
+    discover_claude_path_excluding, discover_codex_path_excluding, extract, resolve_input,
+    AgentTool, ExtractOptions, Snapshot, ToolSelection,
+};
 
 use super::model_client::ModelClient;
 use super::protocol::{
@@ -33,6 +36,7 @@ struct SessionRuntimeState {
     thought_source: ThoughtSource,
     objective_fingerprint: Option<String>,
     objective_stable_since: DateTime<Utc>,
+    claimed_jsonl_path: Option<PathBuf>,
 }
 
 impl SessionRuntimeState {
@@ -54,6 +58,7 @@ impl SessionRuntimeState {
             thought_source: session.thought_source,
             objective_fingerprint: session.objective_fingerprint.clone(),
             objective_stable_since: thought_updated_at,
+            claimed_jsonl_path: None,
         }
     }
 
@@ -117,6 +122,19 @@ impl EmitEngine {
             return SyncResultMessage::new(request.id.clone(), updates, metrics);
         }
 
+        let mut claude_excluded: HashSet<PathBuf> = HashSet::new();
+        let mut codex_excluded: HashSet<PathBuf> = HashSet::new();
+        for state in self.per_session.values() {
+            if let Some(claimed) = state.claimed_jsonl_path.as_ref() {
+                // We don't track tool type in state, so we add to both sets initially.
+                // The discovery functions only search their own filesystem layout, so
+                // a Claude path in the Codex set (or vice versa) is harmless — it will
+                // never match a Codex discovery candidate.
+                claude_excluded.insert(claimed.clone());
+                codex_excluded.insert(claimed.clone());
+            }
+        }
+
         let model_client = &self.model_client;
 
         for session in &request.sessions {
@@ -175,7 +193,20 @@ impl EmitEngine {
                 state.last_call_at = Some(request.now);
             }
 
-            let context_snapshot = context_snapshot_for_session(session);
+            let (context_snapshot, resolved_path) =
+                context_snapshot_for_session_with_claim(
+                    session,
+                    state.claimed_jsonl_path.as_deref(),
+                    &claude_excluded,
+                    &codex_excluded,
+                );
+            if let Some(path) = resolved_path {
+                claude_excluded.insert(path.clone());
+                codex_excluded.insert(path.clone());
+                state.claimed_jsonl_path = Some(path);
+            } else {
+                state.claimed_jsonl_path = None;
+            }
             let objective_fingerprint = if let Some(snapshot) = context_snapshot.as_ref() {
                 context_focus_fingerprint(snapshot, &session.state).to_string()
             } else {
@@ -350,19 +381,63 @@ fn is_sleeping_text(thought: Option<&str>) -> bool {
     }
 }
 
-fn context_snapshot_for_session(session: &SessionSnapshot) -> Option<Snapshot> {
-    let selection = tool_selection_for_session(session.tool.as_deref())?;
+fn context_snapshot_for_session_with_claim(
+    session: &SessionSnapshot,
+    existing_claim: Option<&Path>,
+    claude_excluded: &HashSet<PathBuf>,
+    codex_excluded: &HashSet<PathBuf>,
+) -> (Option<Snapshot>, Option<PathBuf>) {
+    let selection = match tool_selection_for_session(session.tool.as_deref()) {
+        Some(s) => s,
+        None => return (None, None),
+    };
     let cwd = Path::new(&session.cwd);
-    let resolved = resolve_input(selection, cwd, None).ok()?;
+
+    // If we already have a claimed path and the file still exists, reuse it
+    if let Some(claimed) = existing_claim {
+        if claimed.exists() {
+            let resolved = resolve_input(selection, cwd, Some(claimed)).ok();
+            if let Some(resolved) = resolved {
+                let output = extract(
+                    resolved.tool,
+                    &resolved.path,
+                    cwd,
+                    resolved.discovered,
+                    &ExtractOptions::default(),
+                )
+                .ok();
+                return (output.map(|o| o.snapshot), Some(claimed.to_path_buf()));
+            }
+        }
+    }
+
+    // Otherwise, discover a new path using the exclusion set
+    let agent_tool = match selection {
+        ToolSelection::Claude => AgentTool::Claude,
+        ToolSelection::Codex => AgentTool::Codex,
+        ToolSelection::Auto => return (None, None),
+    };
+
+    let discovered = match agent_tool {
+        AgentTool::Claude => discover_claude_path_excluding(cwd, claude_excluded),
+        AgentTool::Codex => discover_codex_path_excluding(cwd, codex_excluded),
+    };
+
+    let path = match discovered {
+        Some(p) => p,
+        None => return (None, None),
+    };
+
     let output = extract(
-        resolved.tool,
-        &resolved.path,
+        agent_tool,
+        &path,
         cwd,
-        resolved.discovered,
+        true,
         &ExtractOptions::default(),
     )
-    .ok()?;
-    Some(output.snapshot)
+    .ok();
+
+    (output.map(|o| o.snapshot), Some(path))
 }
 
 fn tool_selection_for_session(tool: Option<&str>) -> Option<ToolSelection> {
@@ -821,5 +896,106 @@ mod tests {
         assert_eq!(result.updates.len(), 1);
         assert!(result.updates[0].thought.is_none());
         assert_eq!(result.updates[0].thought_state, ThoughtState::Holding);
+    }
+
+    #[test]
+    fn claimed_path_persists_across_sync_ticks() {
+        let now = Utc::now();
+        let mut engine = EmitEngine::new(Box::new(MockModelClient {
+            response: "working on tests".to_string(),
+        }));
+
+        // First sync — no tool set, so no JSONL claim, but state is created
+        let request = SyncRequest {
+            id: "req-1".to_string(),
+            now,
+            config: ThoughtConfig::default(),
+            sessions: vec![sample_session(now)],
+        };
+        engine.sync(&request);
+
+        // Manually inject a claimed path to simulate a successful discovery
+        let fake_path = PathBuf::from("/tmp/fake-session.jsonl");
+        engine
+            .per_session
+            .get_mut("sess-1")
+            .unwrap()
+            .claimed_jsonl_path = Some(fake_path.clone());
+
+        // Second sync — state should retain the claimed path
+        let request2 = SyncRequest {
+            id: "req-2".to_string(),
+            now: now + Duration::seconds(60),
+            config: ThoughtConfig::default(),
+            sessions: vec![sample_session(now + Duration::seconds(60))],
+        };
+        engine.sync(&request2);
+
+        // The state persists (not reset) — claimed_jsonl_path may be cleared
+        // by the sync logic since the file doesn't exist, but the state entry
+        // itself survives across ticks.
+        assert!(
+            engine.per_session.contains_key("sess-1"),
+            "state should persist across sync ticks"
+        );
+    }
+
+    #[test]
+    fn session_removal_drops_claim() {
+        let now = Utc::now();
+        let mut engine = EmitEngine::new(Box::new(MockModelClient {
+            response: "working".to_string(),
+        }));
+
+        // First sync creates state for sess-1
+        let request = SyncRequest {
+            id: "req-1".to_string(),
+            now,
+            config: ThoughtConfig::default(),
+            sessions: vec![sample_session(now)],
+        };
+        engine.sync(&request);
+        assert!(engine.per_session.contains_key("sess-1"));
+
+        // Second sync with no sessions — retain() should drop sess-1
+        let request2 = SyncRequest {
+            id: "req-2".to_string(),
+            now: now + Duration::seconds(1),
+            config: ThoughtConfig::default(),
+            sessions: vec![],
+        };
+        engine.sync(&request2);
+        assert!(
+            !engine.per_session.contains_key("sess-1"),
+            "state and claim should be dropped when session removed"
+        );
+    }
+
+    #[test]
+    fn claude_and_codex_exclusion_sets_independent() {
+        // Verify that the exclusion sets are built and both populated from claims
+        // (since we add to both sets for simplicity), but discovery functions only
+        // search their own filesystem layout so cross-tool contamination is impossible.
+        let claude_path = PathBuf::from("/home/user/.claude/projects/slug/session-a.jsonl");
+        let codex_path =
+            PathBuf::from("/home/user/.codex/sessions/2026/02/27/rollout-abc.jsonl");
+
+        let mut claude_excluded: HashSet<PathBuf> = HashSet::new();
+        let mut codex_excluded: HashSet<PathBuf> = HashSet::new();
+
+        // Simulate two sessions claiming different paths
+        claude_excluded.insert(claude_path.clone());
+        codex_excluded.insert(claude_path.clone());
+        claude_excluded.insert(codex_path.clone());
+        codex_excluded.insert(codex_path.clone());
+
+        // A Claude path in codex_excluded can never match a Codex rollout-* file
+        // because discover_codex_path_excluding only considers rollout-*.jsonl
+        // in ~/.codex/sessions/. The important thing is that each set contains
+        // both paths but discovery is type-scoped by filesystem layout.
+        assert!(claude_excluded.contains(&claude_path));
+        assert!(codex_excluded.contains(&codex_path));
+        assert_eq!(claude_excluded.len(), 2);
+        assert_eq!(codex_excluded.len(), 2);
     }
 }

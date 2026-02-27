@@ -1,6 +1,7 @@
 pub mod emit;
 pub mod parsers;
 
+use std::collections::HashSet;
 use std::fs;
 use std::io::BufRead;
 use std::path::{Path, PathBuf};
@@ -333,6 +334,71 @@ pub fn discover_codex_path(cwd: &Path) -> Option<PathBuf> {
     None
 }
 
+pub fn discover_claude_path_excluding(
+    cwd: &Path,
+    excluded: &HashSet<PathBuf>,
+) -> Option<PathBuf> {
+    let home = home_dir()?;
+    let cwd_slug = cwd.display().to_string().replace('/', "-");
+    let project_dir = home.join(".claude").join("projects").join(cwd_slug);
+
+    let mut files: Vec<(PathBuf, SystemTime)> = fs::read_dir(project_dir)
+        .ok()?
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("jsonl"))
+        .filter(|path| !excluded.contains(path))
+        .filter_map(|path| {
+            let modified = fs::metadata(&path).ok()?.modified().ok()?;
+            Some((path, modified))
+        })
+        .collect();
+
+    files.sort_by(|a, b| b.1.cmp(&a.1));
+    files.into_iter().next().map(|(path, _)| path)
+}
+
+pub fn discover_codex_path_excluding(
+    cwd: &Path,
+    excluded: &HashSet<PathBuf>,
+) -> Option<PathBuf> {
+    let home = home_dir()?;
+    let sessions_dir = home.join(".codex").join("sessions");
+
+    for year in sorted_numeric_subdirs_reverse(&sessions_dir, 4) {
+        for month in sorted_numeric_subdirs_reverse(&year, 2) {
+            for day in sorted_numeric_subdirs_reverse(&month, 2) {
+                let mut rollout_files: Vec<PathBuf> = fs::read_dir(&day)
+                    .ok()?
+                    .filter_map(|entry| entry.ok())
+                    .map(|entry| entry.path())
+                    .filter(|path| {
+                        let name = path
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or_default();
+                        name.starts_with("rollout-") && name.ends_with(".jsonl")
+                    })
+                    .collect();
+
+                rollout_files.sort();
+                rollout_files.reverse();
+
+                for file_path in rollout_files {
+                    if excluded.contains(&file_path) {
+                        continue;
+                    }
+                    if codex_file_matches_cwd(&file_path, cwd) {
+                        return Some(file_path);
+                    }
+                }
+            }
+        }
+    }
+
+    None
+}
+
 fn codex_file_matches_cwd(path: &Path, cwd: &Path) -> bool {
     let cwd_str = cwd.display().to_string();
     let file = match fs::File::open(path) {
@@ -403,7 +469,13 @@ fn home_dir() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+    use std::thread;
+    use std::time::Duration;
     use tempfile::NamedTempFile;
+
+    /// Tests that modify $HOME must hold this lock to avoid racing each other.
+    static HOME_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn infer_codex_tool_from_response_item() {
@@ -429,5 +501,98 @@ mod tests {
 
         let tool = infer_tool_from_file(file.path()).expect("infer tool");
         assert_eq!(tool, AgentTool::Claude);
+    }
+
+    /// Helper: create a fake Claude project dir under a temp HOME with JSONL files.
+    /// Returns (temp_dir, cwd, vec of created file paths sorted oldest-first).
+    fn setup_claude_project_dir(
+        cwd_path: &str,
+        file_count: usize,
+    ) -> (tempfile::TempDir, PathBuf, Vec<PathBuf>) {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let cwd = PathBuf::from(cwd_path);
+        let cwd_slug = cwd.display().to_string().replace('/', "-");
+        let project_dir = tmp.path().join(".claude").join("projects").join(cwd_slug);
+        fs::create_dir_all(&project_dir).expect("mkdir");
+
+        let mut paths = Vec::new();
+        for i in 0..file_count {
+            let file_path = project_dir.join(format!("session-{i}.jsonl"));
+            fs::write(
+                &file_path,
+                "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\"}}\n",
+            )
+            .expect("write");
+            paths.push(file_path);
+            // Ensure distinct mtime ordering
+            thread::sleep(Duration::from_millis(50));
+        }
+        (tmp, cwd, paths)
+    }
+
+    #[test]
+    fn excluding_empty_set_returns_newest() {
+        let _lock = HOME_LOCK.lock().unwrap();
+        let (tmp, cwd, paths) = setup_claude_project_dir("/tmp/project", 2);
+        std::env::set_var("HOME", tmp.path());
+        let result = discover_claude_path_excluding(&cwd, &HashSet::new());
+        assert_eq!(result, Some(paths[1].clone()), "should return newest file");
+    }
+
+    #[test]
+    fn excluding_newest_returns_second() {
+        let _lock = HOME_LOCK.lock().unwrap();
+        let (tmp, cwd, paths) = setup_claude_project_dir("/tmp/project-a", 2);
+        std::env::set_var("HOME", tmp.path());
+        let mut excluded = HashSet::new();
+        excluded.insert(paths[1].clone());
+        let result = discover_claude_path_excluding(&cwd, &excluded);
+        assert_eq!(
+            result,
+            Some(paths[0].clone()),
+            "should return second-newest when newest excluded"
+        );
+    }
+
+    #[test]
+    fn excluding_all_returns_none() {
+        let _lock = HOME_LOCK.lock().unwrap();
+        let (tmp, cwd, paths) = setup_claude_project_dir("/tmp/project-b", 1);
+        std::env::set_var("HOME", tmp.path());
+        let mut excluded = HashSet::new();
+        excluded.insert(paths[0].clone());
+        let result = discover_claude_path_excluding(&cwd, &excluded);
+        assert_eq!(result, None, "should return None when all files excluded");
+    }
+
+    #[test]
+    fn exclusion_does_not_cross_cwd_boundaries() {
+        let _lock = HOME_LOCK.lock().unwrap();
+        let (tmp, _cwd_a, paths_a) = setup_claude_project_dir("/tmp/project-c", 1);
+        // Create a second project dir under the same HOME
+        let cwd_b = PathBuf::from("/tmp/project-d");
+        let slug_b = cwd_b.display().to_string().replace('/', "-");
+        let dir_b = tmp.path().join(".claude").join("projects").join(slug_b);
+        fs::create_dir_all(&dir_b).expect("mkdir");
+        let file_b = dir_b.join("session-0.jsonl");
+        fs::write(
+            &file_b,
+            "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\"}}\n",
+        )
+        .expect("write");
+
+        std::env::set_var("HOME", tmp.path());
+
+        // Exclude a path from project A
+        let mut excluded = HashSet::new();
+        excluded.insert(paths_a[0].clone());
+
+        // Project B should still find its file unaffected
+        let result = discover_claude_path_excluding(&cwd_b, &excluded);
+        assert_eq!(
+            result,
+            Some(file_b),
+            "exclusion from different CWD should not affect discovery"
+        );
     }
 }

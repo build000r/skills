@@ -88,7 +88,7 @@
       "groups": {
         "{{TELEGRAM_GROUP_CHAT_ID}}": {}
       },
-      "streamMode": "partial"
+      "streaming": true
     }
   },
   "gateway": {
@@ -112,7 +112,7 @@
     }
   },
   "meta": {
-    "lastTouchedVersion": "2026.2.17",
-    "lastTouchedAt": "2026-02-18T00:00:00.000Z"
+    "lastTouchedVersion": "2026.2.26",
+    "lastTouchedAt": "2026-02-27T00:00:00.000Z"
   }
 }

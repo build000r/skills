@@ -18,6 +18,16 @@ Create and apply a reusable client kit for OpenClaw with strict governance:
 - read-only credentials in OpenClaw
 - explicit write-gateway contract for all external mutations
 
+## AI Runtime-First Skill Split
+
+Treat tracked skills as AI runtime instructions, and keep operator/admin runbooks private.
+
+- Runtime skills must be wrapper-only (`tools.exec.security: "allowlist"` + `safeBins`).
+- Runtime skills should fail closed when required wrapper bins are missing.
+- Keep local project overlays in `modes/` (gitignored).
+- Keep admin-only skills (for example `unclawg-admin`) gitignored/private.
+- Do not point a production claw at `../skills` wholesale; curate a runtime-safe subset.
+
 ## Architectural Decision First
 
 Before collecting inputs or building a kit, decide:
@@ -261,6 +271,24 @@ The kit template may need these fixes for current OpenClaw versions:
 - **Co-located claws** — use `APP_HOME`, `OPENCLAW_HOME`, and `OPENCLAW_SERVICE_NAME` when installing additional claws on the same droplet.
 - **Native approval forwarding schema** — current runtime supports `approvals.exec.mode: session|targets|both`; avoid legacy `spaps` mode blocks in `openclaw.json`.
 - **Runtime placeholders** — `{{MediaPath}}`, `{{Prompt}}`, `{{MaxChars}}` are valid runtime tokens for CLI media models; do not treat these as unresolved template placeholders.
+
+### Updates for v2026.2.19–v2026.2.26
+
+- **BREAKING: SafeBins trusted directory enforcement** — `tools.exec.safeBins` entries must resolve from trusted bin directories (default: `/bin`, `/usr/bin` only). Custom bin paths (e.g. `/home/openclaw/.openclaw/bin`) require explicit opt-in via `tools.exec.safeBinTrustedDirs`. Without this, custom safeBin entries will fail resolution at runtime.
+- **BREAKING: `sort` and `grep` removed from default safe bins** — upstream hardened defaults to remove `sort` (file write via `-o`) and `grep` (recursive reads). Explicitly listing them in config still works but triggers `openclaw doctor` warnings. Keep them if needed for read-only analysis, but ensure `safeBinTrustedDirs` covers their parent directory.
+- **BREAKING: Heartbeat `directPolicy`** — new key `agents.defaults.heartbeat.directPolicy` (`allow` | `block`) replaces DM toggle. Default changed to `allow` in v2026.2.24. Set `"block"` if DM heartbeat delivery is undesired for client claws.
+- **BREAKING: Docker container namespace join blocked** — `network: "container:<id>"` blocked by default. Break-glass: `agents.defaults.sandbox.docker.dangerouslyAllowContainerNamespaceJoin: true`.
+- **BREAKING: DM allowlist enforcement tightened** — `dmPolicy: "allowlist"` with empty `allowFrom` now silently drops all DMs (was permissive). Always populate `allowFrom` when using `allowlist` policy. `openclaw doctor --fix` restores from pairing-store.
+- **Telegram `streamMode` deprecated** — replace `"streamMode": "partial"` with `"streaming": true`. Legacy values auto-mapped but deprecated since v2026.2.21.
+- **Browser SSRF policy key renamed** — `browser.ssrfPolicy.allowPrivateNetwork` renamed to `browser.ssrfPolicy.dangerouslyAllowPrivateNetwork`. `openclaw doctor --fix` auto-migrates.
+- **Secrets management** — new top-level `secrets` config block (`secrets.providers`, `secrets.defaults`) for env/file/exec secret sources. `openclaw secrets audit/configure/apply/reload` CLI workflow available.
+- **Plugin entries resilience** — `plugins.entries.*` with unknown IDs now logs warnings instead of crash-looping gateway boot.
+- **Node exec approvals hardened** — structured `commandArgv` approvals for `host=node`, `GIT_EXTERNAL_DIFF` blocked in host env keys.
+- **Auth profile alias normalization** — `mode -> type`, `apiKey -> key` aliases accepted in `auth-profiles.json`.
+- **`openai-codex-responses`** accepted in config model API schema.
+- **`session.parentForkMaxTokens`** — default `100000` (`0` disables). Prevents oversized parent-session inheritance from bricking thread sessions.
+- **`meta.lastTouchedAt` accepts numeric timestamps** — coerces `Date.now()` values to ISO strings for forward compat.
+- **`gateway.http.securityHeaders.strictTransportSecurity`** — optional HSTS header for direct HTTPS deployments.
 
 ## Bundled Assets
 

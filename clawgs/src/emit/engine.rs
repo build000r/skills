@@ -19,6 +19,10 @@ const MAX_THOUGHT_CHARS: usize = 120;
 const STATIC_SLEEPING_THOUGHT: &str = "Sleeping.";
 const SLEEPING_AFTER_MS: i64 = 60_000;
 
+pub const DEFAULT_AGENT_PREAMBLE: &str =
+    "You are a status reporter for a coding agent session.";
+pub const DEFAULT_TERMINAL_PREAMBLE: &str = "Terminal session status reporter.";
+
 struct SessionRuntimeState {
     summary_history: Vec<String>,
     last_terminal_context: Option<String>,
@@ -379,8 +383,7 @@ fn build_context_prompt(
     custom_preamble: Option<&str>,
 ) -> String {
     let mut parts: Vec<String> = Vec::new();
-    let preamble =
-        custom_preamble.unwrap_or("You are a status reporter for a coding agent session.");
+    let preamble = custom_preamble.unwrap_or(DEFAULT_AGENT_PREAMBLE);
     parts.push(preamble.to_string());
     parts.push(format!("State: {}", state_label(state)));
 
@@ -445,7 +448,7 @@ fn build_terminal_prompt(
     prev_context: Option<&str>,
     custom_preamble: Option<&str>,
 ) -> String {
-    let preamble = custom_preamble.unwrap_or("Terminal session status reporter.");
+    let preamble = custom_preamble.unwrap_or(DEFAULT_TERMINAL_PREAMBLE);
     let clean = trim_terminal_context(context);
     let clean_prev = prev_context.map(trim_terminal_context);
 

@@ -44,7 +44,7 @@ impl ModelClient for OpenRouterModelClient {
     }
 }
 
-fn thought_models(model_override: Option<&str>) -> Vec<String> {
+pub fn thought_models(model_override: Option<&str>) -> Vec<String> {
     if let Some(model) = model_override {
         return vec![model.to_string()];
     }

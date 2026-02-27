@@ -6,8 +6,10 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use serde::Serialize;
 use serde_json::Value;
 
-use clawgs::emit::engine::EmitEngine;
-use clawgs::emit::model_client::OpenRouterModelClient;
+use clawgs::emit::engine::{
+    EmitEngine, DEFAULT_AGENT_PREAMBLE, DEFAULT_TERMINAL_PREAMBLE,
+};
+use clawgs::emit::model_client::{thought_models, OpenRouterModelClient};
 use clawgs::emit::protocol::{ErrorMessage, HelloMessage, SyncRequest};
 use clawgs::{extract, resolve_input, ExtractOptions, ToolSelection};
 
@@ -24,6 +26,8 @@ struct Cli {
 enum Commands {
     Extract(ExtractArgs),
     Emit(EmitArgs),
+    /// Print resolved daemon defaults as JSON.
+    Defaults,
 }
 
 #[derive(Debug, Args)]
@@ -78,6 +82,7 @@ fn run() -> Result<()> {
     match cli.command {
         Commands::Extract(args) => run_extract(args),
         Commands::Emit(args) => run_emit(args),
+        Commands::Defaults => run_defaults(),
     }
 }
 
@@ -209,6 +214,27 @@ fn run_emit(args: EmitArgs) -> Result<()> {
         write_json_line(&mut stdout, &response)?;
     }
 
+    Ok(())
+}
+
+fn run_defaults() -> Result<()> {
+    let models = thought_models(None);
+    let model = models.first().cloned().unwrap_or_default();
+
+    #[derive(Serialize)]
+    struct Defaults {
+        model: String,
+        agent_prompt: &'static str,
+        terminal_prompt: &'static str,
+    }
+
+    let defaults = Defaults {
+        model,
+        agent_prompt: DEFAULT_AGENT_PREAMBLE,
+        terminal_prompt: DEFAULT_TERMINAL_PREAMBLE,
+    };
+
+    println!("{}", serde_json::to_string(&defaults)?);
     Ok(())
 }
 

@@ -3,11 +3,13 @@
 // Output filenames match throngterm sprite contract.
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
+const { spawnSync } = require('child_process');
 
 function usage() {
-  console.log('Usage: node generate-logo-pack.js --input <path> --output <dir> [--name <label>]');
-  console.log('Example: node generate-logo-pack.js --input ../unclawg/public/larry.png --output ../unclawg/.throngterm/sprites --name Larry');
+  console.log('Usage: node generate-logo-pack.js --input <path> --output <dir> [--name <label>] [--bg-to-alpha] [--bg-threshold <0-255>]');
+  console.log('Example: node generate-logo-pack.js --input ../unclawg/public/larry.png --output ../unclawg/.throngterm/sprites --name Larry --bg-to-alpha');
 }
 
 function argValue(args, key) {
@@ -16,13 +18,25 @@ function argValue(args, key) {
   return args[i + 1] || null;
 }
 
+function hasFlag(args, key) {
+  return args.includes(key);
+}
+
 const args = process.argv.slice(2);
 const inputPath = argValue(args, '--input') || argValue(args, '-i');
 const outputDir = argValue(args, '--output') || argValue(args, '-o');
 const label = argValue(args, '--name') || 'Custom';
+const bgToAlpha = hasFlag(args, '--bg-to-alpha');
+const bgThresholdRaw = argValue(args, '--bg-threshold');
+const bgThreshold = bgThresholdRaw ? Number(bgThresholdRaw) : 16;
 
 if (!inputPath || !outputDir) {
   usage();
+  process.exit(1);
+}
+
+if (!Number.isInteger(bgThreshold) || bgThreshold < 0 || bgThreshold > 255) {
+  console.error('--bg-threshold must be an integer between 0 and 255.');
   process.exit(1);
 }
 
@@ -42,8 +56,96 @@ const mimeByExt = {
   '.webp': 'image/webp',
   '.svg': 'image/svg+xml',
 };
-const mime = mimeByExt[ext] || 'application/octet-stream';
-const dataUri = `data:${mime};base64,${fs.readFileSync(absInput).toString('base64')}`;
+
+function maybeConvertBgToAlpha(inputPathAbs, inputExt, threshold) {
+  const rasterExts = new Set(['.png', '.jpg', '.jpeg', '.webp']);
+  if (!rasterExts.has(inputExt)) {
+    console.warn(`--bg-to-alpha ignored for non-raster input: ${inputExt}`);
+    return { mime: mimeByExt[inputExt] || 'application/octet-stream', bytes: fs.readFileSync(inputPathAbs) };
+  }
+
+  const tmpOut = path.join(
+    os.tmpdir(),
+    `sprite-gen-alpha-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}.png`,
+  );
+
+  // Flood-fill near-black pixels connected to the image border and set them transparent.
+  const pyScript = `
+import sys
+from collections import deque
+try:
+    from PIL import Image
+except Exception:
+    sys.stderr.write("Pillow is required for --bg-to-alpha. Install with: python3 -m pip install pillow\\n")
+    sys.exit(2)
+
+inp = sys.argv[1]
+thr = int(sys.argv[2])
+out = sys.argv[3]
+
+img = Image.open(inp).convert("RGBA")
+w, h = img.size
+pix = img.load()
+
+def is_bg(x, y):
+    r, g, b, _a = pix[x, y]
+    return r <= thr and g <= thr and b <= thr
+
+bg = [[False] * w for _ in range(h)]
+q = deque()
+
+for x in range(w):
+    for y in (0, h - 1):
+        if is_bg(x, y) and not bg[y][x]:
+            bg[y][x] = True
+            q.append((x, y))
+
+for y in range(h):
+    for x in (0, w - 1):
+        if is_bg(x, y) and not bg[y][x]:
+            bg[y][x] = True
+            q.append((x, y))
+
+while q:
+    x, y = q.popleft()
+    for nx, ny in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):
+        if 0 <= nx < w and 0 <= ny < h and not bg[ny][nx] and is_bg(nx, ny):
+            bg[ny][nx] = True
+            q.append((nx, ny))
+
+for y in range(h):
+    for x in range(w):
+        r, g, b, a = pix[x, y]
+        if bg[y][x]:
+            pix[x, y] = (r, g, b, 0)
+
+img.save(out, format="PNG")
+`;
+
+  const result = spawnSync('python3', ['-c', pyScript, inputPathAbs, String(threshold), tmpOut], {
+    encoding: 'utf8',
+  });
+
+  if (result.status !== 0) {
+    if (result.stderr) process.stderr.write(result.stderr);
+    console.error('--bg-to-alpha failed.');
+    process.exit(1);
+  }
+
+  const bytes = fs.readFileSync(tmpOut);
+  fs.unlinkSync(tmpOut);
+  return { mime: 'image/png', bytes };
+}
+
+const inputPayload = bgToAlpha
+  ? maybeConvertBgToAlpha(absInput, ext, bgThreshold)
+  : { mime: mimeByExt[ext] || 'application/octet-stream', bytes: fs.readFileSync(absInput) };
+
+if (bgToAlpha) {
+  console.log(`Background alpha key: enabled (threshold ${bgThreshold})`);
+}
+
+const dataUri = `data:${inputPayload.mime};base64,${inputPayload.bytes.toString('base64')}`;
 
 fs.mkdirSync(absOutput, { recursive: true });
 

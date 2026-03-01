@@ -27,6 +27,13 @@ node {skill_dir}/scripts/generate-logo-pack.js \
   --name "RepoName"
 ```
 
+If your source logo is a non-transparent PNG/JPG with a dark baked background,
+add:
+
+```bash
+  --bg-to-alpha --bg-threshold 16
+```
+
 Finds `.throngterm/thronglet.svg` by walking up from cwd, outputs to
 `.throngterm/sprites/`:
 
@@ -80,6 +87,22 @@ node {skill_dir}/scripts/generate-logo-pack.js \
   --output ./.throngterm/sprites \
   --name "MyRepo"
 ```
+
+For non-transparent logos with a dark background:
+
+```bash
+node {skill_dir}/scripts/generate-logo-pack.js \
+  --input ./public/logo.png \
+  --output ./.throngterm/sprites \
+  --name "MyRepo" \
+  --bg-to-alpha \
+  --bg-threshold 16
+```
+
+`--bg-to-alpha` flood-fills near-black pixels connected to the image border and
+makes them transparent before embedding. Increase threshold (for example `20`)
+if the background is dark gray; decrease it if interior dark pixels are being
+removed.
 
 This writes:
 

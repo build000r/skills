@@ -67,10 +67,11 @@ print(urllib.parse.quote(sys.argv[1]))
 PY
 )
 
+UA="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 URL="https://www.reddit.com/r/${SUBREDDIT}/search.json?q=${ENCODED_QUERY}&sort=relevance&t=${TIME_FILTER}&limit=${LIMIT}&restrict_sr=on"
 
 if [ "$SINCE" = "none" ]; then
-  RESULT=$(curl -s -H "User-Agent: FindCustomersResearch/1.0" "$URL" | jq '[
+  RESULT=$(curl -s -H "User-Agent: ${UA}" "$URL" | jq '[
     .data.children[] | .data | {
       title,
       author,
@@ -82,7 +83,7 @@ if [ "$SINCE" = "none" ]; then
     }
   ] | sort_by(-.score)')
 else
-  RESULT=$(curl -s -H "User-Agent: FindCustomersResearch/1.0" "$URL" | jq --arg since "$SINCE" '[
+  RESULT=$(curl -s -H "User-Agent: ${UA}" "$URL" | jq --arg since "$SINCE" '[
     .data.children[] | .data |
     select((.created_utc | todate) > $since) |
     {

@@ -7,7 +7,7 @@
         "workspaceAccess": "ro"
       },
       "model": {
-        "primary": "anthropic/claude-haiku-4-5-20251001"
+        "primary": "anthropic/claude-opus-4-6"
       }
     },
     "list": [

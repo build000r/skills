@@ -125,24 +125,43 @@ done
 # Fetch results
 DATASET_ID=$(curl -s "https://api.apify.com/v2/actor-runs/${RUN_ID}?token=${APIFY_API_KEY}" | jq -r '.data.defaultDatasetId')
 
-# Normalize output — field names vary, try common patterns
-RESULT=$(curl -s "https://api.apify.com/v2/datasets/${DATASET_ID}/items?token=${APIFY_API_KEY}&format=json" | jq '[
+# Fetch raw results
+RAW=$(curl -s "https://api.apify.com/v2/datasets/${DATASET_ID}/items?token=${APIFY_API_KEY}&format=json")
+
+# Log raw field names for first item (debugging)
+echo "Raw fields sample: $(echo "$RAW" | jq -r '.[0] | keys | join(", ")' 2>/dev/null)" >&2
+
+# Normalize output — actor returns flat camelCase fields.
+# Known field names (as of 2026-02):
+#   text/postText, authorName, authorHeadline, authorProfileUrl,
+#   totalReactions/numLikes, totalComments/numComments, totalReposts/numShares,
+#   postedAt/postedDate, postUrl/post_url
+# WARNING: This actor frequently returns empty postUrl fields.
+# Downstream consumers MUST NOT use unique_by(.url) — use
+# unique_by(.text[0:100] + .author_name) instead.
+RESULT=$(echo "$RAW" | jq '[
   .[] | {
-    author_name: (.authorName // .author_name // .author.name // "unknown"),
-    author_headline: (.authorHeadline // .author_headline // .author.headline // ""),
-    author_profile: (.authorProfileUrl // .author_profile_url // .authorUrl // ""),
-    author_followers: (.authorFollowers // .author_followers // .followers // null),
-    text: (.postText // .text // .content // .body // ""),
-    reactions: (.totalReactions // .reactions // .likeCount // .likes // 0),
-    comments: (.totalComments // .comments // .commentCount // 0),
-    reposts: (.totalReposts // .reposts // .shareCount // 0),
-    posted: (.postedAt // .publishedAt // .date // .created_at // "unknown"),
-    url: (.postUrl // .url // .link // "")
+    author_name: (.authorName // .author_name // .name // "unknown"),
+    author_headline: (.authorHeadline // .headline // .author_headline // ""),
+    author_profile: (.authorProfileUrl // .profileUrl // .author_profile_url // ""),
+    author_followers: (.authorFollowers // .followersCount // .followers // null),
+    text: (.text // .postText // .content // .body // ""),
+    reactions: (.totalReactions // .numLikes // .reactions // .likeCount // 0),
+    comments: (.totalComments // .numComments // .comments // .commentCount // 0),
+    reposts: (.totalReposts // .numShares // .reposts // .shareCount // 0),
+    posted: (.postedAt // .postedDate // .publishedAt // .date // "unknown"),
+    url: (.postUrl // .post_url // .url // .link // ""),
+    _raw_id: (.id // .postId // .urn // null)
   }
 ] | sort_by(-.reactions)')
 
 RESULT_COUNT=$(echo "$RESULT" | jq 'length')
-echo "Found ${RESULT_COUNT} LinkedIn posts" >&2
+EMPTY_URLS=$(echo "$RESULT" | jq '[.[] | select(.url == "" or .url == null)] | length')
+echo "Found ${RESULT_COUNT} LinkedIn posts (${EMPTY_URLS} with empty URLs)" >&2
+
+if [ "$EMPTY_URLS" -gt 0 ]; then
+  echo "WARNING: ${EMPTY_URLS}/${RESULT_COUNT} posts have empty URLs. Use text+author dedup, not URL dedup." >&2
+fi
 
 # Update search log
 "${SCRIPT_DIR}/search_log.sh" set linkedin "$SEARCH_KEY" "$RESULT_COUNT"

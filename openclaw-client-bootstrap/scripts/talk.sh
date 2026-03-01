@@ -174,7 +174,8 @@ ssh_target() {
 claw_env_prefix() {
   local home="$1"
   local app_home="${home%/.openclaw}"
-  echo "set -a; [ -f '${home}/.env' ] && . '${home}/.env'; set +a; export HOME='${app_home}' OPENCLAW_STATE_DIR='${home}' OPENCLAW_CONFIG_PATH='${home}/openclaw.json';"
+  local runtime_path="${home}/bin:${app_home}/.npm-global/bin:${app_home}/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+  echo "set -a; [ -f '${home}/.env' ] && . '${home}/.env'; set +a; export HOME='${app_home}' OPENCLAW_STATE_DIR='${home}' OPENCLAW_CONFIG_PATH='${home}/openclaw.json' PATH='${runtime_path}';"
 }
 
 remote() {

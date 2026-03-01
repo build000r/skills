@@ -7,11 +7,24 @@ description: >
   that voice, and POSTs them as approval requests. Use when:
   "/unclawg-feed", "/feed-approvals", "feed the portal", "create approval cards",
   "submit posts for approval", "load posts into openclaw", "feed-me"
+metadata:
+  openclaw:
+    emoji: "📬"
+    requires:
+      bins:
+        - uc_feed
 ---
 
 # /unclawg-feed
 
 Take social posts → pull the agent's soul → generate proposed replies → create approval cards in the portal.
+
+## Runtime Security Profile (AI Default)
+
+- This skill is AI-runtime-first and must run through wrapper command `uc_feed`.
+- Do not execute raw `curl` from this skill during runtime.
+- If `uc_feed` is unavailable, fail closed and request wrapper installation.
+- Keep write actions in proposal/approval flow; never bypass portal routing.
 
 ## Prerequisites
 
@@ -39,6 +52,7 @@ This skill is **mechanical**. It fetches, generates, and POSTs. All personality 
 
 ## NEVER Do These Things
 
+- **NEVER execute raw `curl` directly in AI runtime.** Use `uc_feed` wrapper only.
 - **NEVER use `/api/v1/` or `/api/v2/` routes.** All endpoints are `/v0/`.
 - **NEVER guess header names.** Exact casing: `X-API-Key`, `X-Tenant-Id`, `X-Machine-Key-Id`, `X-Machine-Secret`.
 - **NEVER store auth headers in a bash variable.** Always write each `-H` flag inline.
@@ -46,7 +60,18 @@ This skill is **mechanical**. It fetches, generates, and POSTs. All personality 
 - **NEVER proceed past bootstrap if the smoke test fails.**
 - **NEVER hardcode voice or personality guidance in this skill.** Pull it from the soul.
 
-## Curl Template
+## Wrapper Commands (Runtime Path)
+
+```bash
+uc_feed smoke
+uc_feed soul --agent-id "${OPENCLAW_AGENT_ID}"
+uc_feed submit --input <candidate-file.json>
+```
+
+If your local wrapper exposes different subcommands, keep the same policy:
+wrapper-only, `/v0`-only, schema-validated requests.
+
+## HTTP Contract Reference (Wrapper Implementation)
 
 Every API call uses this header pattern:
 
@@ -175,13 +200,18 @@ Accept posts from any of these sources:
 
 For each post, extract:
 - `source_platform` — one of: `x`, `reddit`, `linkedin`, `hacker_news`, `youtube`, `instagram`, `tiktok`, `other`
-- `source_post_url` — the URL (required)
+- `source_post_url` — the URL (**required, must be non-empty**)
 - `source_post_text` — the post content (required)
 - `source_author_handle` — e.g. `@handle` or `u/username` (optional)
 - `source_author_name` — display name (optional)
 - `source_post_id` — platform-specific ID (optional)
 - `persona_hint` — which persona they match (optional)
 - `intent_signal` — what pain they're expressing (optional)
+
+**URL validation (critical):** The API returns `422 string_too_short` if `source_post_url`
+is empty. LinkedIn posts from the Apify scraper frequently have empty URLs. Before submission:
+1. Skip candidates with empty `source_post_url` (log them as skipped)
+2. Or construct a placeholder URL from author profile if available
 
 Present a summary table and ask:
 > "Found N posts. Generate replies for all, or select specific ones?"
@@ -263,6 +293,7 @@ fi
 - `403 MACHINE_AGENT_MISMATCH` → machine key bound to wrong agent
 - `403 MACHINE_SCOPE_DENIED` → key missing `approval_request.create.social_reply` scope
 - `409` → idempotency conflict (already submitted)
+- `422 string_too_short` → `source_post_url` is empty or too short. Common with LinkedIn posts from the Apify scraper which returns empty URL fields. Pre-filter candidates to skip those with empty URLs before submission.
 - `429` → rate limited, back off
 
 ### Phase 5 — Verify
@@ -300,6 +331,26 @@ Print summary:
 - Failed: N
 - Portal: https://unclawg.com/approvals
 ```
+
+## High-Volume Batch Workflow
+
+When feeding 30+ candidates (e.g., from `/divide-and-conquer` discovery runs):
+
+1. **Pre-validate all candidates** before submission:
+   - Remove entries with empty `source_post_url` (422 rejection)
+   - Remove entries with empty/too-short `source_post_text`
+   - Deduplicate by URL (Twitter) or by `text[0:100] + author_name` (LinkedIn)
+
+2. **Submit via Python script** (more reliable than bash loop for 30+ entries):
+   - Read combined replies JSON
+   - Build payload per candidate with `uuid4()` idempotency keys
+   - POST sequentially with `time.sleep(0.5)` every 10 requests to avoid 429
+   - Capture success/failure counts and approval IDs
+   - Log failures for retry
+
+3. **Verify batch** after all submissions:
+   - GET `/v0/approval-requests?status=pending&limit=100` to confirm count
+   - Report platform breakdown (Twitter vs LinkedIn vs Reddit)
 
 ## Cross-References
 

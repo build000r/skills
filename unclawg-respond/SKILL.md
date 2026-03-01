@@ -5,9 +5,21 @@ description: >
   revised outputs, and fulfill them via the OpenClaw API. Use when:
   "/unclawg-respond", "/respond-feedback", "respond to feedback", "handle
   revisions", "fulfill pending revisions", "process revision requests"
+metadata:
+  openclaw:
+    emoji: "🔁"
+    requires:
+      bins:
+        - uc_respond
 ---
 
 # /unclawg-respond
+
+## Runtime Security Profile (AI Default)
+
+- Run this skill via wrapper command `uc_respond` only.
+- Do not execute raw `curl` commands from this skill in runtime.
+- If `uc_respond` is missing, fail closed and ask for wrapper install/allowlist.
 
 ## Prerequisites
 
@@ -34,6 +46,7 @@ This skill is **mechanical**. It polls revision requests, reads feedback, genera
 
 ## NEVER Do These Things
 
+- **NEVER execute raw `curl` directly in AI runtime.** Use `uc_respond` wrapper only.
 - **NEVER use `/api/v1/` or `/api/v2/` routes.** All endpoints are `/v0/`.
 - **NEVER guess header names.** Use exact casing: `X-API-Key`, `X-Tenant-Id`, `X-Machine-Key-Id`, `X-Machine-Secret`.
 - **NEVER store auth headers in a bash variable** like `AUTH="-H ..."` — it breaks quoting. Always write each `-H` flag inline.
@@ -42,7 +55,15 @@ This skill is **mechanical**. It polls revision requests, reads feedback, genera
 - **NEVER retry the same failing curl with different header casing or variations.** If auth fails, check the env vars and the api-contract reference.
 - **NEVER hardcode voice or personality guidance in this skill.** Pull it from the soul.
 
-## Curl Template
+## Wrapper Commands (Runtime Path)
+
+```bash
+uc_respond smoke
+uc_respond list --status pending
+uc_respond fulfill --approval-id <id> --revision-id <id> --input <revised.json>
+```
+
+## HTTP Contract Reference (Wrapper Implementation)
 
 Every API call uses this header pattern. Copy-paste it — do not improvise:
 

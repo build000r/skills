@@ -6,11 +6,24 @@ description: >
   writes the soul draft and discovery mode file, and outputs the env block.
   Use when: "/unclawg-internet", "set me up", "connect to openclaw",
   "get started", "onboard me", "sign up for openclaw", "I want approval gates"
+metadata:
+  openclaw:
+    emoji: "🛂"
+    requires:
+      bins:
+        - uc_onboard
 ---
 
 # /unclawg-internet
 
 Get set up with OpenClaw — account, agent, soul, and discovery config in one sitting.
+
+## Runtime Security Profile (AI Default)
+
+- For AI runtime, execute onboarding through wrapper command `uc_onboard` only.
+- Do not execute raw `curl` from this skill in runtime.
+- If `uc_onboard` is missing, fail closed and request wrapper install/allowlist.
+- Never bypass human confirmation checkpoints for account creation and key issuance.
 
 ## What This Produces
 
@@ -22,6 +35,7 @@ Get set up with OpenClaw — account, agent, soul, and discovery config in one s
 
 ## NEVER Do These Things
 
+- **NEVER execute raw `curl` directly in AI runtime.** Use `uc_onboard` wrapper only.
 - **NEVER show the machine key secret more than once.** It cannot be retrieved after creation.
 - **NEVER store passwords or secrets in any file the user didn't ask for.**
 - **NEVER skip the confirmation before creating the account.**
@@ -38,6 +52,15 @@ Get set up with OpenClaw — account, agent, soul, and discovery config in one s
 - Validating URLs or checking platform availability → subagent
 
 The main conversation should only contain: questions, user answers, confirmations, and artifact writes.
+
+## Wrapper Commands (Runtime Path)
+
+```bash
+uc_onboard detect
+uc_onboard device-start --client-id "${OPENCLAW_CLIENT_ID:-unclawg}"
+uc_onboard device-poll --device-code <device_code>
+uc_onboard provision --agent-id <agent-id> --email <email>
+```
 
 ## Config
 

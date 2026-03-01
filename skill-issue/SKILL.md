@@ -116,6 +116,7 @@ When creating or updating sprite-generation skills, enforce this contract:
   - Distinct palettes tied to repo branding
   - Distinct silhouettes/accessories/motifs (not only recolors)
   - Keep readability at small sizes
+  - If sibling repos share a base thronglet, include a structural identity marker group (`<g id="backend-id">` / `<g id="frontend-id">`) in every state, not just palette shifts
 - Make sprite SVGs self-contained when using logo/image wrappers:
   - Avoid external image refs like `<image href=\"/logo.png\">` or `./logo.png`
   - Prefer embedded data URIs so assets render when injected cross-origin/cross-app
@@ -130,6 +131,30 @@ done
 # Should output nothing for self-contained SVG packs
 rg -n '<image[^>]+href="/' .throngterm/sprites
 rg -n '<image[^>]+href="./' .throngterm/sprites
+
+# Optional but required when differentiating sibling repos (for example frontend vs backend)
+MARKER_ID="backend-id"
+for s in active drowsy sleeping deep_sleep; do
+  rg -q "<g id=\"${MARKER_ID}\"" ".throngterm/sprites/${s}.svg" || echo "missing marker ${s}.svg"
+done
+
+# Marker must be in the primary body window (not a tiny corner stamp)
+for s in active drowsy sleeping deep_sleep; do
+  perl -0777 -e '
+    my ($file,$id)=@ARGV;
+    local $/; open my $fh, "<", $file or die $!;
+    my $svg=<$fh>;
+    $svg =~ m{<g id="\Q$id\E"[^>]*>(.*?)</g>}s or die "missing marker group\n";
+    my $g=$1;
+    my @x = ($g =~ /x="(\d+)"/g); my @y = ($g =~ /y="(\d+)"/g);
+    die "marker has no coords\n" unless @x && @y;
+    my ($minx,$maxx)=($x[0],$x[0]); for (@x){$minx=$_ if $_<$minx; $maxx=$_ if $_>$maxx;}
+    my ($miny,$maxy)=($y[0],$y[0]); for (@y){$miny=$_ if $_<$miny; $maxy=$_ if $_>$maxy;}
+    die "marker out of body window: $minx,$maxx,$miny,$maxy\n" if $minx < 160 || $maxx > 352 || $miny < 160 || $maxy > 368;
+    my $motif_cells = () = $g =~ /class="m"/g;
+    die "marker motif too subtle: $motif_cells\n" if $motif_cells < 6;
+  ' ".throngterm/sprites/${s}.svg" "${MARKER_ID}" || echo "marker-check-fail ${s}.svg"
+done
 ```
 
 #### Reliability Hardening Gate (Ops / Deploy Skills)

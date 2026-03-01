@@ -12,7 +12,10 @@ openclaw-client-bootstrap/assets/instances/*/
 .search_log.json
 *.bak.*
 briefs/
+# private AI runtime overlays and admin-only skill packs
 modes/
+unclawg-discover/modes/
+unclawg-admin/
 
 # project-specific frontend templates (mode-dependent, not generic)
 domain-planner/assets/templates/frontend-*.md
@@ -33,4 +36,3 @@ video-script.md
 erac-portal-api
 broadcast-verify
 spaps-register/
-unclawg-admin/

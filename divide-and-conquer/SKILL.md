@@ -23,7 +23,7 @@ Modes customize decomposition for specific projects — split boundaries, agent 
 
 ### How Modes Work
 
-Each mode is a markdown file: `modes/{project-name}.md`. It contains project-specific configuration: where the natural split boundaries are, what agent types and models to prefer, what commands to run for validation, and how to label agents.
+Each mode is a markdown file: `modes/{project-name}.md`. It contains project-specific configuration: where the natural split boundaries are, what agent types and runtime-native model strategy to prefer, what commands to run for validation, and how to label agents.
 
 ### Mode Selection (Step 0)
 
@@ -54,6 +54,13 @@ Key implications:
 - **Explore agents are physically read-only** — they cannot Edit, Write, or NotebookEdit. Use them for research without worrying about file conflicts.
 - **general-purpose agents see full conversation history** — prompts can reference earlier context concisely instead of repeating everything.
 - **Bash agents only have Bash** — they can't use Read/Edit/Glob/Grep tools. They run shell commands only.
+
+## Model Selection (Runtime-Native Only)
+
+- **Never mix providers by accident**. Use models native to the current runtime unless the user explicitly asks otherwise.
+- **When orchestrating from Codex**: use Codex models (`gpt-5.3-codex` default). For complex reasoning, increase reasoning effort rather than switching provider families.
+- **When orchestrating from Claude Code**: use Claude-native model tiers (haiku/sonnet/opus) only if model selection is explicitly needed.
+- **Prefer runtime defaults** when possible; only override model/effort when there is a clear task-driven reason.
 
 ## Process
 
@@ -97,7 +104,7 @@ Print the decomposition as a numbered list. For each agent:
 ## Agent [N]: [Short Label]
 
 **Type**: Explore | general-purpose | Bash
-**Model**: haiku (simple research) | sonnet (default) | opus (complex reasoning)
+**Model**: runtime-default (Codex: gpt-5.3-codex) | runtime-fast (simple research) | runtime-high-reasoning (complex work)
 **Background**: true if non-blocking, false if results needed before next step
 **Concern**: [Domain/goal this agent owns — scope by concern, not file list]
 **Task**: [Goal-focused instructions. For general-purpose, can reference conversation context concisely.]
@@ -187,6 +194,7 @@ Guardrails:
 python3 ~/.claude/skills/codex-tmux/scripts/run.py launch \
     --task "<review prompt from 5a>" \
     --cd "<repo working directory>" \
+    --model gpt-5.3-codex \
     --prefix dac-review
 ```
 
@@ -264,7 +272,8 @@ Inspect: tmux a -t <session-name>
 - **Never split same-concern work** across agents. One domain = one owner.
 - **Use Explore for research agents** — physically cannot write, so file conflicts are impossible.
 - **Use general-purpose for write agents** — they see conversation history, so prompts can be concise.
-- **Use haiku model for simple research** — faster and cheaper. Reserve sonnet/opus for complex work.
+- **Use runtime-native models only** — Codex orchestrations must stay on Codex models (default `gpt-5.3-codex`).
+- **Prefer default model first** — adjust reasoning effort before changing model tiers/providers.
 - **Use `run_in_background: true`** for agents whose results aren't needed before the next step.
 - **Prefer fewer write-agents**. Read-only Explore agents are cheap to parallelize.
 - **When in doubt, don't split**. A single well-prompted agent beats a bad decomposition.

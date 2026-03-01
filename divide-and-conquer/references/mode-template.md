@@ -16,7 +16,7 @@ cwd_match: ~/repos/{project-name}
 
 - **Preferred agent types**: Explore + general-purpose | mostly general-purpose | Explore-heavy research
 - **Max agents**: 3-5 (adjust based on project complexity)
-- **Default model**: sonnet (or haiku for simple tasks, opus for complex reasoning)
+- **Default model strategy**: runtime-default (Codex: `gpt-5.3-codex`; Claude: `sonnet` unless task needs haiku/opus)
 - **Background by default**: true | false
 
 ## Repo Structure

@@ -1,0 +1,62 @@
+name: Deploy 0_claw Runtime Skills
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-0-claw-runtime-skills
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      DEPLOY_HOST: ${{ secrets.OPENCLAW_0_CLAW_DEPLOY_HOST }}
+      DEPLOY_SSH_USER: ${{ secrets.OPENCLAW_0_CLAW_DEPLOY_SSH_USER }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure SSH
+        env:
+          DEPLOY_KEY: ${{ secrets.OPENCLAW_0_CLAW_DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOST: ${{ secrets.OPENCLAW_0_CLAW_DEPLOY_KNOWN_HOST }}
+        run: |
+          set -euo pipefail
+          [[ -n "${DEPLOY_HOST}" ]] || { echo "Missing secret OPENCLAW_0_CLAW_DEPLOY_HOST" >&2; exit 1; }
+          [[ -n "${DEPLOY_KEY}" ]] || { echo "Missing secret OPENCLAW_0_CLAW_DEPLOY_SSH_KEY" >&2; exit 1; }
+          [[ -n "${DEPLOY_KNOWN_HOST}" ]] || { echo "Missing secret OPENCLAW_0_CLAW_DEPLOY_KNOWN_HOST" >&2; exit 1; }
+
+          mkdir -p "${HOME}/.ssh"
+          chmod 700 "${HOME}/.ssh"
+          printf '%s\n' "${DEPLOY_KEY}" > "${HOME}/.ssh/id_ed25519"
+          chmod 600 "${HOME}/.ssh/id_ed25519"
+          printf '%s\n' "${DEPLOY_KNOWN_HOST}" > "${HOME}/.ssh/known_hosts"
+          chmod 644 "${HOME}/.ssh/known_hosts"
+
+      - name: Require Tailnet Auth For 100.x Hosts
+        if: ${{ startsWith(env.DEPLOY_HOST, '100.') }}
+        env:
+          TAILSCALE_AUTHKEY: ${{ secrets.OPENCLAW_0_CLAW_TAILSCALE_AUTHKEY }}
+        run: |
+          set -euo pipefail
+          [[ -n "${TAILSCALE_AUTHKEY}" ]] || { echo "Missing secret OPENCLAW_0_CLAW_TAILSCALE_AUTHKEY for Tailnet host deploy." >&2; exit 1; }
+
+      - name: Connect Runner To Tailscale
+        if: ${{ startsWith(env.DEPLOY_HOST, '100.') }}
+        uses: tailscale/github-action@v3
+        with:
+          authkey: ${{ secrets.OPENCLAW_0_CLAW_TAILSCALE_AUTHKEY }}
+
+      - name: Sync runtime-safe skills to 0_claw
+        env:
+          OPENCLAW_SYNC_HOST: ${{ env.DEPLOY_HOST }}
+          OPENCLAW_SYNC_SSH_USER: ${{ env.DEPLOY_SSH_USER }}
+        run: |
+          set -euo pipefail
+          bash openclaw-client-bootstrap/scripts/sync-runtime-skills.sh --verbose

@@ -9,6 +9,10 @@ dropbox-ocr/
 openclaw-client-bootstrap/references/deployed-instances.md
 openclaw-client-bootstrap/references/deployed-instances.local.md
 openclaw-client-bootstrap/assets/instances/*/
+!openclaw-client-bootstrap/assets/instances/0_claw/
+openclaw-client-bootstrap/assets/instances/0_claw/*
+!openclaw-client-bootstrap/assets/instances/0_claw/custom-skills/
+!openclaw-client-bootstrap/assets/instances/0_claw/custom-skills/**
 .search_log.json
 *.bak.*
 briefs/

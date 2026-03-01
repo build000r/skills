@@ -2,6 +2,13 @@
 references/deployed-instances.md
 references/deployed-instances.local.md
 assets/instances/
+!assets/instances/
+assets/instances/*
+!assets/instances/README.md
+!assets/instances/0_claw/
+assets/instances/0_claw/*
+!assets/instances/0_claw/custom-skills/
+!assets/instances/0_claw/custom-skills/**
 
 # Local/operator artifacts
 assets/client-kit/.env

@@ -99,6 +99,59 @@ The skill is for another agent instance. Include non-obvious procedural knowledg
 - **Complete example**: Read references/example-minimal-skill.md
 - **Publishing**: Read references/publishing.md
 
+#### Sprite Variant Contract (Character Diversity + Compatibility)
+
+When creating or updating sprite-generation skills, enforce this contract:
+
+- Keep runtime naming/API contract fixed:
+  - Files: `active.svg`, `drowsy.svg`, `sleeping.svg`, `deep_sleep.svg`
+  - Field names: `active`, `drowsy`, `sleeping`, `deep_sleep`
+- Keep directory convention fixed (project local): `.throngterm/sprites/`
+- Preserve state semantics:
+  - `active`: awake/engaged
+  - `drowsy`: transitional low-energy
+  - `sleeping`: asleep
+  - `deep_sleep`: deepest rest state
+- Encourage visual diversity per repo/domain:
+  - Distinct palettes tied to repo branding
+  - Distinct silhouettes/accessories/motifs (not only recolors)
+  - Keep readability at small sizes
+- Make sprite SVGs self-contained when using logo/image wrappers:
+  - Avoid external image refs like `<image href=\"/logo.png\">` or `./logo.png`
+  - Prefer embedded data URIs so assets render when injected cross-origin/cross-app
+- Do not break loaders to achieve style changes. Creativity is applied inside the fixed naming + state contract.
+
+Quick validation before shipping:
+```bash
+for s in active drowsy sleeping deep_sleep; do
+  test -f ".throngterm/sprites/${s}.svg" || echo "missing ${s}.svg"
+done
+
+# Should output nothing for self-contained SVG packs
+rg -n '<image[^>]+href="/' .throngterm/sprites
+rg -n '<image[^>]+href="./' .throngterm/sprites
+```
+
+#### Reliability Hardening Gate (Ops / Deploy Skills)
+
+If the skill touches deployment, auth, env sync, or production debugging, include an explicit anti-footgun section before finalizing.
+
+Required checks:
+- Add a preflight checklist that catches stale GitHub secrets vs local env files.
+- If a change introduces new credential scopes/headers/env vars, document whether rollout requires one deploy or a two-phase deploy.
+- Add a concrete failure-signature map (`HTTP code + error code`) for auth failures, not just generic "unauthorized" language.
+- If the skill contains shell scripts, ensure no-arg behavior prints usage cleanly (no `${1:?}` crash UX).
+- Include at least one command-first verification path for behavior and one side-effect/state verification path.
+
+Recommended shell-script sanity checks:
+```bash
+# Syntax
+for f in <skill>/scripts/*.sh; do bash -n "$f"; done
+
+# No-arg UX should return usage text and non-zero
+for f in <skill>/scripts/*.sh; do "$f" >/tmp/out 2>/tmp/err || true; head -n1 /tmp/out /tmp/err; done
+```
+
 #### Open-Source Readiness (Privacy Gate)
 
 Before committing or packaging any skill for public release, scrub ALL files (SKILL.md, scripts/, references/, assets/) for:
@@ -247,12 +300,21 @@ scripts/package_skill.py <path/to/skill-folder> [output-directory]
 
 Packaging validates automatically, then creates a `.skill` file (zip with .skill extension). Fix any validation errors and re-run.
 
+For ops/deploy skills, do an additional manual quality pass:
+- Run every documented preflight command at least once.
+- Run at least one intentional failure-path probe and verify the troubleshooting guidance matches the real error.
+
 ### Step 6: Iterate
 
 1. Use the skill on real tasks
 2. Notice struggles or inefficiencies
 3. Update SKILL.md or bundled resources
 4. Test again
+
+If you hit a production near-miss or rollback-causing mistake, treat the skill update as part of the fix:
+1. Add the symptom/cause/fix to the skill's troubleshooting reference.
+2. Add the prevention command/checklist to the main SKILL.md preflight section.
+3. Re-run the updated checklist to prove it catches the original failure mode.
 
 ### Step 7: Publish (Optional)
 

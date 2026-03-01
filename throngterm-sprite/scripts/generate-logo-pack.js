@@ -8,7 +8,7 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 
 function usage() {
-  console.log('Usage: node generate-logo-pack.js --input <path> --output <dir> [--name <label>] [--bg-to-alpha] [--bg-threshold <0-255>]');
+  console.log('Usage: node generate-logo-pack.js --input <path> --output <dir> [--name <label>] [--bg-to-alpha] [--bg-threshold <0-255>] [--scale <0-1>]');
   console.log('Example: node generate-logo-pack.js --input ../unclawg/public/larry.png --output ../unclawg/.throngterm/sprites --name Larry --bg-to-alpha');
 }
 
@@ -29,6 +29,8 @@ const label = argValue(args, '--name') || 'Custom';
 const bgToAlpha = hasFlag(args, '--bg-to-alpha');
 const bgThresholdRaw = argValue(args, '--bg-threshold');
 const bgThreshold = bgThresholdRaw ? Number(bgThresholdRaw) : 16;
+const scaleRaw = argValue(args, '--scale');
+const scale = scaleRaw ? Number(scaleRaw) : 0.8;
 
 if (!inputPath || !outputDir) {
   usage();
@@ -37,6 +39,11 @@ if (!inputPath || !outputDir) {
 
 if (!Number.isInteger(bgThreshold) || bgThreshold < 0 || bgThreshold > 255) {
   console.error('--bg-threshold must be an integer between 0 and 255.');
+  process.exit(1);
+}
+
+if (!Number.isFinite(scale) || scale <= 0 || scale > 1) {
+  console.error('--scale must be a number > 0 and <= 1.');
   process.exit(1);
 }
 
@@ -149,6 +156,15 @@ const dataUri = `data:${inputPayload.mime};base64,${inputPayload.bytes.toString(
 
 fs.mkdirSync(absOutput, { recursive: true });
 
+const CANVAS = 512;
+const size = Math.round(CANVAS * scale);
+const baseX = Math.round((CANVAS - size) / 2);
+const baseY = baseX;
+const sleepY = baseY + 8;
+const deepSleepY = baseY + 16;
+
+console.log(`Scale: ${scale} (image box ${size}x${size})`);
+
 function zText(lines) {
   return lines
     .map((line) => `    <text x="${line.x}" y="${line.y}" fill="${line.fill}" font-size="${line.size}" font-family="monospace" font-weight="700">Z</text>`)
@@ -163,21 +179,21 @@ ${body}
 }
 
 const activeBody = `  <g>
-    <image href="${dataUri}" x="48" y="48" width="416" height="416" preserveAspectRatio="xMidYMid meet"/>
+    <image href="${dataUri}" x="${baseX}" y="${baseY}" width="${size}" height="${size}" preserveAspectRatio="xMidYMid meet"/>
   </g>`;
 
 const drowsyBody = `  <g opacity="0.98" transform="translate(0,18)">
-    <image href="${dataUri}" x="48" y="48" width="416" height="416" preserveAspectRatio="xMidYMid meet"/>
+    <image href="${dataUri}" x="${baseX}" y="${baseY}" width="${size}" height="${size}" preserveAspectRatio="xMidYMid meet"/>
   </g>
   <rect x="110" y="118" width="292" height="68" fill="rgba(0,0,0,0.10)" rx="24"/>`;
 
 const sleepingBody = `  <g transform="translate(256 256) rotate(90) translate(-256 -256)">
-    <image href="${dataUri}" x="48" y="56" width="416" height="416" preserveAspectRatio="xMidYMid meet"/>
+    <image href="${dataUri}" x="${baseX}" y="${sleepY}" width="${size}" height="${size}" preserveAspectRatio="xMidYMid meet"/>
   </g>
 ${zText([{ x: 392, y: 92, size: 52, fill: '#A38B6B' }])}`;
 
 const deepSleepBody = `  <g transform="translate(256 256) rotate(90) translate(-256 -256)">
-    <image href="${dataUri}" x="48" y="64" width="416" height="416" preserveAspectRatio="xMidYMid meet"/>
+    <image href="${dataUri}" x="${baseX}" y="${deepSleepY}" width="${size}" height="${size}" preserveAspectRatio="xMidYMid meet"/>
   </g>
   <rect x="0" y="0" width="512" height="512" fill="rgba(0,0,0,0.06)"/>
 ${zText([

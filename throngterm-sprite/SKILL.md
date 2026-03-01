@@ -24,7 +24,8 @@ node {skill_dir}/scripts/generate.js
 node {skill_dir}/scripts/generate-logo-pack.js \
   --input /abs/path/to/logo.png \
   --output /abs/path/to/repo/.throngterm/sprites \
-  --name "RepoName"
+  --name "RepoName" \
+  --scale 0.8
 ```
 
 If your source logo is a non-transparent PNG/JPG with a dark baked background,
@@ -85,7 +86,8 @@ mkdir -p .throngterm/sprites
 node {skill_dir}/scripts/generate-logo-pack.js \
   --input ./public/logo.png \
   --output ./.throngterm/sprites \
-  --name "MyRepo"
+  --name "MyRepo" \
+  --scale 0.8
 ```
 
 For non-transparent logos with a dark background:
@@ -95,6 +97,7 @@ node {skill_dir}/scripts/generate-logo-pack.js \
   --input ./public/logo.png \
   --output ./.throngterm/sprites \
   --name "MyRepo" \
+  --scale 0.8 \
   --bg-to-alpha \
   --bg-threshold 16
 ```
@@ -103,6 +106,9 @@ node {skill_dir}/scripts/generate-logo-pack.js \
 makes them transparent before embedding. Increase threshold (for example `20`)
 if the background is dark gray; decrease it if interior dark pixels are being
 removed.
+
+`--scale` controls the image box size inside the 512x512 sprite canvas. `0.8`
+is a good default for slightly smaller logo characters.
 
 This writes:
 

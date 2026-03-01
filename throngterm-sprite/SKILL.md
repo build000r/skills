@@ -1,9 +1,9 @@
 ---
-name: sprite-gen
+name: throngterm-sprite
 description: >-
   Generate thronglet state-variant SVGs from a master pixel-art SVG for
   per-repo throngterm sprite overrides. Use when: "generate sprites",
-  "thronglet sprites", "sprite-gen", "/sprite-gen", "generate thronglet",
+  "thronglet sprites", "throngterm-sprite", "$throngterm-sprite", "sprite-gen", "/sprite-gen", "generate thronglet",
   "custom thronglet", or when setting up .throngterm/ in a repo.
 ---
 

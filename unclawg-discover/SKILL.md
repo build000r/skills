@@ -6,6 +6,12 @@ description: >
   engagement feed with normalized candidate records for downstream workflows.
   Use when: "/unclawg-discover", "/find-customers", "find customers", "find leads",
   "find outreach candidates", "find posts to reply to", "build engagement queue".
+metadata:
+  openclaw:
+    emoji: "🔎"
+    requires:
+      bins:
+        - uc_discover
 ---
 
 # /unclawg-discover
@@ -15,18 +21,36 @@ Build a high-signal customer feed from public social channels.
 This skill is a **generic core**. Project-specific strategy, queries, voice, and
 handoff contracts belong in local `modes/` files (gitignored).
 
+## Runtime Security Profile (AI Default)
+
+- Treat this tracked skill as an AI runtime skill, not an operator shell runbook.
+- Use wrapper command `uc_discover` only.
+- Do not run `scripts/search_*.sh`, raw `curl`, or ad-hoc `python` from this skill.
+- If `uc_discover` is missing, fail closed and ask for wrapper installation.
+
 ## Prerequisites
 
 - `APIFY_API_KEY` (required for Twitter/X and LinkedIn scripts)
-- `jq`, `curl`, `python3`
-- Skill folder available at either:
-  - `~/.claude/skills/unclawg-discover`, or
-  - `<repo>/.claude/skills/unclawg-discover`
+- `uc_discover` wrapper installed and allowlisted in runtime config
 
 If env vars are missing in non-interactive shells:
 
 ```bash
 export APIFY_API_KEY=$(grep 'APIFY_API_KEY' ~/.zshrc | grep -o '"[^"]*"' | tr -d '"')
+```
+
+## Wrapper Command Contract
+
+Required wrapper command:
+- `uc_discover` with platform subcommands and strict schema validation.
+
+Command mapping:
+
+```bash
+uc_discover reddit --query "<query>" --subreddit <subreddit> --time-filter week --limit 25
+uc_discover hn --query "<query>" --days 7 --limit 25
+uc_discover twitter --query "<query>" --days 7 --limit 20
+uc_discover linkedin --query "<query>" --days 7 --limit 20 --sort-by date_posted
 ```
 
 ## Mode System (Required for Project-Specific Behavior)
@@ -73,6 +97,11 @@ If no soul is published, fall back to `references/voice-guide.md` (generic defau
 - `scripts/search_hn.sh`
 - `scripts/search_twitter.sh`
 - `scripts/search_linkedin.sh`
+- `scripts/search_youtube.sh`
+- `scripts/search_tiktok.sh`
+- `scripts/search_instagram_comments.sh`
+- `scripts/search_tiktok_comments.sh`
+- `scripts/reddit_user_socials.sh`
 - `scripts/search_log.sh`
 - `scripts/select_mode.sh`
 - `scripts/package_public.sh`
@@ -87,10 +116,11 @@ If no soul is published, fall back to `references/voice-guide.md` (generic defau
 ### Phase 0 - Bootstrap
 
 ```bash
-SKILL_DIR="${HOME}/.claude/skills/unclawg-discover"
-[ ! -d "$SKILL_DIR" ] && SKILL_DIR="$(pwd)/.claude/skills/unclawg-discover"
-cd "$SKILL_DIR"
-chmod +x scripts/*.sh
+command -v uc_discover >/dev/null || {
+  echo "Missing required wrapper: uc_discover"
+  echo "Install/allowlist wrapper before running /unclawg-discover."
+  exit 1
+}
 ```
 
 ### Phase 1 - Strategic Intake (Ask-Cascade Order)
@@ -125,32 +155,53 @@ Run 2-4 focused queries per selected platform.
 #### Reddit (free)
 
 ```bash
-scripts/search_reddit.sh "<query>" <subreddit> week 25
+uc_discover reddit --query "<query>" --subreddit <subreddit> --time-filter week --limit 25
 ```
 
 #### Hacker News (free)
 
 ```bash
-scripts/search_hn.sh "<query>" 7 25
+uc_discover hn --query "<query>" --days 7 --limit 25
 ```
 
 #### Twitter/X (Apify)
 
 ```bash
-scripts/search_twitter.sh "<query>" 20 7
+uc_discover twitter --query "<query>" --days 7 --limit 20
 ```
 
 #### LinkedIn (Apify)
 
 ```bash
-scripts/search_linkedin.sh "<query>" 20 date_posted
+uc_discover linkedin --query "<query>" --days 7 --limit 20 --sort-by date_posted
 ```
+
+### Phase 3.5 - Comment Mining (Optional)
+
+If the active mode file includes `comment_mining_targets`, mine comment sections
+of curated accounts for real customer signals.
+
+1. Check mode file for `comment_mining_targets` section.
+2. If present, run the appropriate scripts against listed accounts:
+   - Instagram: `scripts/search_instagram_comments.sh <handle1> [handle2] ...`
+   - TikTok: `scripts/search_tiktok_comments.sh <handle1> [handle2] ...`
+3. Score comments by signal density (health pain-point language regex).
+4. Merge comment-sourced candidates into the main candidate pool before Phase 4 filtering.
+5. Comment-sourced candidates use the POST/VIDEO as the engagement target (comment there to reach real customers in the thread).
+
+**Cost note:** Comment mining uses Apify credits. Confirm with user before running if budget is a concern.
 
 ### Phase 4 - Filter and Score
 
-1. Remove competitor/vendor noise using `references/competitor-signals.md`.
-2. Remove low-evidence posts (missing URL or meaningful text).
-3. Score survivors by:
+1. **Deduplicate** — use platform-appropriate strategy:
+   - Twitter/X, Reddit, HN: `unique_by(.url)` (URLs are reliable)
+   - LinkedIn: `unique_by(.text[0:100] + .author_name)` (URLs are often empty)
+2. Remove competitor/vendor noise using `references/competitor-signals.md`.
+3. Remove low-evidence posts (missing meaningful text or too short).
+4. **LinkedIn extra filter:** Apply aggressive keyword regex on `.text` field to
+   remove job spam, hiring posts, LinkedIn puzzles, and viral non-technical content.
+   The LinkedIn scraper returns ~99% noise — filter BEFORE scoring to save time.
+5. Score survivors by:
    - explicit pain or intent
    - decision-maker likelihood
    - recency
@@ -188,17 +239,77 @@ Return:
 - top 3 content/influence targets
 - rejected-pattern summary (what was filtered out)
 
-### Phase 7 - Optional Save + Handoff
+### Phase 7 - Save + Handoff
 
-```bash
-mkdir -p briefs
-DATE=$(date +%Y%m%d)
-OUT="briefs/${DATE}_feed.md"
+Default mode is in-memory output only (no local writes). Save to disk only if
+runtime policy explicitly allows write tools.
+
+Route by `handoff_type` from the active mode file:
+
+- **`approval-portal`** → Invoke `/unclawg-feed` (API approval flow; no SSH required).
+- **`engagement-queue`** → Save to `briefs/` directory (future, not implemented).
+- **`db-insert`** → Phase 7A (private operator mode only; not for public/default use).
+- **unset / null** → In-memory output only, present to user.
+
+For public distributions and users without infrastructure access, keep
+`handoff_type: approval-portal`.
+
+### Phase 7A - Private Operator Extension (Optional)
+
+Use only when `handoff_type: db-insert` is intentionally set in a local,
+gitignored operator mode.
+
+1. Present candidate table for user confirmation (user may drop rows, edit angles).
+2. On confirmation, batch INSERT via SSH to prod DB:
+
+```sql
+INSERT INTO social_engagement_queue
+  (id, platform, post_url, post_author, post_title, post_caption,
+   post_metrics, posted_at, persona, htma_angle,
+   status, created_at, updated_at)
+VALUES (gen_random_uuid(), ...)
+ON CONFLICT (post_url) DO NOTHING;
 ```
 
-Save only when requested.
+3. Use the `ssh-info` skill to resolve the current SSH target and Docker DB container, then run the insert from that runtime context.
+   Keep real hosts, users, and container names out of tracked files.
 
-Handoff should reference mode contract when available (for example, a feed-submission skill).
+4. Verify row count after insert.
+5. Report: rows inserted, rows skipped (conflict), total in queue.
+
+## Known Platform Issues
+
+### LinkedIn: Low Signal-to-Noise (Critical)
+
+**Actor:** `apimaestro/linkedin-posts-search-scraper-no-cookies` (4.14 rating)
+
+**Problem:** This actor returns generic LinkedIn feed content regardless of search query.
+Exact-phrase matching does not work — queries like `"AI agent governance human approval"` return
+Indian job spam, TCS hiring posts, LinkedIn puzzles, and viral non-technical content.
+Observed signal rate: **<1% relevant content** across 500+ results from 16 queries.
+
+**Impact:** LinkedIn discovery via this actor is unreliable for targeted prospecting.
+Do not promise high LinkedIn candidate volumes to users.
+
+**Workarounds:**
+1. Filter aggressively post-collection using keyword regex on `.text` field
+2. Use broader, single-keyword queries (`"AI agent"`, `"agentic AI"`) and accept lower precision
+3. For high-value LinkedIn targeting, fall back to manual curation (user pastes specific post URLs)
+4. Consider alternative actors that use authenticated LinkedIn sessions for better search quality
+
+**Dedup:** This actor returns empty `url` fields on most posts. **NEVER use `unique_by(.url)`**
+for LinkedIn results. Use composite key instead:
+```bash
+jq 'unique_by(.text[0:100] + .author_name)' results.json
+```
+
+### Twitter/X: Works Well
+
+**Actor:** `api-ninja/x-twitter-advanced-search` (4.93 rating)
+
+Twitter search returns accurate keyword-matched results. Exact phrases work. Typical signal
+rate is 40-80% relevant content depending on query specificity. Very niche phrases
+(e.g., `"crewai agent safety control"`) may return 0 results — broaden the query if needed.
 
 ## Notes
 

@@ -9,8 +9,10 @@ Required fields:
 ```yaml
 name: your-project
 cwd_match: /absolute/path/prefix
+agent_id: your-agent-name          # disambiguates when multiple modes match same cwd
 objective_default: prospecting
-handoff_command: /your-next-step
+handoff_type: approval-portal       # public default; approval-portal | engagement-queue | db-insert (private operator mode only)
+handoff_command: /your-next-step    # null if handoff_type handles routing directly
 ```
 
 ## What Goes Here vs. What Goes in the Soul
@@ -70,6 +72,23 @@ Provide weights totaling 100.
 ### Platform Scope
 
 List available platforms and their API key requirements.
+
+### Comment Mining Targets (Optional)
+
+If the domain involves engagement on IG/TikTok comment sections, list curated accounts
+whose COMMENTERS (not the account owners) are real customers.
+
+```yaml
+comment_mining_targets:
+  instagram:
+    persona_E: [@handle1, @handle2, ...]
+    persona_A: [@handle3, ...]
+  tiktok:
+    persona_E: [handle1, handle2, ...]
+    persona_A: [handle3, ...]
+```
+
+Scripts: `search_instagram_comments.sh`, `search_tiktok_comments.sh`
 
 ### Ask-Cascade Questions
 

@@ -57,6 +57,12 @@ The shared auth/payments/identity service (`{auth_packages_root}` from mode conf
 2. If required functionality is missing, raise an "auth-scope proposal" to the user (gap, impacted slice, proposed package/API, expected cross-product benefit).
 3. If unpublished local package changes are required, use temporary local symlink/link loading from `{auth_packages_root}`, then switch to published/live auth service packages and run final checks before marking complete.
 
+## Delivery Default (Big-Bang)
+
+1. Implement the target-state contract from `shared.md` directly.
+2. Do not scaffold legacy endpoint aliases, compatibility adapters, dual-write/read paths, or deprecation bridges unless the plan explicitly requires them.
+3. If production data is impacted, follow the dedicated DB transition section in `backend.md` (backup + transactional/idempotent SQL + verification + rollback). Keep this separate from API/runtime compatibility logic.
+
 ## Prerequisites
 
 **Requires an existing plan.** Before scaffolding, ensure:
@@ -250,6 +256,7 @@ Fill in:
 - Table creation (columns from shared.md + schema.mmd)
 - Indexes (from query patterns in shared.md endpoints)
 - Access control policies per backend.md permissions matrix
+- If `backend.md` includes a production DB transition section, ensure migration SQL is transactional/idempotent with explicit verification and rollback steps.
 
 ### Step 11: Run Tests
 
@@ -299,6 +306,8 @@ Before marking complete:
 - [ ] Auth/payments/identity behavior uses existing auth service packages
 - [ ] Missing auth service capability is documented as an auth-scope proposal (if encountered)
 - [ ] Local symlink/link package usage is replaced by published/live auth service package validation before final completion (if applicable)
+- [ ] Target-state big-bang contract implemented (no unrequested legacy compatibility code)
+- [ ] If production data is impacted, DB transition requirements from backend.md are reflected in migration artifacts
 - [ ] Router registered with the application
 
 ## Next Step: Request Audit

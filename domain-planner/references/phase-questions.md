@@ -16,7 +16,8 @@ Detailed questions and refinement patterns for each planning phase. All multi-ch
   - [Error Codes](#error-code-design)
 - [Phase 3: Backend Spec](#phase-3-backend-spec)
   - [Table Design](#table-design)
-  - [Versioning](#versioning-decision)
+  - [History Model](#history-model-explicitly-requested-only)
+  - [Production Data Transition](#production-data-transition-only-when-data-impacting)
   - [RLS Policies](#rls-policy-design)
 - [Phase 4: Frontend Spec](#phase-4-frontend-spec)
   - [Page Structure](#page-structure)
@@ -50,6 +51,7 @@ Present each structured multi-choice question in this format:
 - **Sequential for dependent questions** - When Q1 answer changes Q2 options
 - **Multi-select: yes** - When choices aren't mutually exclusive (e.g., user types)
 - **Only ask about genuine uncertainties** - If 95% confident, just do it
+- **Default to big-bang delivery** - Do not add legacy/dual-endpoint transition mechanics unless the user explicitly asks for compatibility support
 
 ### Question Hierarchy (Ask Top-Down)
 
@@ -63,7 +65,7 @@ High-level decisions cascade down and eliminate whole categories of questions:
    -- "Separate endpoints or combined?" -> determines table relationships
 
 3. Table structure
-   -- "Versioned or CRUD?" -> if CRUD, skip history/audit questions
+   -- "History retention required?" -> if not required, use CRUD and skip version-chain design
 
 4. Access patterns
    -- "Practitioner-owned or shared?" -> determines RLS complexity
@@ -109,7 +111,7 @@ Good (specific uncertainties with recommendation):
 
 **Bad batch** (Q2 depends on Q1):
 ```
-Q1: "CRUD or versioned?"
+Q1: "Standard CRUD or append-only history?"
 Q2: "Which RLS policy?" <- Options differ based on Q1 answer!
 ```
 Ask these sequentially instead.
@@ -317,13 +319,23 @@ Then ask specific questions (not "is this right?"):
 - Hard delete (Recommended) — Simpler, truly removes data
 - Soft delete — Recoverable, audit trail, complicates queries
 
-### Versioning Decision
+### History Model (Explicitly Requested Only)
 
-**Question:** "Should [table] use versioning?"
+**Question:** "Does [table] need explicit historical versions?"
 **Multi-select:** no
 **Options:**
-- Standard CRUD (Recommended) — Update in place - simpler, less storage
-- Versioned — prev_id + version pattern - full history, audit trail
+- Standard CRUD (Recommended) — Update in place; default big-bang path
+- Versioned history — prev_id + version pattern, only for explicit audit/regulatory/replay requirements
+
+### Production Data Transition (Only When Data-Impacting)
+
+Only ask this when the plan modifies existing production data.
+
+**Question:** "Do we need an explicit production DB transition section for this slice?"
+**Multi-select:** no
+**Options:**
+- No (Recommended) — Target-state big-bang implementation only, no transition mechanics
+- Yes — Add a separate DB transition section (backup, transactional/idempotent raw SQL via psql, verification, rollback)
 
 ### RLS Policy Design
 
@@ -478,7 +490,7 @@ Accurate?"
 ### Scope Boundaries
 
 ```
-"What's explicitly OUT of scope for v1?
+"What's explicitly OUT of scope for this slice release?
 
 Candidates:
 - [ ] [Feature 1] - defer because: [reason]

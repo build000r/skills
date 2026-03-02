@@ -120,6 +120,8 @@ The shared auth/payments/identity service (`{auth_packages_root}` from mode conf
 7. **Standard stories first** — Before Phase 1 Discovery, check `~/.claude/skills/domain-planner/references/standard-stories/` for reusable patterns (RBAC, feature flags, onboarding). Start from templates, don't rediscover.
 8. **Mode-specific templates** — Use `~/.claude/skills/domain-planner/assets/templates/frontend-{mode}.md` when available (e.g., `frontend-{mode}.md` for mode-specific slices). Fall back to generic `frontend.md`.
 9. **Performance envelopes are binding** — When a mode defines performance constraints, convert each target into explicit acceptance criteria and test scenarios across plan files.
+10. **Default delivery strategy is big-bang** — Plan the target-state contract directly. Do not add dual routes, backward-compatibility shims, deprecation windows, or legacy endpoint support unless the user explicitly asks.
+11. **Separate DB transition planning from API planning** — Only add a DB transition section when production data is at risk. Keep it operationally focused: backup, transactional/idempotent raw SQL execution, verification, and rollback.
 
 ## Questioning Strategy
 
@@ -243,7 +245,7 @@ After approval: **"CONTRACT LOCKED. Changes require discussion."**
 - If a sibling already owns an entity (e.g., `key_insights` owns the insights table), this slice should reference it, not recreate it
 
 Questions to resolve:
-- Versioning? (CRUD vs prev_id pattern)
+- Data history requirements? (default update-in-place CRUD; only add version-chain patterns when explicitly requested)
 - Access control policies? (owner-only, shared, lookup)
 - Background jobs? (sync vs async for slow operations)
 - **FK relationships to sibling entities?** (from Phase 0 landscape)

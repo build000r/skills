@@ -59,6 +59,12 @@ The shared auth/payments/identity service (`{auth_packages_root}` from mode conf
 2. If required functionality is missing, raise an "auth-scope proposal" to the user (gap, impacted slice, proposed package/API, expected cross-product benefit).
 3. If unpublished local package changes are required, use temporary local symlink/link loading from `{auth_packages_root}`, then switch to published/live auth service packages and run final checks before marking complete.
 
+## Delivery Default (Big-Bang)
+
+1. Implement the target-state UI/API contract from the plan directly.
+2. Do not scaffold legacy API client fallbacks, dual-contract adapters, or compatibility toggles unless the plan explicitly requires them.
+3. If backend planning includes a production DB transition section, treat it as backend operational work; do not add frontend compatibility logic for old/new data contracts unless explicitly requested.
+
 ## CRITICAL: Load Patterns First
 
 **Before generating ANY components, you MUST load context-appropriate patterns.**
@@ -149,6 +155,7 @@ Create the API client at the mode's `services_path` or `features_path/{slice}/se
 - Map error codes from shared.md to user-friendly messages
 - Use the mode's HTTP client conventions
 - Use auth service packages for auth/payments/identity interactions instead of ad-hoc local implementations
+- Do not add legacy endpoint fallback logic unless explicitly required by the plan
 
 ### Step 5: Generate Data Fetching Hooks
 
@@ -294,6 +301,9 @@ Before marking complete, verify:
 - [ ] Auth/payments/identity behavior reuses existing auth service packages
 - [ ] Missing auth service functionality is captured as an auth-scope proposal (if encountered)
 - [ ] Temporary local symlink/link package usage is replaced with published/live auth service package verification before final completion (if applicable)
+
+### Delivery Strategy
+- [ ] Target-state big-bang contract implemented (no unrequested legacy compatibility UI/client paths)
 
 ## Next Step: Request Audit
 

@@ -71,6 +71,23 @@
 
 ---
 
+## Delivery Strategy (Default: Big-Bang)
+
+- [ ] **Big-bang target state** — implement the final contract directly; no dual endpoints or legacy compatibility layer unless explicitly requested.
+- [ ] **No transition overhead by default** — avoid deprecation windows/parallel run paths unless user asks for them.
+
+### Production DB Transition (Only if Data-Impacting)
+
+> Fill this section only when existing production data must be changed.
+
+- [ ] Backup/snapshot plan documented
+- [ ] Raw `psql` migration plan documented (agent-run, not ORM magic)
+- [ ] Preview/transaction safety plan documented (wrap in transaction, inspect affected row counts before commit)
+- [ ] Idempotency guards documented
+- [ ] Rollback plan documented and tested
+
+---
+
 ## Out of Scope
 
 - [ ] [Feature 1] - Deferred because: [reason]

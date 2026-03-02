@@ -31,6 +31,8 @@ These rules prevent systematic over-penalization:
 
 5. **A well-communicated plan scores 85+.** A plan that clearly defines business rules, user stories with acceptance criteria, API contracts with request/response shapes, sequence flows, and component behavior should score 85-95 even with minor gaps in operational details. 100/100 means zero ambiguity — extremely rare and not the expected bar.
 
+6. **Big-bang is the default.** Deduct for unrequested legacy compatibility plans (dual endpoints, adapter layers, deprecation windows, shadow writes/reads) unless the user explicitly asked for compatibility support.
+
 ---
 
 ## Dimension 1: File Completeness (10 pts)
@@ -210,9 +212,12 @@ These rules prevent systematic over-penalization:
 - backend.md includes detailed analytics event tracking not in any user story
 - "Future Considerations" section is 200+ lines with full endpoint specs
 - Plan defines a notification system that overlaps with the `notifications` slice
+- Plan adds legacy route compatibility (`/v1` + `/v2`) without an explicit user request
+- Plan documents deprecation/parallel-run mechanics for old endpoints that were never requested
 
 **How to fix:**
 - Remove anything not traceable to a user story. Trim "Future" to one-line pointers: `- Analytics: track content views (future slice)`. Check sibling INDEX.md for scope overlaps.
+- Remove unrequested compatibility layers and keep the spec on the target-state contract. If production data changes are required, put that in a separate DB transition section only.
 
 ---
 

@@ -39,6 +39,7 @@ Parse repo tags from the plan index entry (e.g., `[backend, frontend, auth]`) to
 1. Every repo agent must use existing auth service packages for auth/payments/identity concerns.
 2. If an agent reports missing auth service functionality, convert it into an auth-scope proposal and escalate to the user instead of inventing local replacements.
 3. If unpublished auth service version changes are required, use temporary symlink/link loading from local `{auth_packages_root}`, then switch to published/live versions and run final checks before DONE.
+4. Use big-bang delivery by default: do not ask agents to build legacy/dual-endpoint compatibility shims unless explicitly requested.
 
 ---
 
@@ -71,6 +72,7 @@ FIRST: Use the domain-scaffolder-backend skill for {slice}
 Working directory: {repo_path}
 Follow the repo's AGENTS.md patterns. Write tests first (TDD).
 Use existing auth service packages where relevant; do not reimplement auth/payments/identity concerns locally.
+Do not add legacy endpoint compatibility layers unless the plan explicitly requires them.
 When complete, report what was created and any issues encountered.
 ```
 
@@ -84,6 +86,7 @@ FIRST: Use the domain-scaffolder-frontend skill for {slice}
 Working directory: {repo_path}
 Follow the project's frontend patterns. Handle all async states.
 Use existing auth service packages where relevant; do not reimplement auth/payments/identity concerns locally.
+Do not add dual-client or legacy API compatibility paths unless explicitly required by the plan.
 When complete, report what was created and any issues encountered.
 ```
 

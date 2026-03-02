@@ -49,6 +49,12 @@ The shared auth/payments/identity service (`{auth_packages_root}` from mode conf
 2. If missing functionality is discovered, workers must request an auth-scope proposal instead of approving local replacement implementations.
 3. If local symlink/link auth service versions are used during fixes, workers must require final validation against published/live packages before closure.
 
+## Delivery Strategy Guardrails (Required)
+
+1. Workers must enforce big-bang target-state delivery by default.
+2. Workers must flag unrequested legacy compatibility mechanics (dual endpoints, adapters, shadow read/write paths) as deviations.
+3. If production data is impacted, workers must require a dedicated DB transition runbook (backup, raw `psql`, transactional/idempotent safety, verification, rollback).
+
 ## The Loop
 
 ```
@@ -110,6 +116,7 @@ Construct the initial audit worker prompt by combining:
 4. **Report template:** Paste `references/audit-template.md` so the worker knows the exact output format
 5. **Severity levels:** From SKILL.md
 6. **Auth service guardrails:** Existing package reuse, gap-proposal requirement, and local-link to published/live validation flow
+7. **Delivery strategy guardrails:** Big-bang default, no unrequested compatibility layers, DB transition runbook when data-impacting
 
 **Prompt structure:**
 ```
@@ -127,6 +134,11 @@ Auth service guardrails:
 - Enforce existing `{auth_packages_root}` for auth/payments/identity scope.
 - If functionality is missing, require a auth-scope proposal.
 - If local symlink/link package usage exists, require final validation on published/live Auth service packages.
+
+Delivery strategy guardrails:
+- Enforce big-bang target-state implementation by default.
+- Flag unrequested legacy compatibility mechanics as deviations.
+- Require DB transition runbook only when production data is impacted.
 
 ## Audit Steps
 {Paste Steps 1-9 from audit-workflow.md, paths substituted}
@@ -168,6 +180,7 @@ Re-review the {slice} slice after fixes were applied (re-review #{iteration}).
 10. If issues remain, include updated Agent Handoff blocks
 11. Commit: "audit({slice}): re-review #{iteration} - score {XX}/100"
 12. Re-check Auth service compliance: package reuse, gap proposals, and local-link to published/live validation requirements
+13. Re-check delivery strategy compliance: no unrequested compatibility layers; DB transition runbook present when data-impacting
 
 ## Re-Review Section Template
 
@@ -204,6 +217,7 @@ Additional context:
 - Backend code location: {backend path from mode}
 - Plan files: {plan_root}/{slice}/
 - Auth service: reuse existing `{auth_packages_root}` auth/payments/identity packages; if missing functionality, create a auth-scope proposal instead of local replacement logic
+- Delivery strategy: implement target-state plan only; do not add legacy compatibility mechanics unless explicitly requested
 - After fixing, commit with: "fix({slice}): {brief description of fixes}"
 - Write/fix tests FIRST, then fix implementation (TDD-first).
 ```
@@ -217,6 +231,7 @@ Additional context:
 - Frontend code location: {frontend path from mode}
 - Plan files: {plan_root}/{slice}/
 - Auth service: reuse existing `{auth_packages_root}` auth/payments/identity packages; if missing functionality, create a auth-scope proposal instead of local replacement logic
+- Delivery strategy: implement target-state plan only; do not add legacy API compatibility paths unless explicitly requested
 - After fixing, commit with: "fix({slice}): {brief description of fixes}"
 ```
 

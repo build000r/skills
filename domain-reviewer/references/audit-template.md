@@ -32,6 +32,7 @@ Use this template for AUDIT_REPORT.md output.
 - Type Safety: **{XX}%** {brief note}
 - Documentation: **{XX}%** {brief note}
 - Auth service Auth/Payments/Identity Compliance: **{XX}%** {brief note}
+- Delivery Strategy Discipline (Big-Bang): **{XX}%** {brief note}
 - Performance Envelope: **{XX}%** {brief note}
 
 ---
@@ -50,6 +51,7 @@ Use this template for AUDIT_REPORT.md output.
 | **Shared - API Contract** | {requirement} | {status} | {Yes/No/Partial} | {XX}% |
 | **Shared - Error Codes** | {requirement} | {status} | {Yes/No/Partial} | {XX}% |
 | **Auth service Integration** | Existing Auth service package reuse + gap proposal + local-link to published/live validation | {status} | {Yes/No/Partial} | {XX}% |
+| **Delivery Strategy** | Target-state big-bang implementation; no unrequested legacy compatibility; DB transition section if production data impacted | {status} | {Yes/No/Partial} | {XX}% |
 | **Performance Envelope** | {mode/plan performance constraints} | {status} | {Yes/No/Partial} | {XX}% |
 
 ---
@@ -141,6 +143,13 @@ Use this template for AUDIT_REPORT.md output.
 | Existing Auth service package reuse | No local replacement auth/payments/identity layer | {count} violations | {Yes/No} |
 | Auth service gap handling | Missing functionality documented as auth-scope proposal | {count} missing proposals | {Yes/No} |
 | Versioning workflow | Local symlink/link use followed by published/live Auth service validation | {count} missing validations | {Yes/No} |
+
+### Delivery Strategy Compliance
+
+| Pattern | Required | Found | Compliant |
+|---------|----------|-------|-----------|
+| Big-bang target-state contract | No unrequested legacy endpoint compatibility layers | {count} violations | {Yes/No} |
+| DB transition runbook (if data-impacting) | Backup + raw `psql` + transaction/idempotency + rollback | {status} | {Yes/No} |
 
 ---
 

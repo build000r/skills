@@ -67,6 +67,21 @@
 
 ---
 
+## Production DB Transition (Only if Data-Impacting)
+
+> Keep separate from API planning. Fill only when this slice changes existing production data.
+
+### Transition Checklist
+
+- [ ] Pre-change backup/snapshot is defined
+- [ ] Raw SQL execution plan via `psql` is defined
+- [ ] Script is safe to re-run (idempotent guards)
+- [ ] Transaction/preview plan is defined (explicit `BEGIN`/`COMMIT` with verification queries before commit)
+- [ ] Rollback SQL or restore path is defined
+- [ ] Post-migration verification queries are defined
+
+---
+
 ## Performance Envelope Implementation Rules
 
 > Required when mode defines latency/throughput/backpressure targets.

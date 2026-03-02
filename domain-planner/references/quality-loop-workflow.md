@@ -35,6 +35,12 @@ When the slice touches auth/payments/identity, treat `{auth_packages_root}` as m
 - Any missing auth service functionality must be captured as an auth-scope proposal (gap + proposed package/API + benefit).
 - If unpublished auth service version changes are assumed, plans must document temporary local symlink/link usage plus final validation against published/live auth service packages.
 
+## Delivery Strategy Checks (Quality Assessment Mode)
+
+- Big-bang target-state planning is default.
+- Do not accept unrequested legacy compatibility mechanics (dual endpoints, deprecation bridges, parallel old/new contracts).
+- If existing production data is impacted, require a dedicated DB transition section (backup, raw `psql` runbook, transaction/idempotency safety, rollback).
+
 ---
 
 ## Step 1: Launch Assessor
@@ -68,6 +74,7 @@ Rules:
 - Every deduction must include an actionable fix instruction
 - Do NOT suggest improvements — only deduct for rubric violations
 - For auth/payments/identity scope, enforce auth service package usage and auth-scope gap-proposal requirements
+- Enforce big-bang default: deduct unrequested legacy compatibility/transition plans; require separate DB transition section only when production data is affected
 ```
 
 ### Profile A: Subagent Launch

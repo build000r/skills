@@ -18,6 +18,12 @@ The shared auth/payments/identity service (`{auth_packages_root}` from mode conf
 2. If implementation needs functionality not covered by current auth service packages, require an "auth-scope proposal" instead of accepting local replacement layers.
 3. If local unpublished auth service versions are used via symlink/link, require final verification against published/live auth service packages before considering a slice fully compliant.
 
+## Delivery Strategy Guardrails (All Modes)
+
+1. Default expectation is big-bang target-state delivery.
+2. Flag unrequested compatibility mechanics (legacy endpoints, dual routing, adapter layers, shadow write/read paths) as scope violations.
+3. If production data is affected, require a dedicated DB transition section with backup, raw `psql` execution plan, transactional/idempotent safety, verification, and rollback.
+
 - **Audit:** Autonomous audit→fix→retire loop — runs worker phases (subagents if available, inline fallback), converges to 94%, then retires
 - **Retire:** Investigate completed slices, categorize user stories, clean up bloat
 - **Retire-Session:** Roll DONE session plans into domain COMPLETED.md files, archive originals
@@ -129,8 +135,9 @@ In audit mode, **you are the orchestrator**. Use worker phases for heavy work (d
 4. Parse scores from AUDIT_REPORT.md after each cycle
 5. Dispatch fix worker phase(s) when score < 94%
 6. Enforce auth service compliance in auth/payments/identity scope: no local replacement layer, gaps captured as auth-scope proposals, local-link flow finalized on published/live packages
-7. On convergence (>= 94%): transition to retirement — **you do this yourself** (you have context budget)
-8. On max iterations (5): escalate to user with current score + remaining issues
+7. Enforce delivery strategy compliance: no unrequested legacy compatibility code; DB-transition runbook required when production data is impacted
+8. On convergence (>= 94%): transition to retirement — **you do this yourself** (you have context budget)
+9. On max iterations (5): escalate to user with current score + remaining issues
 
 ## Concurrency Contract
 

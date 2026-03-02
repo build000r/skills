@@ -46,6 +46,7 @@ Extract from each file:
 | Frontend patterns | Mode's frontend patterns reference | Component library, shared primitives, hooks |
 | Backend conventions | Mode's backend convention files | TDD, domain structure, access control, error handling |
 | Auth service standards (if configured) | Mode's auth service settings + `{auth_packages_root}` | Auth/payments/identity package reuse, gap proposals, local-link and published/live validation flow |
+| Delivery strategy standards | plan.md + backend.md | Big-bang target-state scope; no unrequested legacy compatibility mechanics; DB transition section only when data-impacting |
 | Performance envelope (if present) | Mode file + plan.md/backend.md/frontend.md | Latency/throughput SLOs, queue/buffer bounds, backpressure behavior |
 
 ### Step 3: Audit Backend (if backend.md exists)
@@ -87,6 +88,11 @@ Extract from each file:
    - No local replacement auth/payments/identity layer was introduced
    - Missing auth service functionality is documented as an auth-scope proposal
    - If local symlink/link packages were used, final verification against published/live auth service packages is documented
+
+8. **Delivery Strategy Compliance**:
+   - Backend implementation matches big-bang target-state contract from plan
+   - No unrequested legacy endpoint compatibility, adapter layers, or dual-write/read code
+   - If production data is impacted, DB transition runbook is present (backup, raw `psql`, transaction/idempotency, verification, rollback)
 
 ### Step 4: Audit Frontend (if frontend.md exists)
 
@@ -134,6 +140,10 @@ Extract from each file:
    - Any missing auth service functionality is surfaced as an auth-scope proposal
    - Local symlink/link package usage is validated against published/live auth service packages before closure
 
+9. **Delivery Strategy Compliance**:
+   - Frontend follows target-state contract only
+   - No unrequested legacy API compatibility toggles/adapters/dual client paths
+
 ### Step 5: Check Plan Compliance
 
 For EACH item in shared.md/backend.md/frontend.md/flows.md:
@@ -146,6 +156,7 @@ For EACH item in shared.md/backend.md/frontend.md/flows.md:
 | Flow: user creates item | Implemented | Matches flows.md |
 | Permission: cross-user denied | Missing | No access control test |
 | Auth service usage | Deviation | Local implementation bypasses existing auth service package |
+| Legacy compatibility code | Deviation | Added old endpoint adapter not required by plan |
 | Tests for service | Missing | 0% coverage |
 
 **Compliance scoring:**

@@ -288,6 +288,7 @@ POST /v0/approval-requests/{approval_id}/messages/fulfill
 ```json
 {
   "content": "Made tone more casual per user feedback",
+  "message_type": "edit_diff",
   "edited_content": "Hey! Thanks for reaching out. Here's what I think...",
   "revision_request_id": "rev-req-uuid",
   "expected_version": 3,
@@ -298,7 +299,8 @@ POST /v0/approval-requests/{approval_id}/messages/fulfill
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `content` | string | yes | Brief description of the edit |
-| `edited_content` | string | yes | The revised output text |
+| `message_type` | string | no | `edit_diff` (default) or `comment` |
+| `edited_content` | string | conditional | Required only when `message_type=edit_diff` |
 | `revision_request_id` | string | yes | Links fulfillment to the revision request |
 | `expected_version` | int | yes | Approval version for optimistic concurrency |
 | `idempotency_key` | string | yes | 1–128 chars, non-blank, deduplicate retries |
@@ -322,7 +324,8 @@ POST /v0/approval-requests/{approval_id}/messages/fulfill
 
 **Errors:**
 - `400 VALIDATION_ERROR` — missing `revision_request_id`
-- `400 EDIT_DIFF_INVALID` — missing `edited_content`
+- `400 EDIT_DIFF_INVALID` — missing `edited_content` for `edit_diff`
+- `400 REVISION_FULFILLMENT_MESSAGE_TYPE_INVALID` — `message_type` not one of `edit_diff`/`comment`
 - `401 MACHINE_KEY_NOT_FOUND` — key ID not found in this tenant/app context
 - `401 UNAUTHORIZED` — machine secret is invalid
 - `403 MACHINE_KEY_EXPIRED` — key expired
@@ -332,7 +335,6 @@ POST /v0/approval-requests/{approval_id}/messages/fulfill
 - `404 APPROVAL_NOT_FOUND` — invalid approval_id
 - `409 VERSION_CONFLICT` — `expected_version` doesn't match current; re-fetch and retry
 - `409 REVISION_REQUEST_STALE` — revision request is no longer open (already fulfilled/closed)
-- `409 REVISION_REQUEST_EXPIRED` — revision request expired (TTL)
 - `409 IDEMPOTENCY_CONFLICT` — idempotency key reused with different payload fingerprint
 
 ---

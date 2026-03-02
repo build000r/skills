@@ -1,0 +1,794 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import re
+import sys
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
+
+
+SOUL_VERSION_RE = re.compile(r"soul\s+v(\d+)", re.IGNORECASE)
+SOUL_UPDATED_RE = re.compile(r"soul\s+updated\s+to\s+v(\d+)", re.IGNORECASE)
+DENY_KEYWORDS = (
+    "deny",
+    "unsafe",
+    "not safe",
+    "illegal",
+    "policy",
+    "violate",
+    "harm",
+    "risk",
+)
+
+
+class ApiError(RuntimeError):
+    def __init__(self, status_code: int, payload: Any) -> None:
+        self.status_code = status_code
+        self.payload = payload
+        super().__init__(f"HTTP {status_code}")
+
+    def code(self) -> str | None:
+        if isinstance(self.payload, dict):
+            detail = self.payload.get("detail")
+            if isinstance(detail, dict):
+                value = detail.get("code")
+                if isinstance(value, str):
+                    return value
+        return None
+
+
+@dataclass(frozen=True)
+class Config:
+    api_url: str
+    tenant_id: str
+    machine_key_id: str
+    machine_secret: str
+    agent_id: str
+    api_key: str | None
+
+
+@dataclass(frozen=True)
+class QueueDecision:
+    should_process: bool
+    reason: str
+    latest_feedback: dict[str, Any] | None
+    latest_machine: dict[str, Any] | None
+
+
+def _parse_env_file(path: Path) -> dict[str, str]:
+    values: dict[str, str] = {}
+    if not path.exists():
+        return values
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export ") :]
+        if "=" not in line:
+            continue
+        key, raw_value = line.split("=", 1)
+        key = key.strip()
+        value = raw_value.strip().strip("\"'")
+        if key:
+            values[key] = value
+    return values
+
+
+def _apply_env_defaults(path: Path) -> None:
+    values = _parse_env_file(path)
+    for key, value in values.items():
+        os.environ.setdefault(key, value)
+
+
+def _load_agent_env(agent_id: str | None) -> None:
+    cwd = Path.cwd()
+    if agent_id:
+        _apply_env_defaults(cwd / ".claude" / "agents" / f"{agent_id}.env")
+    current_agent = os.environ.get("OPENCLAW_AGENT_ID")
+    if current_agent:
+        _apply_env_defaults(cwd / ".claude" / "agents" / f"{current_agent}.env")
+    _apply_env_defaults(cwd / "services" / "approval_feedback_api" / ".env")
+
+
+def _require_env(name: str) -> str:
+    value = (os.environ.get(name) or "").strip()
+    if not value:
+        raise SystemExit(f"Missing required environment variable: {name}")
+    return value
+
+
+def resolve_config(agent_override: str | None) -> Config:
+    _load_agent_env(agent_override)
+
+    agent_id = (agent_override or os.environ.get("OPENCLAW_AGENT_ID") or "").strip()
+    if not agent_id:
+        raise SystemExit("Missing agent id. Set OPENCLAW_AGENT_ID or pass --agent-id.")
+
+    api_url = _require_env("OPENCLAW_API_URL").rstrip("/")
+    tenant_id = _require_env("OPENCLAW_TENANT_ID")
+    machine_key_id = _require_env("OPENCLAW_MACHINE_KEY_ID")
+    machine_secret = _require_env("OPENCLAW_MACHINE_SECRET")
+    api_key = (os.environ.get("OPENCLAW_API_KEY") or "").strip() or None
+
+    return Config(
+        api_url=api_url,
+        tenant_id=tenant_id,
+        machine_key_id=machine_key_id,
+        machine_secret=machine_secret,
+        agent_id=agent_id,
+        api_key=api_key,
+    )
+
+
+def _auth_headers(config: Config, *, json_body: bool = False) -> dict[str, str]:
+    headers = {
+        "X-Tenant-Id": config.tenant_id,
+        "X-Machine-Key-Id": config.machine_key_id,
+        "X-Machine-Secret": config.machine_secret,
+    }
+    if config.api_key:
+        headers["X-API-Key"] = config.api_key
+    if json_body:
+        headers["Content-Type"] = "application/json"
+    return headers
+
+
+def _request_json(
+    config: Config,
+    method: str,
+    path: str,
+    *,
+    params: dict[str, Any] | None = None,
+    body: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    query = urlencode({k: v for k, v in (params or {}).items() if v is not None})
+    url = f"{config.api_url}{path}"
+    if query:
+        url = f"{url}?{query}"
+
+    payload = None
+    headers = _auth_headers(config, json_body=body is not None)
+    if body is not None:
+        payload = json.dumps(body, separators=(",", ":")).encode("utf-8")
+
+    req = Request(url=url, method=method.upper(), headers=headers, data=payload)
+    try:
+        with urlopen(req, timeout=30) as response:
+            raw = response.read().decode("utf-8", errors="replace")
+            if not raw.strip():
+                return {}
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict):
+                return parsed
+            raise ApiError(response.status, {"detail": {"code": "INVALID_JSON", "message": "Response is not an object."}})
+    except HTTPError as error:
+        raw = error.read().decode("utf-8", errors="replace") if error.fp else ""
+        payload_obj: Any
+        if raw.strip():
+            try:
+                payload_obj = json.loads(raw)
+            except json.JSONDecodeError:
+                payload_obj = {"detail": {"code": "HTTP_ERROR", "message": raw.strip()}}
+        else:
+            payload_obj = {"detail": {"code": "HTTP_ERROR", "message": f"HTTP {error.code}"}}
+        raise ApiError(error.code, payload_obj) from error
+    except URLError as error:
+        raise SystemExit(f"Connection failed: {error}") from error
+
+
+def _print_target(config: Config) -> None:
+    print(f"target api_url={config.api_url} tenant_id={config.tenant_id} agent_id={config.agent_id}")
+
+
+def _response_data(payload: dict[str, Any]) -> dict[str, Any]:
+    data = payload.get("data")
+    if isinstance(data, dict):
+        return data
+    return {}
+
+
+def _parse_time(value: str | None) -> datetime:
+    if not value:
+        return datetime.fromtimestamp(0, tz=timezone.utc)
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return datetime.fromtimestamp(0, tz=timezone.utc)
+
+
+def _sequence(value: Any) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _message_key(message: dict[str, Any]) -> tuple[datetime, int]:
+    return (_parse_time(message.get("created_at")), _sequence(message.get("sequence")))
+
+
+def _latest_message(messages: list[dict[str, Any]], predicate: Any) -> dict[str, Any] | None:
+    matches = [item for item in messages if predicate(item) and item.get("deleted_at") is None]
+    if not matches:
+        return None
+    return max(matches, key=_message_key)
+
+
+def _extract_soul_version_from_text(text: str | None) -> int | None:
+    if not text:
+        return None
+    match = SOUL_VERSION_RE.search(text)
+    if not match:
+        return None
+    try:
+        return int(match.group(1))
+    except ValueError:
+        return None
+
+
+def _latest_system_soul_update(messages: list[dict[str, Any]]) -> tuple[int | None, dict[str, Any] | None]:
+    candidates: list[tuple[int, dict[str, Any]]] = []
+    for message in messages:
+        if message.get("message_type") != "system":
+            continue
+        content = message.get("content")
+        if not isinstance(content, str):
+            continue
+        match = SOUL_UPDATED_RE.search(content)
+        if not match:
+            continue
+        try:
+            version = int(match.group(1))
+        except ValueError:
+            continue
+        candidates.append((version, message))
+    if not candidates:
+        return None, None
+    version, message = max(candidates, key=lambda item: _message_key(item[1]))
+    return version, message
+
+
+def _queue_decision(
+    messages: list[dict[str, Any]],
+    published_soul_version: int | None,
+) -> QueueDecision:
+    latest_feedback = _latest_message(messages, lambda item: item.get("message_type") == "feedback")
+    latest_machine = _latest_message(
+        messages,
+        lambda item: item.get("author_type") == "machine" and item.get("message_type") in {"edit_diff", "comment"},
+    )
+
+    drift_reason: str | None = None
+    if published_soul_version is not None and latest_machine is not None:
+        machine_key = _message_key(latest_machine)
+        machine_soul_version = _extract_soul_version_from_text(latest_machine.get("content"))
+        if machine_soul_version is not None and machine_soul_version < published_soul_version:
+            drift_reason = "machine_soul_version_drift"
+        else:
+            system_version, system_message = _latest_system_soul_update(messages)
+            if (
+                system_version is not None
+                and system_message is not None
+                and system_version >= published_soul_version
+                and _message_key(system_message) > machine_key
+            ):
+                drift_reason = "soul_update_newer_than_machine"
+
+    if latest_feedback is None:
+        if drift_reason is not None:
+            return QueueDecision(True, drift_reason, None, latest_machine)
+        return QueueDecision(False, "no_feedback", None, latest_machine)
+    if latest_machine is None:
+        return QueueDecision(True, "no_machine_response", latest_feedback, None)
+
+    feedback_key = _message_key(latest_feedback)
+    machine_key = _message_key(latest_machine)
+    if feedback_key > machine_key:
+        return QueueDecision(True, "feedback_newer_than_machine", latest_feedback, latest_machine)
+
+    if drift_reason is not None:
+        return QueueDecision(True, drift_reason, latest_feedback, latest_machine)
+
+    return QueueDecision(False, "up_to_date", latest_feedback, latest_machine)
+
+
+def _fetch_all_agent_revisions(config: Config, status: str, limit: int = 200) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    cursor: str | None = None
+    while True:
+        payload = _request_json(
+            config,
+            "GET",
+            f"/v0/agents/{config.agent_id}/revision-requests",
+            params={"status": status, "limit": limit, "cursor": cursor},
+        )
+        data = _response_data(payload)
+        page = data.get("items")
+        if not isinstance(page, list):
+            break
+        items.extend([entry for entry in page if isinstance(entry, dict)])
+        next_cursor = data.get("next_cursor")
+        if not isinstance(next_cursor, str) or not next_cursor:
+            break
+        cursor = next_cursor
+    return items
+
+
+def _fetch_pending_approvals(config: Config, limit: int = 200) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    cursor: str | None = None
+    while True:
+        payload = _request_json(
+            config,
+            "GET",
+            "/v0/approval-requests",
+            params={
+                "status": "pending",
+                "agent_id": config.agent_id,
+                "limit": limit,
+                "cursor": cursor,
+            },
+        )
+        data = _response_data(payload)
+        page = data.get("items")
+        if not isinstance(page, list):
+            break
+        items.extend([entry for entry in page if isinstance(entry, dict)])
+        next_cursor = data.get("next_cursor")
+        if not isinstance(next_cursor, str) or not next_cursor:
+            break
+        cursor = next_cursor
+    return items
+
+
+def _fetch_messages(config: Config, approval_id: str, limit: int = 200) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    cursor: str | None = None
+    while True:
+        payload = _request_json(
+            config,
+            "GET",
+            f"/v0/approval-requests/{approval_id}/messages",
+            params={"limit": limit, "cursor": cursor},
+        )
+        data = _response_data(payload)
+        page = data.get("messages")
+        if not isinstance(page, list):
+            break
+        items.extend([entry for entry in page if isinstance(entry, dict)])
+        next_cursor = data.get("next_cursor")
+        if not isinstance(next_cursor, str) or not next_cursor:
+            break
+        cursor = next_cursor
+    return items
+
+
+def _load_published_soul_version(config: Config) -> int | None:
+    payload = _request_json(
+        config,
+        "GET",
+        "/v0/integrations/claw-runtime/policies/soul_md",
+        params={"agent_id": config.agent_id},
+    )
+    data = _response_data(payload)
+    published = data.get("published")
+    if not isinstance(published, dict):
+        return None
+    version = published.get("version")
+    try:
+        return int(version)
+    except (TypeError, ValueError):
+        return None
+
+
+def _choose_revision_for_approval(revision_map: dict[str, list[dict[str, Any]]], approval_id: str) -> dict[str, Any] | None:
+    revisions = revision_map.get(approval_id, [])
+    if not revisions:
+        return None
+
+    def rank(item: dict[str, Any]) -> tuple[int, datetime, int]:
+        status = str(item.get("status") or "")
+        status_rank = 0
+        if status in {"pending", "dispatched"}:
+            status_rank = 2
+        elif status == "expired":
+            status_rank = 1
+        return (status_rank, _parse_time(item.get("created_at")), _sequence(item.get("id")))
+
+    candidates = [item for item in revisions if str(item.get("status") or "") in {"pending", "dispatched", "expired"}]
+    if not candidates:
+        return None
+    return max(candidates, key=rank)
+
+
+def _feedback_fingerprint(feedback: dict[str, Any] | None) -> str:
+    if feedback is None:
+        return "none"
+    basis = json.dumps(
+        {
+            "id": feedback.get("id"),
+            "created_at": feedback.get("created_at"),
+            "sequence": feedback.get("sequence"),
+            "content": feedback.get("content"),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    )
+    return hashlib.sha1(basis.encode("utf-8")).hexdigest()[:12]
+
+
+def _normalize_text(value: Any) -> str:
+    if isinstance(value, str):
+        return value.strip()
+    return ""
+
+
+def _should_recommend_deny(feedback: dict[str, Any] | None) -> bool:
+    text = _normalize_text((feedback or {}).get("content")).lower()
+    return any(keyword in text for keyword in DENY_KEYWORDS)
+
+
+def _build_edit_content(
+    approval_detail: dict[str, Any],
+    latest_feedback: dict[str, Any] | None,
+    soul_version: int | None,
+) -> str:
+    context = approval_detail.get("context")
+    payload = context.get("payload") if isinstance(context, dict) else None
+    seed = ""
+    if isinstance(payload, dict):
+        seed = _normalize_text(payload.get("proposed_reply"))
+        if not seed:
+            seed = _normalize_text(payload.get("summary"))
+    feedback_text = _normalize_text((latest_feedback or {}).get("content"))
+
+    if not seed:
+        seed = "Thanks for the feedback."
+
+    suffix = f" [Reconciled under soul v{soul_version}]" if soul_version is not None else " [Reconciled]"
+    if feedback_text:
+        suffix = f"{suffix} Feedback addressed: {feedback_text[:220]}"
+
+    edited = f"{seed}{suffix}".strip()
+    return edited[:1900]
+
+
+def _build_fulfillment_payload(
+    approval_id: str,
+    revision_id: str,
+    expected_version: int,
+    latest_feedback: dict[str, Any] | None,
+    approval_detail: dict[str, Any],
+    soul_version: int | None,
+) -> tuple[dict[str, Any], str]:
+    feedback_hash = _feedback_fingerprint(latest_feedback)
+    soul_marker = soul_version if soul_version is not None else 0
+
+    if _should_recommend_deny(latest_feedback):
+        content = (
+            f"Recommend deny under soul v{soul_marker}: feedback indicates policy/safety risk."
+            if soul_version is not None
+            else "Recommend deny: feedback indicates policy/safety risk."
+        )
+        message_type = "comment"
+    else:
+        edited_content = _build_edit_content(approval_detail, latest_feedback, soul_version)
+        content = (
+            f"Updated suggestion under soul v{soul_marker}."
+            if soul_version is not None
+            else "Updated suggestion after feedback."
+        )
+        message_type = "edit_diff"
+
+    # Build deterministic idempotency key from the final payload shape.
+    key_basis = {
+        "approval_id": approval_id,
+        "revision_id": revision_id,
+        "message_type": message_type,
+        "feedback_hash": feedback_hash,
+        "soul_version": soul_version,
+        "content": content,
+    }
+    if message_type == "edit_diff":
+        key_basis["edited_content"] = edited_content
+    key_digest = hashlib.sha1(json.dumps(key_basis, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()[:16]
+    idempotency_key = f"reconcile:{approval_id}:{revision_id}:s{soul_marker}:{key_digest}"[:128]
+
+    payload: dict[str, Any] = {
+        "content": content,
+        "message_type": message_type,
+        "revision_request_id": revision_id,
+        "expected_version": expected_version,
+        "idempotency_key": idempotency_key,
+    }
+    if message_type == "edit_diff":
+        payload["edited_content"] = edited_content
+
+    return payload, message_type
+
+
+def cmd_smoke(args: argparse.Namespace) -> int:
+    config = resolve_config(args.agent_id)
+    _print_target(config)
+    payload = _request_json(
+        config,
+        "GET",
+        f"/v0/agents/{config.agent_id}/revision-requests",
+        params={"status": "pending", "limit": 1},
+    )
+    data = _response_data(payload)
+    print(json.dumps({"status": "ok", "pending_preview": len(data.get("items", [])), "next_cursor": data.get("next_cursor")}, indent=2))
+    return 0
+
+
+def cmd_list(args: argparse.Namespace) -> int:
+    config = resolve_config(args.agent_id)
+    _print_target(config)
+
+    if args.all:
+        items = _fetch_all_agent_revisions(config, args.status, limit=args.limit)
+        print(json.dumps({"items": items, "count": len(items)}, indent=2))
+        return 0
+
+    payload = _request_json(
+        config,
+        "GET",
+        f"/v0/agents/{config.agent_id}/revision-requests",
+        params={"status": args.status, "limit": args.limit},
+    )
+    data = _response_data(payload)
+    print(json.dumps(data, indent=2))
+    return 0
+
+
+def cmd_fulfill(args: argparse.Namespace) -> int:
+    config = resolve_config(args.agent_id)
+    _print_target(config)
+
+    input_path = Path(args.input)
+    if not input_path.exists():
+        raise SystemExit(f"Input file not found: {input_path}")
+
+    with input_path.open("r", encoding="utf-8") as handle:
+        body = json.load(handle)
+
+    if not isinstance(body, dict):
+        raise SystemExit("Input payload must be a JSON object.")
+
+    body = dict(body)
+    body.setdefault("revision_request_id", args.revision_id)
+    body.setdefault("message_type", body.get("message_type", "edit_diff"))
+
+    if "expected_version" not in body:
+        detail = _request_json(config, "GET", f"/v0/approval-requests/{args.approval_id}")
+        detail_data = _response_data(detail)
+        body["expected_version"] = int(detail_data.get("version", 0))
+
+    if "idempotency_key" not in body:
+        digest = hashlib.sha1(json.dumps(body, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()[:16]
+        body["idempotency_key"] = f"manual:{args.approval_id}:{args.revision_id}:{digest}"[:128]
+
+    response = _request_json(
+        config,
+        "POST",
+        f"/v0/approval-requests/{args.approval_id}/messages/fulfill",
+        body=body,
+    )
+    print(json.dumps(_response_data(response), indent=2))
+    return 0
+
+
+def cmd_reconcile(args: argparse.Namespace) -> int:
+    config = resolve_config(args.agent_id)
+    _print_target(config)
+
+    try:
+        soul_version = _load_published_soul_version(config)
+    except ApiError as error:
+        if error.status_code in {403, 404}:
+            soul_version = None
+        else:
+            raise
+
+    pending_approvals = _fetch_pending_approvals(config)
+
+    revision_map: dict[str, list[dict[str, Any]]] = {}
+    for status in ("pending", "dispatched", "expired"):
+        for revision in _fetch_all_agent_revisions(config, status):
+            approval_id = str(revision.get("approval_id") or "")
+            if not approval_id:
+                continue
+            revision_map.setdefault(approval_id, []).append(revision)
+
+    summary = {
+        "fulfilled": 0,
+        "deny_recommended": 0,
+        "skipped": 0,
+        "failed": 0,
+        "processed": 0,
+        "queued": 0,
+        "remaining_pending": 0,
+    }
+    decisions: list[dict[str, Any]] = []
+
+    for approval in pending_approvals:
+        approval_id = str(approval.get("id") or "")
+        if not approval_id:
+            continue
+
+        try:
+            messages = _fetch_messages(config, approval_id)
+        except ApiError as error:
+            summary["failed"] += 1
+            decisions.append(
+                {
+                    "approval_id": approval_id,
+                    "reason": "message_fetch_failed",
+                    "action": f"failed_{(error.code() or 'http_error').lower()}",
+                }
+            )
+            continue
+        decision = _queue_decision(messages, soul_version)
+        if not decision.should_process:
+            continue
+
+        summary["queued"] += 1
+        entry = {
+            "approval_id": approval_id,
+            "reason": decision.reason,
+            "action": "",
+        }
+
+        revision = _choose_revision_for_approval(revision_map, approval_id)
+        if revision is None:
+            summary["skipped"] += 1
+            entry["action"] = "blocked_no_revision"
+            decisions.append(entry)
+            continue
+
+        revision_id = str(revision.get("id") or "")
+        if not revision_id:
+            summary["skipped"] += 1
+            entry["action"] = "blocked_bad_revision"
+            decisions.append(entry)
+            continue
+
+        try:
+            detail_payload = _request_json(config, "GET", f"/v0/approval-requests/{approval_id}")
+        except ApiError as error:
+            summary["failed"] += 1
+            entry["action"] = f"failed_{(error.code() or 'http_error').lower()}"
+            decisions.append(entry)
+            continue
+
+        detail = _response_data(detail_payload)
+        status = str(detail.get("status") or "")
+        if status in {"approved", "denied"}:
+            summary["skipped"] += 1
+            entry["action"] = "skip_resolved"
+            decisions.append(entry)
+            continue
+
+        try:
+            expected_version = int(detail.get("version"))
+        except (TypeError, ValueError):
+            summary["failed"] += 1
+            entry["action"] = "failed_invalid_version"
+            decisions.append(entry)
+            continue
+
+        payload, mode = _build_fulfillment_payload(
+            approval_id=approval_id,
+            revision_id=revision_id,
+            expected_version=expected_version,
+            latest_feedback=decision.latest_feedback,
+            approval_detail=detail,
+            soul_version=soul_version,
+        )
+
+        if args.dry_run:
+            summary["processed"] += 1
+            if mode == "comment":
+                summary["deny_recommended"] += 1
+            else:
+                summary["fulfilled"] += 1
+            entry["action"] = "dry_run"
+            entry["message_type"] = mode
+            entry["idempotency_key"] = payload["idempotency_key"]
+            decisions.append(entry)
+            continue
+
+        try:
+            _request_json(
+                config,
+                "POST",
+                f"/v0/approval-requests/{approval_id}/messages/fulfill",
+                body=payload,
+            )
+            summary["processed"] += 1
+            if mode == "comment":
+                summary["deny_recommended"] += 1
+            else:
+                summary["fulfilled"] += 1
+            entry["action"] = "fulfilled"
+            entry["message_type"] = mode
+            decisions.append(entry)
+        except ApiError as error:
+            code = error.code() or "HTTP_ERROR"
+            if error.status_code == 409 and code in {
+                "APPROVAL_ALREADY_RESOLVED",
+                "REVISION_REQUEST_STALE",
+                "REVISION_REQUEST_EXPIRED",
+                "VERSION_CONFLICT",
+            }:
+                summary["skipped"] += 1
+                entry["action"] = f"skip_{code.lower()}"
+            else:
+                summary["failed"] += 1
+                entry["action"] = f"failed_{code.lower()}"
+            decisions.append(entry)
+
+    remaining = _fetch_all_agent_revisions(config, "pending", limit=200)
+    summary["remaining_pending"] = len(remaining)
+
+    print(json.dumps({"soul_version": soul_version, "summary": summary, "decisions": decisions}, indent=2))
+    return 0
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="OpenClaw revision wrapper")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    smoke = subparsers.add_parser("smoke", help="Validate auth and queue access")
+    smoke.add_argument("--agent-id", default=None)
+    smoke.set_defaults(func=cmd_smoke)
+
+    list_cmd = subparsers.add_parser("list", help="List agent revision requests")
+    list_cmd.add_argument("--agent-id", default=None)
+    list_cmd.add_argument("--status", default="pending")
+    list_cmd.add_argument("--limit", type=int, default=50)
+    list_cmd.add_argument("--all", action="store_true")
+    list_cmd.set_defaults(func=cmd_list)
+
+    fulfill = subparsers.add_parser("fulfill", help="Fulfill one revision request")
+    fulfill.add_argument("--agent-id", default=None)
+    fulfill.add_argument("--approval-id", required=True)
+    fulfill.add_argument("--revision-id", required=True)
+    fulfill.add_argument("--input", required=True)
+    fulfill.set_defaults(func=cmd_fulfill)
+
+    reconcile = subparsers.add_parser("reconcile", help="Reconcile pending approvals requiring machine follow-up")
+    reconcile.add_argument("--agent-id", default=None)
+    reconcile.add_argument("--dry-run", action="store_true")
+    reconcile.set_defaults(func=cmd_reconcile)
+
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    try:
+        return int(args.func(args))
+    except ApiError as error:
+        payload = error.payload
+        if isinstance(payload, dict):
+            print(json.dumps(payload, indent=2), file=sys.stderr)
+        else:
+            print(str(payload), file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -21,6 +21,16 @@ metadata:
 - Do not execute raw `curl` commands from this skill in runtime.
 - If `uc_respond` is missing, fail closed and ask for wrapper install/allowlist.
 
+### Wrapper Source
+
+- Checked-in wrapper implementation: `scripts/uc_respond`
+- Example local install:
+
+```bash
+chmod +x scripts/uc_respond
+ln -sf "$(pwd)/scripts/uc_respond" "${HOME}/.local/bin/uc_respond"
+```
+
 ## Prerequisites
 
 Agent identity env vars. Auto-discovered from `.claude/agents/<agent-id>.env` (preferred). Legacy fallback to `services/approval_feedback_api/.env` only works if that file already includes `OPENCLAW_*` identity vars.
@@ -35,6 +45,16 @@ Agent identity env vars. Auto-discovered from `.claude/agents/<agent-id>.env` (p
 | `OPENCLAW_AGENT_ID` | Agent ID the machine key is bound to |
 
 If machine auth fails with `MACHINE_KEY_EXPIRED` or `MACHINE_KEY_REVOKED`, rotate or re-provision the key via `/unclawg-internet` before continuing.
+
+### Existing OpenClaw Provisioning Path
+
+If the runtime already exists and you only need agent credentials wired:
+
+1. In the Unclawg portal sidebar, run **Add Agent**.
+2. Create the machine key in Step 1.
+3. In Step 2, select **Connect existing claw** and enter the runtime claw ID.
+4. Save the env block as `.claude/agents/<agent-id>.env`.
+5. Re-run `/unclawg-respond`; bootstrap auto-detects that file.
 
 ## Soul / Skill Separation
 
@@ -61,88 +81,17 @@ This skill is **mechanical**. It polls revision requests, reads feedback, genera
 uc_respond smoke
 uc_respond list --status pending
 uc_respond fulfill --approval-id <id> --revision-id <id> --input <revised.json>
+uc_respond reconcile --agent-id <agent_id> [--dry-run]
 ```
-
-## HTTP Contract Reference (Wrapper Implementation)
-
-Every API call uses this header pattern. Copy-paste it — do not improvise:
-
-```bash
-curl -s -w "\nHTTP_STATUS:%{http_code}" \
-  -H "X-Tenant-Id: ${OPENCLAW_TENANT_ID}" \
-  -H "X-Machine-Key-Id: ${OPENCLAW_MACHINE_KEY_ID}" \
-  -H "X-Machine-Secret: ${OPENCLAW_MACHINE_SECRET}" \
-  "${OPENCLAW_API_URL}/v0/..."
-```
-
-If your gateway requires client-supplied app binding, also add:
-`-H "X-API-Key: ${OPENCLAW_API_KEY}"`.
-
-Always append `-w "\nHTTP_STATUS:%{http_code}"` to capture the status code. Parse it after every call.
 
 ## Execution Flow
 
 ### Phase 0 — Bootstrap & Smoke Test
 
-Source env vars, validate they exist, then **test connectivity**:
+Run:
 
 ```bash
-# ── Agent identity bootstrap ──
-AGENTS_DIR=".claude/agents"
-AGENT_ENV=""
-
-if [ -d "$AGENTS_DIR" ]; then
-  AGENT_FILES=($AGENTS_DIR/*.env)
-  if [ ${#AGENT_FILES[@]} -eq 1 ] && [ -f "${AGENT_FILES[0]}" ]; then
-    AGENT_ENV="${AGENT_FILES[0]}"
-  elif [ ${#AGENT_FILES[@]} -gt 1 ]; then
-    if [ -n "$OPENCLAW_AGENT_ID" ] && [ -f "$AGENTS_DIR/${OPENCLAW_AGENT_ID}.env" ]; then
-      AGENT_ENV="$AGENTS_DIR/${OPENCLAW_AGENT_ID}.env"
-    else
-      echo "Multiple agents found:"
-      for f in $AGENTS_DIR/*.env; do echo "  - $(basename "$f" .env)"; done
-      echo "Set OPENCLAW_AGENT_ID to pick one."
-      exit 1
-    fi
-  fi
-fi
-
-if [ -z "$AGENT_ENV" ] && [ -f "services/approval_feedback_api/.env" ]; then
-  AGENT_ENV="services/approval_feedback_api/.env"
-fi
-
-if [ -z "$AGENT_ENV" ]; then
-  echo "No agent identity found. Run /unclawg-internet (CLI device flow) or create .claude/agents/<agent-id>.env"
-  exit 1
-fi
-
-set -a && source "$AGENT_ENV" && set +a
-
-# Validate required vars exist (`OPENCLAW_API_KEY` is optional)
-missing=""
-for var in OPENCLAW_API_URL OPENCLAW_TENANT_ID \
-           OPENCLAW_MACHINE_KEY_ID OPENCLAW_MACHINE_SECRET OPENCLAW_AGENT_ID; do
-  eval val=\$$var
-  [ -z "$val" ] && missing="$missing $var"
-done
-[ -n "$missing" ] && echo "MISSING:$missing" && exit 1
-
-# Smoke test: hit the list-revisions endpoint and confirm 200
-# For self-hosted gateways requiring client app binding, add:
-#   -H "X-API-Key: ${OPENCLAW_API_KEY}" \
-SMOKE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" \
-  -H "X-Tenant-Id: ${OPENCLAW_TENANT_ID}" \
-  -H "X-Machine-Key-Id: ${OPENCLAW_MACHINE_KEY_ID}" \
-  -H "X-Machine-Secret: ${OPENCLAW_MACHINE_SECRET}" \
-  "${OPENCLAW_API_URL}/v0/agents/${OPENCLAW_AGENT_ID}/revision-requests?status=pending&limit=1")
-
-STATUS=$(echo "$SMOKE" | grep "HTTP_STATUS:" | cut -d: -f2)
-if [ "$STATUS" != "200" ]; then
-  echo "SMOKE TEST FAILED (HTTP $STATUS):"
-  echo "$SMOKE"
-  exit 1
-fi
-echo "SMOKE TEST PASSED"
+uc_respond smoke
 ```
 
 **If smoke test fails:**
@@ -155,180 +104,61 @@ echo "SMOKE TEST PASSED"
 - `TENANT_CONTEXT_REQUIRED` → `X-Tenant-Id` header missing or empty. Check `OPENCLAW_TENANT_ID`.
 - Connection refused / DNS errors → verify `OPENCLAW_API_URL` and service health.
 
-### Phase 1 — Fetch Pending Revision Requests
+### Phase 1 — Non-interactive Batch Reconcile
+
+Run:
 
 ```bash
-curl -s -w "\nHTTP_STATUS:%{http_code}" \
-  -H "X-Tenant-Id: ${OPENCLAW_TENANT_ID}" \
-  -H "X-Machine-Key-Id: ${OPENCLAW_MACHINE_KEY_ID}" \
-  -H "X-Machine-Secret: ${OPENCLAW_MACHINE_SECRET}" \
-  "${OPENCLAW_API_URL}/v0/agents/${OPENCLAW_AGENT_ID}/revision-requests?status=pending"
+uc_respond reconcile --agent-id "${OPENCLAW_AGENT_ID}"
 ```
 
-- If `items` is empty → print "No pending revision requests." → exit
-- Filter: only items where `trigger_message_ids` is non-empty (has user feedback)
-- Print summary table: `| # | Approval ID | Created | Trigger Messages |`
+Behavior:
+- Prints effective target (`api_url`, `tenant_id`, `agent_id`) as the first line.
+- Pulls pending approvals from `/v0/approval-requests?status=pending&agent_id={agent_id}`.
+- Derives work from message chronology:
+  - queues items where latest `feedback` is newer than latest machine `edit_diff/comment`
+  - queues items with feedback and no machine response
+  - queues items when published soul version drift is detected, even without new feedback
+- Uses agent revision rows only as fulfill anchors (`pending`/`dispatched` preferred, `expired` fallback).
+- Loads latest published `soul_md` once per run.
+- For each queued approval, re-checks approval status and skips only `approved`/`denied` approvals.
+- Aggregates feedback thread messages.
+- Chooses one machine fulfillment per item:
+  - `edit_diff` with revised suggestion, or
+  - `comment` with `Recommend deny ...` rationale.
+- Uses deterministic idempotency key per `(approval_id, revision_id, feedback fingerprint, soul version)`.
+- Appends new machine entries (no in-place mutation of old suggestions).
+- Re-pulls pending queue and prints summary:
+  - `fulfilled`
+  - `deny_recommended`
+  - `skipped`
+  - `failed`
+  - `remaining_pending`
 
-### Phase 2 — Fetch Full Context (parallel)
-
-Fetch the soul and per-revision context in parallel:
-
-1. **Agent soul:** `GET /v0/integrations/claw-runtime/policies/soul_md?agent_id=${OPENCLAW_AGENT_ID}` — parse `data.published.content` for the agent's voice, personas, archetypes, and boundaries. If no published soul, use generic defaults.
-2. **Approval detail:** `GET /v0/approval-requests/{approval_id}` (per revision)
-3. **Feedback thread:** `GET /v0/approval-requests/{approval_id}/messages` (per revision)
-4. **Feedback digest:** `GET /v0/agents/{OPENCLAW_AGENT_ID}/feedback-digest?limit=100`
-
-All use the same header pattern from the curl template above. Verify each returns HTTP 200.
-
-### Phase 3 — Ask-Cascade Pattern Analysis
-
-Internal analysis (Claude reasons, doesn't ask user yet):
-
-- For each revision: extract trigger messages from the thread, categorize feedback:
-  - **Tone** — too formal, too casual, wrong register
-  - **Content** — factually wrong, missing info, irrelevant
-  - **Scope** — too long, too short, over/under-promises
-  - **Style** — formatting, structure, word choice
-  - **Rejection** — complete rewrite needed
-- Cross-revision: are multiple feedbacks expressing the same theme?
-- Verdict: `ONE_OFF` (fix individual replies) or `PATTERN` (soul update candidate)
-
-First user question (strategic, via `/ask-cascade` discipline):
-
-> "I found N pending revisions. Here's the pattern I see: [summary]. Is this a one-off fix or should we also update the agent's instructions?"
-
-Options: "One-off fix" | "Fix + update instructions" | "Let me review first"
-
-### Phase 4 — Generate Revised Outputs
-
-For each revision request, generate:
-
-- `edited_content` — the revised reply incorporating feedback
-- `content` — brief edit description (e.g. "Made tone more casual per feedback")
-
-Use all available context:
-- **The soul** from Phase 2 — apply the voice, persona match, archetype selection, and boundary checks
-- Original proposal from approval detail (`context.payload`)
-- Feedback messages (trigger messages from thread)
-- Prior `edit_diff` messages in thread (previous revision attempts)
-- Pattern analysis from Phase 3
-- Feedback digest patterns (what gets approved vs denied)
-
-When revising, the feedback tells you WHAT to change. The soul tells you HOW to talk while making that change.
-
-For batches > 3 revision requests, use `/divide-and-conquer` to launch parallel sub-agents.
-
-### Phase 5 — Fulfill (with response validation)
-
-For each revision request, POST the fulfillment and **verify the response**:
+Optional preview mode:
 
 ```bash
-RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST \
-  -H "X-Tenant-Id: ${OPENCLAW_TENANT_ID}" \
-  -H "X-Machine-Key-Id: ${OPENCLAW_MACHINE_KEY_ID}" \
-  -H "X-Machine-Secret: ${OPENCLAW_MACHINE_SECRET}" \
-  -H "Content-Type: application/json" \
-  "${OPENCLAW_API_URL}/v0/approval-requests/${APPROVAL_ID}/messages/fulfill" \
-  -d "{
-    \"content\": \"<edit description>\",
-    \"edited_content\": \"<revised reply>\",
-    \"revision_request_id\": \"<rev-req-id>\",
-    \"expected_version\": <version from approval detail>,
-    \"idempotency_key\": \"$(uuidgen)\"
-  }")
-
-STATUS=$(echo "$RESPONSE" | grep "HTTP_STATUS:" | cut -d: -f2)
-BODY=$(echo "$RESPONSE" | sed '/HTTP_STATUS:/d')
-echo "Status: $STATUS"
-echo "Body: $BODY"
+uc_respond reconcile --agent-id "${OPENCLAW_AGENT_ID}" --dry-run
 ```
 
-**Response validation:**
-- `201` → success. Record it.
-- `401 MACHINE_KEY_NOT_FOUND` → key ID is unknown in this tenant/app context.
-- `401 UNAUTHORIZED` → machine secret is wrong.
-- `403 MACHINE_KEY_EXPIRED` → key expired; rotate/re-provision before retry.
-- `403 MACHINE_KEY_REVOKED` → key revoked; provision a fresh key.
-- `403 APP_BINDING_MISMATCH` → missing/wrong `X-API-Key` on self-hosted gateways.
-- `409 VERSION_CONFLICT` → re-fetch approval detail for current version, retry once.
-- `409 REVISION_REQUEST_STALE` → request already fulfilled/closed. Treat as terminal; don't retry.
-- `409 REVISION_REQUEST_EXPIRED` → TTL expired. Tell user and stop retrying.
-- `409 IDEMPOTENCY_CONFLICT` → same idempotency key reused with different payload. Generate a new key and retry once.
-- Any other non-2xx → **STOP. Print the full response. Do not retry blindly.**
+### Phase 2 — Optional Single-item Override
 
-Print results table:
-
-```
-| Approval ID | Status | Detail |
-|-------------|--------|--------|
-| abc-123     | ✓ 201  | Tone adjusted |
-| def-456     | ✗ 409  | Version mismatch |
-```
-
-### Phase 6 — Re-Pull and Verify
-
-Re-fetch `GET /v0/agents/{OPENCLAW_AGENT_ID}/revision-requests?status=pending`
-
-- If empty: "All revisions fulfilled."
-- If non-empty: show remaining, offer retry (may be version conflicts)
-
-### Phase 7 — Calibration Loop
-
-Ask user:
-
-1. "Did we get the revisions right? (Check the portal — cards should show updated suggestions within 5 seconds.)"
-2. If pattern was detected in Phase 3: "Should we update the soul/instructions? Here's what I'd change: [diff preview]"
-
-Responses:
-- "Not right" → loop back to Phase 4 with user's additional guidance
-- "Update soul" → create an instruction proposal via the API:
+If you need targeted retry for one card:
 
 ```bash
-RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST \
-  -H "X-Tenant-Id: ${OPENCLAW_TENANT_ID}" \
-  -H "X-Machine-Key-Id: ${OPENCLAW_MACHINE_KEY_ID}" \
-  -H "X-Machine-Secret: ${OPENCLAW_MACHINE_SECRET}" \
-  -H "Content-Type: application/json" \
-  "${OPENCLAW_API_URL}/v0/instruction-proposals" \
-  -d "{
-    \"scope\": \"agent\",
-    \"title\": \"<short title>\",
-    \"summary\": \"<pattern description from Phase 3>\",
-    \"evidence_ref\": \"<approval_id or revision_request_id if applicable>\",
-    \"payload\": {<the instruction delta as JSON>},
-    \"idempotency_key\": \"$(uuidgen)\"
-  }")
-```
-
-  Print the proposal ID and payload summary. Tell user:
-  > "Instruction proposal `{id}` created. Approve or reject it via the portal or `POST /v0/instruction-proposals/{id}/decisions`."
-
-  **Machine key must have scope `instruction_proposal.create`.** If denied, check for `MACHINE_SCOPE_DENIED` (add scope) versus `MACHINE_KEY_EXPIRED`/`MACHINE_KEY_REVOKED` (rotate/re-provision key).
-
-- "Looks good" → proceed to Phase 8
-
-### Phase 8 — Summary
-
-```
-## Revision Response Summary
-
-- Revisions fulfilled: N
-- Patterns detected: [list or "none"]
-- Soul update: [applied/deferred/not needed]
-- Next steps: [any manual actions needed]
+uc_respond fulfill --approval-id <id> --revision-id <id> --input <revised.json>
 ```
 
 ## Key Rules
 
-1. **Only touch items with unaddressed user feedback** — skip revision requests where `trigger_message_ids` is empty
+1. **Skip scope** — skip only approved/denied cards; expired items are still attempted.
 2. **Machine auth only** — all API calls use machine key headers, never human auth
-3. **Idempotent fulfillment** — always generate unique `idempotency_key` per attempt
-4. **Version-aware** — use `expected_version` from the approval detail; handle 409 conflicts gracefully
-5. **Agent-scoped** — machine key can only read/write its own agent's approvals
-6. **Validate every response** — never assume a request succeeded without checking the HTTP status code
+3. **Idempotent fulfillment** — deterministic keys make reruns safe.
+4. **Version-aware** — use `expected_version` from approval detail and handle conflicts gracefully.
+5. **Append-only auditability** — add new machine messages; do not mutate old suggestions.
+6. **Validate every response** — never assume write success without checking HTTP status.
 
 ## Cross-References
 
-- `/ask-cascade` — question ordering discipline for Phase 3 user interaction
-- `/divide-and-conquer` — parallel sub-agents for Phase 4 when batch > 3
+- `/divide-and-conquer` — parallel sub-agents when custom rewrite logic is needed at scale
 - `references/api-contract.md` — full endpoint specs, response shapes, error codes

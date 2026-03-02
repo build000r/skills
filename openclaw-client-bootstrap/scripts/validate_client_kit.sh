@@ -227,8 +227,8 @@ if [[ -f "${DEST}/scripts/02-install-tailscale.sh" ]]; then
     echo "FAIL: 02-install-tailscale.sh missing AllowUsers hardening"
     ERRORS=$((ERRORS + 1))
   fi
-  if ! grep -q '100\.64\.0\.0/10\|TAILNET_SSH_CIDR' "${DEST}/scripts/02-install-tailscale.sh"; then
-    echo "FAIL: 02-install-tailscale.sh missing Tailnet SSH firewall rule"
+  if ! grep -q 'TAILNET_SSH_CIDR\|tailscale0' "${DEST}/scripts/02-install-tailscale.sh"; then
+    echo "FAIL: 02-install-tailscale.sh missing Tailnet SSH firewall guard"
     ERRORS=$((ERRORS + 1))
   fi
 fi

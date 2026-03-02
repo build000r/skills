@@ -12,7 +12,7 @@ Use this for every new client deployment.
 ## 2. Host Security
 
 - [ ] Run `scripts/01-bootstrap-do.sh` (installs Node.js 22, Docker, hardening).
-- [ ] Confirm UFW active with SSH allowed only from Tailnet (`100.64.0.0/10` or `tailscale0`).
+- [ ] Confirm UFW active with SSH allowed only from Tailnet (`TAILNET_SSH_CIDR` and/or `tailscale0`).
 - [ ] Remove public `22/tcp` allow at the cloud firewall/security-group layer.
 - [ ] Confirm `fail2ban` running.
 - [ ] Confirm Node.js 22+ and Docker installed.

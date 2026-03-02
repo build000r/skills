@@ -252,7 +252,7 @@ if [[ -f "${TAILSCALE_INSTALL}" ]]; then
   hardening_ok=true
   grep -q 'PermitRootLogin no' "${TAILSCALE_INSTALL}" 2>/dev/null || { hardening_ok=false; echo "       missing: PermitRootLogin no"; }
   grep -q 'AllowUsers' "${TAILSCALE_INSTALL}" 2>/dev/null || { hardening_ok=false; echo "       missing: AllowUsers"; }
-  grep -q '100\.64\.0\.0/10\|TAILNET_SSH_CIDR' "${TAILSCALE_INSTALL}" 2>/dev/null || { hardening_ok=false; echo "       missing: Tailnet SSH rule"; }
+  grep -q 'TAILNET_SSH_CIDR\|tailscale0' "${TAILSCALE_INSTALL}" 2>/dev/null || { hardening_ok=false; echo "       missing: Tailnet SSH rule"; }
   if [[ "${hardening_ok}" == "true" ]]; then
     pass "3.10 Tailscale install enforces Tailnet-only non-root SSH"
   else

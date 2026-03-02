@@ -289,6 +289,7 @@ pub fn discover_claude_path(cwd: &Path) -> Option<PathBuf> {
         .filter_map(|entry| entry.ok())
         .map(|entry| entry.path())
         .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("jsonl"))
+        .filter(|path| claude_file_matches_cwd(path, cwd))
         .filter_map(|path| {
             let modified = fs::metadata(&path).ok()?.modified().ok()?;
             Some((path, modified))
@@ -334,10 +335,7 @@ pub fn discover_codex_path(cwd: &Path) -> Option<PathBuf> {
     None
 }
 
-pub fn discover_claude_path_excluding(
-    cwd: &Path,
-    excluded: &HashSet<PathBuf>,
-) -> Option<PathBuf> {
+pub fn discover_claude_path_excluding(cwd: &Path, excluded: &HashSet<PathBuf>) -> Option<PathBuf> {
     let home = home_dir()?;
     let cwd_slug = cwd.display().to_string().replace('/', "-");
     let project_dir = home.join(".claude").join("projects").join(cwd_slug);
@@ -348,6 +346,7 @@ pub fn discover_claude_path_excluding(
         .map(|entry| entry.path())
         .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("jsonl"))
         .filter(|path| !excluded.contains(path))
+        .filter(|path| claude_file_matches_cwd(path, cwd))
         .filter_map(|path| {
             let modified = fs::metadata(&path).ok()?.modified().ok()?;
             Some((path, modified))
@@ -358,10 +357,43 @@ pub fn discover_claude_path_excluding(
     files.into_iter().next().map(|(path, _)| path)
 }
 
-pub fn discover_codex_path_excluding(
-    cwd: &Path,
-    excluded: &HashSet<PathBuf>,
-) -> Option<PathBuf> {
+fn claude_file_matches_cwd(path: &Path, cwd: &Path) -> bool {
+    let cwd_str = cwd.display().to_string();
+    let file = match fs::File::open(path) {
+        Ok(file) => file,
+        Err(_) => return false,
+    };
+    let reader = std::io::BufReader::new(file);
+
+    // Claude JSONL can start with non-message records (e.g. file-history
+    // snapshots). Scan a small prefix for any top-level `cwd` fields.
+    let mut saw_cwd_field = false;
+    for line in reader.lines().take(64) {
+        let line = match line {
+            Ok(value) => value,
+            Err(_) => continue,
+        };
+        if line.trim().is_empty() {
+            continue;
+        }
+        let value: Value = match serde_json::from_str(&line) {
+            Ok(value) => value,
+            Err(_) => continue,
+        };
+        if let Some(entry_cwd) = value.get("cwd").and_then(Value::as_str) {
+            saw_cwd_field = true;
+            if entry_cwd == cwd_str {
+                return true;
+            }
+        }
+    }
+
+    // Legacy files may not include top-level `cwd`; preserve historical
+    // behavior in that case.
+    !saw_cwd_field
+}
+
+pub fn discover_codex_path_excluding(cwd: &Path, excluded: &HashSet<PathBuf>) -> Option<PathBuf> {
     let home = home_dir()?;
     let sessions_dir = home.join(".codex").join("sessions");
 
@@ -518,11 +550,11 @@ mod tests {
         let mut paths = Vec::new();
         for i in 0..file_count {
             let file_path = project_dir.join(format!("session-{i}.jsonl"));
-            fs::write(
-                &file_path,
-                "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\"}}\n",
-            )
-            .expect("write");
+            let line = format!(
+                "{{\"type\":\"assistant\",\"cwd\":\"{}\",\"message\":{{\"role\":\"assistant\"}}}}\n",
+                cwd.display()
+            );
+            fs::write(&file_path, line).expect("write");
             paths.push(file_path);
             // Ensure distinct mtime ordering
             thread::sleep(Duration::from_millis(50));
@@ -594,5 +626,77 @@ mod tests {
             Some(file_b),
             "exclusion from different CWD should not affect discovery"
         );
+    }
+
+    #[test]
+    fn claude_discovery_filters_colliding_slug_by_exact_cwd() {
+        let _lock = HOME_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().expect("tempdir");
+
+        let cwd_a = PathBuf::from("/tmp/a-b/c");
+        let cwd_b = PathBuf::from("/tmp/a/b-c");
+        let slug_a = cwd_a.display().to_string().replace('/', "-");
+        let slug_b = cwd_b.display().to_string().replace('/', "-");
+        assert_eq!(slug_a, slug_b, "test requires slug collision");
+
+        let project_dir = tmp.path().join(".claude").join("projects").join(&slug_a);
+        fs::create_dir_all(&project_dir).expect("mkdir");
+
+        // Older file for cwd_a
+        let file_a = project_dir.join("session-a.jsonl");
+        fs::write(
+            &file_a,
+            format!(
+                "{{\"type\":\"user\",\"cwd\":\"{}\",\"message\":{{\"role\":\"user\",\"content\":\"TASK_A\"}}}}\n",
+                cwd_a.display()
+            ),
+        )
+        .expect("write");
+        thread::sleep(Duration::from_millis(50));
+
+        // Newer file for cwd_b (same slug dir due collision)
+        let file_b = project_dir.join("session-b.jsonl");
+        fs::write(
+            &file_b,
+            format!(
+                "{{\"type\":\"user\",\"cwd\":\"{}\",\"message\":{{\"role\":\"user\",\"content\":\"TASK_B\"}}}}\n",
+                cwd_b.display()
+            ),
+        )
+        .expect("write");
+
+        std::env::set_var("HOME", tmp.path());
+
+        let found_plain = discover_claude_path(&cwd_a);
+        assert_eq!(
+            found_plain,
+            Some(file_a.clone()),
+            "plain discovery should ignore newer mismatched-cwd file"
+        );
+
+        let found_excluding = discover_claude_path_excluding(&cwd_a, &HashSet::new());
+        assert_eq!(
+            found_excluding,
+            Some(file_a),
+            "excluding discovery should ignore newer mismatched-cwd file"
+        );
+    }
+
+    #[test]
+    fn claude_discovery_exclusion_isolates_same_cwd_sessions() {
+        let _lock = HOME_LOCK.lock().unwrap();
+        let (tmp, cwd, paths) = setup_claude_project_dir("/tmp/shared-cwd", 2);
+        std::env::set_var("HOME", tmp.path());
+
+        let first = discover_claude_path_excluding(&cwd, &HashSet::new())
+            .expect("first discovery should find newest file");
+        let mut excluded = HashSet::new();
+        excluded.insert(first.clone());
+        let second = discover_claude_path_excluding(&cwd, &excluded)
+            .expect("second discovery should find non-excluded file");
+
+        assert_ne!(first, second, "same-cwd sessions must not claim same file");
+        assert_eq!(first, paths[1], "first claim should be newest file");
+        assert_eq!(second, paths[0], "second claim should be next newest file");
     }
 }

@@ -67,10 +67,11 @@ Write the mode file to `modes/{project-name}.md` using `references/mode-template
 3. Gather data (mode-specific data sources + web research)
 4. Research the topic (WebSearch for publications, data, perspectives)
 5. Map findings to paper structure
-6. Write the page using divide-and-conquer
-7. Add routing (if mode requires it)
-8. Type-check / validate
-9. Post-creation tasks (mode-specific: homepage links, nav updates, etc.)
+6. Run headline pass (generate + score candidate titles)
+7. Write the page using divide-and-conquer
+8. Add routing (if mode requires it)
+9. Type-check / validate
+10. Post-creation tasks (mode-specific: homepage links, nav updates, etc.)
 ```
 
 ## Step 2: Parse Topic
@@ -111,7 +112,26 @@ Follow the paper section structure defined in the mode file. Map gathered data a
 
 Use the default structure from `references/paper-structure.md`.
 
-## Step 6: Write the Page
+## Step 6: Headline Pass
+
+Before writing the page, generate 5 candidate titles and select one with a simple scorecard.
+
+Score each title 1-5 on:
+- **Specificity**: Includes concrete domain terms, not generic abstractions.
+- **Thesis clarity**: States what the paper argues, not just what it discusses.
+- **Curiosity/tension**: Creates a reason to click.
+- **Scanability**: Easy to parse in one glance.
+- **Brevity**: Prefer concise title + subtitle over clause stacking.
+
+Selection constraints:
+- Prefer 8-16 words total.
+- Avoid more than 2 commas.
+- Avoid filler like "comprehensive", "ultimate", "complete guide".
+- Keep one contrarian edge or strong claim in the subtitle.
+
+If two titles score similarly and user preference matters, present the top 2 and let the user choose.
+
+## Step 7: Write the Page
 
 Use divide-and-conquer with parallel agents when the mode requires multiple files (e.g. page + route update). Otherwise, single agent.
 
@@ -131,15 +151,15 @@ Write a standalone HTML or markdown file at the user's preferred location. Ask w
 - Real numbers from research — not vague qualifiers.
 - 600-1000 lines. Prioritize density over brevity.
 
-## Step 7: Add Routing
+## Step 8: Add Routing
 
 Only if the mode specifies routing steps (e.g. "add import to AppRoutes.tsx" or "register in config"). Skip for file-based routing frameworks and generic mode.
 
-## Step 8: Validate
+## Step 9: Validate
 
 Run the mode's validation command if specified (e.g. `npx tsc --noEmit`). For generic mode, verify the file was written correctly.
 
-## Step 9: Post-Creation Tasks
+## Step 10: Post-Creation Tasks
 
 Check the mode file for a "Post-Creation" section. If present, execute every step — these are required, not optional. Common post-creation tasks include adding the paper to a homepage link array, updating a navigation component, or registering the paper in a manifest. **Do not skip this step.** Also update the mode's "Existing Papers" list with the new paper.
 

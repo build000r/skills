@@ -33,6 +33,15 @@ Get set up with OpenClaw — account, agent, soul, and discovery config in one s
 4. Discovery mode file (`modes/<project>.local.md` for `/unclawg-discover`)
 5. Browser auto-logged into the approval portal
 
+### Existing OpenClaw Runtime (Skip Full Bootstrap)
+
+If a runtime already exists (for example `0_claw`) and you only need a new agent identity:
+
+1. In the portal sidebar, run **Add Agent**.
+2. Create the machine key (Step 1), then choose **Connect existing claw** (Step 2).
+3. Save the emitted env block to `.claude/agents/<agent-id>.env`.
+4. Run `/unclawg-internet`; Phase 0 detection will pick up that identity and continue only for missing pieces (soul/mode, or key rotation if invalid).
+
 ## NEVER Do These Things
 
 - **NEVER execute raw `curl` directly in AI runtime.** Use `uc_onboard` wrapper only.

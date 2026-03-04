@@ -42,6 +42,16 @@ Agent identity env vars. Auto-discovered from `.claude/agents/<agent-id>.env` (p
 **Machine key must have scope `approval_request.create.social_reply`.**
 If machine auth fails with `MACHINE_KEY_EXPIRED` or `MACHINE_KEY_REVOKED`, rotate or re-provision the key via `/unclawg-internet` before continuing.
 
+### Existing OpenClaw Provisioning Path
+
+If you already run an OpenClaw runtime and just need this skill to work with it:
+
+1. In the Unclawg portal sidebar, run **Add Agent**.
+2. Complete Step 1 (create machine key), then choose **Connect existing claw** in Step 2.
+3. Use your runtime claw ID (for example `0_claw` or `ingredient-claw`) and issue the connect packet.
+4. Save the generated env block as `.claude/agents/<agent-id>.env`.
+5. Re-run `/unclawg-feed`; it will auto-discover that identity file.
+
 ## Soul / Skill Separation
 
 This skill is **mechanical**. It fetches, generates, and POSTs. All personality — voice, tone, reply archetypes, persona voice calibration, engagement principles, boundaries — comes from the **soul** (`soul_md` policy document fetched in Phase 1).

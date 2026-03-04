@@ -1,6 +1,6 @@
 #!/bin/bash
 # Search LinkedIn Posts via Apify Posts Search Scraper (no cookies needed).
-# Usage: ./search_linkedin.sh <query> [total_posts] [sort_by]
+# Usage: ./search_linkedin.sh <query> [total_posts] [sort_by] [max_age_hours]
 #
 # Actor: apimaestro/linkedin-posts-search-scraper-no-cookies (4.14 rating, no login)
 # Requires: APIFY_API_KEY
@@ -9,9 +9,9 @@
 # sort_by: "relevance" (default) or "date_posted"
 #
 # Examples:
-#   ./search_linkedin.sh "claude code broke production" 20
-#   ./search_linkedin.sh "ai agent guardrails" 20 date_posted
-#   ./search_linkedin.sh "cursor deleted my code" 15
+#   ./search_linkedin.sh "claude code broke production" 20 date_posted 6
+#   ./search_linkedin.sh "ai agent guardrails" 20 date_posted 4
+#   ./search_linkedin.sh "cursor deleted my code" 15 relevance 6
 #
 # Smart freshness: checks .search_log.json for last run time.
 #
@@ -20,7 +20,7 @@
 set -euo pipefail
 
 usage() {
-  echo "Usage: search_linkedin.sh <query> [total_posts] [sort_by]" >&2
+  echo "Usage: search_linkedin.sh <query> [total_posts] [sort_by] [max_age_hours]" >&2
 }
 
 require_tool() {
@@ -67,9 +67,27 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 QUERY="$1"
 TOTAL="${2:-20}"
 SORT="${3:-date_posted}"
+MAX_AGE_HOURS="${4:-6}"
 
 if ! [[ "${TOTAL}" =~ ^[0-9]+$ ]]; then
   echo "total_posts must be an integer: ${TOTAL}" >&2
+  exit 1
+fi
+
+# Backward compatibility:
+# If third arg is numeric (older call style), treat it as max_age_hours.
+if [[ "${SORT}" =~ ^[0-9]+$ ]] && [[ $# -eq 3 ]]; then
+  MAX_AGE_HOURS="${SORT}"
+  SORT="date_posted"
+fi
+
+if [[ "${SORT}" != "relevance" && "${SORT}" != "date_posted" ]]; then
+  echo "sort_by must be 'relevance' or 'date_posted': ${SORT}" >&2
+  exit 1
+fi
+
+if ! [[ "${MAX_AGE_HOURS}" =~ ^[0-9]+$ ]] || [ "${MAX_AGE_HOURS}" -lt 1 ]; then
+  echo "max_age_hours must be an integer >= 1: ${MAX_AGE_HOURS}" >&2
   exit 1
 fi
 
@@ -127,6 +145,7 @@ DATASET_ID=$(curl -s "https://api.apify.com/v2/actor-runs/${RUN_ID}?token=${APIF
 
 # Fetch raw results
 RAW=$(curl -s "https://api.apify.com/v2/datasets/${DATASET_ID}/items?token=${APIFY_API_KEY}&format=json")
+TOTAL_COUNT=$(echo "$RAW" | jq 'length')
 
 # Log raw field names for first item (debugging)
 echo "Raw fields sample: $(echo "$RAW" | jq -r '.[0] | keys | join(", ")' 2>/dev/null)" >&2
@@ -139,7 +158,41 @@ echo "Raw fields sample: $(echo "$RAW" | jq -r '.[0] | keys | join(", ")' 2>/dev
 # WARNING: This actor frequently returns empty postUrl fields.
 # Downstream consumers MUST NOT use unique_by(.url) — use
 # unique_by(.text[0:100] + .author_name) instead.
-RESULT=$(echo "$RAW" | jq '[
+RESULT=$(echo "$RAW" | jq --argjson max_age "${MAX_AGE_HOURS}" ' 
+def abs_age_hours:
+  if . == null or . == "" or . == "unknown" then null
+  elif type == "number" then ((now - .) / 3600)
+  elif test("^[0-9]+$") then ((now - (tonumber)) / 3600)
+  elif test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T") then ((now - (fromdateiso8601? // now + 9999999)) / 3600)
+  elif test("^[0-9]{4}-[0-9]{2}-[0-9]{2} ") then ((now - (((gsub(" "; "T") | gsub("\\+00:00$"; "Z")) | fromdateiso8601?) // now + 9999999)) / 3600)
+  elif test("^[A-Za-z]{3} [A-Za-z]{3} [ 0-9][0-9] [0-9:]{8} [+-][0-9]{4} [0-9]{4}$") then ((now - (strptime("%a %b %d %H:%M:%S %z %Y") | mktime)) / 3600)
+  else null
+  end;
+
+def rel_age_hours:
+  if . == null or . == "" or . == "unknown" then null
+  elif test("^[0-9]+[smhdw]$"; "i") then
+    (capture("(?<n>[0-9]+)(?<u>[smhdw])") | (.n|tonumber) as $n | .u as $u |
+      if ($u|ascii_downcase) == "s" then ($n / 3600)
+      elif ($u|ascii_downcase) == "m" then ($n / 60)
+      elif ($u|ascii_downcase) == "h" then $n
+      elif ($u|ascii_downcase) == "d" then ($n * 24)
+      else ($n * 24 * 7)
+      end)
+  elif test("^[0-9]+\\s*(sec|secs|second|seconds|min|mins|minute|minutes|hour|hours|hr|hrs|day|days|week|weeks|month|months)\\s*ago$"; "i") then
+    (capture("(?<n>[0-9]+)\\s*(?<u>sec|secs|second|seconds|min|mins|minute|minutes|hour|hours|hr|hrs|day|days|week|weeks|month|months)\\s*ago") |
+      (.n|tonumber) as $n | (.u|ascii_downcase) as $u |
+      if ($u == "sec" or $u == "secs" or $u == "second" or $u == "seconds") then ($n / 3600)
+      elif ($u == "min" or $u == "mins" or $u == "minute" or $u == "minutes") then ($n / 60)
+      elif ($u == "hour" or $u == "hours" or $u == "hr" or $u == "hrs") then $n
+      elif ($u == "day" or $u == "days") then ($n * 24)
+      elif ($u == "week" or $u == "weeks") then ($n * 24 * 7)
+      else ($n * 24 * 30)
+      end)
+  else null
+  end;
+
+[
   .[] | {
     author_name: (.authorName // .author_name // .name // "unknown"),
     author_headline: (.authorHeadline // .headline // .author_headline // ""),
@@ -153,11 +206,23 @@ RESULT=$(echo "$RAW" | jq '[
     url: (.postUrl // .post_url // .url // .link // ""),
     _raw_id: (.id // .postId // .urn // null)
   }
-] | sort_by(-.reactions)')
+  | ._age_hours = ((.posted | rel_age_hours) // (.posted | abs_age_hours))
+  | ._engagement = ((.reactions // 0) + (.comments // 0) * 2 + (.reposts // 0) * 2)
+  | select(._age_hours != null and ._age_hours >= 0 and ._age_hours <= $max_age)
+  | .age_hours = ((._age_hours * 10 | floor) / 10)
+  | .recency_bucket = (
+      if ._age_hours <= 2 then "0-2h"
+      elif ._age_hours <= 4 then "2-4h"
+      else "4-6h"
+      end
+    )
+  | del(._age_hours, ._engagement)
+] | sort_by(.age_hours, -.reactions, -.comments, -.reposts)')
 
 RESULT_COUNT=$(echo "$RESULT" | jq 'length')
 EMPTY_URLS=$(echo "$RESULT" | jq '[.[] | select(.url == "" or .url == null)] | length')
-echo "Found ${RESULT_COUNT} LinkedIn posts (${EMPTY_URLS} with empty URLs)" >&2
+FILTERED_OUT=$((TOTAL_COUNT - RESULT_COUNT))
+echo "Found ${RESULT_COUNT}/${TOTAL_COUNT} LinkedIn posts within last ${MAX_AGE_HOURS}h (${EMPTY_URLS} with empty URLs, dropped ${FILTERED_OUT})" >&2
 
 if [ "$EMPTY_URLS" -gt 0 ]; then
   echo "WARNING: ${EMPTY_URLS}/${RESULT_COUNT} posts have empty URLs. Use text+author dedup, not URL dedup." >&2

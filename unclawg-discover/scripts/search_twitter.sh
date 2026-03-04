@@ -1,14 +1,14 @@
 #!/bin/bash
 # Search Twitter/X via Apify X Twitter Advanced Search.
-# Usage: ./search_twitter.sh <query> [results_limit] [days_ago]
+# Usage: ./search_twitter.sh <query> [results_limit] [days_ago] [max_age_hours]
 #
 # Actor: api-ninja/x-twitter-advanced-search (4.93 rating, CU-based)
 # Requires: APIFY_API_KEY
 #
 # Examples:
-#   ./search_twitter.sh "claude code deleted" 20 7
-#   ./search_twitter.sh "workflow failed in production" 20 7
-#   ./search_twitter.sh "ai agent guardrails" 20 14
+#   ./search_twitter.sh "claude code deleted" 20 1 6
+#   ./search_twitter.sh "workflow failed in production" 20 1 4
+#   ./search_twitter.sh "ai agent guardrails" 20 2 6
 #
 # Smart freshness: checks .search_log.json for last run time.
 #
@@ -17,7 +17,7 @@
 set -euo pipefail
 
 usage() {
-  echo "Usage: search_twitter.sh <query> [results_limit] [days_ago]" >&2
+  echo "Usage: search_twitter.sh <query> [results_limit] [days_ago] [max_age_hours]" >&2
 }
 
 require_tool() {
@@ -64,6 +64,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 QUERY="$1"
 LIMIT="${2:-20}"
 DAYS_AGO="${3:-7}"
+MAX_AGE_HOURS="${4:-6}"
 
 if ! [[ "${LIMIT}" =~ ^[0-9]+$ ]]; then
   echo "results_limit must be an integer: ${LIMIT}" >&2
@@ -72,6 +73,11 @@ fi
 
 if ! [[ "${DAYS_AGO}" =~ ^[0-9]+$ ]]; then
   echo "days_ago must be an integer: ${DAYS_AGO}" >&2
+  exit 1
+fi
+
+if ! [[ "${MAX_AGE_HOURS}" =~ ^[0-9]+$ ]] || [ "${MAX_AGE_HOURS}" -lt 1 ]; then
+  echo "max_age_hours must be an integer >= 1: ${MAX_AGE_HOURS}" >&2
   exit 1
 fi
 
@@ -143,7 +149,22 @@ DATASET_ID=$(curl -s "https://api.apify.com/v2/actor-runs/${RUN_ID}?token=${APIF
 
 # Normalize output — actor build 0.0.115 field names:
 #   screen_name, favorites, replies, retweets, views, text, url, created_at, user_info
-RESULT=$(curl -s "https://api.apify.com/v2/datasets/${DATASET_ID}/items?token=${APIFY_API_KEY}&format=json" | jq '[
+RESULT_RAW=$(curl -s "https://api.apify.com/v2/datasets/${DATASET_ID}/items?token=${APIFY_API_KEY}&format=json")
+
+TOTAL_COUNT=$(echo "$RESULT_RAW" | jq 'length')
+
+RESULT=$(echo "$RESULT_RAW" | jq --argjson max_age "${MAX_AGE_HOURS}" '
+def to_epoch:
+  if . == null or . == "" or . == "unknown" then null
+  elif type == "number" then .
+  elif test("^[0-9]+$") then tonumber
+  elif test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T") then (fromdateiso8601? // null)
+  elif test("^[0-9]{4}-[0-9]{2}-[0-9]{2} ") then ((gsub(" "; "T") | gsub("\\+00:00$"; "Z")) | fromdateiso8601? // null)
+  elif test("^[A-Za-z]{3} [A-Za-z]{3} [ 0-9][0-9] [0-9:]{8} [+-][0-9]{4} [0-9]{4}$") then (strptime("%a %b %d %H:%M:%S %z %Y") | mktime)
+  else null
+  end;
+
+[
   .[] | {
     author: (.screen_name // .author.userName // .user_screen_name // "unknown"),
     author_name: (.user_info.name // .author.name // .user_name // "unknown"),
@@ -157,10 +178,23 @@ RESULT=$(curl -s "https://api.apify.com/v2/datasets/${DATASET_ID}/items?token=${
     url: (.url // .tweet_url // ("https://x.com/" + (.screen_name // "unknown") + "/status/" + (.tweet_id // .id // "unknown"))),
     created: (.created_at // .createdAt // .date // "unknown")
   }
-] | sort_by(-.likes)')
+  | ._created_epoch = (.created | to_epoch)
+  | ._age_hours = (if ._created_epoch == null then null else ((now - ._created_epoch) / 3600) end)
+  | ._engagement = ((.likes // 0) + (.replies // 0) * 2 + (.retweets // 0) * 2)
+  | select(._age_hours != null and ._age_hours >= 0 and ._age_hours <= $max_age)
+  | .age_hours = ((._age_hours * 10 | floor) / 10)
+  | .recency_bucket = (
+      if ._age_hours <= 2 then "0-2h"
+      elif ._age_hours <= 4 then "2-4h"
+      else "4-6h"
+      end
+    )
+  | del(._created_epoch, ._age_hours, ._engagement)
+] | sort_by(.age_hours, -.likes, -.replies, -.retweets)')
 
 RESULT_COUNT=$(echo "$RESULT" | jq 'length')
-echo "Found ${RESULT_COUNT} tweets" >&2
+FILTERED_OUT=$((TOTAL_COUNT - RESULT_COUNT))
+echo "Found ${RESULT_COUNT}/${TOTAL_COUNT} tweets within last ${MAX_AGE_HOURS}h (dropped ${FILTERED_OUT})" >&2
 
 # Update search log
 "${SCRIPT_DIR}/search_log.sh" set twitter "$SEARCH_KEY" "$RESULT_COUNT"

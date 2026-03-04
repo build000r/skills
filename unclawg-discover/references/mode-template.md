@@ -46,11 +46,37 @@ Map personas (defined in the soul) to search queries. Persona names here should 
 - twitter:
   - query: "..."
     limit: 20
-    days_ago: 7
+    days_ago: 1
 - linkedin:
   - query: "..."
     total_posts: 20
     sort_by: date_posted
+    days_ago: 1
+
+### Freshness Policy (Strongly Recommended)
+
+Define a strict freshness contract for fast-reply growth workflows:
+
+```yaml
+freshness_policy:
+  twitter_max_age_hours: 6
+  linkedin_max_age_hours: 6
+  recency_priority_hours: [2, 4, 6]  # first bucket wins
+  drop_unparseable_timestamps: true
+  allow_stale_fallback: false
+```
+
+If the objective is fast engagement, do not widen beyond 6h unless explicitly approved.
+
+### Run Cadence
+
+Use explicit scheduling so discovery stays aligned with quick-reply goals:
+
+```yaml
+run_cadence:
+  preferred_interval_hours: 4     # default recommendation
+  budget_interval_hours: 12       # lower-cost fallback (2x/day)
+```
 
 ### Exclusion Patterns
 
@@ -97,5 +123,6 @@ Provide top-down decision prompts (strategic first):
 1. Objective and success metric
 2. Persona priority
 3. Platform budget/scope
-4. Candidate volume and strictness
-5. Handoff target
+4. Freshness strategy (strict max-age and stale fallback policy)
+5. Candidate volume and strictness
+6. Handoff target

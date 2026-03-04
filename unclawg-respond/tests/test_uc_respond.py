@@ -328,6 +328,105 @@ def test_build_fulfillment_payload_uses_prior_machine_edit_history_in_rewrite() 
     assert "Original seed that should not be reused" not in payload["edited_content"]
 
 
+def test_build_revision_context_preserves_long_prior_edit_without_truncation() -> None:
+    uc = _load_uc_respond()
+    detail = _approval_detail(proposed_reply="Seed text.")
+    long_prior = ("A" * 1200) + " THE_END_MARKER"
+    messages = [
+        _msg(
+            author_type="machine",
+            message_type="edit_diff",
+            content="old",
+            edited_content=long_prior,
+            created_at="2026-03-03T11:00:00Z",
+            sequence=1,
+            message_id="m-long",
+        ),
+        _msg(
+            author_type="human",
+            message_type="feedback",
+            content="Shorten this.",
+            created_at="2026-03-03T12:00:00Z",
+            sequence=2,
+            message_id="f1",
+        ),
+    ]
+    revision = _revision(revision_id="rev-long", status="pending", created_at="2026-03-03T12:01:00Z", trigger_message_ids=["f1"])
+
+    bundle = uc._build_revision_context(
+        "apr-test",
+        detail,
+        messages=messages,
+        revision=revision,
+        revision_history=[revision],
+        soul_snapshot=uc.SoulSnapshot(version=9, content=""),
+    )
+
+    assert bundle["latest_prior_edit_text"].endswith("THE_END_MARKER")
+    assert len(bundle["latest_prior_edit_text"]) > 1200
+    assert bundle["prior_machine_messages"][0]["edited_content"].endswith("THE_END_MARKER")
+
+
+def test_build_fulfillment_payload_synthesizes_multi_turn_feedback_semantics() -> None:
+    uc = _load_uc_respond()
+    detail = _approval_detail(
+        proposed_reply=(
+            "Hype mode: our AI crushes it for outbound. "
+            "The founder still approves the final publish."
+        )
+    )
+    messages = [
+        _msg(
+            author_type="human",
+            message_type="feedback",
+            content="Mention approval queue and keep this conversational.",
+            created_at="2026-03-03T10:00:00Z",
+            sequence=1,
+            message_id="f1",
+        ),
+        _msg(
+            author_type="human",
+            message_type="feedback",
+            content=(
+                "Actually keep it professional. Remove hype mode and replace crushes it "
+                "with drafts first-pass replies."
+            ),
+            created_at="2026-03-03T11:00:00Z",
+            sequence=2,
+            message_id="f2",
+        ),
+        _msg(
+            author_type="human",
+            message_type="feedback",
+            content="End with: DM for the exact workflow.",
+            created_at="2026-03-03T12:00:00Z",
+            sequence=3,
+            message_id="f3",
+        ),
+    ]
+    revision = _revision(revision_id="rev-sem", status="pending", created_at="2026-03-03T12:01:00Z", trigger_message_ids=["f3"])
+
+    payload, message_type, action_kind = uc._build_fulfillment_payload(
+        approval_id="apr-test",
+        revision_id="rev-sem",
+        expected_version=3,
+        latest_feedback=messages[-1],
+        approval_detail=detail,
+        soul_version=9,
+        messages=messages,
+        revision=revision,
+        revision_history=[revision],
+    )
+
+    assert message_type == "edit_diff"
+    assert action_kind == "edit_diff"
+    edited = payload["edited_content"]
+    assert "approval queue" in edited.lower()
+    assert "hype mode" not in edited.lower()
+    assert "drafts first-pass replies" in edited
+    assert edited.rstrip().endswith("DM for the exact workflow.")
+
+
 def test_build_fulfillment_payload_has_no_default_cta_injection() -> None:
     uc = _load_uc_respond()
     detail = _approval_detail(

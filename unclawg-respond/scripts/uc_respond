@@ -26,6 +26,13 @@ END_WITH_RE = re.compile(r"(?:end|close|finish)\s+with\s*:?\s*(.+)$", re.IGNOREC
 SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
 TIGHTEN_KEYWORDS = ("tight", "tighter", "short", "shorter", "trim", "concise", "crisp")
 EXPAND_KEYWORDS = ("longer", "expand", "elaborate", "more detail", "add detail", "add context")
+TONE_HINTS: dict[str, tuple[str, ...]] = {
+    "direct": ("direct", "blunt", "straight", "to the point"),
+    "casual": ("casual", "conversational", "colloquial"),
+    "formal": ("formal", "polished"),
+    "professional": ("professional", "executive"),
+    "friendly": ("friendly", "warm", "human"),
+}
 ACTIONABLE_KEYWORDS = (
     "tight",
     "tighter",
@@ -77,6 +84,9 @@ SOUL_NO_EMOJI_RE = re.compile(r"\b(?:no|avoid|without)\s+emoji", re.IGNORECASE)
 SOUL_NO_HASHTAG_RE = re.compile(r"\b(?:no|avoid|without)\s+hashtags?\b", re.IGNORECASE)
 SOUL_SINGLE_SENTENCE_RE = re.compile(r"\b(?:one|single)\s+sentence\b", re.IGNORECASE)
 SOUL_NO_EXCLAIM_RE = re.compile(r"\b(?:no|avoid|without)\s+exclamation", re.IGNORECASE)
+REPLACE_DIRECTIVE_RE = re.compile(r"\breplace\s+['\"]?(.+?)['\"]?\s+with\s+['\"]?(.+?)['\"]?(?:[.!,;]|$)", re.IGNORECASE)
+REMOVE_DIRECTIVE_RE = re.compile(r"\b(?:remove|drop|cut|avoid)\s+['\"]?([a-z0-9 _-]{2,80})['\"]?", re.IGNORECASE)
+ADD_DIRECTIVE_RE = re.compile(r"\b(?:add|include|mention)\s+['\"]?([a-z0-9 _-]{2,80})['\"]?", re.IGNORECASE)
 EMOJI_RE = re.compile(r"[\U00010000-\U0010FFFF]")
 DENY_CONFIDENCE_THRESHOLD = 0.9
 
@@ -125,6 +135,17 @@ class SoulSnapshot:
 class DenyAssessment:
     confidence: float
     reasons: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class ThreadIntent:
+    tighten: bool
+    expand: bool
+    tone: str
+    end_with: str
+    replacements: tuple[tuple[str, str], ...]
+    removals: tuple[str, ...]
+    additions: tuple[str, ...]
 
 
 def _parse_env_file(path: Path) -> dict[str, str]:
@@ -762,14 +783,17 @@ def _normalize_trigger_ids(value: Any) -> list[str]:
 
 
 def _message_context(message: dict[str, Any]) -> dict[str, Any]:
+    # Keep full text so downstream rewrite logic never operates on truncated drafts.
+    content = _strip_revision_audit_markers(message.get("content"))
+    edited_content = _strip_revision_audit_markers(message.get("edited_content"))
     return {
         "id": str(message.get("id") or ""),
         "created_at": message.get("created_at"),
         "sequence": _sequence(message.get("sequence")),
         "author_type": _normalize_text(message.get("author_type")),
         "message_type": _normalize_text(message.get("message_type")),
-        "content": _strip_revision_audit_markers(message.get("content"))[:600],
-        "edited_content": _strip_revision_audit_markers(message.get("edited_content"))[:600],
+        "content": content,
+        "edited_content": edited_content,
     }
 
 
@@ -877,6 +901,120 @@ def _feedback_text_history(context: dict[str, Any]) -> list[str]:
         if content:
             items.append(content)
     return items
+
+
+def _detect_tone_hint(feedback_text: str) -> str:
+    lowered = feedback_text.lower()
+    for tone, hints in TONE_HINTS.items():
+        for hint in hints:
+            if hint in lowered:
+                return tone
+    return ""
+
+
+def _extract_replacements(feedback_text: str) -> list[tuple[str, str]]:
+    replacements: list[tuple[str, str]] = []
+    for before, after in REPLACE_DIRECTIVE_RE.findall(feedback_text):
+        src = _normalize_text(before).strip("`\"'")
+        dst = _normalize_text(after).strip("`\"'")
+        if src and dst and (src, dst) not in replacements:
+            replacements.append((src, dst))
+    return replacements[:3]
+
+
+def _extract_removals(feedback_text: str) -> list[str]:
+    removals: list[str] = []
+    for value in REMOVE_DIRECTIVE_RE.findall(feedback_text):
+        item = _normalize_text(value).strip("`\"'")
+        item = re.split(r"\b(?:and|but|replace|with|end)\b", item, maxsplit=1, flags=re.IGNORECASE)[0].strip()
+        if not item:
+            continue
+        if item in {"this", "that", "it"}:
+            continue
+        if item not in removals:
+            removals.append(item)
+    return removals[:4]
+
+
+def _extract_additions(feedback_text: str) -> list[str]:
+    additions: list[str] = []
+    for value in ADD_DIRECTIVE_RE.findall(feedback_text):
+        item = _normalize_text(value).strip("`\"'")
+        item = re.split(r"\b(?:and|but|then|while)\b", item, maxsplit=1, flags=re.IGNORECASE)[0].strip()
+        if not item:
+            continue
+        if item in {"this", "that", "it"}:
+            continue
+        if item not in additions:
+            additions.append(item)
+    return additions[:4]
+
+
+def _synthesize_thread_intent(context: dict[str, Any]) -> ThreadIntent:
+    feedback_history = _feedback_text_history(context)
+    effective_feedback = _effective_feedback_text(context)
+
+    tighten = False
+    expand = False
+    tone = ""
+    end_with = ""
+    replacements: list[tuple[str, str]] = []
+    removals: list[str] = []
+    additions: list[str] = []
+
+    for feedback_text in feedback_history:
+        lowered = feedback_text.lower()
+        if _has_tighten_intent(feedback_text):
+            tighten = True
+            expand = False
+        if any(keyword in lowered for keyword in EXPAND_KEYWORDS):
+            expand = True
+            tighten = False
+
+        tone_hint = _detect_tone_hint(feedback_text)
+        if tone_hint:
+            tone = tone_hint
+
+        directive = _extract_end_with_directive(feedback_text)
+        if directive:
+            end_with = directive
+
+        for pair in _extract_replacements(feedback_text):
+            if pair not in replacements:
+                replacements.append(pair)
+        for item in _extract_removals(feedback_text):
+            if item not in removals:
+                removals.append(item)
+        for item in _extract_additions(feedback_text):
+            if item not in additions:
+                additions.append(item)
+
+    # Ensure latest-turn instruction always wins for final CTA/length decisions.
+    if effective_feedback:
+        lowered = effective_feedback.lower()
+        if _has_tighten_intent(effective_feedback):
+            tighten = True
+            expand = False
+        if any(keyword in lowered for keyword in EXPAND_KEYWORDS):
+            expand = True
+            tighten = False
+
+        latest_tone = _detect_tone_hint(effective_feedback)
+        if latest_tone:
+            tone = latest_tone
+        latest_end = _extract_end_with_directive(effective_feedback)
+        if latest_end:
+            end_with = latest_end
+
+    return ThreadIntent(
+        tighten=tighten,
+        expand=expand,
+        tone=tone,
+        end_with=end_with,
+        replacements=tuple(replacements[:5]),
+        removals=tuple(removals[:6]),
+        additions=tuple(additions[:6]),
+    )
 
 
 def _effective_feedback_text(context: dict[str, Any]) -> str:
@@ -1002,6 +1140,54 @@ def _should_recommend_deny(context: dict[str, Any]) -> bool:
     return assessment.confidence >= DENY_CONFIDENCE_THRESHOLD
 
 
+def _apply_replacements(text: str, replacements: tuple[tuple[str, str], ...]) -> str:
+    edited = text
+    for before, after in replacements:
+        if not before or not after:
+            continue
+        pattern = re.compile(re.escape(before), re.IGNORECASE)
+        edited = pattern.sub(after, edited)
+    return edited
+
+
+def _apply_removals(text: str, removals: tuple[str, ...]) -> str:
+    edited = text
+    for item in removals:
+        if not item:
+            continue
+        pattern = re.compile(re.escape(item), re.IGNORECASE)
+        edited = pattern.sub("", edited)
+    edited = re.sub(r"\s{2,}", " ", edited)
+    edited = re.sub(r"\s+([,.;:!?])", r"\1", edited)
+    return edited.strip()
+
+
+def _apply_additions(text: str, additions: tuple[str, ...]) -> str:
+    edited = text
+    for item in additions:
+        if not item:
+            continue
+        if _normalize_for_compare(item) in _normalize_for_compare(edited):
+            continue
+        edited = _append_sentence(edited, item)
+    return edited
+
+
+def _apply_tone_style(text: str, tone: str) -> str:
+    edited = text.strip()
+    if not edited or not tone:
+        return edited
+
+    if tone in {"direct", "professional"}:
+        for hedge in ("I think ", "Honestly, ", "honestly, ", "Maybe ", "maybe "):
+            edited = edited.replace(hedge, "")
+    if tone in {"formal", "professional"}:
+        edited = edited.replace("don't", "do not").replace("can't", "cannot").replace("it's", "it is")
+    if tone == "casual":
+        edited = edited.replace("do not", "don't").replace("cannot", "can't").replace("it is", "it's")
+    return WHITESPACE_RE.sub(" ", edited).strip()
+
+
 def _apply_soul_constraints(text: str, soul_text: str) -> str:
     edited = text.strip()
     if not edited:
@@ -1036,11 +1222,12 @@ def _build_edit_content(context: dict[str, Any]) -> str:
     if not seed_text and not prior_edit_text:
         return ""
 
+    intent = _synthesize_thread_intent(context)
     edited = prior_edit_text or seed_text
     tighten_votes = sum(1 for item in feedback_history if _has_tighten_intent(item))
-    latest_lower = feedback_text.lower()
-    latest_expands = any(keyword in latest_lower for keyword in EXPAND_KEYWORDS)
-    should_tighten = _has_tighten_intent(feedback_text) or (tighten_votes >= 2 and not latest_expands)
+    should_tighten = intent.tighten or (tighten_votes >= 2 and not intent.expand)
+    if intent.expand:
+        should_tighten = False
     if should_tighten:
         sentences = _split_sentences(edited)
         if len(sentences) >= 3:
@@ -1048,9 +1235,18 @@ def _build_edit_content(context: dict[str, Any]) -> str:
         elif len(sentences) == 2:
             edited = sentences[0]
 
-    cta = _extract_end_with_directive(feedback_text)
-    if cta:
-        edited = _append_sentence(edited, cta)
+    edited = _apply_replacements(edited, intent.replacements)
+    edited = _apply_removals(edited, intent.removals)
+    edited = _apply_additions(edited, intent.additions)
+    edited = _apply_tone_style(edited, intent.tone)
+
+    if intent.end_with:
+        edited = _append_sentence(edited, intent.end_with)
+    else:
+        # Preserve direct latest directive when intent parser misses syntax variants.
+        cta = _extract_end_with_directive(feedback_text)
+        if cta:
+            edited = _append_sentence(edited, cta)
 
     edited = _apply_soul_constraints(edited, soul_text)
     return _strip_revision_audit_markers(edited)[:1900]

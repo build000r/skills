@@ -126,6 +126,9 @@ Behavior:
 - Chooses one machine fulfillment per item:
   - `edit_diff` with revised suggestion, or
   - `comment` with `Recommend deny ...` rationale.
+- `edit_diff.edited_content` must be publish-ready plain text:
+  - no audit markers (for example `[Reconciled under soul ...]`, `Feedback addressed: ...`)
+  - materially different from the original suggestion (no no-op fulfills)
 - Uses deterministic idempotency key per `(approval_id, revision_id, feedback fingerprint, soul version)`.
 - Appends new machine entries (no in-place mutation of old suggestions).
 - Re-pulls pending queue and prints summary:

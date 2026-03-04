@@ -4,8 +4,10 @@ description: >
   Multi-platform customer discovery for any domain. Searches Reddit, Hacker News,
   Twitter/X (Apify), and LinkedIn (Apify), filters noise, and outputs a ranked
   engagement feed with normalized candidate records for downstream workflows.
-  Use when: "/unclawg-discover", "/find-customers", "find customers", "find leads",
-  "find outreach candidates", "find posts to reply to", "build engagement queue".
+  Use when: "/unclawg-discover", "find customers", "find leads",
+  "find outreach candidates", "find posts to reply to", "build engagement queue",
+  "find unclawg customers", "find agent builder leads",
+  "buildooor leads".
 metadata:
   openclaw:
     emoji: "🔎"
@@ -49,9 +51,23 @@ Command mapping:
 ```bash
 uc_discover reddit --query "<query>" --subreddit <subreddit> --time-filter week --limit 25
 uc_discover hn --query "<query>" --days 7 --limit 25
-uc_discover twitter --query "<query>" --days 7 --limit 20
-uc_discover linkedin --query "<query>" --days 7 --limit 20 --sort-by date_posted
+uc_discover twitter --query "<query>" --days 1 --limit 20
+uc_discover linkedin --query "<query>" --days 1 --limit 20 --sort-by date_posted
 ```
+
+## Freshness-First Default (X + LinkedIn)
+
+For audience growth and fast replies, use a strict recency contract:
+
+- Hard cutoff: only keep posts with age `<= 6 hours` on Twitter/X and LinkedIn.
+- Recency bias: heavily prioritize newest posts (0-2h first, then 2-4h, then 4-6h).
+- No stale fallback by default: do not widen past 6h unless the user explicitly overrides.
+- Timestamp quality gate: if post age cannot be parsed, treat it as stale and drop it.
+
+Recommended run cadence:
+
+- Primary recommendation: every 4 hours (6 runs/day).
+- Budget fallback: 2 runs/day (every 12 hours), still with 6h hard cutoff.
 
 ## Mode System (Required for Project-Specific Behavior)
 
@@ -97,6 +113,8 @@ If no soul is published, fall back to `references/voice-guide.md` (generic defau
 - `scripts/search_hn.sh`
 - `scripts/search_twitter.sh`
 - `scripts/search_linkedin.sh`
+- `scripts/search_linkedin_jobs.sh` (optional extension channel)
+- `scripts/search_indeed.sh` (optional extension channel)
 - `scripts/search_youtube.sh`
 - `scripts/search_tiktok.sh`
 - `scripts/search_instagram_comments.sh`
@@ -130,8 +148,9 @@ Use high-level decisions first, then detail decisions.
 1. Objective: prospecting, audience-growth, content-sourcing, recruiting, other.
 2. Persona cluster: who exactly are we looking for.
 3. Channel scope: Reddit-only vs multi-platform.
-4. Throughput: target candidate count and freshness window.
-5. Handoff target: where this feed goes next.
+4. Freshness strategy: strict max-age (default 6h) and stale fallback policy.
+5. Throughput: target candidate count and freshness window.
+6. Handoff target: where this feed goes next.
 
 Apply `references/feed-quality-checklist.md` while collecting these choices.
 
@@ -167,13 +186,13 @@ uc_discover hn --query "<query>" --days 7 --limit 25
 #### Twitter/X (Apify)
 
 ```bash
-uc_discover twitter --query "<query>" --days 7 --limit 20
+uc_discover twitter --query "<query>" --days 1 --limit 20
 ```
 
 #### LinkedIn (Apify)
 
 ```bash
-uc_discover linkedin --query "<query>" --days 7 --limit 20 --sort-by date_posted
+uc_discover linkedin --query "<query>" --days 1 --limit 20 --sort-by date_posted
 ```
 
 ### Phase 3.5 - Comment Mining (Optional)
@@ -191,6 +210,19 @@ of curated accounts for real customer signals.
 
 **Cost note:** Comment mining uses Apify credits. Confirm with user before running if budget is a concern.
 
+### Phase 3.6 - Hiring-Board Extension (Optional, Non-Wrapper)
+
+Use only when runtime policy allows local script execution and the active mode
+explicitly calls for hiring-board discovery.
+
+```bash
+scripts/search_linkedin_jobs.sh "<query>" 20 C
+scripts/search_indeed.sh "<position>" "remote" 20
+```
+
+Treat these as slower-moving research channels. Keep conversational channels
+(Twitter/X + LinkedIn posts) on strict recency gates for quick replies.
+
 ### Phase 4 - Filter and Score
 
 1. **Deduplicate** — use platform-appropriate strategy:
@@ -198,15 +230,26 @@ of curated accounts for real customer signals.
    - LinkedIn: `unique_by(.text[0:100] + .author_name)` (URLs are often empty)
 2. Remove competitor/vendor noise using `references/competitor-signals.md`.
 3. Remove low-evidence posts (missing meaningful text or too short).
-4. **LinkedIn extra filter:** Apply aggressive keyword regex on `.text` field to
+4. **Hard freshness gate (X + LinkedIn):**
+   - Drop any candidate older than 6 hours.
+   - Drop candidates with unparseable/missing post timestamps.
+   - Sort surviving X + LinkedIn candidates by recency first, then engagement.
+5. **LinkedIn extra filter:** Apply aggressive keyword regex on `.text` field to
    remove job spam, hiring posts, LinkedIn puzzles, and viral non-technical content.
    The LinkedIn scraper returns ~99% noise — filter BEFORE scoring to save time.
-5. Score survivors by:
+6. Score survivors by:
    - explicit pain or intent
    - decision-maker likelihood
    - recency
    - engagement signal
    - fit to objective/persona
+
+Recency bucket scoring for X + LinkedIn (default):
+
+- `0-2h`: highest priority
+- `2-4h`: high priority
+- `4-6h`: medium priority
+- `>6h`: reject
 
 ### Phase 5 - Normalize Output
 

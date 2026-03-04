@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import re
+import subprocess
 import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -18,16 +19,52 @@ from urllib.request import Request, urlopen
 
 SOUL_VERSION_RE = re.compile(r"soul\s+v(\d+)", re.IGNORECASE)
 SOUL_UPDATED_RE = re.compile(r"soul\s+updated\s+to\s+v(\d+)", re.IGNORECASE)
-DENY_KEYWORDS = (
-    "deny",
-    "unsafe",
-    "not safe",
-    "illegal",
-    "policy",
-    "violate",
-    "harm",
-    "risk",
+AUDIT_RECONCILED_SUFFIX_RE = re.compile(r"\s*\[Reconciled under soul v[^\]\n]*\][\s\S]*$", re.IGNORECASE)
+AUDIT_FEEDBACK_SUFFIX_RE = re.compile(r"\s*Feedback addressed:\s*[\s\S]*$", re.IGNORECASE)
+WHITESPACE_RE = re.compile(r"\s+")
+END_WITH_RE = re.compile(r"(?:end|close|finish)\s+with\s*:?\s*(.+)$", re.IGNORECASE)
+SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
+TIGHTEN_KEYWORDS = ("tight", "tighter", "short", "shorter", "trim", "concise", "crisp")
+ACTIONABLE_KEYWORDS = (
+    "tight",
+    "tighter",
+    "short",
+    "shorter",
+    "trim",
+    "concise",
+    "crisp",
+    "rewrite",
+    "reword",
+    "tone",
+    "casual",
+    "formal",
+    "direct",
+    "remove",
+    "add",
+    "replace",
+    "drop",
+    "cut",
+    "cta",
+    "ending",
 )
+AMBIGUOUS_FEEDBACK_RE = re.compile(
+    r"\b(idk|i don't know|not sure|unsure|maybe|hmm|whatever|unclear|off|feels off)\b|^\?+$",
+    re.IGNORECASE,
+)
+DENY_NEGATION_RE = re.compile(r"\b(?:don't|dont|do not|not)\s+deny\b", re.IGNORECASE)
+DENY_DIRECTIVE_RE = re.compile(
+    r"\b(?:recommend|please|should|must|need to)\s+deny\b|\bdeny\s+(?:this|it|request|approval|message)\b",
+    re.IGNORECASE,
+)
+POLICY_RISK_RE = re.compile(
+    r"\b(unsafe|illegal|fraud|scam|deceptive|harmful|dangerous|exploit|malware|phish(?:ing)?|impersonat(?:e|ion))\b",
+    re.IGNORECASE,
+)
+SOUL_NO_EMOJI_RE = re.compile(r"\b(?:no|avoid|without)\s+emoji", re.IGNORECASE)
+SOUL_NO_HASHTAG_RE = re.compile(r"\b(?:no|avoid|without)\s+hashtags?\b", re.IGNORECASE)
+SOUL_SINGLE_SENTENCE_RE = re.compile(r"\b(?:one|single)\s+sentence\b", re.IGNORECASE)
+SOUL_NO_EXCLAIM_RE = re.compile(r"\b(?:no|avoid|without)\s+exclamation", re.IGNORECASE)
+EMOJI_RE = re.compile(r"[\U00010000-\U0010FFFF]")
 
 
 class ApiError(RuntimeError):
@@ -64,6 +101,12 @@ class QueueDecision:
     latest_machine: dict[str, Any] | None
 
 
+@dataclass(frozen=True)
+class SoulSnapshot:
+    version: int | None
+    content: str
+
+
 def _parse_env_file(path: Path) -> dict[str, str]:
     values: dict[str, str] = {}
     if not path.exists():
@@ -84,19 +127,49 @@ def _parse_env_file(path: Path) -> dict[str, str]:
     return values
 
 
-def _apply_env_defaults(path: Path) -> None:
+def _apply_env_defaults(path: Path, *, overwrite: bool = False) -> None:
     values = _parse_env_file(path)
     for key, value in values.items():
-        os.environ.setdefault(key, value)
+        if overwrite:
+            os.environ[key] = value
+        else:
+            os.environ.setdefault(key, value)
 
 
 def _load_agent_env(agent_id: str | None) -> None:
     cwd = Path.cwd()
+
+    # Runtime fallback paths used by OpenClaw client boxes.
+    runtime_env = (os.environ.get("LARRY_ENV_PATH") or "").strip()
+    if runtime_env:
+        _apply_env_defaults(Path(runtime_env), overwrite=True)
+
+    state_dir = (os.environ.get("OPENCLAW_STATE_DIR") or "").strip()
+    if state_dir:
+        _apply_env_defaults(Path(state_dir) / ".env")
+
+    # Agent-scoped runtime envs should win over inherited process env vars.
     if agent_id:
-        _apply_env_defaults(cwd / ".claude" / "agents" / f"{agent_id}.env")
+        _apply_env_defaults(Path(f"/home/openclaw/.openclaw/{agent_id}.env"), overwrite=True)
+        _apply_env_defaults(Path(f"/agent/.openclaw/{agent_id}.env"), overwrite=True)
+        _apply_env_defaults(Path(f"/workspace/.openclaw/{agent_id}.env"), overwrite=True)
+
+    for fallback in (
+        "/home/openclaw/.openclaw/larry.env",
+        "/home/openclaw/.openclaw/.env",
+        "/agent/.openclaw/larry.env",
+        "/workspace/.openclaw/larry.env",
+    ):
+        _apply_env_defaults(Path(fallback))
+
+    if agent_id:
+        _apply_env_defaults(cwd / ".claude" / "agents" / f"{agent_id}.env", overwrite=True)
     current_agent = os.environ.get("OPENCLAW_AGENT_ID")
     if current_agent:
-        _apply_env_defaults(cwd / ".claude" / "agents" / f"{current_agent}.env")
+        _apply_env_defaults(Path(f"/home/openclaw/.openclaw/{current_agent}.env"), overwrite=True)
+        _apply_env_defaults(Path(f"/agent/.openclaw/{current_agent}.env"), overwrite=True)
+        _apply_env_defaults(Path(f"/workspace/.openclaw/{current_agent}.env"), overwrite=True)
+        _apply_env_defaults(cwd / ".claude" / "agents" / f"{current_agent}.env", overwrite=True)
     _apply_env_defaults(cwd / "services" / "approval_feedback_api" / ".env")
 
 
@@ -143,6 +216,112 @@ def _auth_headers(config: Config, *, json_body: bool = False) -> dict[str, str]:
     return headers
 
 
+def _resolve_ccurl_path() -> Path | None:
+    candidates: list[str] = []
+    explicit = (os.environ.get("OPENCLAW_CCURL") or "").strip()
+    if explicit:
+        candidates.append(explicit)
+
+    state_dir = (os.environ.get("OPENCLAW_STATE_DIR") or "").strip()
+    if state_dir:
+        candidates.append(str(Path(state_dir) / "bin" / "ccurl"))
+
+    candidates.extend(
+        [
+            "/home/openclaw/.openclaw/bin/ccurl",
+            "/agent/.openclaw/bin/ccurl",
+            "/workspace/.openclaw/bin/ccurl",
+        ]
+    )
+
+    for raw in candidates:
+        path = Path(raw)
+        if path.is_file() and os.access(path, os.X_OK):
+            return path
+    return None
+
+
+def _request_json_via_ccurl(
+    ccurl_path: Path,
+    config: Config,
+    method: str,
+    path: str,
+    *,
+    params: dict[str, Any] | None = None,
+    body: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    query = urlencode({k: v for k, v in (params or {}).items() if v is not None})
+    url = f"{config.api_url}{path}"
+    if query:
+        url = f"{url}?{query}"
+
+    headers = _auth_headers(config, json_body=body is not None)
+    cmd: list[str] = [
+        str(ccurl_path),
+        "-sS",
+        "-w",
+        "\nHTTP_STATUS:%{http_code}",
+        "-X",
+        method.upper(),
+    ]
+    for key, value in headers.items():
+        cmd.extend(["-H", f"{key}: {value}"])
+    if body is not None:
+        payload = json.dumps(body, separators=(",", ":"), ensure_ascii=False)
+        cmd.extend(["--data-binary", payload])
+    cmd.append(url)
+
+    try:
+        completed = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+    except OSError as error:
+        raise SystemExit(f"Failed to execute ccurl: {error}") from error
+    except subprocess.TimeoutExpired as error:
+        raise SystemExit("Connection failed: timed out while calling ccurl") from error
+
+    stdout = completed.stdout or ""
+    stderr = (completed.stderr or "").strip()
+
+    marker = "\nHTTP_STATUS:"
+    if marker in stdout:
+        payload_text, status_text = stdout.rsplit(marker, 1)
+        try:
+            status = int(status_text.strip())
+        except ValueError:
+            status = 0
+    else:
+        payload_text = stdout
+        status = 0
+
+    payload_text = payload_text.strip()
+    parsed: Any = {}
+    if payload_text:
+        try:
+            parsed = json.loads(payload_text)
+        except json.JSONDecodeError:
+            parsed = {"detail": {"code": "HTTP_ERROR", "message": payload_text}}
+
+    if completed.returncode != 0 and status == 0:
+        detail = stderr or "ccurl failed without HTTP status"
+        raise SystemExit(f"Connection failed: {detail}")
+
+    if status >= 400:
+        if not isinstance(parsed, dict):
+            parsed = {"detail": {"code": "HTTP_ERROR", "message": payload_text or f"HTTP {status}"}}
+        raise ApiError(status, parsed)
+
+    if not payload_text:
+        return {}
+    if isinstance(parsed, dict):
+        return parsed
+    raise ApiError(status or 500, {"detail": {"code": "INVALID_JSON", "message": "Response is not an object."}})
+
+
 def _request_json(
     config: Config,
     method: str,
@@ -151,6 +330,17 @@ def _request_json(
     params: dict[str, Any] | None = None,
     body: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    ccurl_path = _resolve_ccurl_path()
+    if ccurl_path is not None:
+        return _request_json_via_ccurl(
+            ccurl_path,
+            config,
+            method,
+            path,
+            params=params,
+            body=body,
+        )
+
     query = urlencode({k: v for k, v in (params or {}).items() if v is not None})
     url = f"{config.api_url}{path}"
     if query:
@@ -373,7 +563,7 @@ def _fetch_messages(config: Config, approval_id: str, limit: int = 200) -> list[
     return items
 
 
-def _load_published_soul_version(config: Config) -> int | None:
+def _load_published_soul_snapshot(config: Config) -> SoulSnapshot:
     payload = _request_json(
         config,
         "GET",
@@ -383,12 +573,17 @@ def _load_published_soul_version(config: Config) -> int | None:
     data = _response_data(payload)
     published = data.get("published")
     if not isinstance(published, dict):
-        return None
+        return SoulSnapshot(version=None, content="")
     version = published.get("version")
+    content = _normalize_text(published.get("content"))
     try:
-        return int(version)
+        return SoulSnapshot(version=int(version), content=content)
     except (TypeError, ValueError):
-        return None
+        return SoulSnapshot(version=None, content=content)
+
+
+def _load_published_soul_version(config: Config) -> int | None:
+    return _load_published_soul_snapshot(config).version
 
 
 def _choose_revision_for_approval(revision_map: dict[str, list[dict[str, Any]]], approval_id: str) -> dict[str, Any] | None:
@@ -434,34 +629,303 @@ def _normalize_text(value: Any) -> str:
     return ""
 
 
-def _should_recommend_deny(feedback: dict[str, Any] | None) -> bool:
-    text = _normalize_text((feedback or {}).get("content")).lower()
-    return any(keyword in text for keyword in DENY_KEYWORDS)
+def _strip_revision_audit_markers(value: Any) -> str:
+    normalized = _normalize_text(value)
+    if not normalized:
+        return ""
+    without_reconciled = AUDIT_RECONCILED_SUFFIX_RE.sub("", normalized).strip()
+    without_feedback = AUDIT_FEEDBACK_SUFFIX_RE.sub("", without_reconciled).strip()
+    return without_feedback
 
 
-def _build_edit_content(
-    approval_detail: dict[str, Any],
-    latest_feedback: dict[str, Any] | None,
-    soul_version: int | None,
-) -> str:
+def _normalize_for_compare(value: Any) -> str:
+    cleaned = _strip_revision_audit_markers(value)
+    if not cleaned:
+        return ""
+    return WHITESPACE_RE.sub(" ", cleaned).strip().lower()
+
+
+def _extract_seed_text(approval_detail: dict[str, Any]) -> str:
     context = approval_detail.get("context")
     payload = context.get("payload") if isinstance(context, dict) else None
-    seed = ""
-    if isinstance(payload, dict):
-        seed = _normalize_text(payload.get("proposed_reply"))
-        if not seed:
-            seed = _normalize_text(payload.get("summary"))
-    feedback_text = _normalize_text((latest_feedback or {}).get("content"))
+    if not isinstance(payload, dict):
+        return ""
 
-    if not seed:
-        seed = "Thanks for the feedback."
+    proposed_reply = _strip_revision_audit_markers(payload.get("proposed_reply"))
+    if proposed_reply:
+        return proposed_reply
+    return _strip_revision_audit_markers(payload.get("summary"))
 
-    suffix = f" [Reconciled under soul v{soul_version}]" if soul_version is not None else " [Reconciled]"
-    if feedback_text:
-        suffix = f"{suffix} Feedback addressed: {feedback_text[:220]}"
 
-    edited = f"{seed}{suffix}".strip()
+def _split_sentences(text: str) -> list[str]:
+    cleaned = WHITESPACE_RE.sub(" ", text).strip()
+    if not cleaned:
+        return []
+    parts = [part.strip() for part in SENTENCE_SPLIT_RE.split(cleaned) if part.strip()]
+    return parts or [cleaned]
+
+
+def _has_tighten_intent(feedback_text: str) -> bool:
+    lowered = feedback_text.lower()
+    return any(keyword in lowered for keyword in TIGHTEN_KEYWORDS)
+
+
+def _extract_end_with_directive(feedback_text: str) -> str:
+    compact = WHITESPACE_RE.sub(" ", feedback_text).strip()
+    if not compact:
+        return ""
+    match = END_WITH_RE.search(compact)
+    if not match:
+        return ""
+    directive = match.group(1).strip().strip("`\"'")
+    if not directive:
+        return ""
+    return directive[:280]
+
+
+def _append_sentence(base: str, addition: str) -> str:
+    base_clean = base.strip()
+    addition_clean = addition.strip()
+    if not addition_clean:
+        return base_clean
+    if not base_clean:
+        return addition_clean
+    if _normalize_for_compare(addition_clean) in _normalize_for_compare(base_clean):
+        return base_clean
+    if base_clean[-1] not in ".!?":
+        base_clean = f"{base_clean}."
+    return f"{base_clean} {addition_clean}".strip()
+
+
+def _force_material_rewrite(seed_text: str, feedback_text: str) -> str:
+    edited = seed_text.strip()
+    if _has_tighten_intent(feedback_text):
+        sentences = _split_sentences(edited)
+        if len(sentences) >= 3:
+            edited = " ".join(sentences[:2])
+        elif len(sentences) == 2:
+            edited = sentences[0]
+
+    cta = _extract_end_with_directive(feedback_text)
+    if cta:
+        edited = _append_sentence(edited, cta)
+
     return edited[:1900]
+
+
+def _is_noop_edit(edited_content: str, baseline: str) -> bool:
+    normalized_baseline = _normalize_for_compare(baseline)
+    if not normalized_baseline:
+        return False
+    return _normalize_for_compare(edited_content) == normalized_baseline
+
+
+def _ordered_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    ordered = [item for item in messages if isinstance(item, dict) and item.get("deleted_at") is None]
+    ordered.sort(key=_message_key)
+    return ordered
+
+
+def _revision_key(revision: dict[str, Any]) -> tuple[datetime, int]:
+    return (_parse_time(revision.get("created_at")), _sequence(revision.get("id")))
+
+
+def _normalize_trigger_ids(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    trigger_ids: list[str] = []
+    for item in value:
+        normalized = str(item or "").strip()
+        if normalized and normalized not in trigger_ids:
+            trigger_ids.append(normalized)
+    return trigger_ids
+
+
+def _message_context(message: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": str(message.get("id") or ""),
+        "created_at": message.get("created_at"),
+        "sequence": _sequence(message.get("sequence")),
+        "author_type": _normalize_text(message.get("author_type")),
+        "message_type": _normalize_text(message.get("message_type")),
+        "content": _strip_revision_audit_markers(message.get("content"))[:600],
+        "edited_content": _strip_revision_audit_markers(message.get("edited_content"))[:600],
+    }
+
+
+def _build_revision_context(
+    approval_id: str,
+    approval_detail: dict[str, Any],
+    *,
+    messages: list[dict[str, Any]],
+    revision: dict[str, Any] | None,
+    revision_history: list[dict[str, Any]] | None,
+    soul_snapshot: SoulSnapshot,
+) -> dict[str, Any]:
+    ordered_messages = _ordered_messages(messages)
+    latest_feedback = _latest_message(ordered_messages, lambda item: item.get("message_type") == "feedback")
+    seed_text = _extract_seed_text(approval_detail)
+
+    ordered_revisions = [item for item in (revision_history or []) if isinstance(item, dict)]
+    ordered_revisions.sort(key=_revision_key)
+    current_revision_id = str((revision or {}).get("id") or "")
+
+    revision_outcomes: list[dict[str, Any]] = []
+    for item in ordered_revisions:
+        revision_outcomes.append(
+            {
+                "id": str(item.get("id") or ""),
+                "status": _normalize_text(item.get("status")),
+                "created_at": item.get("created_at"),
+                "updated_at": item.get("updated_at"),
+                "terminal_reason": _normalize_text(item.get("terminal_reason")),
+                "fulfilled_message_id": str(item.get("fulfilled_message_id") or ""),
+                "trigger_message_ids": _normalize_trigger_ids(item.get("trigger_message_ids")),
+                "is_current": str(item.get("id") or "") == current_revision_id,
+            }
+        )
+
+    return {
+        "approval_id": approval_id,
+        "seed_text": seed_text,
+        "latest_feedback": latest_feedback,
+        "latest_feedback_text": _strip_revision_audit_markers((latest_feedback or {}).get("content")),
+        "thread_messages": [_message_context(item) for item in ordered_messages],
+        "trigger_message_ids": _normalize_trigger_ids((revision or {}).get("trigger_message_ids")),
+        "prior_machine_messages": [
+            _message_context(item)
+            for item in ordered_messages
+            if item.get("author_type") == "machine" and item.get("message_type") in {"edit_diff", "comment"}
+        ],
+        "revision_outcomes": revision_outcomes,
+        "soul_version": soul_snapshot.version,
+        "soul_text": soul_snapshot.content,
+    }
+
+
+def _has_actionable_guidance(feedback_text: str) -> bool:
+    compact = WHITESPACE_RE.sub(" ", feedback_text).strip()
+    if not compact:
+        return False
+    if _extract_end_with_directive(compact):
+        return True
+    lowered = compact.lower()
+    if any(keyword in lowered for keyword in ACTIONABLE_KEYWORDS):
+        return True
+    if ":" in compact and len(compact.split()) >= 6:
+        return True
+    return False
+
+
+def _needs_clarification(context: dict[str, Any]) -> bool:
+    seed_text = _normalize_text(context.get("seed_text"))
+    feedback_text = _normalize_text(context.get("latest_feedback_text"))
+    if not seed_text:
+        return True
+    if not feedback_text:
+        return False
+    if _has_actionable_guidance(feedback_text):
+        return False
+
+    compact = WHITESPACE_RE.sub(" ", feedback_text).strip()
+    if not compact:
+        return True
+    if AMBIGUOUS_FEEDBACK_RE.search(compact):
+        return True
+    if len(compact) <= 30:
+        return True
+    if len(compact.split()) <= 6:
+        return True
+    return False
+
+
+def _should_recommend_deny(context: dict[str, Any]) -> bool:
+    feedback_text = _normalize_text(context.get("latest_feedback_text"))
+    if not feedback_text:
+        return False
+    if DENY_NEGATION_RE.search(feedback_text):
+        return False
+
+    explicit_risk_statement = re.search(
+        r"\b(?:this|that|it)\s+(?:is|looks|seems)\s+(?:unsafe|illegal|deceptive|harmful|dangerous)\b",
+        feedback_text,
+        flags=re.IGNORECASE,
+    )
+    has_deny_directive = DENY_DIRECTIVE_RE.search(feedback_text) is not None
+    has_policy_risk = POLICY_RISK_RE.search(feedback_text) is not None
+    lowered = feedback_text.lower()
+    has_policy_violation = "policy" in lowered and any(
+        token in lowered for token in ("violate", "violation", "against", "not allowed", "break")
+    )
+
+    if explicit_risk_statement:
+        return True
+    if has_deny_directive and (has_policy_risk or has_policy_violation):
+        return True
+    return False
+
+
+def _apply_soul_constraints(text: str, soul_text: str) -> str:
+    edited = text.strip()
+    if not edited:
+        return ""
+    if not soul_text:
+        return edited
+
+    if SOUL_NO_EMOJI_RE.search(soul_text):
+        edited = EMOJI_RE.sub("", edited).strip()
+
+    if SOUL_NO_HASHTAG_RE.search(soul_text):
+        edited = re.sub(r"(?:^|\s)#[A-Za-z0-9_]+\b", " ", edited).strip()
+
+    if SOUL_NO_EXCLAIM_RE.search(soul_text):
+        edited = edited.replace("!", ".")
+        edited = re.sub(r"\.{2,}", ".", edited)
+
+    if SOUL_SINGLE_SENTENCE_RE.search(soul_text):
+        sentences = _split_sentences(edited)
+        if sentences:
+            edited = sentences[0]
+
+    return WHITESPACE_RE.sub(" ", edited).strip()
+
+
+def _build_edit_content(context: dict[str, Any]) -> str:
+    seed_text = _normalize_text(context.get("seed_text"))
+    feedback_text = _normalize_text(context.get("latest_feedback_text"))
+    soul_text = _normalize_text(context.get("soul_text"))
+    if not seed_text:
+        return ""
+
+    edited = seed_text
+    if _has_tighten_intent(feedback_text):
+        sentences = _split_sentences(edited)
+        if len(sentences) >= 3:
+            edited = " ".join(sentences[:2])
+        elif len(sentences) == 2:
+            edited = sentences[0]
+
+    cta = _extract_end_with_directive(feedback_text)
+    if cta:
+        edited = _append_sentence(edited, cta)
+
+    edited = _apply_soul_constraints(edited, soul_text)
+    return _strip_revision_audit_markers(edited)[:1900]
+
+
+def _build_clarification_comment(context: dict[str, Any]) -> str:
+    soul_version = context.get("soul_version")
+    prefix = f"Need clarification under soul v{soul_version}." if isinstance(soul_version, int) else "Need clarification."
+    return (
+        f"{prefix} Please share one concrete edit target (tone, length, or exact ending) so I can publish a revised draft."
+    )[:380]
+
+
+def _build_deny_recommendation_comment(context: dict[str, Any]) -> str:
+    soul_version = context.get("soul_version")
+    if isinstance(soul_version, int):
+        return f"Recommend deny under soul v{soul_version}: latest feedback indicates a policy/safety conflict."[:380]
+    return "Recommend deny: latest feedback indicates a policy/safety conflict."[:380]
 
 
 def _build_fulfillment_payload(
@@ -471,33 +935,74 @@ def _build_fulfillment_payload(
     latest_feedback: dict[str, Any] | None,
     approval_detail: dict[str, Any],
     soul_version: int | None,
-) -> tuple[dict[str, Any], str]:
-    feedback_hash = _feedback_fingerprint(latest_feedback)
-    soul_marker = soul_version if soul_version is not None else 0
+    *,
+    soul_text: str = "",
+    messages: list[dict[str, Any]] | None = None,
+    revision: dict[str, Any] | None = None,
+    revision_history: list[dict[str, Any]] | None = None,
+) -> tuple[dict[str, Any], str, str]:
+    soul_snapshot = SoulSnapshot(version=soul_version, content=_normalize_text(soul_text))
+    context_bundle = _build_revision_context(
+        approval_id,
+        approval_detail,
+        messages=messages or [],
+        revision=revision,
+        revision_history=revision_history,
+        soul_snapshot=soul_snapshot,
+    )
+    if context_bundle.get("latest_feedback") is None and latest_feedback is not None:
+        context_bundle["latest_feedback"] = latest_feedback
+        context_bundle["latest_feedback_text"] = _strip_revision_audit_markers(latest_feedback.get("content"))
 
-    if _should_recommend_deny(latest_feedback):
-        content = (
-            f"Recommend deny under soul v{soul_marker}: feedback indicates policy/safety risk."
-            if soul_version is not None
-            else "Recommend deny: feedback indicates policy/safety risk."
-        )
+    feedback_hash = _feedback_fingerprint(context_bundle.get("latest_feedback"))
+    soul_marker = soul_snapshot.version if soul_snapshot.version is not None else 0
+
+    action_kind = "edit_diff"
+    if _should_recommend_deny(context_bundle):
+        action_kind = "deny_recommendation"
+    elif _needs_clarification(context_bundle):
+        action_kind = "clarification"
+
+    if action_kind == "deny_recommendation":
+        content = _build_deny_recommendation_comment(context_bundle)
+        message_type = "comment"
+    elif action_kind == "clarification":
+        content = _build_clarification_comment(context_bundle)
         message_type = "comment"
     else:
-        edited_content = _build_edit_content(approval_detail, latest_feedback, soul_version)
-        content = (
-            f"Updated suggestion under soul v{soul_marker}."
-            if soul_version is not None
-            else "Updated suggestion after feedback."
-        )
-        message_type = "edit_diff"
+        baseline = _normalize_text(context_bundle.get("seed_text"))
+        edited_content = _build_edit_content(context_bundle)
+        if _is_noop_edit(edited_content, baseline):
+            feedback_text = _normalize_text(context_bundle.get("latest_feedback_text"))
+            edited_content = _force_material_rewrite(baseline or edited_content, feedback_text)
+            edited_content = _apply_soul_constraints(edited_content, _normalize_text(context_bundle.get("soul_text")))
+            edited_content = _strip_revision_audit_markers(edited_content)[:1900]
+
+        if not edited_content or _is_noop_edit(edited_content, baseline):
+            action_kind = "clarification"
+            content = _build_clarification_comment(context_bundle)
+            message_type = "comment"
+        else:
+            content = (
+                f"Revised draft under soul v{soul_marker}."
+                if soul_snapshot.version is not None
+                else "Revised draft after latest feedback."
+            )
+            message_type = "edit_diff"
+
+    if message_type == "edit_diff":
+        action_kind = "edit_diff"
+    elif action_kind != "deny_recommendation":
+        action_kind = "clarification"
 
     # Build deterministic idempotency key from the final payload shape.
     key_basis = {
         "approval_id": approval_id,
         "revision_id": revision_id,
+        "action_kind": action_kind,
         "message_type": message_type,
         "feedback_hash": feedback_hash,
-        "soul_version": soul_version,
+        "soul_version": soul_snapshot.version,
         "content": content,
     }
     if message_type == "edit_diff":
@@ -515,7 +1020,7 @@ def _build_fulfillment_payload(
     if message_type == "edit_diff":
         payload["edited_content"] = edited_content
 
-    return payload, message_type
+    return payload, message_type, action_kind
 
 
 def cmd_smoke(args: argparse.Namespace) -> int:
@@ -593,18 +1098,19 @@ def cmd_reconcile(args: argparse.Namespace) -> int:
     config = resolve_config(args.agent_id)
     _print_target(config)
 
+    soul_snapshot = SoulSnapshot(version=None, content="")
     try:
-        soul_version = _load_published_soul_version(config)
+        soul_snapshot = _load_published_soul_snapshot(config)
     except ApiError as error:
         if error.status_code in {403, 404}:
-            soul_version = None
+            soul_snapshot = SoulSnapshot(version=None, content="")
         else:
             raise
 
     pending_approvals = _fetch_pending_approvals(config)
 
     revision_map: dict[str, list[dict[str, Any]]] = {}
-    for status in ("pending", "dispatched", "expired"):
+    for status in ("pending", "dispatched", "expired", "fulfilled", "failed"):
         for revision in _fetch_all_agent_revisions(config, status):
             approval_id = str(revision.get("approval_id") or "")
             if not approval_id:
@@ -613,6 +1119,7 @@ def cmd_reconcile(args: argparse.Namespace) -> int:
 
     summary = {
         "fulfilled": 0,
+        "clarification_comments": 0,
         "deny_recommended": 0,
         "skipped": 0,
         "failed": 0,
@@ -639,7 +1146,7 @@ def cmd_reconcile(args: argparse.Namespace) -> int:
                 }
             )
             continue
-        decision = _queue_decision(messages, soul_version)
+        decision = _queue_decision(messages, soul_snapshot.version)
         if not decision.should_process:
             continue
 
@@ -688,23 +1195,30 @@ def cmd_reconcile(args: argparse.Namespace) -> int:
             decisions.append(entry)
             continue
 
-        payload, mode = _build_fulfillment_payload(
+        payload, mode, action_kind = _build_fulfillment_payload(
             approval_id=approval_id,
             revision_id=revision_id,
             expected_version=expected_version,
             latest_feedback=decision.latest_feedback,
             approval_detail=detail,
-            soul_version=soul_version,
+            soul_version=soul_snapshot.version,
+            soul_text=soul_snapshot.content,
+            messages=messages,
+            revision=revision,
+            revision_history=revision_map.get(approval_id, []),
         )
 
         if args.dry_run:
             summary["processed"] += 1
-            if mode == "comment":
+            if action_kind == "deny_recommendation":
                 summary["deny_recommended"] += 1
+            elif mode == "comment":
+                summary["clarification_comments"] += 1
             else:
                 summary["fulfilled"] += 1
             entry["action"] = "dry_run"
             entry["message_type"] = mode
+            entry["action_kind"] = action_kind
             entry["idempotency_key"] = payload["idempotency_key"]
             decisions.append(entry)
             continue
@@ -717,12 +1231,15 @@ def cmd_reconcile(args: argparse.Namespace) -> int:
                 body=payload,
             )
             summary["processed"] += 1
-            if mode == "comment":
+            if action_kind == "deny_recommendation":
                 summary["deny_recommended"] += 1
+            elif mode == "comment":
+                summary["clarification_comments"] += 1
             else:
                 summary["fulfilled"] += 1
             entry["action"] = "fulfilled"
             entry["message_type"] = mode
+            entry["action_kind"] = action_kind
             decisions.append(entry)
         except ApiError as error:
             code = error.code() or "HTTP_ERROR"
@@ -742,7 +1259,7 @@ def cmd_reconcile(args: argparse.Namespace) -> int:
     remaining = _fetch_all_agent_revisions(config, "pending", limit=200)
     summary["remaining_pending"] = len(remaining)
 
-    print(json.dumps({"soul_version": soul_version, "summary": summary, "decisions": decisions}, indent=2))
+    print(json.dumps({"soul_version": soul_snapshot.version, "summary": summary, "decisions": decisions}, indent=2))
     return 0
 
 

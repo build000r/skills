@@ -4,8 +4,8 @@ set -euo pipefail
 # update-oauth-token.sh — Push credentials to all OpenClaw claw instances.
 #
 # DEFAULT: reads your local Codex OAuth token from ~/.codex/auth.json and
-# writes it as OPENAI_API_KEY on the VPS.  Pass --anthropic to swap to an
-# Anthropic API key instead.
+# writes it as OPENAI_API_KEY on the VPS. You can also push a direct OpenAI
+# API key, an OpenRouter API key, or an Anthropic API key.
 #
 # Co-located Docker-sandboxed claws share the same host but each has its own
 # systemd service and .env file.  This script keeps them in sync by:
@@ -19,6 +19,9 @@ set -euo pipefail
 # PROVIDERS (mutually exclusive, default: --codex)
 #   --codex        Read access_token from ~/.codex/auth.json → OPENAI_API_KEY
 #                  Checks token expiry and warns if < 24 h remaining.
+#   --openai       Read OPENAI_API_KEY from env (or --value) → OPENAI_API_KEY
+#                  Use this for direct OpenAI API keys (recommended for restricted orgs).
+#   --openrouter   Read OPENROUTER_API_KEY from env (or --value) → OPENROUTER_API_KEY
 #   --anthropic    Read Anthropic API key via stdin or --value → ANTHROPIC_API_KEY
 #
 # OPTIONS
@@ -34,6 +37,12 @@ set -euo pipefail
 # EXAMPLES
 #   # Push your Codex token (default) — reads ~/.codex/auth.json automatically
 #   ./update-oauth-token.sh
+#
+#   # Push direct OpenAI API key from your shell env
+#   OPENAI_API_KEY=sk-proj-... ./update-oauth-token.sh --openai
+#
+#   # Push OpenRouter key from your shell env
+#   OPENROUTER_API_KEY=sk-or-v1-... ./update-oauth-token.sh --openrouter
 #
 #   # Push Anthropic key via stdin (never in history)
 #   echo "sk-ant-..." | ./update-oauth-token.sh --anthropic
@@ -55,6 +64,11 @@ set -euo pipefail
 #   When using --codex the VPS model should be one of:
 #     openai/gpt-5.2-codex   (medium reasoning — recommended)
 #     openai/gpt-5.3-codex   (highest capability, matches your local config)
+#   When using --openai:
+#     openai/gpt-5.2-codex or openai/gpt-5.3-codex (requires API key scopes)
+#   When using --openrouter:
+#     openrouter/openai/gpt-5.2-codex
+#     openrouter/openai/gpt-5.3-codex
 #   When using --anthropic:
 #     anthropic/claude-haiku-4-5-20251001  (fast / cheap)
 #     anthropic/claude-sonnet-4-6          (balanced)
@@ -98,6 +112,8 @@ dry()  { printf '\033[1;35m(dry)\033[0m %s\n' "$*"; }
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --codex)        PROVIDER="codex"; shift ;;
+    --openai)       PROVIDER="openai"; shift ;;
+    --openrouter)   PROVIDER="openrouter"; shift ;;
     --anthropic)    PROVIDER="anthropic"; shift ;;
     -v|--value)     VALUE="${2:?--value requires a value}"; shift 2 ;;
     -c|--claw)      CLAW_NAME="${2:?--claw requires a name}"; shift 2 ;;
@@ -150,6 +166,42 @@ Run Codex at least once to authenticate, then retry."
     fi
     ;;
 
+  openai)
+    KEY="OPENAI_API_KEY"
+
+    if [[ -z "${VALUE}" ]]; then
+      if [[ -n "${OPENAI_API_KEY:-}" ]]; then
+        VALUE="${OPENAI_API_KEY}"
+      elif [[ -f "${CODEX_AUTH}" ]]; then
+        command -v jq >/dev/null 2>&1 || die "'jq' is required (brew install jq)"
+        VALUE="$(jq -r '.OPENAI_API_KEY // empty' "${CODEX_AUTH}")"
+      fi
+    fi
+
+    [[ -n "${VALUE}" ]] || die "No OPENAI_API_KEY provided.
+Set OPENAI_API_KEY in your shell or pass --value."
+
+    if [[ "${VALUE}" =~ ^eyJ ]]; then
+      warn "OPENAI_API_KEY looks like an OAuth token (JWT), not a direct API key."
+      warn "If you see missing-scope errors (api.responses.write), use a direct OpenAI API key."
+    fi
+    ;;
+
+  openrouter)
+    KEY="OPENROUTER_API_KEY"
+
+    if [[ -z "${VALUE}" ]]; then
+      VALUE="${OPENROUTER_API_KEY:-}"
+    fi
+
+    [[ -n "${VALUE}" ]] || die "No OPENROUTER_API_KEY provided.
+Set OPENROUTER_API_KEY in your shell or pass --value."
+
+    if [[ ! "${VALUE}" =~ ^sk-or- ]]; then
+      warn "OPENROUTER_API_KEY does not start with 'sk-or-'. Verify key source."
+    fi
+    ;;
+
   anthropic)
     KEY="ANTHROPIC_API_KEY"
 
@@ -165,7 +217,7 @@ Run Codex at least once to authenticate, then retry."
     ;;
 
   *)
-    die "Unknown provider '${PROVIDER}'.  Use --codex or --anthropic."
+    die "Unknown provider '${PROVIDER}'.  Use --codex, --openai, --openrouter, or --anthropic."
     ;;
 esac
 
@@ -374,8 +426,18 @@ warn_model_alignment() {
 
   case "${provider}" in
     codex)
-      if [[ ! "${model_primary}" =~ ^openai/.+-codex$ ]]; then
-        warn "${name}: model '${model_primary}' does not match Codex provider. Expected openai/*-codex."
+      if [[ ! "${model_primary}" =~ ^(openai|openai-codex)/.+-codex$ ]]; then
+        warn "${name}: model '${model_primary}' does not match Codex provider. Expected (openai|openai-codex)/*-codex."
+      fi
+      ;;
+    openai)
+      if [[ ! "${model_primary}" =~ ^openai/ ]]; then
+        warn "${name}: model '${model_primary}' does not match OpenAI provider. Expected openai/*."
+      fi
+      ;;
+    openrouter)
+      if [[ ! "${model_primary}" =~ ^openrouter/ ]]; then
+        warn "${name}: model '${model_primary}' does not match OpenRouter provider. Expected openrouter/*."
       fi
       ;;
     anthropic)
@@ -548,6 +610,16 @@ else
     echo "Model reminder: ensure openclaw.json uses an OpenAI model, e.g.:"
     echo "  openai/gpt-5.2-codex   (medium reasoning — balanced)"
     echo "  openai/gpt-5.3-codex   (highest capability)"
+  elif [[ "${PROVIDER}" == "openai" ]]; then
+    echo ""
+    echo "Model reminder: ensure openclaw.json uses openai/* and your key has responses/model scopes."
+    echo "  openai/gpt-5.2-codex"
+    echo "  openai/gpt-5.3-codex"
+  elif [[ "${PROVIDER}" == "openrouter" ]]; then
+    echo ""
+    echo "Model reminder: ensure openclaw.json uses openrouter/* models."
+    echo "  openrouter/openai/gpt-5.2-codex"
+    echo "  openrouter/openai/gpt-5.3-codex"
   fi
   echo ""
   echo "Verify: bash scripts/talk.sh --health"

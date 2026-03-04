@@ -444,20 +444,80 @@ echo
 # --- L9. Security Posture ---
 echo "=== L9. Security Posture ==="
 
-sshd_config="$(remote 'sshd -T 2>/dev/null || echo unknown')"
-if echo "${sshd_config}" | grep -qi '^passwordauthentication no$'; then
-  pass "L9.1 SSH password auth disabled"
-else
-  fail "L9.1 SSH password auth is not disabled"
+sshd_effective="$(remote 'sudo -n /usr/sbin/sshd -T 2>/dev/null || sudo -n sshd -T 2>/dev/null || true')"
+if [[ -z "${sshd_effective}" ]]; then
+  sshd_effective="$(remote '/usr/sbin/sshd -T 2>/dev/null || sshd -T 2>/dev/null || true')"
+fi
+sshd_effective="${sshd_effective%$'\r'}"
+
+password_auth_setting="$(printf '%s\n' "${sshd_effective}" | awk '/^passwordauthentication / {print tolower($2); exit}')"
+root_login_setting="$(printf '%s\n' "${sshd_effective}" | awk '/^permitrootlogin / {print tolower($2); exit}')"
+password_setting_source="effective"
+root_setting_source="effective"
+sshd_unreadable_count=0
+
+if [[ -z "${password_auth_setting:-}" || -z "${root_login_setting:-}" ]]; then
+  sshd_inferred="$(remote "{ cat /etc/ssh/sshd_config 2>/dev/null; for f in /etc/ssh/sshd_config.d/*.conf; do [ -e \"\$f\" ] || continue; [ -r \"\$f\" ] || continue; cat \"\$f\" 2>/dev/null; done; } | awk 'BEGIN{IGNORECASE=1} /^[[:space:]]*#/ {next} /^[[:space:]]*PermitRootLogin[[:space:]]+/ {print \"permitrootlogin \" tolower(\$2)} /^[[:space:]]*PasswordAuthentication[[:space:]]+/ {print \"passwordauthentication \" tolower(\$2)}' || true")"
+  sshd_inferred="${sshd_inferred%$'\r'}"
+  inferred_password="$(printf '%s\n' "${sshd_inferred}" | awk '/^passwordauthentication / {v=$2} END {print v}')"
+  inferred_root="$(printf '%s\n' "${sshd_inferred}" | awk '/^permitrootlogin / {v=$2} END {print v}')"
+  unreadable_raw="$(remote "count=0; for f in /etc/ssh/sshd_config.d/*.conf; do [ -e \"\$f\" ] || continue; [ -r \"\$f\" ] || count=\$((count+1)); done; echo \"\$count\"")"
+  unreadable_raw="${unreadable_raw%$'\r'}"
+  if [[ "${unreadable_raw}" =~ ^[0-9]+$ ]]; then
+    sshd_unreadable_count="${unreadable_raw}"
+  fi
+  if [[ -z "${password_auth_setting:-}" && -n "${inferred_password:-}" ]]; then
+    password_auth_setting="${inferred_password}"
+    password_setting_source="inferred"
+  fi
+  if [[ -z "${root_login_setting:-}" && -n "${inferred_root:-}" ]]; then
+    root_login_setting="${inferred_root}"
+    root_setting_source="inferred"
+  fi
 fi
 
-if echo "${sshd_config}" | grep -qi '^permitrootlogin no$'; then
-  pass "L9.2 Root SSH login disabled"
-else
-  fail "L9.2 Root SSH login is not disabled"
-fi
+case "${password_auth_setting:-}" in
+  no)
+    if [[ "${password_setting_source}" == "inferred" ]]; then
+      pass "L9.1 SSH password auth disabled (inferred)"
+      warn "L9.1 Root-proof unavailable; inferred from readable sshd config fragments"
+    else
+      pass "L9.1 SSH password auth disabled"
+    fi
+    ;;
+  yes)
+    fail "L9.1 SSH password auth is enabled"
+    ;;
+  *)
+    warn "L9.1 SSH password auth status unknown"
+    ;;
+esac
 
-ufw_status="$(remote 'ufw status 2>/dev/null || sudo -n ufw status 2>/dev/null || echo unavailable')"
+case "${root_login_setting:-}" in
+  no)
+    if [[ "${root_setting_source}" == "inferred" ]]; then
+      pass "L9.2 Root SSH login disabled (inferred)"
+      if [[ "${sshd_unreadable_count}" -gt 0 ]]; then
+        warn "L9.2 Root-proof unavailable; ${sshd_unreadable_count} sshd_config.d file(s) unreadable"
+      else
+        warn "L9.2 Root-proof unavailable; inferred from readable sshd config fragments"
+      fi
+    else
+      pass "L9.2 Root SSH login disabled"
+    fi
+    ;;
+  prohibit-password|without-password|forced-commands-only)
+    warn "L9.2 Root SSH login restricted (${root_login_setting})"
+    ;;
+  yes)
+    fail "L9.2 Root SSH login is enabled"
+    ;;
+  *)
+    warn "L9.2 Root SSH login status unknown"
+    ;;
+esac
+
+ufw_status="$(remote 'sudo -n ufw status 2>/dev/null || ufw status 2>/dev/null || echo unavailable')"
 if [[ "${ufw_status}" == "unavailable" ]]; then
   warn "L9.3 UFW status unavailable"
 elif echo "${ufw_status}" | grep -Eq '22/tcp[[:space:]]+ALLOW IN[[:space:]]+Anywhere'; then

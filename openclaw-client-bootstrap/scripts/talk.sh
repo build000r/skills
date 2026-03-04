@@ -185,6 +185,37 @@ remote() {
   ssh -n "${SSH_OPTS[@]}" "${target}" "$@"
 }
 
+remote_timeout() {
+  local seconds="$1"; shift
+  local target="$1"; shift
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "${seconds}s" ssh -n "${SSH_OPTS[@]}" "${target}" "$@"
+    return $?
+  fi
+
+  ssh -n "${SSH_OPTS[@]}" "${target}" "$@" &
+  local ssh_pid=$!
+
+  (
+    sleep "${seconds}"
+    if kill -0 "${ssh_pid}" 2>/dev/null; then
+      kill -TERM "${ssh_pid}" 2>/dev/null || true
+      sleep 1
+      kill -KILL "${ssh_pid}" 2>/dev/null || true
+    fi
+  ) &
+  local killer_pid=$!
+
+  set +e
+  wait "${ssh_pid}"
+  local rc=$?
+  set -e
+
+  kill "${killer_pid}" 2>/dev/null || true
+  wait "${killer_pid}" 2>/dev/null || true
+  return "${rc}"
+}
+
 remote_tty() {
   local target="$1"; shift
   ssh "${SSH_OPTS[@]}" -t "${target}" "$@"
@@ -194,7 +225,7 @@ discover_agent_id() {
   local target="$1" env_prefix="$2"
   local cmd="${PRIMARY_BIN} agents list 2>/dev/null"
   [[ -n "${env_prefix}" ]] && cmd="${env_prefix} ${cmd}"
-  remote "${target}" "${cmd}" 2>/dev/null \
+  remote_timeout 20 "${target}" "${cmd}" 2>/dev/null \
     | grep '^-' | head -1 | awk '{print $2}' || true
 }
 
@@ -685,7 +716,7 @@ do_list() {
 
     local cmd="${PRIMARY_BIN} agents list 2>/dev/null"
     [[ -n "${env_prefix}" ]] && cmd="${env_prefix} ${cmd}"
-    remote "${target}" "${cmd}" 2>/dev/null \
+    remote_timeout 25 "${target}" "${cmd}" 2>/dev/null \
       | grep -E '^[-[:space:]]' \
       | sed 's/^/│             /' \
       || echo "│             (could not connect)"

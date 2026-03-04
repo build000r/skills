@@ -21,9 +21,10 @@ Convert candidate posts into approval requests through OpenClaw APIs.
 ```bash
 uc_feed smoke
 uc_feed soul --agent-id "${OPENCLAW_AGENT_ID}"
-uc_feed submit --input /tmp/candidate.json
+uc_feed submit --input-json '{"agent_id":"larry","action":"social_reply_approval",...}'
 ```
 
 ## Input Contract
 
-`--input` JSON must match the social-reply approval payload expected by `/v0/approval-requests/social-reply`.
+Use `--input-json` by default in Telegram/runtime contexts to avoid temp-file dependencies.
+If needed in operator shell, `--input /path/to/payload.json` is also supported.

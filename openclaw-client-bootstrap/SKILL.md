@@ -26,6 +26,9 @@ Treat tracked skills as AI runtime instructions, and keep operator/admin runbook
 - Runtime skills should fail closed when required wrapper bins are missing.
 - Keep local project overlays in `modes/` (gitignored).
 - Keep admin-only skills (for example `unclawg-admin`) gitignored/private.
+- Keep deploy secrets gitignored/private. For this repo's runtime-sync
+  workflow secrets, source from `../.env-manager` and publish with:
+  `cd ../.env-manager && set -a && source ./.env.secrets && set +a && ./sync.sh --github opensource/skills`
 - Do not point a production claw at `../skills` wholesale; curate a runtime-safe subset.
 
 ## Architectural Decision First
@@ -135,15 +138,21 @@ bash "$TALK" --claw ingredient-claw --ssh                  # SSH with claw env p
 For local integration workflows, use:
 `--emit-logs`, `--log-dir`, and `--log-prefix` to persist remote claw health snapshots.
 
-## Provider/Auth Rotation (Codex Default)
+## Provider/Auth Rotation (Codex/OpenAI/OpenRouter/Anthropic)
 
 Use `scripts/update-oauth-token.sh` as the single path for credential updates across co-located claws.
 
 ```bash
-# Default provider: Codex OAuth from ~/.codex/auth.json -> OPENAI_API_KEY
+# Codex OAuth (default): ~/.codex/auth.json -> OPENAI_API_KEY
 bash scripts/update-oauth-token.sh --dry-run
 bash scripts/update-oauth-token.sh
-bash scripts/update-oauth-token.sh --ssh-user aiops   # when using dedicated collab login
+bash scripts/update-oauth-token.sh --ssh-user aiops
+
+# Direct OpenAI API key (preferred when OAuth is org-restricted)
+OPENAI_API_KEY=sk-proj-... bash scripts/update-oauth-token.sh --openai
+
+# OpenRouter key
+OPENROUTER_API_KEY=sk-or-v1-... bash scripts/update-oauth-token.sh --openrouter
 
 # Anthropic swap (stdin preferred)
 echo "sk-ant-..." | bash scripts/update-oauth-token.sh --anthropic
@@ -152,8 +161,12 @@ echo "sk-ant-..." | bash scripts/update-oauth-token.sh --anthropic
 What this script now enforces:
 - Updates shared env (`<openclaw-home>/shared.env` by default) and each claw `.env`
 - For Codex, writes canonical `auth-profiles.json` store (`version/profiles/order`) for `openai-codex` under every agent dir
-- Warns on model/provider mismatch (`openai/*-codex` vs `anthropic/*`)
+- Warns on model/provider mismatch (`openai|openai-codex` vs `openrouter/*` vs `anthropic/*`)
 - Warns if `agents.defaults.model.reasoningEffort` exists (can trigger `Unknown config keys` on this runtime)
+
+If you hit OpenAI scope errors like `Missing scopes: api.responses.write`, switch from `--codex` to:
+- `--openai` with a direct OpenAI API key, or
+- `--openrouter` with `openrouter/*` model IDs.
 
 Do not hand-edit `auth-profiles.json` unless diagnosing parser behavior.
 

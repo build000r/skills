@@ -110,22 +110,29 @@ OPENCLAW_STATE_DIR=... openclaw agent \
 
 **Gateway port:** Each co-located claw uses a different gateway port (configured in its `openclaw.json`). If the WebSocket gateway closes with code 1006, `openclaw agent` falls back to embedded mode automatically — this is safe for debugging but the 1006 itself is worth investigating separately.
 
-## Provider Swap Runbook (Codex <-> Anthropic)
+## Provider Swap Runbook (Codex/OpenAI/OpenRouter/Anthropic)
 
 Use this ordered runbook when switching providers or rotating tokens:
 
 1. Update model IDs first (`agents.defaults.model.primary`) in each target `openclaw.json`.
-   - Codex: `openai/gpt-5.3-codex` (or another supported `openai/*-codex`)
+   - Codex/OpenAI direct: `openai/gpt-5.2-codex` or `openai/gpt-5.3-codex`
+   - OpenRouter: `openrouter/openai/gpt-5.2-codex` or `openrouter/openai/gpt-5.3-codex`
    - Anthropic: `anthropic/<model>`
 2. Deploy config files and restart services once.
 3. Rotate credentials with:
    - Codex default: `bash scripts/update-oauth-token.sh`
+   - OpenAI API key: `OPENAI_API_KEY=sk-proj-... bash scripts/update-oauth-token.sh --openai`
+   - OpenRouter key: `OPENROUTER_API_KEY=sk-or-v1-... bash scripts/update-oauth-token.sh --openrouter`
    - Anthropic: `echo "sk-ant-..." | bash scripts/update-oauth-token.sh --anthropic`
 4. Verify with:
    - `bash scripts/talk.sh --list`
    - `bash scripts/talk.sh --health`
    - `bash scripts/talk.sh --health --require-root-proof --json` (definitive SSH/UFW proof; fails if checks are only inferred)
    - `bash scripts/talk.sh --claw <name> --new --message "Reply ONLY: OK"`
+
+Verification notes:
+- `talk.sh --list` is timeboxed per claw. A slow or unhealthy claw now prints partial output instead of stalling the entire command.
+- `review_live.sh` may report SSH hardening as inferred when `sshd -T` cannot be root-verified from the SSH user. Treat inferred secure state as warning-level unless `--require-root-proof` is requested.
 
 Why this order matters:
 - `openai/gpt-5.3-codex` resolves to the `openai-codex` provider, which needs token auth state (`auth-profiles.json`) in addition to env sync.
@@ -134,6 +141,7 @@ Why this order matters:
 Common failure signatures:
 - `No API key found for provider "openai-codex"`: provider auth store missing or wrong schema.
 - `No API key found for provider "anthropic"` while model is OpenAI (or inverse): model/provider mismatch.
+- `Missing scopes: api.responses.write` (OpenAI): current token lacks required write scope. Use `--openai` with direct API key or switch to `--openrouter`.
 - `Unknown config keys`: remove unsupported keys (notably `reasoningEffort` on this runtime).
 
 ---

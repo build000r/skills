@@ -25,11 +25,15 @@ WHITESPACE_RE = re.compile(r"\s+")
 END_WITH_RE = re.compile(r"(?:end|close|finish)\s+with\s*:?\s*(.+)$", re.IGNORECASE)
 SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
 TIGHTEN_KEYWORDS = ("tight", "tighter", "short", "shorter", "trim", "concise", "crisp")
+EXPAND_KEYWORDS = ("longer", "expand", "elaborate", "more detail", "add detail", "add context")
 ACTIONABLE_KEYWORDS = (
     "tight",
     "tighter",
     "short",
     "shorter",
+    "shorten",
+    "simplify",
+    "clearer",
     "trim",
     "concise",
     "crisp",
@@ -52,6 +56,7 @@ AMBIGUOUS_FEEDBACK_RE = re.compile(
     re.IGNORECASE,
 )
 DENY_NEGATION_RE = re.compile(r"\b(?:don't|dont|do not|not)\s+deny\b", re.IGNORECASE)
+SAFETY_NEGATION_RE = re.compile(r"\b(?:not|isn't|isnt)\s+(?:unsafe|illegal|harmful|deceptive|dangerous)\b", re.IGNORECASE)
 DENY_DIRECTIVE_RE = re.compile(
     r"\b(?:recommend|please|should|must|need to)\s+deny\b|\bdeny\s+(?:this|it|request|approval|message)\b",
     re.IGNORECASE,
@@ -60,11 +65,20 @@ POLICY_RISK_RE = re.compile(
     r"\b(unsafe|illegal|fraud|scam|deceptive|harmful|dangerous|exploit|malware|phish(?:ing)?|impersonat(?:e|ion))\b",
     re.IGNORECASE,
 )
+POLICY_VIOLATION_RE = re.compile(
+    r"\b(policy|tos|terms|guideline)\b.*\b(violate|violation|against|not allowed|break)\b|\b(violate|violation)\b.*\b(policy|tos|terms|guideline)\b",
+    re.IGNORECASE,
+)
+RISK_STATEMENT_RE = re.compile(
+    r"\b(?:this|that|it)\s+(?:is|looks|seems)\s+(?:unsafe|illegal|deceptive|harmful|dangerous)\b",
+    re.IGNORECASE,
+)
 SOUL_NO_EMOJI_RE = re.compile(r"\b(?:no|avoid|without)\s+emoji", re.IGNORECASE)
 SOUL_NO_HASHTAG_RE = re.compile(r"\b(?:no|avoid|without)\s+hashtags?\b", re.IGNORECASE)
 SOUL_SINGLE_SENTENCE_RE = re.compile(r"\b(?:one|single)\s+sentence\b", re.IGNORECASE)
 SOUL_NO_EXCLAIM_RE = re.compile(r"\b(?:no|avoid|without)\s+exclamation", re.IGNORECASE)
 EMOJI_RE = re.compile(r"[\U00010000-\U0010FFFF]")
+DENY_CONFIDENCE_THRESHOLD = 0.9
 
 
 class ApiError(RuntimeError):
@@ -105,6 +119,12 @@ class QueueDecision:
 class SoulSnapshot:
     version: int | None
     content: str
+
+
+@dataclass(frozen=True)
+class DenyAssessment:
+    confidence: float
+    reasons: tuple[str, ...]
 
 
 def _parse_env_file(path: Path) -> dict[str, str]:
@@ -753,6 +773,27 @@ def _message_context(message: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _latest_prior_edit_text(prior_machine_messages: list[dict[str, Any]]) -> str:
+    for message in reversed(prior_machine_messages):
+        if message.get("message_type") == "edit_diff":
+            edited = _normalize_text(message.get("edited_content"))
+            if edited:
+                return edited
+            content = _normalize_text(message.get("content"))
+            if content:
+                return content
+    return ""
+
+
+def _count_policy_risk_revisions(revision_outcomes: list[dict[str, Any]]) -> int:
+    count = 0
+    for outcome in revision_outcomes:
+        terminal_reason = _normalize_text(outcome.get("terminal_reason"))
+        if terminal_reason and POLICY_RISK_RE.search(terminal_reason):
+            count += 1
+    return count
+
+
 def _build_revision_context(
     approval_id: str,
     approval_detail: dict[str, Any],
@@ -785,19 +826,26 @@ def _build_revision_context(
             }
         )
 
+    thread_messages = [_message_context(item) for item in ordered_messages]
+    prior_machine_messages = [
+        _message_context(item)
+        for item in ordered_messages
+        if item.get("author_type") == "machine" and item.get("message_type") in {"edit_diff", "comment"}
+    ]
+    feedback_history = [item for item in thread_messages if item.get("message_type") == "feedback"]
+
     return {
         "approval_id": approval_id,
         "seed_text": seed_text,
         "latest_feedback": latest_feedback,
         "latest_feedback_text": _strip_revision_audit_markers((latest_feedback or {}).get("content")),
-        "thread_messages": [_message_context(item) for item in ordered_messages],
+        "thread_messages": thread_messages,
         "trigger_message_ids": _normalize_trigger_ids((revision or {}).get("trigger_message_ids")),
-        "prior_machine_messages": [
-            _message_context(item)
-            for item in ordered_messages
-            if item.get("author_type") == "machine" and item.get("message_type") in {"edit_diff", "comment"}
-        ],
+        "prior_machine_messages": prior_machine_messages,
+        "feedback_history": feedback_history,
+        "latest_prior_edit_text": _latest_prior_edit_text(prior_machine_messages),
         "revision_outcomes": revision_outcomes,
+        "policy_risk_revision_count": _count_policy_risk_revisions(revision_outcomes),
         "soul_version": soul_snapshot.version,
         "soul_text": soul_snapshot.content,
     }
@@ -817,11 +865,52 @@ def _has_actionable_guidance(feedback_text: str) -> bool:
     return False
 
 
+def _feedback_text_history(context: dict[str, Any]) -> list[str]:
+    history = context.get("feedback_history")
+    if not isinstance(history, list):
+        return []
+    items: list[str] = []
+    for entry in history:
+        if not isinstance(entry, dict):
+            continue
+        content = _normalize_text(entry.get("content"))
+        if content:
+            items.append(content)
+    return items
+
+
+def _effective_feedback_text(context: dict[str, Any]) -> str:
+    latest_feedback = _normalize_text(context.get("latest_feedback_text"))
+    if latest_feedback:
+        return latest_feedback
+
+    trigger_ids_raw = context.get("trigger_message_ids")
+    if isinstance(trigger_ids_raw, list) and trigger_ids_raw:
+        trigger_ids = {str(item).strip() for item in trigger_ids_raw if str(item).strip()}
+        history = context.get("feedback_history")
+        if isinstance(history, list):
+            for entry in reversed(history):
+                if not isinstance(entry, dict):
+                    continue
+                message_id = str(entry.get("id") or "").strip()
+                if message_id and message_id in trigger_ids:
+                    content = _normalize_text(entry.get("content"))
+                    if content:
+                        return content
+    return ""
+
+
 def _needs_clarification(context: dict[str, Any]) -> bool:
     seed_text = _normalize_text(context.get("seed_text"))
-    feedback_text = _normalize_text(context.get("latest_feedback_text"))
-    if not seed_text:
+    prior_edit_text = _normalize_text(context.get("latest_prior_edit_text"))
+    feedback_text = _effective_feedback_text(context)
+    feedback_history = _feedback_text_history(context)
+    prior_feedback = feedback_history[:-1] if feedback_history else []
+
+    if not seed_text and not prior_edit_text:
         return True
+    if not seed_text:
+        seed_text = prior_edit_text
     if not feedback_text:
         return False
     if _has_actionable_guidance(feedback_text):
@@ -832,37 +921,85 @@ def _needs_clarification(context: dict[str, Any]) -> bool:
         return True
     if AMBIGUOUS_FEEDBACK_RE.search(compact):
         return True
-    if len(compact) <= 30:
+    if any(_has_actionable_guidance(item) for item in prior_feedback):
+        # If there is already actionable context in prior turns, keep moving unless the latest
+        # feedback is extremely short/noisy.
+        if len(compact) <= 12:
+            return True
+        if compact in {"ok", "k", "sure", "fine"}:
+            return True
+        return False
+    if len(compact) <= 20:
         return True
-    if len(compact.split()) <= 6:
+    if len(compact.split()) <= 4:
         return True
     return False
+
+
+def _assess_deny_confidence(context: dict[str, Any]) -> DenyAssessment:
+    feedback_text = _effective_feedback_text(context)
+    if not feedback_text:
+        return DenyAssessment(confidence=0.0, reasons=())
+
+    score = 0.0
+    reasons: list[str] = []
+    if DENY_NEGATION_RE.search(feedback_text):
+        score -= 0.6
+        reasons.append("deny_negated")
+    if SAFETY_NEGATION_RE.search(feedback_text):
+        score -= 0.25
+        reasons.append("risk_negated")
+
+    lowered = feedback_text.lower()
+    has_deny_directive = DENY_DIRECTIVE_RE.search(feedback_text) is not None
+    risk_terms = POLICY_RISK_RE.findall(feedback_text)
+    has_policy_risk = bool(risk_terms)
+    has_policy_violation = POLICY_VIOLATION_RE.search(feedback_text) is not None
+    explicit_risk_statement = RISK_STATEMENT_RE.search(feedback_text) is not None
+
+    if has_deny_directive:
+        score += 0.45
+        reasons.append("deny_directive")
+    if has_policy_risk:
+        score += 0.35
+        reasons.append("risk_terms")
+        if len(risk_terms) >= 2:
+            score += 0.1
+            reasons.append("multiple_risk_terms")
+    if has_policy_violation:
+        score += 0.2
+        reasons.append("policy_violation")
+    if explicit_risk_statement:
+        score += 0.15
+        reasons.append("explicit_risk_statement")
+
+    feedback_history = _feedback_text_history(context)
+    prior_history = feedback_history[:-1] if feedback_history else []
+    prior_risk_hits = sum(1 for item in prior_history if POLICY_RISK_RE.search(item) or POLICY_VIOLATION_RE.search(item))
+    if prior_risk_hits >= 1:
+        score += 0.1
+        reasons.append("prior_feedback_risk_signal")
+    if prior_risk_hits >= 2:
+        score += 0.05
+        reasons.append("repeated_feedback_risk")
+
+    policy_risk_revision_count = int(context.get("policy_risk_revision_count") or 0)
+    if policy_risk_revision_count >= 1:
+        score += 0.1
+        reasons.append("prior_revision_policy_risk")
+
+    if "safe" in lowered and "unsafe" not in lowered:
+        score -= 0.1
+        reasons.append("safe_language")
+
+    normalized = max(0.0, min(1.0, score))
+    return DenyAssessment(confidence=normalized, reasons=tuple(reasons))
 
 
 def _should_recommend_deny(context: dict[str, Any]) -> bool:
-    feedback_text = _normalize_text(context.get("latest_feedback_text"))
-    if not feedback_text:
-        return False
-    if DENY_NEGATION_RE.search(feedback_text):
-        return False
-
-    explicit_risk_statement = re.search(
-        r"\b(?:this|that|it)\s+(?:is|looks|seems)\s+(?:unsafe|illegal|deceptive|harmful|dangerous)\b",
-        feedback_text,
-        flags=re.IGNORECASE,
-    )
-    has_deny_directive = DENY_DIRECTIVE_RE.search(feedback_text) is not None
-    has_policy_risk = POLICY_RISK_RE.search(feedback_text) is not None
-    lowered = feedback_text.lower()
-    has_policy_violation = "policy" in lowered and any(
-        token in lowered for token in ("violate", "violation", "against", "not allowed", "break")
-    )
-
-    if explicit_risk_statement:
-        return True
-    if has_deny_directive and (has_policy_risk or has_policy_violation):
-        return True
-    return False
+    assessment = _assess_deny_confidence(context)
+    context["deny_assessment"] = {"confidence": assessment.confidence, "reasons": list(assessment.reasons)}
+    return assessment.confidence >= DENY_CONFIDENCE_THRESHOLD
 
 
 def _apply_soul_constraints(text: str, soul_text: str) -> str:
@@ -892,13 +1029,19 @@ def _apply_soul_constraints(text: str, soul_text: str) -> str:
 
 def _build_edit_content(context: dict[str, Any]) -> str:
     seed_text = _normalize_text(context.get("seed_text"))
-    feedback_text = _normalize_text(context.get("latest_feedback_text"))
+    prior_edit_text = _normalize_text(context.get("latest_prior_edit_text"))
+    feedback_text = _effective_feedback_text(context)
+    feedback_history = _feedback_text_history(context)
     soul_text = _normalize_text(context.get("soul_text"))
-    if not seed_text:
+    if not seed_text and not prior_edit_text:
         return ""
 
-    edited = seed_text
-    if _has_tighten_intent(feedback_text):
+    edited = prior_edit_text or seed_text
+    tighten_votes = sum(1 for item in feedback_history if _has_tighten_intent(item))
+    latest_lower = feedback_text.lower()
+    latest_expands = any(keyword in latest_lower for keyword in EXPAND_KEYWORDS)
+    should_tighten = _has_tighten_intent(feedback_text) or (tighten_votes >= 2 and not latest_expands)
+    if should_tighten:
         sentences = _split_sentences(edited)
         if len(sentences) >= 3:
             edited = " ".join(sentences[:2])
@@ -923,9 +1066,21 @@ def _build_clarification_comment(context: dict[str, Any]) -> str:
 
 def _build_deny_recommendation_comment(context: dict[str, Any]) -> str:
     soul_version = context.get("soul_version")
+    assessment = context.get("deny_assessment")
+    confidence = 0.0
+    if isinstance(assessment, dict):
+        try:
+            confidence = float(assessment.get("confidence") or 0.0)
+        except (TypeError, ValueError):
+            confidence = 0.0
+
+    confidence_text = f" (confidence {confidence:.2f})" if confidence > 0 else ""
     if isinstance(soul_version, int):
-        return f"Recommend deny under soul v{soul_version}: latest feedback indicates a policy/safety conflict."[:380]
-    return "Recommend deny: latest feedback indicates a policy/safety conflict."[:380]
+        return (
+            f"Recommend deny under soul v{soul_version}{confidence_text}: "
+            "latest feedback indicates a policy/safety conflict."
+        )[:380]
+    return f"Recommend deny{confidence_text}: latest feedback indicates a policy/safety conflict."[:380]
 
 
 def _build_fulfillment_payload(

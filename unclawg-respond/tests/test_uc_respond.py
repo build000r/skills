@@ -21,13 +21,22 @@ def _load_uc_respond():
     return module
 
 
-def _msg(*, author_type: str, message_type: str, content: str, created_at: str, sequence: int, message_id: str = "") -> dict[str, object]:
+def _msg(
+    *,
+    author_type: str,
+    message_type: str,
+    content: str,
+    created_at: str,
+    sequence: int,
+    message_id: str = "",
+    edited_content: str | None = None,
+) -> dict[str, object]:
     return {
         "id": message_id or f"msg-{sequence}",
         "author_type": author_type,
         "message_type": message_type,
         "content": content,
-        "edited_content": None,
+        "edited_content": edited_content,
         "created_at": created_at,
         "sequence": sequence,
         "deleted_at": None,
@@ -272,6 +281,53 @@ def test_build_fulfillment_payload_uses_latest_feedback_and_end_with_directive()
     assert "comment below for the playbook" not in payload["edited_content"]
 
 
+def test_build_fulfillment_payload_uses_prior_machine_edit_history_in_rewrite() -> None:
+    uc = _load_uc_respond()
+    detail = _approval_detail(
+        proposed_reply="Original seed that should not be reused as the rewrite baseline."
+    )
+    messages = [
+        _msg(
+            author_type="machine",
+            message_type="edit_diff",
+            content="First revision",
+            edited_content=(
+                "Current draft: founders keep final approval while AI drafts the first pass. "
+                "This keeps quality high."
+            ),
+            created_at="2026-03-03T11:00:00Z",
+            sequence=1,
+            message_id="m1",
+        ),
+        _msg(
+            author_type="human",
+            message_type="feedback",
+            content="Shorten this.",
+            created_at="2026-03-03T12:00:00Z",
+            sequence=2,
+            message_id="f1",
+        ),
+    ]
+    revision = _revision(revision_id="rev-ctx", status="pending", created_at="2026-03-03T12:01:00Z", trigger_message_ids=["f1"])
+
+    payload, message_type, action_kind = uc._build_fulfillment_payload(
+        approval_id="apr-test",
+        revision_id="rev-ctx",
+        expected_version=3,
+        latest_feedback=messages[-1],
+        approval_detail=detail,
+        soul_version=9,
+        messages=messages,
+        revision=revision,
+        revision_history=[revision],
+    )
+
+    assert message_type == "edit_diff"
+    assert action_kind == "edit_diff"
+    assert payload["edited_content"].startswith("Current draft:")
+    assert "Original seed that should not be reused" not in payload["edited_content"]
+
+
 def test_build_fulfillment_payload_has_no_default_cta_injection() -> None:
     uc = _load_uc_respond()
     detail = _approval_detail(
@@ -304,6 +360,40 @@ def test_build_fulfillment_payload_has_no_default_cta_injection() -> None:
     assert message_type == "edit_diff"
     assert action_kind == "edit_diff"
     assert "DM me if you want the exact workflow." not in payload["edited_content"]
+
+
+def test_build_fulfillment_payload_short_actionable_feedback_rewrites_not_clarifies() -> None:
+    uc = _load_uc_respond()
+    detail = _approval_detail(
+        proposed_reply=(
+            "Founders keep final approval while AI drafts. "
+            "This removes busywork from daily replies."
+        )
+    )
+    feedback = _msg(
+        author_type="human",
+        message_type="feedback",
+        content="Shorten this.",
+        created_at="2026-03-03T12:00:00Z",
+        sequence=2,
+    )
+    revision = _revision(revision_id="rev-shorten", status="pending", created_at="2026-03-03T12:01:00Z")
+
+    payload, message_type, action_kind = uc._build_fulfillment_payload(
+        approval_id="apr-test",
+        revision_id="rev-shorten",
+        expected_version=3,
+        latest_feedback=feedback,
+        approval_detail=detail,
+        soul_version=9,
+        messages=[feedback],
+        revision=revision,
+        revision_history=[revision],
+    )
+
+    assert message_type == "edit_diff"
+    assert action_kind == "edit_diff"
+    assert "Need clarification" not in payload["content"]
 
 
 def test_build_fulfillment_payload_ambiguous_feedback_returns_clarifying_comment() -> None:
@@ -364,6 +454,94 @@ def test_build_fulfillment_payload_deny_recommendation_requires_high_confidence_
     assert action_kind == "deny_recommendation"
     assert "Recommend deny" in payload["content"]
     assert "edited_content" not in payload
+
+
+def test_build_fulfillment_payload_plain_deny_directive_is_not_high_confidence() -> None:
+    uc = _load_uc_respond()
+    detail = _approval_detail(proposed_reply="Here is a draft reply.")
+    feedback = _msg(
+        author_type="human",
+        message_type="feedback",
+        content="Please deny this.",
+        created_at="2026-03-03T12:00:00Z",
+        sequence=2,
+    )
+    revision = _revision(revision_id="rev-plain-deny", status="pending", created_at="2026-03-03T12:01:00Z")
+
+    payload, message_type, action_kind = uc._build_fulfillment_payload(
+        approval_id="apr-test",
+        revision_id="rev-plain-deny",
+        expected_version=3,
+        latest_feedback=feedback,
+        approval_detail=detail,
+        soul_version=9,
+        messages=[feedback],
+        revision=revision,
+        revision_history=[revision],
+    )
+
+    assert action_kind != "deny_recommendation"
+    assert message_type == "comment"
+    assert "Recommend deny" not in payload["content"]
+
+
+def test_build_fulfillment_payload_deny_confidence_uses_history_signals() -> None:
+    uc = _load_uc_respond()
+    detail = _approval_detail(proposed_reply="Here is a draft reply.")
+    messages = [
+        _msg(
+            author_type="human",
+            message_type="feedback",
+            content="This is deceptive and harmful.",
+            created_at="2026-03-03T10:00:00Z",
+            sequence=1,
+            message_id="f1",
+        ),
+        _msg(
+            author_type="human",
+            message_type="feedback",
+            content="Still unsafe and illegal for policy reasons.",
+            created_at="2026-03-03T11:00:00Z",
+            sequence=2,
+            message_id="f2",
+        ),
+        _msg(
+            author_type="human",
+            message_type="feedback",
+            content="Please deny this for policy violation.",
+            created_at="2026-03-03T12:00:00Z",
+            sequence=3,
+            message_id="f3",
+        ),
+    ]
+    prior_risk_revision = _revision(
+        revision_id="rev-old-risk",
+        status="failed",
+        created_at="2026-03-03T09:00:00Z",
+        terminal_reason="unsafe policy risk",
+    )
+    current_revision = _revision(
+        revision_id="rev-risk-now",
+        status="pending",
+        created_at="2026-03-03T12:01:00Z",
+        trigger_message_ids=["f3"],
+    )
+
+    payload, message_type, action_kind = uc._build_fulfillment_payload(
+        approval_id="apr-test",
+        revision_id="rev-risk-now",
+        expected_version=3,
+        latest_feedback=messages[-1],
+        approval_detail=detail,
+        soul_version=9,
+        messages=messages,
+        revision=current_revision,
+        revision_history=[prior_risk_revision, current_revision],
+    )
+
+    assert message_type == "comment"
+    assert action_kind == "deny_recommendation"
+    assert "confidence" in payload["content"]
 
 
 def test_build_fulfillment_payload_deny_negation_does_not_trigger_deny() -> None:

@@ -4,6 +4,7 @@ import argparse
 import importlib.machinery
 import importlib.util
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -84,6 +85,12 @@ def _revision(
         "fulfilled_message_id": fulfilled_message_id,
         "terminal_reason": terminal_reason,
     }
+
+
+def _semantic_text(value: str) -> str:
+    lowered = value.lower()
+    collapsed = re.sub(r"[^a-z0-9]+", " ", lowered)
+    return re.sub(r"\s+", " ", collapsed).strip()
 
 
 def test_queue_decision_processes_soul_drift_without_feedback() -> None:
@@ -638,9 +645,45 @@ def test_build_fulfillment_payload_social_short_feedback_still_returns_edit_diff
     assert message_type == "edit_diff"
     assert action_kind == "edit_diff"
     assert payload["edited_content"]
-    assert uc._normalize_for_compare(payload["edited_content"]) != uc._normalize_for_compare(
-        detail["context"]["payload"]["proposed_reply"]
+    assert _semantic_text(payload["edited_content"]) != _semantic_text(detail["context"]["payload"]["proposed_reply"])
+
+
+def test_build_fulfillment_payload_social_avoids_punctuation_only_rewrite() -> None:
+    uc = _load_uc_respond()
+    baseline = (
+        "Honest answer from someone building in this space: what the founder handles is the approval queue. "
+        "The AI finds leads, drafts outreach, writes copy — but a human reviews and hits publish. "
+        "That's the actual job now. Less typing, more judgment calls."
     )
+    detail = _approval_detail(
+        proposed_reply=baseline,
+        context_type="social_reply",
+    )
+    feedback = _msg(
+        author_type="human",
+        message_type="feedback",
+        content="\"you\" founder sheds venture funded tiers",
+        created_at="2026-03-03T12:00:00Z",
+        sequence=2,
+    )
+    revision = _revision(revision_id="rev-social-real-diff", status="pending", created_at="2026-03-03T12:01:00Z")
+
+    payload, message_type, action_kind = uc._build_fulfillment_payload(
+        approval_id="apr-test",
+        revision_id="rev-social-real-diff",
+        expected_version=3,
+        latest_feedback=feedback,
+        approval_detail=detail,
+        soul_version=9,
+        messages=[feedback],
+        revision=revision,
+        revision_history=[revision],
+    )
+
+    assert message_type == "edit_diff"
+    assert action_kind == "edit_diff"
+    assert payload["edited_content"]
+    assert _semantic_text(payload["edited_content"]) != _semantic_text(baseline)
 
 
 def test_build_fulfillment_payload_social_one_liner_feedback_returns_edit_diff() -> None:

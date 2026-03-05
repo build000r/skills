@@ -703,6 +703,14 @@ def _normalize_for_compare(value: Any) -> str:
     return WHITESPACE_RE.sub(" ", cleaned).strip().lower()
 
 
+def _semantic_compare_text(value: Any) -> str:
+    normalized = _normalize_for_compare(value)
+    if not normalized:
+        return ""
+    collapsed = re.sub(r"[^a-z0-9]+", " ", normalized)
+    return WHITESPACE_RE.sub(" ", collapsed).strip()
+
+
 def _extract_seed_text(approval_detail: dict[str, Any]) -> str:
     context = approval_detail.get("context")
     payload = context.get("payload") if isinstance(context, dict) else None
@@ -762,6 +770,32 @@ def _append_sentence(base: str, addition: str) -> str:
     return f"{base_clean} {addition_clean}".strip()
 
 
+def _strip_lead_in_clause(sentence: str) -> str:
+    compact = WHITESPACE_RE.sub(" ", sentence).strip()
+    if ":" not in compact:
+        return compact
+    prefix, suffix = compact.split(":", 1)
+    if len(prefix.split()) <= 12 and len(suffix.split()) >= 4:
+        return suffix.strip()
+    return compact
+
+
+def _to_sentence_case(text: str) -> str:
+    value = text.strip()
+    if not value:
+        return ""
+    first = value[0].upper() if value[0].isalpha() else value[0]
+    return f"{first}{value[1:]}"
+
+
+def _to_lower_lead(text: str) -> str:
+    value = text.strip()
+    if not value:
+        return ""
+    first = value[0].lower() if value[0].isalpha() else value[0]
+    return f"{first}{value[1:]}"
+
+
 def _force_material_rewrite(seed_text: str, feedback_text: str) -> str:
     edited = seed_text.strip()
     if not edited:
@@ -778,21 +812,25 @@ def _force_material_rewrite(seed_text: str, feedback_text: str) -> str:
     if tone_hint:
         edited = _apply_tone_style(edited, tone_hint)
 
-    if _normalize_for_compare(edited) == _normalize_for_compare(seed_text):
-        sentences = _split_sentences(edited)
-        if len(sentences) >= 2:
-            first = sentences[0].rstrip(".!?")
-            second = sentences[1].rstrip(".!?")
-            rest = " ".join(sentences[2:]).strip()
-            edited = f"{first}; {second}."
+    if _is_noop_edit(edited, seed_text):
+        sentences = _split_sentences(seed_text)
+        cleaned_sentences = [
+            _strip_lead_in_clause(item).rstrip(".!?").strip()
+            for item in sentences
+            if _strip_lead_in_clause(item).strip()
+        ]
+        if cleaned_sentences:
+            lead = _to_sentence_case(cleaned_sentences[0])
+            rest = ". ".join(item.strip().rstrip(".!?") for item in cleaned_sentences[1:] if item.strip()).strip()
             if rest:
-                edited = f"{edited} {rest}"
-        elif sentences:
-            sentence = sentences[0].strip()
-            if sentence:
-                if sentence[0].isalpha():
-                    sentence = sentence[0].lower() + sentence[1:]
-                edited = f"In practice, {sentence}"
+                edited = f"{lead}. In practice, {_to_lower_lead(rest)}."
+            else:
+                edited = f"In practice, {_to_lower_lead(lead)}."
+
+    if _is_noop_edit(edited, seed_text):
+        compact_seed = _strip_lead_in_clause(seed_text).strip().rstrip(".!?")
+        if compact_seed:
+            edited = f"Core point: {_to_sentence_case(compact_seed)}."
 
     cta = _extract_end_with_directive(feedback_text)
     if cta:
@@ -802,10 +840,10 @@ def _force_material_rewrite(seed_text: str, feedback_text: str) -> str:
 
 
 def _is_noop_edit(edited_content: str, baseline: str) -> bool:
-    normalized_baseline = _normalize_for_compare(baseline)
+    normalized_baseline = _semantic_compare_text(baseline)
     if not normalized_baseline:
         return False
-    return _normalize_for_compare(edited_content) == normalized_baseline
+    return _semantic_compare_text(edited_content) == normalized_baseline
 
 
 def _ordered_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1397,7 +1435,8 @@ def _build_fulfillment_payload(
             edited_content = _strip_revision_audit_markers(fallback_feedback or baseline)[:1900]
 
         if _is_noop_edit(edited_content, baseline):
-            edited_content = _append_sentence(edited_content, "Reframed to reflect the latest feedback.")
+            feedback_text = _normalize_text(context_bundle.get("latest_feedback_text"))
+            edited_content = _force_material_rewrite(baseline or edited_content, feedback_text or "rewrite tighter")
             edited_content = _apply_soul_constraints(edited_content, _normalize_text(context_bundle.get("soul_text")))
             edited_content = _strip_revision_audit_markers(edited_content)[:1900]
 

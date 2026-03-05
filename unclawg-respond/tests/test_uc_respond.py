@@ -43,14 +43,23 @@ def _msg(
     }
 
 
-def _approval_detail(*, proposed_reply: str | None = None, summary: str | None = None, version: int = 3) -> dict[str, Any]:
+def _approval_detail(
+    *,
+    proposed_reply: str | None = None,
+    summary: str | None = None,
+    version: int = 3,
+    context_type: str | None = None,
+) -> dict[str, Any]:
     payload: dict[str, Any] = {}
     if proposed_reply is not None:
         payload["proposed_reply"] = proposed_reply
     if summary is not None:
         payload["summary"] = summary
+    context: dict[str, Any] = {"payload": payload}
+    if context_type is not None:
+        context["context_type"] = context_type
     return {
-        "context": {"payload": payload},
+        "context": context,
         "version": version,
         "status": "pending",
     }
@@ -495,13 +504,84 @@ def test_build_fulfillment_payload_short_actionable_feedback_rewrites_not_clarif
     assert "Need clarification" not in payload["content"]
 
 
-def test_build_fulfillment_payload_ambiguous_feedback_returns_clarifying_comment() -> None:
+def test_build_fulfillment_payload_update_per_new_soul_generates_edit_diff() -> None:
     uc = _load_uc_respond()
-    detail = _approval_detail(proposed_reply="I can share the framework if helpful.")
+    baseline = (
+        "Founders keep final approval while AI drafts initial replies. "
+        "The approval queue is where judgment still matters."
+    )
+    detail = _approval_detail(proposed_reply=baseline)
     feedback = _msg(
         author_type="human",
         message_type="feedback",
-        content="idk about this",
+        content="update per new soul",
+        created_at="2026-03-03T12:00:00Z",
+        sequence=2,
+    )
+    revision = _revision(revision_id="rev-soul", status="pending", created_at="2026-03-03T12:01:00Z")
+
+    payload, message_type, action_kind = uc._build_fulfillment_payload(
+        approval_id="apr-test",
+        revision_id="rev-soul",
+        expected_version=3,
+        latest_feedback=feedback,
+        approval_detail=detail,
+        soul_version=9,
+        messages=[feedback],
+        revision=revision,
+        revision_history=[revision],
+    )
+
+    assert message_type == "edit_diff"
+    assert action_kind == "edit_diff"
+    assert "Need clarification" not in payload["content"]
+    assert uc._normalize_for_compare(payload["edited_content"]) != uc._normalize_for_compare(baseline)
+
+
+def test_build_fulfillment_payload_deadpan_feedback_generates_material_rewrite() -> None:
+    uc = _load_uc_respond()
+    detail = _approval_detail(
+        proposed_reply=(
+            "Autonomous marketing agents can run campaigns all night. "
+            "The hard part is keeping public output on-brand when no one is awake."
+        )
+    )
+    feedback = _msg(
+        author_type="human",
+        message_type="feedback",
+        content="Make this funnier and deadpan, sarcastic tone.",
+        created_at="2026-03-03T12:00:00Z",
+        sequence=2,
+    )
+    revision = _revision(revision_id="rev-deadpan", status="pending", created_at="2026-03-03T12:01:00Z")
+
+    payload, message_type, action_kind = uc._build_fulfillment_payload(
+        approval_id="apr-test",
+        revision_id="rev-deadpan",
+        expected_version=3,
+        latest_feedback=feedback,
+        approval_detail=detail,
+        soul_version=9,
+        messages=[feedback],
+        revision=revision,
+        revision_history=[revision],
+    )
+
+    assert message_type == "edit_diff"
+    assert action_kind == "edit_diff"
+    assert payload["edited_content"].startswith("Deadpan take:")
+
+
+def test_build_fulfillment_payload_non_social_ambiguous_feedback_returns_clarification() -> None:
+    uc = _load_uc_respond()
+    detail = _approval_detail(
+        proposed_reply="I can share the framework if helpful.",
+        context_type="trade_action",
+    )
+    feedback = _msg(
+        author_type="human",
+        message_type="feedback",
+        content="ok?",
         created_at="2026-03-03T12:00:00Z",
         sequence=2,
     )
@@ -523,6 +603,96 @@ def test_build_fulfillment_payload_ambiguous_feedback_returns_clarifying_comment
     assert action_kind == "clarification"
     assert "Need clarification" in payload["content"]
     assert "edited_content" not in payload
+
+
+def test_build_fulfillment_payload_social_short_feedback_still_returns_edit_diff() -> None:
+    uc = _load_uc_respond()
+    detail = _approval_detail(
+        proposed_reply=(
+            "\"Who use it properly\" is doing a lot of heavy lifting here lol. "
+            "My agent used prediction markets very improperly at 3am once."
+        ),
+        context_type="social_reply",
+    )
+    feedback = _msg(
+        author_type="human",
+        message_type="feedback",
+        content="thats quite a prediction",
+        created_at="2026-03-03T12:00:00Z",
+        sequence=2,
+    )
+    revision = _revision(revision_id="rev-social-short", status="pending", created_at="2026-03-03T12:01:00Z")
+
+    payload, message_type, action_kind = uc._build_fulfillment_payload(
+        approval_id="apr-test",
+        revision_id="rev-social-short",
+        expected_version=3,
+        latest_feedback=feedback,
+        approval_detail=detail,
+        soul_version=9,
+        messages=[feedback],
+        revision=revision,
+        revision_history=[revision],
+    )
+
+    assert message_type == "edit_diff"
+    assert action_kind == "edit_diff"
+    assert payload["edited_content"]
+    assert uc._normalize_for_compare(payload["edited_content"]) != uc._normalize_for_compare(
+        detail["context"]["payload"]["proposed_reply"]
+    )
+
+
+def test_build_fulfillment_payload_social_one_liner_feedback_returns_edit_diff() -> None:
+    uc = _load_uc_respond()
+    detail = _approval_detail(
+        proposed_reply="We had a similar thing — the prompt said do not act, but the agent still posted.",
+        context_type="social_reply",
+    )
+    feedback = _msg(
+        author_type="human",
+        message_type="feedback",
+        content="llama 4?",
+        created_at="2026-03-03T12:00:00Z",
+        sequence=2,
+    )
+    revision = _revision(revision_id="rev-social-one-liner", status="pending", created_at="2026-03-03T12:01:00Z")
+
+    payload, message_type, action_kind = uc._build_fulfillment_payload(
+        approval_id="apr-test",
+        revision_id="rev-social-one-liner",
+        expected_version=3,
+        latest_feedback=feedback,
+        approval_detail=detail,
+        soul_version=9,
+        messages=[feedback],
+        revision=revision,
+        revision_history=[revision],
+    )
+
+    assert message_type == "edit_diff"
+    assert action_kind == "edit_diff"
+    assert payload["edited_content"]
+
+
+def test_queue_decision_uses_human_comment_as_feedback_signal() -> None:
+    uc = _load_uc_respond()
+    messages = [
+        _msg(
+            author_type="human",
+            message_type="comment",
+            content="Tighten this one.",
+            created_at="2026-03-03T12:00:00Z",
+            sequence=1,
+        )
+    ]
+
+    decision = uc._queue_decision(messages, published_soul_version=8)
+
+    assert decision.should_process is True
+    assert decision.reason == "no_machine_response"
+    assert decision.latest_feedback is not None
+    assert decision.latest_feedback.get("message_type") == "comment"
 
 
 def test_build_fulfillment_payload_deny_recommendation_requires_high_confidence_signal() -> None:

@@ -32,6 +32,8 @@ TONE_HINTS: dict[str, tuple[str, ...]] = {
     "formal": ("formal", "polished"),
     "professional": ("professional", "executive"),
     "friendly": ("friendly", "warm", "human"),
+    "deadpan": ("deadpan", "sarcastic", "dry", "wry", "snark"),
+    "playful": ("funny", "funnier", "humorous", "playful", "joke"),
 }
 ACTIONABLE_KEYWORDS = (
     "tight",
@@ -57,6 +59,18 @@ ACTIONABLE_KEYWORDS = (
     "cut",
     "cta",
     "ending",
+    "update",
+    "refresh",
+    "rewrite",
+    "soul",
+    "voice",
+    "deadpan",
+    "sarcastic",
+    "funnier",
+)
+SOUL_UPDATE_HINT_RE = re.compile(
+    r"\b(?:update|refresh|rewrite|align)\b.{0,24}\b(?:soul|voice|tone|style)\b",
+    re.IGNORECASE,
 )
 AMBIGUOUS_FEEDBACK_RE = re.compile(
     r"\b(idk|i don't know|not sure|unsure|maybe|hmm|whatever|unclear|off|feels off)\b|^\?+$",
@@ -493,7 +507,10 @@ def _queue_decision(
     messages: list[dict[str, Any]],
     published_soul_version: int | None,
 ) -> QueueDecision:
-    latest_feedback = _latest_message(messages, lambda item: item.get("message_type") == "feedback")
+    latest_feedback = _latest_message(
+        messages,
+        lambda item: item.get("author_type") != "machine" and item.get("message_type") in {"feedback", "comment"},
+    )
     latest_machine = _latest_message(
         messages,
         lambda item: item.get("author_type") == "machine" and item.get("message_type") in {"edit_diff", "comment"},
@@ -698,6 +715,13 @@ def _extract_seed_text(approval_detail: dict[str, Any]) -> str:
     return _strip_revision_audit_markers(payload.get("summary"))
 
 
+def _extract_context_type(approval_detail: dict[str, Any]) -> str:
+    context = approval_detail.get("context")
+    if not isinstance(context, dict):
+        return ""
+    return _normalize_text(context.get("context_type")).lower()
+
+
 def _split_sentences(text: str) -> list[str]:
     cleaned = WHITESPACE_RE.sub(" ", text).strip()
     if not cleaned:
@@ -740,12 +764,35 @@ def _append_sentence(base: str, addition: str) -> str:
 
 def _force_material_rewrite(seed_text: str, feedback_text: str) -> str:
     edited = seed_text.strip()
+    if not edited:
+        return ""
+
     if _has_tighten_intent(feedback_text):
         sentences = _split_sentences(edited)
         if len(sentences) >= 3:
             edited = " ".join(sentences[:2])
         elif len(sentences) == 2:
             edited = sentences[0]
+
+    tone_hint = _detect_tone_hint(feedback_text)
+    if tone_hint:
+        edited = _apply_tone_style(edited, tone_hint)
+
+    if _normalize_for_compare(edited) == _normalize_for_compare(seed_text):
+        sentences = _split_sentences(edited)
+        if len(sentences) >= 2:
+            first = sentences[0].rstrip(".!?")
+            second = sentences[1].rstrip(".!?")
+            rest = " ".join(sentences[2:]).strip()
+            edited = f"{first}; {second}."
+            if rest:
+                edited = f"{edited} {rest}"
+        elif sentences:
+            sentence = sentences[0].strip()
+            if sentence:
+                if sentence[0].isalpha():
+                    sentence = sentence[0].lower() + sentence[1:]
+                edited = f"In practice, {sentence}"
 
     cta = _extract_end_with_directive(feedback_text)
     if cta:
@@ -856,10 +903,15 @@ def _build_revision_context(
         for item in ordered_messages
         if item.get("author_type") == "machine" and item.get("message_type") in {"edit_diff", "comment"}
     ]
-    feedback_history = [item for item in thread_messages if item.get("message_type") == "feedback"]
+    feedback_history = [
+        item
+        for item in thread_messages
+        if item.get("author_type") != "machine" and item.get("message_type") in {"feedback", "comment"}
+    ]
 
     return {
         "approval_id": approval_id,
+        "context_type": _extract_context_type(approval_detail),
         "seed_text": seed_text,
         "latest_feedback": latest_feedback,
         "latest_feedback_text": _strip_revision_audit_markers((latest_feedback or {}).get("content")),
@@ -883,6 +935,10 @@ def _has_actionable_guidance(feedback_text: str) -> bool:
         return True
     lowered = compact.lower()
     if any(keyword in lowered for keyword in ACTIONABLE_KEYWORDS):
+        return True
+    if SOUL_UPDATE_HINT_RE.search(compact):
+        return True
+    if _detect_tone_hint(compact):
         return True
     if ":" in compact and len(compact.split()) >= 6:
         return True
@@ -1042,15 +1098,20 @@ def _needs_clarification(context: dict[str, Any]) -> bool:
     seed_text = _normalize_text(context.get("seed_text"))
     prior_edit_text = _normalize_text(context.get("latest_prior_edit_text"))
     feedback_text = _effective_feedback_text(context)
+    context_type = _normalize_text(context.get("context_type")).lower()
     feedback_history = _feedback_text_history(context)
     prior_feedback = feedback_history[:-1] if feedback_history else []
 
     if not seed_text and not prior_edit_text:
         return True
-    if not seed_text:
-        seed_text = prior_edit_text
     if not feedback_text:
         return False
+
+    if context_type == "social_reply":
+        # For social replies, treat any non-empty human feedback as directional
+        # and always produce a copy/paste-ready rewrite when source text exists.
+        return False
+
     if _has_actionable_guidance(feedback_text):
         return False
 
@@ -1060,8 +1121,6 @@ def _needs_clarification(context: dict[str, Any]) -> bool:
     if AMBIGUOUS_FEEDBACK_RE.search(compact):
         return True
     if any(_has_actionable_guidance(item) for item in prior_feedback):
-        # If there is already actionable context in prior turns, keep moving unless the latest
-        # feedback is extremely short/noisy.
         if len(compact) <= 12:
             return True
         if compact in {"ok", "k", "sure", "fine"}:
@@ -1185,6 +1244,10 @@ def _apply_tone_style(text: str, tone: str) -> str:
         edited = edited.replace("don't", "do not").replace("can't", "cannot").replace("it's", "it is")
     if tone == "casual":
         edited = edited.replace("do not", "don't").replace("cannot", "can't").replace("it is", "it's")
+    if tone == "deadpan" and not edited.lower().startswith("deadpan take:"):
+        edited = f"Deadpan take: {edited}"
+    if tone == "playful" and not edited.lower().startswith("Quick take:"):
+        edited = f"Quick take: {edited}"
     return WHITESPACE_RE.sub(" ", edited).strip()
 
 
@@ -1329,17 +1392,21 @@ def _build_fulfillment_payload(
             edited_content = _apply_soul_constraints(edited_content, _normalize_text(context_bundle.get("soul_text")))
             edited_content = _strip_revision_audit_markers(edited_content)[:1900]
 
-        if not edited_content or _is_noop_edit(edited_content, baseline):
-            action_kind = "clarification"
-            content = _build_clarification_comment(context_bundle)
-            message_type = "comment"
-        else:
-            content = (
-                f"Revised draft under soul v{soul_marker}."
-                if soul_snapshot.version is not None
-                else "Revised draft after latest feedback."
-            )
-            message_type = "edit_diff"
+        if not edited_content:
+            fallback_feedback = _normalize_text(context_bundle.get("latest_feedback_text"))
+            edited_content = _strip_revision_audit_markers(fallback_feedback or baseline)[:1900]
+
+        if _is_noop_edit(edited_content, baseline):
+            edited_content = _append_sentence(edited_content, "Reframed to reflect the latest feedback.")
+            edited_content = _apply_soul_constraints(edited_content, _normalize_text(context_bundle.get("soul_text")))
+            edited_content = _strip_revision_audit_markers(edited_content)[:1900]
+
+        content = (
+            f"Revised draft under soul v{soul_marker}."
+            if soul_snapshot.version is not None
+            else "Revised draft after latest feedback."
+        )
+        message_type = "edit_diff"
 
     if message_type == "edit_diff":
         action_kind = "edit_diff"

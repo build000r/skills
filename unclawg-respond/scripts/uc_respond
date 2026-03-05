@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -913,7 +914,10 @@ def _build_revision_context(
     soul_snapshot: SoulSnapshot,
 ) -> dict[str, Any]:
     ordered_messages = _ordered_messages(messages)
-    latest_feedback = _latest_message(ordered_messages, lambda item: item.get("message_type") == "feedback")
+    latest_feedback = _latest_message(
+        ordered_messages,
+        lambda item: item.get("author_type") != "machine" and item.get("message_type") in {"feedback", "comment"},
+    )
     seed_text = _extract_seed_text(approval_detail)
 
     ordered_revisions = [item for item in (revision_history or []) if isinstance(item, dict)]
@@ -1353,6 +1357,91 @@ def _build_edit_content(context: dict[str, Any]) -> str:
     return _strip_revision_audit_markers(edited)[:1900]
 
 
+def _build_social_rewrite_context_dump(context: dict[str, Any]) -> dict[str, Any]:
+    feedback_history: list[dict[str, Any]] = []
+    history_raw = context.get("feedback_history")
+    if isinstance(history_raw, list):
+        for item in history_raw:
+            if not isinstance(item, dict):
+                continue
+            feedback_history.append(
+                {
+                    "id": str(item.get("id") or ""),
+                    "message_type": _normalize_text(item.get("message_type")),
+                    "content": _normalize_text(item.get("content")),
+                    "created_at": item.get("created_at"),
+                    "sequence": _sequence(item.get("sequence")),
+                }
+            )
+
+    return {
+        "approval_id": _normalize_text(context.get("approval_id")),
+        "context_type": _normalize_text(context.get("context_type")),
+        "seed_text": _normalize_text(context.get("seed_text")),
+        "latest_prior_edit_text": _normalize_text(context.get("latest_prior_edit_text")),
+        "latest_feedback_text": _normalize_text(context.get("latest_feedback_text")),
+        "feedback_history": feedback_history,
+        "thread_messages": context.get("thread_messages") if isinstance(context.get("thread_messages"), list) else [],
+        "trigger_message_ids": _normalize_trigger_ids(context.get("trigger_message_ids")),
+        "revision_outcomes": context.get("revision_outcomes") if isinstance(context.get("revision_outcomes"), list) else [],
+        "soul_text": _normalize_text(context.get("soul_text")),
+        "soul_version": context.get("soul_version"),
+    }
+
+
+def _call_social_rewrite_model(context_dump: dict[str, Any]) -> str:
+    cmd_raw = (os.environ.get("OPENCLAW_SOCIAL_REWRITE_CMD") or "").strip()
+    if not cmd_raw:
+        return ""
+
+    try:
+        cmd = shlex.split(cmd_raw)
+    except ValueError:
+        return ""
+    if not cmd:
+        return ""
+
+    payload = json.dumps(context_dump, separators=(",", ":"), ensure_ascii=False)
+    try:
+        completed = subprocess.run(
+            cmd,
+            input=payload,
+            capture_output=True,
+            text=True,
+            timeout=45,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+
+    if completed.returncode != 0:
+        return ""
+
+    stdout = _normalize_text(completed.stdout)
+    if not stdout:
+        return ""
+
+    try:
+        parsed = json.loads(stdout)
+    except json.JSONDecodeError:
+        return stdout
+
+    if isinstance(parsed, dict):
+        edited = _normalize_text(parsed.get("edited_content") or parsed.get("content"))
+        if edited:
+            return edited
+    return ""
+
+
+def _rewrite_social_reply_from_context_dump(context: dict[str, Any]) -> str:
+    context_dump = _build_social_rewrite_context_dump(context)
+    edited = _call_social_rewrite_model(context_dump)
+    if not edited:
+        return ""
+    edited = _apply_soul_constraints(edited, _normalize_text(context.get("soul_text")))
+    return _strip_revision_audit_markers(edited)[:1900]
+
+
 def _build_clarification_comment(context: dict[str, Any]) -> str:
     soul_version = context.get("soul_version")
     prefix = f"Need clarification under soul v{soul_version}." if isinstance(soul_version, int) else "Need clarification."
@@ -1402,9 +1491,11 @@ def _build_fulfillment_payload(
         revision_history=revision_history,
         soul_snapshot=soul_snapshot,
     )
-    if context_bundle.get("latest_feedback") is None and latest_feedback is not None:
-        context_bundle["latest_feedback"] = latest_feedback
-        context_bundle["latest_feedback_text"] = _strip_revision_audit_markers(latest_feedback.get("content"))
+    if latest_feedback is not None:
+        current_feedback = context_bundle.get("latest_feedback")
+        if not isinstance(current_feedback, dict) or _message_key(latest_feedback) >= _message_key(current_feedback):
+            context_bundle["latest_feedback"] = latest_feedback
+            context_bundle["latest_feedback_text"] = _strip_revision_audit_markers(latest_feedback.get("content"))
 
     feedback_hash = _feedback_fingerprint(context_bundle.get("latest_feedback"))
     soul_marker = soul_snapshot.version if soul_snapshot.version is not None else 0
@@ -1422,23 +1513,22 @@ def _build_fulfillment_payload(
         content = _build_clarification_comment(context_bundle)
         message_type = "comment"
     else:
-        baseline = _normalize_text(context_bundle.get("seed_text"))
-        edited_content = _build_edit_content(context_bundle)
-        if _is_noop_edit(edited_content, baseline):
-            feedback_text = _normalize_text(context_bundle.get("latest_feedback_text"))
-            edited_content = _force_material_rewrite(baseline or edited_content, feedback_text)
-            edited_content = _apply_soul_constraints(edited_content, _normalize_text(context_bundle.get("soul_text")))
-            edited_content = _strip_revision_audit_markers(edited_content)[:1900]
+        seed_baseline = _normalize_text(context_bundle.get("seed_text"))
+        active_baseline = _normalize_text(context_bundle.get("latest_prior_edit_text")) or seed_baseline
+        context_type = _normalize_text(context_bundle.get("context_type")).lower()
+        if context_type == "social_reply":
+            edited_content = _rewrite_social_reply_from_context_dump(context_bundle)
+        else:
+            edited_content = _build_edit_content(context_bundle)
+            if _is_noop_edit(edited_content, active_baseline):
+                feedback_text = _normalize_text(context_bundle.get("latest_feedback_text"))
+                edited_content = _force_material_rewrite(active_baseline or edited_content, feedback_text)
+                edited_content = _apply_soul_constraints(edited_content, _normalize_text(context_bundle.get("soul_text")))
+                edited_content = _strip_revision_audit_markers(edited_content)[:1900]
 
         if not edited_content:
             fallback_feedback = _normalize_text(context_bundle.get("latest_feedback_text"))
-            edited_content = _strip_revision_audit_markers(fallback_feedback or baseline)[:1900]
-
-        if _is_noop_edit(edited_content, baseline):
-            feedback_text = _normalize_text(context_bundle.get("latest_feedback_text"))
-            edited_content = _force_material_rewrite(baseline or edited_content, feedback_text or "rewrite tighter")
-            edited_content = _apply_soul_constraints(edited_content, _normalize_text(context_bundle.get("soul_text")))
-            edited_content = _strip_revision_audit_markers(edited_content)[:1900]
+            edited_content = _strip_revision_audit_markers(fallback_feedback or active_baseline)[:1900]
 
         content = (
             f"Revised draft under soul v{soul_marker}."

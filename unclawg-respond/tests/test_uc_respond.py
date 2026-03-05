@@ -4,7 +4,6 @@ import argparse
 import importlib.machinery
 import importlib.util
 import os
-import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -85,12 +84,6 @@ def _revision(
         "fulfilled_message_id": fulfilled_message_id,
         "terminal_reason": terminal_reason,
     }
-
-
-def _semantic_text(value: str) -> str:
-    lowered = value.lower()
-    collapsed = re.sub(r"[^a-z0-9]+", " ", lowered)
-    return re.sub(r"\s+", " ", collapsed).strip()
 
 
 def test_queue_decision_processes_soul_drift_without_feedback() -> None:
@@ -545,6 +538,109 @@ def test_build_fulfillment_payload_update_per_new_soul_generates_edit_diff() -> 
     assert uc._normalize_for_compare(payload["edited_content"]) != uc._normalize_for_compare(baseline)
 
 
+def test_build_fulfillment_payload_social_uses_context_dump_model_output(monkeypatch) -> None:
+    uc = _load_uc_respond()
+    detail = _approval_detail(
+        proposed_reply="Founders keep approvals while AI drafts.",
+        context_type="social_reply",
+    )
+    feedback = _msg(
+        author_type="human",
+        message_type="feedback",
+        content="Please rewrite this with clearer framing.",
+        created_at="2026-03-05T06:58:00Z",
+        sequence=3,
+        message_id="msg-social",
+    )
+    revision = _revision(
+        revision_id="rev-social-context",
+        status="pending",
+        created_at="2026-03-05T07:00:00Z",
+        trigger_message_ids=["msg-social"],
+    )
+
+    monkeypatch.setattr(uc, "_call_social_rewrite_model", lambda _dump: "Model rewrite output.")
+    monkeypatch.setattr(
+        uc,
+        "_force_material_rewrite",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("fallback should not run when model returns content")),
+    )
+
+    payload, message_type, action_kind = uc._build_fulfillment_payload(
+        approval_id="apr-21856dbdd4",
+        revision_id="rev-social-context",
+        expected_version=3,
+        latest_feedback=feedback,
+        approval_detail=detail,
+        soul_version=9,
+        messages=[feedback],
+        revision=revision,
+        revision_history=[revision],
+    )
+
+    assert message_type == "edit_diff"
+    assert action_kind == "edit_diff"
+    assert payload["edited_content"] == "Model rewrite output."
+
+
+def test_build_fulfillment_payload_social_context_dump_uses_latest_feedback_comment(monkeypatch) -> None:
+    uc = _load_uc_respond()
+    detail = _approval_detail(
+        proposed_reply="Seed social draft.",
+        context_type="social_reply",
+    )
+    older_feedback = _msg(
+        author_type="human",
+        message_type="feedback",
+        content="older feedback",
+        created_at="2026-03-05T06:40:00Z",
+        sequence=2,
+        message_id="msg-old",
+    )
+    latest_comment = _msg(
+        author_type="human",
+        message_type="comment",
+        content="latest comment should drive rewrite",
+        created_at="2026-03-05T06:58:00Z",
+        sequence=3,
+        message_id="msg-new",
+    )
+    revision = _revision(
+        revision_id="rev-social-context-latest",
+        status="pending",
+        created_at="2026-03-05T07:00:00Z",
+        trigger_message_ids=["msg-new"],
+    )
+
+    captured_dump: dict[str, Any] = {}
+
+    def _capture_model(context_dump: dict[str, Any]) -> str:
+        captured_dump.update(context_dump)
+        return "model output from dump"
+
+    monkeypatch.setattr(uc, "_call_social_rewrite_model", _capture_model)
+
+    payload, message_type, action_kind = uc._build_fulfillment_payload(
+        approval_id="apr-21856dbdd4",
+        revision_id="rev-social-context-latest",
+        expected_version=3,
+        latest_feedback=latest_comment,
+        approval_detail=detail,
+        soul_version=9,
+        messages=[older_feedback, latest_comment],
+        revision=revision,
+        revision_history=[revision],
+    )
+
+    assert message_type == "edit_diff"
+    assert action_kind == "edit_diff"
+    assert payload["edited_content"] == "model output from dump"
+    assert captured_dump["latest_feedback_text"] == "latest comment should drive rewrite"
+    assert captured_dump["feedback_history"][-1]["content"] == "latest comment should drive rewrite"
+    assert captured_dump["trigger_message_ids"] == ["msg-new"]
+    assert isinstance(captured_dump["revision_outcomes"], list)
+
+
 def test_build_fulfillment_payload_deadpan_feedback_generates_material_rewrite() -> None:
     uc = _load_uc_respond()
     detail = _approval_detail(
@@ -612,7 +708,7 @@ def test_build_fulfillment_payload_non_social_ambiguous_feedback_returns_clarifi
     assert "edited_content" not in payload
 
 
-def test_build_fulfillment_payload_social_short_feedback_still_returns_edit_diff() -> None:
+def test_build_fulfillment_payload_social_short_feedback_still_returns_edit_diff(monkeypatch) -> None:
     uc = _load_uc_respond()
     detail = _approval_detail(
         proposed_reply=(
@@ -629,6 +725,7 @@ def test_build_fulfillment_payload_social_short_feedback_still_returns_edit_diff
         sequence=2,
     )
     revision = _revision(revision_id="rev-social-short", status="pending", created_at="2026-03-03T12:01:00Z")
+    monkeypatch.setattr(uc, "_call_social_rewrite_model", lambda _dump: "social rewrite short")
 
     payload, message_type, action_kind = uc._build_fulfillment_payload(
         approval_id="apr-test",
@@ -645,48 +742,10 @@ def test_build_fulfillment_payload_social_short_feedback_still_returns_edit_diff
     assert message_type == "edit_diff"
     assert action_kind == "edit_diff"
     assert payload["edited_content"]
-    assert _semantic_text(payload["edited_content"]) != _semantic_text(detail["context"]["payload"]["proposed_reply"])
+    assert payload["edited_content"] == "social rewrite short"
 
 
-def test_build_fulfillment_payload_social_avoids_punctuation_only_rewrite() -> None:
-    uc = _load_uc_respond()
-    baseline = (
-        "Honest answer from someone building in this space: what the founder handles is the approval queue. "
-        "The AI finds leads, drafts outreach, writes copy — but a human reviews and hits publish. "
-        "That's the actual job now. Less typing, more judgment calls."
-    )
-    detail = _approval_detail(
-        proposed_reply=baseline,
-        context_type="social_reply",
-    )
-    feedback = _msg(
-        author_type="human",
-        message_type="feedback",
-        content="\"you\" founder sheds venture funded tiers",
-        created_at="2026-03-03T12:00:00Z",
-        sequence=2,
-    )
-    revision = _revision(revision_id="rev-social-real-diff", status="pending", created_at="2026-03-03T12:01:00Z")
-
-    payload, message_type, action_kind = uc._build_fulfillment_payload(
-        approval_id="apr-test",
-        revision_id="rev-social-real-diff",
-        expected_version=3,
-        latest_feedback=feedback,
-        approval_detail=detail,
-        soul_version=9,
-        messages=[feedback],
-        revision=revision,
-        revision_history=[revision],
-    )
-
-    assert message_type == "edit_diff"
-    assert action_kind == "edit_diff"
-    assert payload["edited_content"]
-    assert _semantic_text(payload["edited_content"]) != _semantic_text(baseline)
-
-
-def test_build_fulfillment_payload_social_one_liner_feedback_returns_edit_diff() -> None:
+def test_build_fulfillment_payload_social_one_liner_feedback_returns_edit_diff(monkeypatch) -> None:
     uc = _load_uc_respond()
     detail = _approval_detail(
         proposed_reply="We had a similar thing — the prompt said do not act, but the agent still posted.",
@@ -700,6 +759,7 @@ def test_build_fulfillment_payload_social_one_liner_feedback_returns_edit_diff()
         sequence=2,
     )
     revision = _revision(revision_id="rev-social-one-liner", status="pending", created_at="2026-03-03T12:01:00Z")
+    monkeypatch.setattr(uc, "_call_social_rewrite_model", lambda _dump: "social rewrite one liner")
 
     payload, message_type, action_kind = uc._build_fulfillment_payload(
         approval_id="apr-test",
@@ -715,7 +775,7 @@ def test_build_fulfillment_payload_social_one_liner_feedback_returns_edit_diff()
 
     assert message_type == "edit_diff"
     assert action_kind == "edit_diff"
-    assert payload["edited_content"]
+    assert payload["edited_content"] == "social rewrite one liner"
 
 
 def test_queue_decision_uses_human_comment_as_feedback_signal() -> None:

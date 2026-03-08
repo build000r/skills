@@ -1,7 +1,8 @@
 ---
 name: research-paper
 description: >
-  Generate dense, academic research paper-style pages on any topic.
+  Generate dense, academic research paper-style pages on any topic, plus a
+  companion X article draft that is easy to paste into the X Articles composer.
   Use when: "research paper", "write a paper on", "research page", "/research-paper",
   "internal paper on", "write up on [topic]".
   Supports project-specific modes (styling, data sources, routing) via local `modes/` directory.
@@ -11,7 +12,13 @@ license: Complete terms in LICENSE
 
 # Research Paper Generator
 
-Generate dense, academic research paper-style pages on any topic. Adapts to project context via optional mode files. Pages are noindex, unlinked, for internal reference.
+Generate dense, academic research paper-style pages on any topic. Adapts to project context via optional mode files. Pages are noindex, unlinked, for internal reference unless the active mode says otherwise.
+
+Every run produces a two-part bundle:
+- A canonical research paper (source of truth)
+- A companion X article derived from that paper
+
+Do the condensation in that order: research -> paper -> X article. Do not introduce claims in the article that are not supported by the paper.
 
 ## Modes
 
@@ -56,6 +63,7 @@ When a user runs the skill with no matching mode, offer to create one. Walk thro
 8. **Audience**: Who reads these papers — their expertise level and domain
 9. **Tone**: Academic, conversational, contrarian, clinical, etc.
 10. **Paper sections**: Custom section structure, or use the generic template
+11. **Companion X article**: Output path/format/paste contract for the X article draft
 
 Write the mode file to `modes/{project-name}.md` using `references/mode-template.md` as the structure. If the user has project-specific reference data or a component template, create `modes/{project-name}/` and place them there.
 
@@ -68,10 +76,11 @@ Write the mode file to `modes/{project-name}.md` using `references/mode-template
 4. Research the topic (WebSearch for publications, data, perspectives)
 5. Map findings to paper structure
 6. Run headline pass (generate + score candidate titles)
-7. Write the page using divide-and-conquer
-8. Add routing (if mode requires it)
-9. Type-check / validate
-10. Post-creation tasks (mode-specific: homepage links, nav updates, etc.)
+7. Write the canonical paper
+8. Derive the companion X article
+9. Add routing / registration (if mode requires it)
+10. Type-check / validate
+11. Post-creation tasks (mode-specific: homepage links, nav updates, manifests, etc.)
 ```
 
 ## Step 2: Parse Topic
@@ -80,6 +89,7 @@ Extract the topic from skill arguments. Derive:
 - **slug**: kebab-case URL segment (e.g. `creator-economy`, `ai-agents`)
 - **display name**: Title case for headings (e.g. "Creator Economy", "AI Agents")
 - **component name**: PascalCase for code (e.g. `CreatorEconomyResearchPage`)
+- **base output name**: shared basename for paper/article outputs
 
 ## Step 3: Gather Data
 
@@ -133,15 +143,17 @@ If two titles score similarly and user preference matters, present the top 2 and
 
 ## Step 7: Write the Page
 
-Use divide-and-conquer with parallel agents when the mode requires multiple files (e.g. page + route update). Otherwise, single agent.
+Use divide-and-conquer with parallel agents when the bundle requires multiple files (e.g. paper + X article + route update). Otherwise, single agent.
 
 ### With a Mode
 
 Follow the mode's output path, framework patterns, and styling. Read any template in `modes/{project-name}/page-template.*` for structural reference.
 
+If the project exposes human-facing HTML pages that agents will also read, create or update explicit machine-readable alternates (`.md`, `.txt`, or the project's equivalent) instead of relying on user-agent sniffing. Prefer a shared registry/manifest when the project has multiple papers.
+
 ### Generic (No Mode)
 
-Write a standalone HTML or markdown file at the user's preferred location. Ask where to put it if unclear.
+Write a standalone HTML or markdown file at the user's preferred location. Ask where to put the output bundle if unclear.
 
 ### Writing Style (All Modes)
 
@@ -151,26 +163,49 @@ Write a standalone HTML or markdown file at the user's preferred location. Ask w
 - Real numbers from research — not vague qualifiers.
 - 600-1000 lines. Prioritize density over brevity.
 
-## Step 8: Add Routing
+If the mode does not define companion output locations, use this default beside the paper file:
 
-Only if the mode specifies routing steps (e.g. "add import to AppRoutes.tsx" or "register in config"). Skip for file-based routing frameworks and generic mode.
+- **X article**: `{paper-base}.x-article.md`
 
-## Step 9: Validate
+For canonical paper structure, use `references/paper-structure.md`. For X article structure, use `references/companion-outputs.md`.
 
-Run the mode's validation command if specified (e.g. `npx tsc --noEmit`). For generic mode, verify the file was written correctly.
+## Step 8: Derive the Companion X Article
 
-## Step 10: Post-Creation Tasks
+Turn the paper into an X article draft without changing the thesis.
 
-Check the mode file for a "Post-Creation" section. If present, execute every step — these are required, not optional. Common post-creation tasks include adding the paper to a homepage link array, updating a navigation component, or registering the paper in a manifest. **Do not skip this step.** Also update the mode's "Existing Papers" list with the new paper.
+Requirements:
+- Same core argument as the paper, with lighter citation density and a stronger narrative opening.
+- Preserve the best numbers, the sharpest contrarian point, and one useful framework/table at most.
+- Format for direct paste into [X Articles](https://x.com/compose/articles/edit) unless the mode overrides it.
+- Prefer markdown or plain text with clear headings, short paragraphs, and minimal cleanup required before paste.
+- If the mode does not specify article routing, treat the article as a draft asset, not a live page.
+- If the mode wants a publishable site article too, the X article still has to be generated as a separate derivative unless the mode explicitly says the site article doubles as the X article source.
+
+Use the default X article structure in `references/companion-outputs.md` unless the mode overrides it.
+
+## Step 9: Add Routing
+
+Only if the mode specifies routing or registration steps (e.g. "add import to AppRoutes.tsx", "register the paper in a manifest", or "promote the article draft into a blog route"). Skip for file-based routing frameworks and generic mode.
+
+## Step 10: Validate
+
+Run the mode's validation command if specified (e.g. `npx tsc --noEmit`). For generic mode, verify the paper and X article files were written correctly.
+
+## Step 11: Post-Creation Tasks
+
+Check the mode file for a "Post-Creation" section. If present, execute every step — these are required, not optional. Common post-creation tasks include adding the paper to a homepage link array, updating a navigation component, registering the paper in a manifest, or appending the X article to a social/content drafts ledger. **Do not skip this step.** Also update the mode's "Existing Papers" list with the new paper.
+
+If the mode uses machine-readable paper alternates, treat registry updates and discovery surfaces (`llms.txt`, manifests, feed pages) as part of post-creation, not optional cleanup.
 
 For generic mode, skip.
 
 ## Output
 
 Report to the user:
-- The file path (and URL path if applicable)
+- The paper and X article file paths (and URL paths if applicable)
 - Key sections and what they cover
 - Notable findings from the research
-- Reminder that it's noindex / not publicly linked (if applicable)
+- The chosen X article angle
+- Reminder that the paper is noindex / not publicly linked unless the mode says otherwise
 
-Before creating, check if the topic already has a page (per mode's output path pattern). If so, ask whether to update or create a new version.
+Before creating, check if the topic already has a page (per mode's output path pattern). If so, ask whether to update or create a new version. Companion X article outputs should follow the same update/new-version decision.

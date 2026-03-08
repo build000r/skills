@@ -1,5 +1,6 @@
 pub mod emit;
 pub mod parsers;
+pub mod tmux;
 
 use std::collections::HashSet;
 use std::fs;

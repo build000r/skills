@@ -12,9 +12,9 @@
 # (general-purpose) or check if Apify residential proxies are needed.
 #
 # Examples:
-#   ./search_tiktok.sh 20 perimenopause menopausesucks perimenopausesymptoms
-#   ./search_tiktok.sh 30 brainfog
-#   ./search_tiktok.sh 15 mineraldeficiency fatigue hairloss
+#   ./search_tiktok.sh 20 customerresearch workflowautomation founderquestions
+#   ./search_tiktok.sh 30 productfeedback
+#   ./search_tiktok.sh 15 clientops freelancerlife agencysystems
 #
 # Smart freshness:
 #   - Checks .search_log.json for last run time

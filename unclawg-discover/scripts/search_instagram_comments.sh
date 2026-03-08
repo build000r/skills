@@ -1,17 +1,19 @@
 #!/bin/bash
-# Mine Instagram comments from target health profiles to find engagement opportunities.
+# Mine Instagram comments from target profiles to find engagement opportunities.
 # Two-step: scrape recent posts from curated profiles, then extract comments.
 # Output is POST-LEVEL: each post with its customer-signal comment count + samples.
 #
-# Usage: ./search_instagram_comments.sh <profile1> [profile2] ... [--newer-than TIMEFRAME] [--max-posts-per-profile N]
+# Usage: ./search_instagram_comments.sh <profile1> [profile2] ... [--newer-than TIMEFRAME] [--max-posts-per-profile N] [--signal-regex REGEX]
 #
 # Requires: APIFY_API_KEY env var
+# Optional: COMMENT_SIGNAL_REGEX env var to override the generic default matcher
 #
 # Examples:
-#   ./search_instagram_comments.sh drmaryhaire perimenopause.hub
-#   ./search_instagram_comments.sh drmaryhaire --newer-than "3 days"
-#   ./search_instagram_comments.sh momfatigue burnoutmomrecovery --newer-than "1 week"
-#   ./search_instagram_comments.sh drangelalucterhand healthwithkelsey --max-posts-per-profile 3
+#   ./search_instagram_comments.sh example_creator_a example_creator_b
+#   ./search_instagram_comments.sh example_creator_a --newer-than "3 days"
+#   ./search_instagram_comments.sh example_creator_a example_creator_b --newer-than "1 week"
+#   ./search_instagram_comments.sh example_creator_a example_creator_b --max-posts-per-profile 3
+#   ./search_instagram_comments.sh example_creator_a --signal-regex "looking for|need help|who do you use"
 #
 # Default --newer-than: uses search log (since last run), or "7 days" for first-time.
 # Default --max-posts-per-profile: 3 (prevents any single profile from dominating results)
@@ -21,8 +23,8 @@
 #
 # Output: JSON array of POSTS, each with:
 #   - post_url, post_owner, post_caption, post_likes, post_comments (total)
-#   - customer_signal_count (how many comments contain health pain-point language)
-#   - sample_comments (up to 5 health-signal comments with commenter + text)
+#   - customer_signal_count (how many comments match the active signal regex)
+#   - sample_comments (up to 5 signal comments with commenter + text)
 # Sorted by customer_signal_count (highest first).
 # The POST is the engagement target — comment there to reach real customers in the thread.
 
@@ -32,6 +34,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROFILES=()
 NEWER_THAN=""
 MAX_POSTS_PER_PROFILE=3
+SIGNAL_REGEX=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --newer-than)
@@ -42,6 +45,10 @@ while [ $# -gt 0 ]; do
       MAX_POSTS_PER_PROFILE="$2"
       shift 2
       ;;
+    --signal-regex)
+      SIGNAL_REGEX="$2"
+      shift 2
+      ;;
     *)
       PROFILES+=("$1")
       shift
@@ -49,8 +56,12 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+if [ -z "$SIGNAL_REGEX" ]; then
+  SIGNAL_REGEX="${COMMENT_SIGNAL_REGEX:-looking for|need (a|an|help)|any recommendations|can anyone recommend|who do you use|what do you use|how do you handle|how are you solving|struggling with|frustrated with|stuck with|problem with|issue with|does anyone use|anyone tried|who can help|what tool|which tool|what service|agency|consultant|freelancer}"
+fi
+
 if [ ${#PROFILES[@]} -eq 0 ]; then
-  echo '{"error": "No profiles provided. Usage: search_instagram_comments.sh <profile1> [profile2] ... [--newer-than TIMEFRAME]"}'
+  echo '{"error": "No profiles provided. Usage: search_instagram_comments.sh <profile1> [profile2] ... [--newer-than TIMEFRAME] [--max-posts-per-profile N] [--signal-regex REGEX]"}'
   exit 1
 fi
 
@@ -256,7 +267,7 @@ JQ_SCRIPT=$(mktemp)
 cat > "$JQ_SCRIPT" << 'JQEOF'
 # Args: $posts (post metadata array)
 
-# Step 1: Extract valid comments with health-signal flag
+# Step 1: Extract valid comments with signal flag
 [.[] | select(.error == null) | {
   commenter: (.ownerUsername // .username // "unknown"),
   text: (.text // .body // ""),
@@ -276,12 +287,9 @@ group_by(.post_url) |
   # Find matching post metadata
   ($posts | map(select(.url == $url)) | .[0] // {}) as $meta |
 
-  # Filter for health pain-point keywords
+  # Filter for user-configurable signal keywords
   [$all_comments[] | select(
-    .text | test(
-      "hair.*(loss|fall|thin)|fatigue|exhausted|tired all|brain fog|can.t focus|can.t think|perimenopause|menopause|thyroid|mineral|magnesium|supplement.*(not|didn|help)|doctor.*fine|bloodwork.*normal|labs.*normal|what helped|any(one|body) tried|same here|me too|going through this|how did you|what did you|struggling|symptoms|diagnosed|flare";
-      "i"
-    )
+    .text | test($signal_regex; "i")
   )] as $signals |
 
   # Only include posts that have at least 1 signal comment
@@ -304,7 +312,7 @@ group_by(.post_url) |
 ] | sort_by(-.customer_signal_count)
 JQEOF
 
-RESULT=$(echo "$ALL_COMMENTS" | jq --argjson posts "$POST_META" -f "$JQ_SCRIPT")
+RESULT=$(echo "$ALL_COMMENTS" | jq --argjson posts "$POST_META" --arg signal_regex "$SIGNAL_REGEX" -f "$JQ_SCRIPT")
 rm -f "$JQ_SCRIPT"
 
 SIGNAL_POSTS=$(echo "$RESULT" | jq 'length')

@@ -20,14 +20,24 @@ cwd_match: ~/repos/{project-name}
 
 ## Companion Outputs
 
-Describe the required derivatives that every paper should generate. Keep this narrow unless the project genuinely needs more than the default companion X article.
+Describe the required derivatives that every paper should generate. Keep this narrow unless the project genuinely needs more than the default X article plus LinkedIn article/post bundle.
 
 - **X article path**: `src/pages/research/{Name}ResearchPage.x-article.md` (or your preferred location)
 - **X article format**: Markdown / plain text / HTML / CMS draft
 - **X article paste target**: `https://x.com/compose/articles/edit`
 - **X article routing**: None / file-based / manual (describe exact pattern)
-- **If site article also exists**: separate file / same source / generated from X article
-- **Primary discovery surface**: X Articles / search / feed / community / email / infer per topic
+- **LinkedIn article path**: `src/pages/research/{Name}ResearchPage.linkedin-article.md` (or your preferred location)
+- **LinkedIn article format**: Markdown / plain text / HTML / CMS draft
+- **LinkedIn article paste target**: LinkedIn article editor / CMS draft / custom
+- **LinkedIn article routing**: None / file-based / manual (describe exact pattern)
+- **LinkedIn post path**: `src/pages/research/{Name}ResearchPage.linkedin-post.md` (or your preferred location)
+- **LinkedIn post format**: Markdown / plain text / CMS draft
+- **LinkedIn post paste target**: LinkedIn post composer / scheduler / custom
+- **If site article also exists**: separate file / same source / generated from X article / generated from LinkedIn article
+- **X primary discovery surface**: X Articles / search / feed / community / email / infer per topic
+- **LinkedIn primary discovery surface**: feed / article / search / community / email / infer per topic
+- **LinkedIn primary reader**: role / seniority / problem to call out early
+- **LinkedIn dwell pattern**: checklist / framework / teardown / case study / infer per topic
 - **Companion audience job**: "When ___, I want to ___, so I can ___"
 - **Credibility pattern**: method line / author line / source-base line / custom
 - **Default CTA**: subscribe / share / request full paper / none / custom
@@ -36,6 +46,8 @@ Describe the required derivatives that every paper should generate. Keep this na
 If you omit companion output paths, the skill defaults to a sibling file beside the paper:
 
 - `{paper-base}.x-article.md`
+- `{paper-base}.linkedin-article.md`
+- `{paper-base}.linkedin-post.md`
 
 ## Routing
 
@@ -126,6 +138,7 @@ Examples:
 - Register the paper in a manifest
 - Add the X article to a content index
 - Append the X article to a shared social-drafts file
+- Append the LinkedIn article/post drafts to a shared social-drafts file
 - Update `llms.txt` or other discovery surfaces
 - Add homepage/nav links
 

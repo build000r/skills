@@ -1,27 +1,31 @@
 # Companion Output Structure
 
-Every research-paper run produces two artifacts:
+Every research-paper run produces four artifacts:
 
 1. A canonical research paper
 2. A companion X article
+3. A companion LinkedIn article
+4. A companion LinkedIn post
 
-The paper is the source of truth. The X article is a derivative compression and packaging layer. It may simplify framing and pacing, but it must not introduce unsupported claims.
+The paper is the source of truth. The companion outputs are derivative compression and packaging layers. They may simplify framing and pacing, but they must not introduce unsupported claims.
 
 ## Intent Boundary
 
-- Default scope is one companion X article, not a full distribution campaign.
+- Default scope is one companion X article plus one narrow LinkedIn bundle, not a full distribution campaign.
 - Use distribution principles to improve clarity, scanability, and extractability.
-- Do not automatically generate LinkedIn, Reddit, newsletter, Shorts, SEO, or paid-promotion assets unless the active mode explicitly asks for them.
+- Do not automatically generate channel calendars, paid-promotion plans, newsletter packs, Reddit posts, Shorts, carousels, or other multi-platform kits unless the active mode explicitly asks for them.
 
 ## Generation Order
 
 1. Finish the research and canonical paper first.
-2. Write a short companion brief.
-3. Derive the X article from the paper and the brief.
+2. Write the companion briefs.
+3. Derive the X article from the paper and the X brief.
+4. Derive the LinkedIn article from the paper and the LinkedIn brief.
+5. Derive the LinkedIn post from the paper and the LinkedIn brief.
 
 ## Companion Brief
 
-Before drafting, define:
+Before drafting, define one brief for X and one brief for LinkedIn:
 
 - **Primary reader**: role, context, sophistication
 - **Reader job**: "When ___, I want to ___, so I can ___"
@@ -31,6 +35,12 @@ Before drafting, define:
 - **CTA**: the one action the draft should ask for
 
 If the mode supplies defaults for any of these, use them. Otherwise infer them from the topic and project context.
+
+For LinkedIn, also define:
+
+- **Professional reader fit**: role, seniority, and problem to call out early
+- **Dwell strategy**: framework, checklist, teardown, case study, or another structure that rewards reading
+- **Conversation target**: the kind of substantive comments/saves/sends the draft should invite
 
 ## Companion X Article
 
@@ -90,3 +100,99 @@ Reject and rewrite the X article if:
 - The draft contains scaffolding text the user would have to delete before pasting
 - The formatting depends on advanced Markdown that the composer may flatten awkwardly
 - The draft drifts into a full content strategy, channel calendar, or unsupported virality advice
+
+## Companion LinkedIn Article
+
+### Goal
+
+Turn the paper into a professional, relevance-first article that reads natively on LinkedIn while preserving the core argument and strongest evidence.
+
+### Default Format
+
+- Markdown or plain text by default
+- 1,000-2,200 words unless the mode says otherwise
+- One title and optional deck
+- Four to seven sections
+- Strong subheads that read like conclusions
+- Short paragraphs and occasional bullets when they improve scan speed
+- One practical asset at most: framework, checklist, decision rule, or compact taxonomy
+- Easy to paste into a LinkedIn article workflow with minimal cleanup
+
+### Content Rules
+
+- Keep the same thesis as the paper.
+- Lead with professional relevance: who this is for, what problem it addresses, and what changes after reading.
+- Put proof near the top: method, named sources, case base, or concrete data.
+- Optimize for dwell with structure, specificity, and patterned depth rather than hype.
+- Reuse the best numbers and one strong example from the paper.
+- Keep headers and opening lines explicit enough that the right reader can self-identify quickly.
+- End with a question or prompt that invites substantive discussion, not generic engagement bait.
+- Keep the tone professional, direct, and concrete.
+
+### Default LinkedIn Article Structure
+
+1. **Title**: Clear topic + outcome or contrarian claim
+2. **Deck (optional)**: One sentence on who this is for and why it matters now
+3. **Opening relevance block**: 2-4 short paragraphs on the problem, stakes, and thesis
+4. **Why trust this**: 1-3 lines on method, source base, or direct experience
+5. **What the evidence says**: strongest numbers, case studies, or comparisons
+6. **What most people miss**: corrective angle or contrarian point
+7. **Framework / checklist**: one practical model
+8. **Implications**: what operators/builders/leaders should do differently
+9. **Conclusion + CTA**: short synthesis plus one conversation-worthy prompt
+
+### Self-Check
+
+Reject and rewrite the LinkedIn article if:
+
+- The first screen does not clearly identify the target professional reader
+- The opening could fit any platform with a few nouns swapped
+- There is no proof near the top
+- The draft reads like broad motivation instead of a specific operating insight
+- The structure does not reward continued reading
+- The CTA is generic or bait-y
+- The draft expands into a full distribution plan, calendar, or paid strategy
+
+## Companion LinkedIn Post
+
+### Goal
+
+Turn the paper into one LinkedIn feed post that stops the right reader, delivers a concrete takeaway fast, and invites one substantive next action.
+
+### Default Format
+
+- Markdown or plain text by default
+- Optimized for direct paste into a LinkedIn post composer
+- One opening hook, short body, one CTA
+- Short paragraphs / line breaks for first-screen readability
+- Optional short bullet list or numbered framework
+- Optional 0-5 hashtags at the end only when they improve categorization
+
+### Content Rules
+
+- Keep the same thesis as the paper.
+- Make the role/problem fit obvious in the opening lines.
+- Deliver the payoff early, then support it with one compact proof block or framework.
+- Prefer plainspoken, high-signal language over cleverness or hype.
+- Ask for one substantive response: a concrete opinion, tradeoff, or lived example.
+- Avoid empty "agree?" prompts, engagement bait, vague productivity talk, and unsupported claims.
+
+### Default LinkedIn Post Structure
+
+1. **Hook**: Clear role/problem/outcome signal in the first 1-3 lines
+2. **Problem**: Why this matters now
+3. **Proof or mechanism**: strongest data point, case, or framework
+4. **Practical takeaway**: what the reader should do, test, or reconsider
+5. **CTA**: one specific question or next step
+6. **Hashtags (optional)**: limited, relevant, and placed at the end
+
+### Self-Check
+
+Reject and rewrite the LinkedIn post if:
+
+- The first three lines do not make the audience or payoff clear
+- The post could apply to almost any topic
+- There is no concrete evidence, mechanism, or example
+- The line breaks feel gimmicky instead of readable
+- The CTA is generic, bait-y, or asks for too much
+- The hashtags dominate the draft or dilute the point

@@ -112,9 +112,14 @@ comment_mining_targets:
   tiktok:
     persona_E: [handle1, handle2, ...]
     persona_A: [handle3, ...]
+comment_signal_regex:
+  default: "(looking for|need help|who do you use)"
+  persona_E: "(your private domain-specific signal regex)"
 ```
 
 Scripts: `search_instagram_comments.sh`, `search_tiktok_comments.sh`
+
+Keep account lists and signal regexes in local mode files only. When running the public scripts, pass the regex via `--signal-regex` or `COMMENT_SIGNAL_REGEX` rather than committing domain-specific patterns into tracked files.
 
 ### Ask-Cascade Questions
 

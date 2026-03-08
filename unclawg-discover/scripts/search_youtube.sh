@@ -6,9 +6,9 @@
 # If empty: export YOUTUBE_API_KEY=$(grep 'YOUTUBE_API_KEY' ~/.zshrc | grep -o '"[^"]*"' | tr -d '"')
 #
 # Examples:
-#   ./search_youtube.sh "perimenopause journey" 30 20
-#   ./search_youtube.sh "HTMA results minerals" 60 15
-#   ./search_youtube.sh "hair loss over 40" 30 20
+#   ./search_youtube.sh "customer interview workflow" 30 20
+#   ./search_youtube.sh "small business automation" 60 15
+#   ./search_youtube.sh "freelancer operations stack" 30 20
 #
 # Smart freshness: checks .search_log.json for last run time.
 #   - First-time query: uses max_days_ago (default: 7)

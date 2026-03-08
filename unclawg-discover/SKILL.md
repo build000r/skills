@@ -204,7 +204,8 @@ of curated accounts for real customer signals.
 2. If present, run the appropriate scripts against listed accounts:
    - Instagram: `scripts/search_instagram_comments.sh <handle1> [handle2] ...`
    - TikTok: `scripts/search_tiktok_comments.sh <handle1> [handle2] ...`
-3. Score comments by signal density (health pain-point language regex).
+3. Score comments by signal density using a mode-defined or caller-provided signal regex.
+   The public scripts accept `--signal-regex` or `COMMENT_SIGNAL_REGEX`; tracked defaults stay generic.
 4. Merge comment-sourced candidates into the main candidate pool before Phase 4 filtering.
 5. Comment-sourced candidates use the POST/VIDEO as the engagement target (comment there to reach real customers in the thread).
 

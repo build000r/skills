@@ -1,16 +1,18 @@
 #!/bin/bash
-# Mine TikTok comments from target health profiles to find engagement opportunities.
+# Mine TikTok comments from target profiles to find engagement opportunities.
 # Two-step: scrape recent videos from curated profiles, then extract comments.
 # Output is POST-LEVEL: each video with its customer-signal comment count + samples.
 #
-# Usage: ./search_tiktok_comments.sh <profile1> [profile2] ... [--newer-than TIMEFRAME] [--max-posts-per-profile N]
+# Usage: ./search_tiktok_comments.sh <profile1> [profile2] ... [--newer-than TIMEFRAME] [--max-posts-per-profile N] [--comments-per-post N] [--signal-regex REGEX]
 #
 # Requires: APIFY_API_KEY env var
+# Optional: COMMENT_SIGNAL_REGEX env var to override the generic default matcher
 #
 # Examples:
-#   ./search_tiktok_comments.sh drstaceysims perimenopausecoach
-#   ./search_tiktok_comments.sh drstaceysims --newer-than "3 days"
-#   ./search_tiktok_comments.sh thyroidhealing menopausehealth --max-posts-per-profile 5
+#   ./search_tiktok_comments.sh example_creator_a example_creator_b
+#   ./search_tiktok_comments.sh example_creator_a --newer-than "3 days"
+#   ./search_tiktok_comments.sh example_creator_a example_creator_b --max-posts-per-profile 5
+#   ./search_tiktok_comments.sh example_creator_a --signal-regex "looking for|need help|who can help"
 #
 # Default --newer-than: uses search log (since last run), or "7 days" for first-time.
 # Default --max-posts-per-profile: 3 (prevents any single profile from dominating results)
@@ -20,8 +22,8 @@
 #
 # Output: JSON array of VIDEOS, each with:
 #   - video_url, video_author, video_description, video_likes, video_comments (total)
-#   - customer_signal_count (how many comments contain health pain-point language)
-#   - sample_comments (up to 5 health-signal comments with commenter + text)
+#   - customer_signal_count (how many comments match the active signal regex)
+#   - sample_comments (up to 5 signal comments with commenter + text)
 # Sorted by customer_signal_count (highest first).
 # The VIDEO is the engagement target — comment there to reach real customers in the thread.
 
@@ -32,6 +34,7 @@ PROFILES=()
 NEWER_THAN=""
 MAX_POSTS_PER_PROFILE=3
 COMMENTS_PER_POST=100
+SIGNAL_REGEX=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --newer-than)
@@ -46,6 +49,10 @@ while [ $# -gt 0 ]; do
       COMMENTS_PER_POST="$2"
       shift 2
       ;;
+    --signal-regex)
+      SIGNAL_REGEX="$2"
+      shift 2
+      ;;
     *)
       PROFILES+=("$1")
       shift
@@ -53,8 +60,12 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+if [ -z "$SIGNAL_REGEX" ]; then
+  SIGNAL_REGEX="${COMMENT_SIGNAL_REGEX:-looking for|need (a|an|help)|any recommendations|can anyone recommend|who do you use|what do you use|how do you handle|how are you solving|struggling with|frustrated with|stuck with|problem with|issue with|does anyone use|anyone tried|who can help|what tool|which tool|what service|agency|consultant|freelancer}"
+fi
+
 if [ ${#PROFILES[@]} -eq 0 ]; then
-  echo '{"error": "No profiles provided. Usage: search_tiktok_comments.sh <profile1> [profile2] ... [--newer-than TIMEFRAME]"}'
+  echo '{"error": "No profiles provided. Usage: search_tiktok_comments.sh <profile1> [profile2] ... [--newer-than TIMEFRAME] [--max-posts-per-profile N] [--comments-per-post N] [--signal-regex REGEX]"}'
   exit 1
 fi
 
@@ -262,7 +273,7 @@ JQ_SCRIPT=$(mktemp)
 cat > "$JQ_SCRIPT" << 'JQEOF'
 # Args: $videos (video metadata array)
 
-# Step 1: Extract valid comments with health-signal flag
+# Step 1: Extract valid comments with signal flag
 # TikTok comment fields: uniqueId (commenter), text, diggCount (likes), videoWebUrl (post URL)
 [.[] | select(.error == null) | {
   commenter: (.uniqueId // "unknown"),
@@ -283,12 +294,9 @@ group_by(.video_url) |
   # Find matching video metadata
   ($videos | map(select(.url == $url)) | .[0] // {}) as $meta |
 
-  # Filter for health pain-point keywords (same regex as IG comment mining)
+  # Filter for user-configurable signal keywords
   [$all_comments[] | select(
-    .text | test(
-      "hair.*(loss|fall|thin)|fatigue|exhausted|tired all|brain fog|can.t focus|can.t think|perimenopause|menopause|thyroid|mineral|magnesium|supplement.*(not|didn|help)|doctor.*fine|bloodwork.*normal|labs.*normal|what helped|any(one|body) tried|same here|me too|going through this|how did you|what did you|struggling|symptoms|diagnosed|flare|weight.*(gain|won|plateau)|night sweats|hot flash|anxiety|insomnia|burnout|adrenal|cortisol|hormone|pcos|pmdd|gut.*(health|issue|problem)";
-      "i"
-    )
+    .text | test($signal_regex; "i")
   )] as $signals |
 
   # Only include videos that have at least 1 signal comment
@@ -312,7 +320,7 @@ group_by(.video_url) |
 ] | sort_by(-.customer_signal_count)
 JQEOF
 
-RESULT=$(echo "$ALL_COMMENTS" | jq --argjson videos "$VIDEO_META" -f "$JQ_SCRIPT")
+RESULT=$(echo "$ALL_COMMENTS" | jq --argjson videos "$VIDEO_META" --arg signal_regex "$SIGNAL_REGEX" -f "$JQ_SCRIPT")
 rm -f "$JQ_SCRIPT"
 
 SIGNAL_VIDEOS=$(echo "$RESULT" | jq 'length')

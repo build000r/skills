@@ -220,6 +220,13 @@ impl EmitEngine {
                 context_group_is_ambiguous,
             );
             state.claimed_jsonl_path = resolved_path;
+            if is_initial_thought_candidate(state, session)
+                && !has_adequate_initial_context(context_snapshot.as_ref(), &session.replay_text)
+            {
+                state.last_terminal_context = Some(trim_terminal_context(&session.replay_text));
+                metrics.suppressed += 1;
+                continue;
+            }
             let objective_fingerprint = if let Some(snapshot) = context_snapshot.as_ref() {
                 context_focus_fingerprint(snapshot, &session.state).to_string()
             } else {
@@ -505,6 +512,25 @@ fn context_snapshot_for_session_with_claim(
     let output = extract(agent_tool, &path, cwd, true, &ExtractOptions::default()).ok();
 
     (output.map(|o| o.snapshot), Some(path))
+}
+
+fn is_initial_thought_candidate(state: &SessionRuntimeState, session: &SessionSnapshot) -> bool {
+    state.emission_seq == 0 && state.last_emitted_thought.is_none() && session.thought.is_none()
+}
+
+fn has_adequate_initial_context(context_snapshot: Option<&Snapshot>, replay_text: &str) -> bool {
+    context_snapshot.is_some_and(snapshot_has_meaningful_context)
+        || has_meaningful_terminal_delta(replay_text, None)
+}
+
+fn snapshot_has_meaningful_context(snapshot: &Snapshot) -> bool {
+    snapshot
+        .user_task
+        .as_deref()
+        .map(normalize_for_focus)
+        .is_some_and(|task| !task.is_empty())
+        || snapshot.current_tool.is_some()
+        || !snapshot.recent_actions.is_empty()
 }
 
 fn tool_selection_for_session(tool: Option<&str>) -> Option<ToolSelection> {
@@ -858,7 +884,13 @@ mod tests {
             exited: false,
             tool: None,
             cwd: "/tmp/project".to_string(),
-            replay_text: "cargo test --all".to_string(),
+            replay_text: concat!(
+                "running cargo test --all\n",
+                "test auth::login_rejects_missing_token ... FAILED\n",
+                "assertion failed: status should stay unauthorized after missing token\n",
+                "reviewing auth middleware header parsing and session fallback handling\n"
+            )
+            .to_string(),
             thought: None,
             thought_state: ThoughtState::Holding,
             thought_source: ThoughtSource::CarryForward,
@@ -1135,12 +1167,132 @@ mod tests {
             sessions: vec![session],
         });
 
-        assert_eq!(result.updates.len(), 1);
-        assert_eq!(result.updates[0].token_count, 1000);
+        assert!(result.updates.is_empty());
+        assert!(result.metrics.suppressed > 0);
         let state = engine
             .per_session
             .get("tmux:work:1.0:%1")
             .expect("pane state should exist");
         assert!(state.claimed_jsonl_path.is_none());
+    }
+
+    #[test]
+    fn short_bootstrap_terminal_context_suppresses_first_thought() {
+        let now = Utc::now();
+        let mut engine = EmitEngine::new(Box::new(MockModelClient {
+            response: "too early".to_string(),
+        }));
+        let mut session = sample_session(now);
+        session.replay_text = "$ ".to_string();
+
+        let result = engine.sync(&SyncRequest {
+            id: "req-1".to_string(),
+            now,
+            config: ThoughtConfig::default(),
+            sessions: vec![session],
+        });
+
+        assert!(result.updates.is_empty());
+        assert!(result.metrics.suppressed > 0);
+        assert_eq!(
+            engine
+                .per_session
+                .get("sess-1")
+                .expect("state should exist")
+                .emission_seq,
+            0
+        );
+    }
+
+    #[test]
+    fn meaningful_terminal_output_unblocks_first_thought_on_later_sync() {
+        let now = Utc::now();
+        let mut engine = EmitEngine::new(Box::new(MockModelClient {
+            response: "isolating auth regression".to_string(),
+        }));
+        let mut bootstrap = sample_session(now);
+        bootstrap.replay_text = "$ ".to_string();
+
+        let first = engine.sync(&SyncRequest {
+            id: "req-1".to_string(),
+            now,
+            config: ThoughtConfig::default(),
+            sessions: vec![bootstrap],
+        });
+        assert!(first.updates.is_empty());
+
+        let second = engine.sync(&SyncRequest {
+            id: "req-2".to_string(),
+            now: now + Duration::seconds(1),
+            config: ThoughtConfig::default(),
+            sessions: vec![sample_session(now + Duration::seconds(1))],
+        });
+
+        assert_eq!(second.updates.len(), 1);
+        assert_eq!(second.updates[0].emission_seq, 1);
+        assert_eq!(
+            second.updates[0].thought.as_deref(),
+            Some("isolating auth regression")
+        );
+    }
+
+    #[test]
+    fn unique_transcript_context_allows_first_thought_without_terminal_delta() {
+        let _lock = HOME_LOCK.lock().expect("home lock");
+        let home = tempdir().expect("tempdir");
+        std::env::set_var("HOME", home.path());
+
+        let codex_day = home
+            .path()
+            .join(".codex")
+            .join("sessions")
+            .join("2026")
+            .join("03")
+            .join("08");
+        fs::create_dir_all(&codex_day).expect("create codex dir");
+        fs::write(
+            codex_day.join("rollout-a.jsonl"),
+            concat!(
+                "{\"type\":\"session_meta\",\"payload\":{\"cwd\":\"/tmp/project\"}}\n",
+                "{\"type\":\"event_msg\",\"payload\":{\"type\":\"user_message\",\"message\":\"Fix auth regression\"}}\n",
+                "{\"type\":\"response\",\"payload\":{\"usage\":{\"input_tokens\":456}}}\n",
+                "{\"type\":\"response_item\",\"payload\":{\"type\":\"function_call\",\"name\":\"exec_command\",\"arguments\":\"{\\\"command\\\":\\\"cargo test auth\\\"}\"}}\n"
+            ),
+        )
+        .expect("write codex transcript");
+
+        let now = Utc::now();
+        let mut engine = EmitEngine::new(Box::new(MockModelClient {
+            response: "fixing auth regression".to_string(),
+        }));
+        let mut session = sample_session(now);
+        session.session_id = "tmux:work:1.0:%1".to_string();
+        session.tool = Some("codex".to_string());
+        session.replay_text = "$ ".to_string();
+
+        let result = engine.sync(&SyncRequest {
+            id: "req-1".to_string(),
+            now,
+            config: ThoughtConfig::default(),
+            sessions: vec![session],
+        });
+
+        assert_eq!(result.updates.len(), 1);
+        assert_eq!(
+            result.updates[0].thought.as_deref(),
+            Some("fixing auth regression")
+        );
+        assert_eq!(result.updates[0].token_count, 456);
+        assert_eq!(
+            engine
+                .per_session
+                .get("tmux:work:1.0:%1")
+                .expect("pane state")
+                .claimed_jsonl_path
+                .as_ref()
+                .and_then(|path| path.file_name())
+                .and_then(|name| name.to_str()),
+            Some("rollout-a.jsonl")
+        );
     }
 }

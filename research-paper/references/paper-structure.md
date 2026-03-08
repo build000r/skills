@@ -2,6 +2,8 @@
 
 Use this structure when no mode is active (generic web-research-only papers). Modes override this with their own section templates.
 
+This file covers the canonical paper only. Companion X article defaults live in `references/companion-outputs.md`.
+
 ## Sections
 
 1. **Title**: "{Topic}: {Subtitle with specific angle or finding}"

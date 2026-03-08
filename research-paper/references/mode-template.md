@@ -18,6 +18,20 @@ cwd_match: ~/repos/{project-name}
 - **Framework**: React / Next.js / Vue / Svelte / HTML
 - **Existing papers command**: `ls src/pages/research/`
 
+## Companion Outputs
+
+Describe the required derivatives that every paper should generate.
+
+- **X article path**: `src/pages/research/{Name}ResearchPage.x-article.md` (or your preferred location)
+- **X article format**: Markdown / plain text / HTML / CMS draft
+- **X article paste target**: `https://x.com/compose/articles/edit`
+- **X article routing**: None / file-based / manual (describe exact pattern)
+- **If site article also exists**: separate file / same source / generated from X article
+
+If you omit companion output paths, the skill defaults to a sibling file beside the paper:
+
+- `{paper-base}.x-article.md`
+
 ## Routing
 
 How to register the new page:
@@ -96,6 +110,18 @@ cd ~/repos/{project-name} && npx tsc --noEmit --pretty
 - **Robots**: `noindex, nofollow` (default for internal papers)
 - **Title pattern**: "{Topic} | {Site Name}"
 - **Description pattern**: "Internal Research Brief — {Org Name}. {Topic description}"
+
+## Post-Creation
+
+List every required follow-up step after writing the bundle.
+
+Examples:
+
+- Register the paper in a manifest
+- Add the X article to a content index
+- Append the X article to a shared social-drafts file
+- Update `llms.txt` or other discovery surfaces
+- Add homepage/nav links
 
 ## Existing Papers
 

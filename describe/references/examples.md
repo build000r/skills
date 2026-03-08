@@ -70,7 +70,7 @@ User says: "Expired machine keys are still passing auth checks."
 
 ## Example 2: Small Feature (utility function)
 
-User says: "Add a helper that normalizes patient names — trim whitespace,
+User says: "Add a helper that normalizes contact names — trim whitespace,
 title case, collapse multiple spaces."
 
 ### ask-cascade trace
@@ -88,7 +88,7 @@ title case, collapse multiple spaces."
 ### Output
 
 ```markdown
-# Describe: Patient name normalization helper
+# Describe: Contact name normalization helper
 
 ## Context
 - **Type:** feature
@@ -130,8 +130,8 @@ title case, collapse multiple spaces."
 - **Type:** edge
 
 ### TC-6: Existing names in DB are not affected
-- **Given:** Patient with name "jane doe" already stored
-- **When:** Read patient from DB
+- **Given:** Contact with name "jane doe" already stored
+- **When:** Read contact from DB
 - **Then:** Returns "jane doe" unchanged (normalization is input-only)
 - **Type:** regression
 

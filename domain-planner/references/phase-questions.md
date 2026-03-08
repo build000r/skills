@@ -68,7 +68,7 @@ High-level decisions cascade down and eliminate whole categories of questions:
    -- "History retention required?" -> if not required, use CRUD and skip version-chain design
 
 4. Access patterns
-   -- "Practitioner-owned or shared?" -> determines RLS complexity
+   -- "Owner-scoped or shared?" -> determines RLS complexity
 ```
 
 Don't ask about column types before confirming user story scope.
@@ -135,8 +135,8 @@ tasks for team members based on their workload"
 **Question:** "Who uses this feature?"
 **Multi-select:** yes
 **Options:**
-- Practitioner — Admin dashboards, patient management, creating content
-- Patient — Viewing own data, self-service actions
+- Operator — Admin dashboards, user management, creating content
+- End user — Viewing own data, self-service actions
 - System — Background jobs, scheduled tasks, notifications
 
 ### Story Extraction
@@ -224,11 +224,11 @@ Response: { [fields] }
 
 Then ask the user about genuine uncertainties (don't ask "is this right?"):
 
-**Question 1:** "Should patient_id be in request body or inferred from auth token?"
+**Question 1:** "Should user_id be in request body or inferred from auth token?"
 **Multi-select:** no
 **Options:**
-- Infer from auth (Recommended) — Cleaner API, can't act on wrong patient
-- Explicit in body — Needed if practitioner acts on behalf of patient
+- Infer from auth (Recommended) — Cleaner API, can't act on the wrong user
+- Explicit in body — Needed if an operator acts on behalf of a user
 
 **Question 2:** "Include updated_at in response?"
 **Multi-select:** no
@@ -346,18 +346,18 @@ Draft RLS policies, then ask about specific access patterns you're uncertain abo
 
 | Table | Owner | Read Access |
 |-------|-------|-------------|
-| [table1] | Practitioner | Owner only |
-| [table2] | Patient | Owner + their practitioner |
+| [table1] | Operator | Owner only |
+| [table2] | End user | Owner + their operator |
 | [table3] | Lookup | Everyone (read-only) |
 ```
 
 Ask about genuine uncertainties:
 
-**Question:** "Can practitioners see each other's [resource] or only their own?"
+**Question:** "Can operators see each other's [resource] or only their own?"
 **Multi-select:** no
 **Options:**
 - Own only (Recommended) — Standard isolation, simpler RLS
-- All practitioners — Shared resources across practice
+- All operators — Shared resources across the team
 
 ### Background Job Decision
 

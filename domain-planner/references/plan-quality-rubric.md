@@ -25,7 +25,7 @@ These rules prevent systematic over-penalization:
 
    **Performance-critical override:** If the active mode or the slice plan declares a performance envelope (latency/throughput/backpressure/memory bounds), those bounds are no longer optional. Missing or untestable bounds should be deducted as Moderate or Major issues because they can produce incorrect architecture and unsafe runtime behavior.
 
-3. **Outcome-level test scenarios are acceptable.** "Happy: patient books → 201, booking confirmed, allotment decremented" is a valid test scenario worth 7-8/10. Full JSON request/response payloads are ideal (9-10/10) but not required for a passing score. Only deduct -5 if test scenarios are so vague they can't be implemented (e.g., "it should work").
+3. **Outcome-level test scenarios are acceptable.** "Happy: user books → 201, booking confirmed, capacity decremented" is a valid test scenario worth 7-8/10. Full JSON request/response payloads are ideal (9-10/10) but not required for a passing score. Only deduct -5 if test scenarios are so vague they can't be implemented (e.g., "it should work").
 
 4. **Component names with behavioral descriptions ARE spec.** "CallStatusBadge — shows booked time or Book call prompt, states: booked/not-booked/loading, interactions: onBook/onReschedule/onCancel" is behavioral spec that communicates design intent. Deduct only for actual implementation code: TypeScript/Python/JSX bodies, import statements, hook implementation code, or prescribed file path trees.
 
@@ -98,7 +98,7 @@ These rules prevent systematic over-penalization:
 
 **Scoring guide:**
 - 9-10/10: Full JSON request/response payloads for each scenario with all required fields
-- 7-8/10: Outcome-level scenarios with status codes and error codes (e.g., "Happy: patient books → 201, booking confirmed, allotment decremented")
+- 7-8/10: Outcome-level scenarios with status codes and error codes (e.g., "Happy: user books → 201, booking confirmed, capacity decremented")
 - 4-6/10: Some scenarios missing, or scenarios without status/error codes
 - 0-3/10: Vague scenarios ("it should work") or missing entirely
 
@@ -124,7 +124,7 @@ These rules prevent systematic over-penalization:
 **Common failures:**
 - Stories missing the "so that [outcome]" clause
 - Acceptance criteria without test scenarios (just assertions)
-- Stories using undefined roles (e.g., "admin" when the slice only defines "practitioner" and "patient")
+- Stories using undefined roles (e.g., "admin" when the slice only defines "operator" and "end user")
 
 **How to fix:**
 - Complete the story format. Add test scenarios inline under each acceptance criterion. Verify roles against the role list in plan.md.

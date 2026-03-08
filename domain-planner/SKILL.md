@@ -132,7 +132,7 @@ Ask the user structured multi-choice questions for all binary/multi-choice decis
 - "Any changes needed before locking?"
 
 **INSTEAD, identify specific uncertainties and ask about those:**
-- "Should `patient_id` be required or inferred from auth context?"
+- "Should `user_id` be required or inferred from auth context?"
 - "The notes field — max 500 chars or unlimited?"
 - "Return full object or just { id, name }?"
 
@@ -226,7 +226,7 @@ Use Phases 0-6 below for spec creation. Planning outputs must explicitly map aut
 **Goal:** Complete shared.md that both teams implement against.
 
 **Cross-reference siblings from Phase 0:**
-- Reuse existing entity IDs as foreign keys (don't reinvent `patient_id`, `practitioner_id`, `enrollment_id`)
+- Reuse existing entity IDs as foreign keys (don't reinvent `user_id`, `owner_id`, `enrollment_id`)
 - Follow sibling endpoint naming conventions (e.g., if siblings use `/v1/{resource}`, don't use `/api/{resource}`)
 - Reference sibling error code patterns (e.g., `{SLICE}_NOT_FOUND` convention)
 
@@ -273,7 +273,7 @@ Before defining routes, ask: "Does an existing widget already display this data 
 | Extend the widget with role-based props | Create new page/widget |
 | Add inline actions (toggles, modals) | Define new routes |
 
-Features in patient-context views should almost always be **inline widget extensions**, not separate pages. Navigation breaks focus.
+Features in resource-context views should almost always be **inline widget extensions**, not separate pages. Navigation breaks focus.
 
 ### Mode-Specific Phase 4 Questions
 

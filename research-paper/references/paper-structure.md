@@ -18,7 +18,7 @@ This file covers the canonical paper only. Companion X article defaults live in 
    - Risk matrix, 2x2 grid, decision tree, or tiered classification
    - Based on evidence from prior sections, not speculation
 6. **Implications**: Forward-looking:
-   - What this means for practitioners / builders / researchers
+   - What this means for operators / builders / researchers
    - Predictions grounded in the data
    - What signals to watch
 7. **Conclusion**: Synthesis — how to think about this differently.

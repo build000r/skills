@@ -1,6 +1,6 @@
 # Standard Stories: RBAC & Auth Patterns
 
-> Reusable user story templates extracted from `cfo_rbac`. When a new slice touches auth, roles, or access control, use these as starting points in Phase 1 Discovery.
+> Reusable RBAC and auth user story templates for any domain. When a new slice touches roles, permissions, feature gating, or access control, use these as starting points in Phase 1 Discovery.
 
 ## How to Use
 
@@ -8,6 +8,7 @@ During Phase 1, check: "Does this slice involve any of these patterns?"
 - If yes, copy relevant stories and adapt role names / resource names
 - If the slice is auth-adjacent (e.g., needs feature gating), pull just that section
 - Skip stories that don't apply — these are a menu, not a mandate
+- Keep this file generic. Put project-specific role names, portals, and business examples in mode files or slice-specific planning docs.
 
 ---
 
@@ -15,15 +16,15 @@ During Phase 1, check: "Does this slice involve any of these patterns?"
 
 Standard stories for any multi-role system with per-resource scoping.
 
-**Adapt:** Replace `company` with your resource type, replace role names with your hierarchy.
+**Adapt:** Replace `organization` with your resource type, replace role names with your hierarchy.
 
 ### Core Stories
 
 - [ ] **Admin can manage users across the system** — CRUD user records, view all users
-- [ ] **Admin can assign roles per {resource}** — Flexible scoping (e.g., per company, per team)
+- [ ] **Admin can assign roles per {resource}** — Flexible scoping (e.g., per organization, per team)
 - [ ] **Admin can revoke roles with audit trail** — Soft revocation preserves history
 - [ ] **Admin can view role change history** — Audit compliance via event trail
-- [ ] **Higher roles inherit lower role permissions** — Accountant implicitly passes client checks
+- [ ] **Higher roles inherit lower role permissions** — A higher role implicitly satisfies lower-role checks
 
 ### Role Isolation Stories
 
@@ -59,7 +60,7 @@ Standard stories for system-level kill switches + per-resource feature toggles.
 
 ```
 Is system kill switch OFF?  → Hidden for everyone (admin bypasses)
-Is company toggle OFF?      → Hidden for this company
+Is {resource} toggle OFF?   → Hidden for this {resource}
 Does user meet role minimum? → Hidden if role too low
 All checks pass             → Show feature
 ```
@@ -71,7 +72,7 @@ All checks pass             → Show feature
 | Feature storage | Entitlements, JSONB column, config service | Entitlements for audit trail |
 | Cache TTL | Instant (WebSocket) vs 1min vs 5min | 5min for v1 (admin ops are rare) |
 | Default state for new features | On or off | Off — explicit opt-in is safer |
-| Feature key naming | `feature_name` vs `namespace:feature_name` | Namespaced (e.g., `cfo:feature:reports_dashboard`) |
+| Feature key naming | `feature_name` vs `namespace:feature_name` | Namespaced (e.g., `workspace:feature:reports_dashboard`) |
 
 ---
 
@@ -82,9 +83,9 @@ Standard stories for multi-portal apps where different roles see different UIs.
 ### Core Stories
 
 - [ ] **Landing page reads user context and redirects to correct portal** — `/me` → role → portal route
-- [ ] **Wrong-portal access redirects gracefully** — Client visiting admin URL gets sent to client portal, not 403
-- [ ] **Navigation is scoped by role** — Admin sees all nav items, client sees minimal set
-- [ ] **Shared components work across portals** — Same `DocumentUploader` in prospect and client portals
+- [ ] **Wrong-portal access redirects gracefully** — Member visiting an admin URL gets sent to the correct portal, not 403
+- [ ] **Navigation is scoped by role** — Admin sees all nav items, end users see only what they need
+- [ ] **Shared components work across portals** — Same `AttachmentUploader` in onboarding and member portals
 
 ### Portal Shell Pattern
 
@@ -106,7 +107,7 @@ Every portal page wraps in a shell that handles:
 | Admin | `full` | All sections, all portals, system settings |
 | Power user | `standard` | Dashboard, tools, reports |
 | End user | `standard` | Dashboard, documents, reports |
-| Onboarding | `minimal` | Logo, company name, logout only |
+| Onboarding | `minimal` | Logo, workspace name, logout only |
 
 ### Key Decisions to Resolve
 
@@ -118,30 +119,30 @@ Every portal page wraps in a shell that handles:
 
 ---
 
-## 4. Prospect / Onboarding Flow
+## 4. Limited-Access Onboarding Flow
 
-Standard stories for pre-conversion users who need limited access before becoming full users.
+Standard stories for invited or pre-activated users who need limited access before becoming full users.
 
 ### Core Stories
 
-- [ ] **{Sales/Admin} can create a prospect {resource}** — Pre-conversion entity without full system access
-- [ ] **{Sales/Admin} can create a prospect user** — Link email, issue entitlement before signup
-- [ ] **Prospect can self-serve onboarding tasks** — Upload documents, answer questionnaires, view proposals
-- [ ] **Prospect cannot access production features** — Zero access to financial data, tools, reports
-- [ ] **Prospect cannot see internal pricing or logic** — Sales controls what prospect sees
-- [ ] **{Sales/Admin} can convert prospect to full user** — Revoke prospect role, assign real role, update status
-- [ ] **Converted user retains their onboarding data** — Documents and progress carry over
+- [ ] **{Operator/Admin} can create a pending {resource}** — Pre-activation entity without full system access
+- [ ] **{Operator/Admin} can create a pending user** — Link email, issue entitlement before signup
+- [ ] **Pending user can self-serve onboarding tasks** — Upload documents, answer questionnaires, complete setup
+- [ ] **Pending user cannot access full-product features** — Zero access to protected data, tools, reports
+- [ ] **Pending user cannot see internal rules or protected configuration** — Operators control what pending users see
+- [ ] **{Operator/Admin} can activate pending user into a full role** — Revoke pending role, assign real role, update status
+- [ ] **Activated user retains onboarding data** — Documents and progress carry over
 
 ### End-to-End Flow
 
 ```
-1. Sales creates prospect {resource} (status: prospect)
-2. Sales creates prospect user (links email)
-3. Sales assigns prospect role (scoped to {resource})
-4. Sales sends onboarding link (manual v1, automated v2)
-5. Prospect signs up and claims entitlements
-6. Prospect accesses limited portal (uploads, proposals, Q&A)
-7. Sales/Admin converts prospect → full role
+1. Operator creates pending {resource} (status: pending)
+2. Operator creates pending user (links email)
+3. Operator assigns pending role (scoped to {resource})
+4. Operator sends onboarding link (manual v1, automated v2)
+5. Pending user signs up and claims entitlements
+6. Pending user accesses limited portal (uploads, forms, setup tasks)
+7. Operator/Admin activates pending user → full role
 8. Next login redirects to full portal
 ```
 
@@ -149,10 +150,10 @@ Standard stories for pre-conversion users who need limited access before becomin
 
 | Decision | Options | Recommendation |
 |----------|---------|----------------|
-| Prospect in role hierarchy? | Part of hierarchy vs separate branch | Separate — conversion is a business decision, not permission escalation |
+| Pending role in role hierarchy? | Part of hierarchy vs separate branch | Separate — activation is a business decision, not permission escalation |
 | Onboarding link delivery | Automated email vs manual | Manual for v1, automated for v2 |
-| Data continuity on conversion | Reset vs carry over | Carry over — same resource, different role |
-| Multiple prospects per resource | One contact vs many | Many — multiple stakeholders in onboarding |
+| Data continuity on activation | Reset vs carry over | Carry over — same resource, different role |
+| Multiple pending users per resource | One contact vs many | Many — multiple stakeholders in onboarding |
 
 ---
 
@@ -185,12 +186,12 @@ UPDATE user_profiles SET is_admin = true WHERE email = 'admin@example.com';
 
 ## 6. Separate-Branch Roles (Non-Hierarchical)
 
-Standard stories for roles that exist outside the linear hierarchy (e.g., sales, moderator).
+Standard stories for roles that exist outside the linear hierarchy (e.g., support, moderator).
 
 ### Core Stories
 
 - [ ] **{Branch role} has specific, limited capabilities** — Not above or below other roles
-- [ ] **{Branch role} cannot access main hierarchy features** — Sales can't see financial data
+- [ ] **{Branch role} cannot access main hierarchy features** — Support staff cannot access protected admin features
 - [ ] **{Branch role} shares portal shell with scoped navigation** — Reuses admin portal with restricted nav
 - [ ] **`hasMinimumRole()` returns false for branch roles** — They're not in the hierarchy
 
@@ -198,10 +199,10 @@ Standard stories for roles that exist outside the linear hierarchy (e.g., sales,
 
 ```
 HIERARCHY (linear):        BRANCHES (separate):
-  Admin (4)                  Sales
-  Accountant (3)               ├── prospect management
-  Client (2)                   └── NO financial data
-  Employee (1)
+  Admin (4)                  Support
+  Manager (3)                  ├── pre-activation workflow
+  Member (2)                   └── NO protected admin features
+  Viewer (1)
                              Moderator
                                ├── content review
                                └── NO admin features
@@ -216,7 +217,7 @@ HIERARCHY (linear):        BRANCHES (separate):
 | Adds a new user role | 1. Role Hierarchy, 6. Branch Roles |
 | Needs admin-only features | 2. Feature Flags |
 | Adds a new portal/page | 3. Portal Routing |
-| Has pre-conversion users | 4. Onboarding Flow |
+| Has limited-access onboarding users | 4. Limited-Access Onboarding Flow |
 | Is the first slice in a new app | 5. Admin Bootstrapping |
 | Needs feature toggles | 2. Feature Flags |
-| Scopes data by company/team | 1. Role Isolation |
+| Scopes data by organization/team/resource | 1. Role Isolation |

@@ -256,7 +256,7 @@ When preparing an existing skill repo for open source:
 
 1. **Audit tracked files**: `git ls-files | xargs grep -lE 'project-name|internal-domain|api-key-name'`
 2. **Extract project content → modes/**: Move project-specific references from SKILL.md body into mode files. Replace with `{placeholder}` syntax referencing mode config.
-3. **Genericize examples**: Replace domain-specific slice names with generic ones ("task_assignments"). Replace internal service names with generic terms ("backend API"). Keep generic role names (practitioner, admin, user).
+3. **Genericize examples**: Replace domain-specific slice names with generic ones ("task_assignments"). Replace internal service names with generic terms ("backend API"). Keep generic role names (operator, admin, user).
 4. **Verify gitignore coverage**: Ensure `modes/`, project-specific templates, and deployment data are all excluded.
 5. **Final audit**: `git ls-files | xargs grep -lE 'project|company|internal'` — zero tolerance for the real names.
 6. **Check git history**: If project names exist in past commits, consider `git filter-repo` or starting a clean history.

@@ -120,6 +120,7 @@ fn tmux_emit_once_writes_hello_and_sync_result() {
         serde_json::from_str(lines.next().expect("sync result line")).expect("result json");
     assert_eq!(result["type"], "sync_result");
     assert_eq!(result["id"], "tmux-1");
+    assert!(result["stream_instance_id"].as_str().is_some());
     assert_eq!(result["metrics"]["sessions_seen"], 2);
     assert!(result["updates"].is_array());
 }
@@ -158,6 +159,10 @@ fn tmux_notify_triggers_immediate_rescan() {
     let first: Value = serde_json::from_str(first_result_line.trim()).expect("first result json");
     assert_eq!(first["type"], "sync_result");
     assert_eq!(first["id"], "tmux-1");
+    let stream_instance_id = first["stream_instance_id"]
+        .as_str()
+        .expect("stream instance id")
+        .to_string();
 
     let notify = Command::new(env!("CARGO_BIN_EXE_clawgs"))
         .arg("tmux-notify")
@@ -186,6 +191,7 @@ fn tmux_notify_triggers_immediate_rescan() {
     let second: Value = serde_json::from_str(line.trim()).expect("second result json");
     assert_eq!(second["type"], "sync_result");
     assert_eq!(second["id"], "tmux-2");
+    assert_eq!(second["stream_instance_id"], stream_instance_id);
 
     child.kill().expect("kill tmux emit");
     child.wait().expect("wait for tmux emit");

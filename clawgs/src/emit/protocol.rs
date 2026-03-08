@@ -151,6 +151,8 @@ pub struct SyncRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThoughtUpdate {
     pub session_id: String,
+    pub stream_instance_id: String,
+    pub emission_seq: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thought: Option<String>,
     pub token_count: u64,
@@ -198,15 +200,22 @@ pub struct SyncResultMessage {
     #[serde(rename = "type")]
     pub msg_type: &'static str,
     pub id: String,
+    pub stream_instance_id: String,
     pub updates: Vec<ThoughtUpdate>,
     pub metrics: SyncMetrics,
 }
 
 impl SyncResultMessage {
-    pub fn new(id: impl Into<String>, updates: Vec<ThoughtUpdate>, metrics: SyncMetrics) -> Self {
+    pub fn new(
+        id: impl Into<String>,
+        stream_instance_id: impl Into<String>,
+        updates: Vec<ThoughtUpdate>,
+        metrics: SyncMetrics,
+    ) -> Self {
         Self {
             msg_type: "sync_result",
             id: id.into(),
+            stream_instance_id: stream_instance_id.into(),
             updates,
             metrics,
         }

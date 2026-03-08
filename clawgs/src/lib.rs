@@ -281,81 +281,82 @@ pub fn discover_auto(cwd: &Path) -> Result<ResolvedInput> {
 }
 
 pub fn discover_claude_path(cwd: &Path) -> Option<PathBuf> {
-    let home = home_dir()?;
+    discover_claude_paths(cwd).into_iter().next()
+}
+
+pub fn discover_claude_paths(cwd: &Path) -> Vec<PathBuf> {
+    let Some(home) = home_dir() else {
+        return Vec::new();
+    };
     let cwd_slug = cwd.display().to_string().replace('/', "-");
     let project_dir = home.join(".claude").join("projects").join(cwd_slug);
 
-    let mut files: Vec<(PathBuf, SystemTime)> = fs::read_dir(project_dir)
-        .ok()?
-        .filter_map(|entry| entry.ok())
-        .map(|entry| entry.path())
-        .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("jsonl"))
-        .filter(|path| claude_file_matches_cwd(path, cwd))
-        .filter_map(|path| {
-            let modified = fs::metadata(&path).ok()?.modified().ok()?;
-            Some((path, modified))
-        })
-        .collect();
+    let mut files: Vec<(PathBuf, SystemTime)> = match fs::read_dir(project_dir) {
+        Ok(entries) => entries
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.path())
+            .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("jsonl"))
+            .filter(|path| claude_file_matches_cwd(path, cwd))
+            .filter_map(|path| {
+                let modified = fs::metadata(&path).ok()?.modified().ok()?;
+                Some((path, modified))
+            })
+            .collect(),
+        Err(_) => return Vec::new(),
+    };
 
     files.sort_by(|a, b| b.1.cmp(&a.1));
-    files.into_iter().next().map(|(path, _)| path)
+    files.into_iter().map(|(path, _)| path).collect()
 }
 
 pub fn discover_codex_path(cwd: &Path) -> Option<PathBuf> {
-    let home = home_dir()?;
+    discover_codex_paths(cwd).into_iter().next()
+}
+
+pub fn discover_codex_paths(cwd: &Path) -> Vec<PathBuf> {
+    let Some(home) = home_dir() else {
+        return Vec::new();
+    };
     let sessions_dir = home.join(".codex").join("sessions");
+    let mut matches = Vec::new();
 
     for year in sorted_numeric_subdirs_reverse(&sessions_dir, 4) {
         for month in sorted_numeric_subdirs_reverse(&year, 2) {
             for day in sorted_numeric_subdirs_reverse(&month, 2) {
-                let mut rollout_files: Vec<PathBuf> = fs::read_dir(&day)
-                    .ok()?
-                    .filter_map(|entry| entry.ok())
-                    .map(|entry| entry.path())
-                    .filter(|path| {
-                        let name = path
-                            .file_name()
-                            .and_then(|n| n.to_str())
-                            .unwrap_or_default();
-                        name.starts_with("rollout-") && name.ends_with(".jsonl")
-                    })
-                    .collect();
+                let mut rollout_files: Vec<PathBuf> = match fs::read_dir(&day) {
+                    Ok(entries) => entries
+                        .filter_map(|entry| entry.ok())
+                        .map(|entry| entry.path())
+                        .filter(|path| {
+                            let name = path
+                                .file_name()
+                                .and_then(|n| n.to_str())
+                                .unwrap_or_default();
+                            name.starts_with("rollout-") && name.ends_with(".jsonl")
+                        })
+                        .collect(),
+                    Err(_) => continue,
+                };
 
                 rollout_files.sort();
                 rollout_files.reverse();
 
                 for file_path in rollout_files {
                     if codex_file_matches_cwd(&file_path, cwd) {
-                        return Some(file_path);
+                        matches.push(file_path);
                     }
                 }
             }
         }
     }
 
-    None
+    matches
 }
 
 pub fn discover_claude_path_excluding(cwd: &Path, excluded: &HashSet<PathBuf>) -> Option<PathBuf> {
-    let home = home_dir()?;
-    let cwd_slug = cwd.display().to_string().replace('/', "-");
-    let project_dir = home.join(".claude").join("projects").join(cwd_slug);
-
-    let mut files: Vec<(PathBuf, SystemTime)> = fs::read_dir(project_dir)
-        .ok()?
-        .filter_map(|entry| entry.ok())
-        .map(|entry| entry.path())
-        .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("jsonl"))
-        .filter(|path| !excluded.contains(path))
-        .filter(|path| claude_file_matches_cwd(path, cwd))
-        .filter_map(|path| {
-            let modified = fs::metadata(&path).ok()?.modified().ok()?;
-            Some((path, modified))
-        })
-        .collect();
-
-    files.sort_by(|a, b| b.1.cmp(&a.1));
-    files.into_iter().next().map(|(path, _)| path)
+    discover_claude_paths(cwd)
+        .into_iter()
+        .find(|path| !excluded.contains(path))
 }
 
 fn claude_file_matches_cwd(path: &Path, cwd: &Path) -> bool {
@@ -395,41 +396,9 @@ fn claude_file_matches_cwd(path: &Path, cwd: &Path) -> bool {
 }
 
 pub fn discover_codex_path_excluding(cwd: &Path, excluded: &HashSet<PathBuf>) -> Option<PathBuf> {
-    let home = home_dir()?;
-    let sessions_dir = home.join(".codex").join("sessions");
-
-    for year in sorted_numeric_subdirs_reverse(&sessions_dir, 4) {
-        for month in sorted_numeric_subdirs_reverse(&year, 2) {
-            for day in sorted_numeric_subdirs_reverse(&month, 2) {
-                let mut rollout_files: Vec<PathBuf> = fs::read_dir(&day)
-                    .ok()?
-                    .filter_map(|entry| entry.ok())
-                    .map(|entry| entry.path())
-                    .filter(|path| {
-                        let name = path
-                            .file_name()
-                            .and_then(|n| n.to_str())
-                            .unwrap_or_default();
-                        name.starts_with("rollout-") && name.ends_with(".jsonl")
-                    })
-                    .collect();
-
-                rollout_files.sort();
-                rollout_files.reverse();
-
-                for file_path in rollout_files {
-                    if excluded.contains(&file_path) {
-                        continue;
-                    }
-                    if codex_file_matches_cwd(&file_path, cwd) {
-                        return Some(file_path);
-                    }
-                }
-            }
-        }
-    }
-
-    None
+    discover_codex_paths(cwd)
+        .into_iter()
+        .find(|path| !excluded.contains(path))
 }
 
 fn codex_file_matches_cwd(path: &Path, cwd: &Path) -> bool {

@@ -5,8 +5,8 @@ use std::path::{Path, PathBuf};
 use chrono::{DateTime, Utc};
 
 use crate::{
-    discover_claude_path_excluding, discover_codex_path_excluding, extract, resolve_input,
-    AgentTool, ExtractOptions, Snapshot, ToolSelection,
+    discover_claude_paths, discover_codex_paths, extract, resolve_input, AgentTool, ExtractOptions,
+    Snapshot, ToolSelection,
 };
 
 use super::model_client::ModelClient;
@@ -22,8 +22,7 @@ const MAX_THOUGHT_CHARS: usize = 120;
 const STATIC_SLEEPING_THOUGHT: &str = "Sleeping.";
 const SLEEPING_AFTER_MS: i64 = 60_000;
 
-pub const DEFAULT_AGENT_PREAMBLE: &str =
-    "You are a status reporter for a coding agent session.";
+pub const DEFAULT_AGENT_PREAMBLE: &str = "You are a status reporter for a coding agent session.";
 pub const DEFAULT_TERMINAL_PREAMBLE: &str = "Terminal session status reporter.";
 
 struct SessionRuntimeState {
@@ -37,6 +36,7 @@ struct SessionRuntimeState {
     objective_fingerprint: Option<String>,
     objective_stable_since: DateTime<Utc>,
     claimed_jsonl_path: Option<PathBuf>,
+    emission_seq: u64,
 }
 
 impl SessionRuntimeState {
@@ -59,7 +59,13 @@ impl SessionRuntimeState {
             objective_fingerprint: session.objective_fingerprint.clone(),
             objective_stable_since: thought_updated_at,
             claimed_jsonl_path: None,
+            emission_seq: 0,
         }
+    }
+
+    fn next_emission_seq(&mut self) -> u64 {
+        self.emission_seq = self.emission_seq.saturating_add(1);
+        self.emission_seq
     }
 
     fn cadence_tier_label(&self, config: &ThoughtConfig, now: DateTime<Utc>) -> &'static str {
@@ -95,6 +101,7 @@ impl SessionRuntimeState {
 pub struct EmitEngine {
     model_client: Box<dyn ModelClient>,
     per_session: HashMap<String, SessionRuntimeState>,
+    stream_instance_id: String,
 }
 
 impl EmitEngine {
@@ -102,6 +109,11 @@ impl EmitEngine {
         Self {
             model_client,
             per_session: HashMap::new(),
+            stream_instance_id: format!(
+                "stream-{}-{}",
+                Utc::now().timestamp_millis(),
+                std::process::id()
+            ),
         }
     }
 
@@ -119,19 +131,18 @@ impl EmitEngine {
 
         if !request.config.enabled {
             self.clear_all_sessions(request, &mut updates, &mut metrics);
-            return SyncResultMessage::new(request.id.clone(), updates, metrics);
+            return SyncResultMessage::new(
+                request.id.clone(),
+                self.stream_instance_id.clone(),
+                updates,
+                metrics,
+            );
         }
 
-        let mut claude_excluded: HashSet<PathBuf> = HashSet::new();
-        let mut codex_excluded: HashSet<PathBuf> = HashSet::new();
-        for state in self.per_session.values() {
-            if let Some(claimed) = state.claimed_jsonl_path.as_ref() {
-                // We don't track tool type in state, so we add to both sets initially.
-                // The discovery functions only search their own filesystem layout, so
-                // a Claude path in the Codex set (or vice versa) is harmless — it will
-                // never match a Codex discovery candidate.
-                claude_excluded.insert(claimed.clone());
-                codex_excluded.insert(claimed.clone());
+        let mut transcript_group_counts: HashMap<String, usize> = HashMap::new();
+        for session in &request.sessions {
+            if let Some(group_key) = transcript_group_key(session) {
+                *transcript_group_counts.entry(group_key).or_insert(0) += 1;
             }
         }
 
@@ -158,18 +169,19 @@ impl EmitEngine {
                     || !is_sleeping_text(state.last_emitted_thought.as_deref());
 
                 if should_emit_sleeping {
-                    let update = ThoughtUpdate {
-                        session_id: session.session_id.clone(),
-                        thought: Some(STATIC_SLEEPING_THOUGHT.to_string()),
-                        token_count: session.token_count,
-                        context_limit: session.context_limit,
-                        thought_state: ThoughtState::Sleeping,
-                        thought_source: ThoughtSource::StaticSleeping,
-                        objective_changed: false,
-                        bubble_precedence: BubblePrecedence::ThoughtFirst,
-                        at: request.now,
-                        objective_fingerprint: Some("sleeping".to_string()),
-                    };
+                    let update = thought_update(
+                        &self.stream_instance_id,
+                        state,
+                        session,
+                        Some(STATIC_SLEEPING_THOUGHT.to_string()),
+                        session.token_count,
+                        session.context_limit,
+                        ThoughtState::Sleeping,
+                        ThoughtSource::StaticSleeping,
+                        false,
+                        request.now,
+                        Some("sleeping".to_string()),
+                    );
                     updates.push(update);
                 } else {
                     metrics.suppressed += 1;
@@ -185,7 +197,12 @@ impl EmitEngine {
             }
 
             if state.thought_state == ThoughtState::Sleeping {
-                updates.push(clear_thought_update(session, request.now));
+                updates.push(clear_thought_update(
+                    &self.stream_instance_id,
+                    state,
+                    session,
+                    request.now,
+                ));
                 state.thought_state = ThoughtState::Holding;
                 state.thought_source = ThoughtSource::CarryForward;
                 state.sleeping_emitted = false;
@@ -193,20 +210,16 @@ impl EmitEngine {
                 state.last_call_at = Some(request.now);
             }
 
-            let (context_snapshot, resolved_path) =
-                context_snapshot_for_session_with_claim(
-                    session,
-                    state.claimed_jsonl_path.as_deref(),
-                    &claude_excluded,
-                    &codex_excluded,
-                );
-            if let Some(path) = resolved_path {
-                claude_excluded.insert(path.clone());
-                codex_excluded.insert(path.clone());
-                state.claimed_jsonl_path = Some(path);
-            } else {
-                state.claimed_jsonl_path = None;
-            }
+            let context_group_is_ambiguous = transcript_group_key(session)
+                .and_then(|group_key| transcript_group_counts.get(&group_key).copied())
+                .unwrap_or_default()
+                > 1;
+            let (context_snapshot, resolved_path) = context_snapshot_for_session_with_claim(
+                session,
+                state.claimed_jsonl_path.as_deref(),
+                context_group_is_ambiguous,
+            );
+            state.claimed_jsonl_path = resolved_path;
             let objective_fingerprint = if let Some(snapshot) = context_snapshot.as_ref() {
                 context_focus_fingerprint(snapshot, &session.state).to_string()
             } else {
@@ -286,18 +299,19 @@ impl EmitEngine {
                 .map(|snapshot| snapshot.token_count)
                 .unwrap_or(session.token_count);
 
-            updates.push(ThoughtUpdate {
-                session_id: session.session_id.clone(),
-                thought: Some(thought.clone()),
+            updates.push(thought_update(
+                &self.stream_instance_id,
+                state,
+                session,
+                Some(thought.clone()),
                 token_count,
-                context_limit: session.context_limit,
-                thought_state: next_state,
-                thought_source: ThoughtSource::Llm,
+                session.context_limit,
+                next_state,
+                ThoughtSource::Llm,
                 objective_changed,
-                bubble_precedence: BubblePrecedence::ThoughtFirst,
-                at: request.now,
-                objective_fingerprint: Some(objective_fingerprint.clone()),
-            });
+                request.now,
+                Some(objective_fingerprint.clone()),
+            ));
 
             state.last_emitted_thought = Some(thought.clone());
             state.summary_history.push(thought);
@@ -312,7 +326,12 @@ impl EmitEngine {
             metrics.llm_calls += 1;
         }
 
-        SyncResultMessage::new(request.id.clone(), updates, metrics)
+        SyncResultMessage::new(
+            request.id.clone(),
+            self.stream_instance_id.clone(),
+            updates,
+            metrics,
+        )
     }
 
     fn clear_all_sessions(
@@ -335,7 +354,12 @@ impl EmitEngine {
                 || state.thought_state != ThoughtState::Holding;
 
             if needs_clear {
-                updates.push(clear_thought_update(session, request.now));
+                updates.push(clear_thought_update(
+                    &self.stream_instance_id,
+                    state,
+                    session,
+                    request.now,
+                ));
                 state.last_emitted_thought = None;
                 state.thought_state = ThoughtState::Holding;
                 state.thought_source = ThoughtSource::CarryForward;
@@ -348,18 +372,53 @@ impl EmitEngine {
     }
 }
 
-fn clear_thought_update(session: &SessionSnapshot, now: DateTime<Utc>) -> ThoughtUpdate {
+fn clear_thought_update(
+    stream_instance_id: &str,
+    state: &mut SessionRuntimeState,
+    session: &SessionSnapshot,
+    now: DateTime<Utc>,
+) -> ThoughtUpdate {
+    thought_update(
+        stream_instance_id,
+        state,
+        session,
+        None,
+        session.token_count,
+        session.context_limit,
+        ThoughtState::Holding,
+        ThoughtSource::CarryForward,
+        false,
+        now,
+        None,
+    )
+}
+
+fn thought_update(
+    stream_instance_id: &str,
+    state: &mut SessionRuntimeState,
+    session: &SessionSnapshot,
+    thought: Option<String>,
+    token_count: u64,
+    context_limit: u64,
+    thought_state: ThoughtState,
+    thought_source: ThoughtSource,
+    objective_changed: bool,
+    at: DateTime<Utc>,
+    objective_fingerprint: Option<String>,
+) -> ThoughtUpdate {
     ThoughtUpdate {
         session_id: session.session_id.clone(),
-        thought: None,
-        token_count: session.token_count,
-        context_limit: session.context_limit,
-        thought_state: ThoughtState::Holding,
-        thought_source: ThoughtSource::CarryForward,
-        objective_changed: false,
+        stream_instance_id: stream_instance_id.to_string(),
+        emission_seq: state.next_emission_seq(),
+        thought,
+        token_count,
+        context_limit,
+        thought_state,
+        thought_source,
+        objective_changed,
         bubble_precedence: BubblePrecedence::ThoughtFirst,
-        at: now,
-        objective_fingerprint: None,
+        at,
+        objective_fingerprint,
     }
 }
 
@@ -381,11 +440,21 @@ fn is_sleeping_text(thought: Option<&str>) -> bool {
     }
 }
 
+fn transcript_group_key(session: &SessionSnapshot) -> Option<String> {
+    let selection = tool_selection_for_session(session.tool.as_deref())?;
+    let tool = match selection {
+        ToolSelection::Claude => "claude",
+        ToolSelection::Codex => "codex",
+        ToolSelection::Auto => return None,
+    };
+
+    Some(format!("{tool}:{}", session.cwd))
+}
+
 fn context_snapshot_for_session_with_claim(
     session: &SessionSnapshot,
     existing_claim: Option<&Path>,
-    claude_excluded: &HashSet<PathBuf>,
-    codex_excluded: &HashSet<PathBuf>,
+    group_is_ambiguous: bool,
 ) -> (Option<Snapshot>, Option<PathBuf>) {
     let selection = match tool_selection_for_session(session.tool.as_deref()) {
         Some(s) => s,
@@ -411,31 +480,29 @@ fn context_snapshot_for_session_with_claim(
         }
     }
 
-    // Otherwise, discover a new path using the exclusion set
+    // Otherwise, only claim a transcript when the pane has a unique binding.
+    if group_is_ambiguous {
+        return (None, None);
+    }
+
     let agent_tool = match selection {
         ToolSelection::Claude => AgentTool::Claude,
         ToolSelection::Codex => AgentTool::Codex,
         ToolSelection::Auto => return (None, None),
     };
 
-    let discovered = match agent_tool {
-        AgentTool::Claude => discover_claude_path_excluding(cwd, claude_excluded),
-        AgentTool::Codex => discover_codex_path_excluding(cwd, codex_excluded),
+    let candidates = match agent_tool {
+        AgentTool::Claude => discover_claude_paths(cwd),
+        AgentTool::Codex => discover_codex_paths(cwd),
     };
 
-    let path = match discovered {
-        Some(p) => p,
-        None => return (None, None),
-    };
+    if candidates.len() != 1 {
+        return (None, None);
+    }
 
-    let output = extract(
-        agent_tool,
-        &path,
-        cwd,
-        true,
-        &ExtractOptions::default(),
-    )
-    .ok();
+    let path = candidates[0].clone();
+
+    let output = extract(agent_tool, &path, cwd, true, &ExtractOptions::default()).ok();
 
     (output.map(|o| o.snapshot), Some(path))
 }
@@ -762,11 +829,17 @@ fn hash_string(value: &str) -> u64 {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+    use std::sync::Mutex;
+
     use chrono::Duration;
+    use tempfile::tempdir;
 
     use super::*;
     use crate::emit::model_client::ModelClient;
     use crate::emit::protocol::{SessionSnapshot, SessionState, SyncRequest, ThoughtConfig};
+
+    static HOME_LOCK: Mutex<()> = Mutex::new(());
 
     struct MockModelClient {
         response: String,
@@ -814,10 +887,16 @@ mod tests {
         let result = engine.sync(&request);
         assert_eq!(result.msg_type, "sync_result");
         assert_eq!(result.updates.len(), 1);
+        assert!(!result.stream_instance_id.is_empty());
         assert_eq!(
             result.updates[0].thought.as_deref(),
             Some("investigating failing auth tests")
         );
+        assert_eq!(
+            result.updates[0].stream_instance_id,
+            result.stream_instance_id
+        );
+        assert_eq!(result.updates[0].emission_seq, 1);
     }
 
     #[test]
@@ -869,6 +948,7 @@ mod tests {
         assert_eq!(result.updates.len(), 1);
         assert_eq!(result.updates[0].thought.as_deref(), Some("Sleeping."));
         assert_eq!(result.updates[0].thought_state, ThoughtState::Sleeping);
+        assert_eq!(result.updates[0].emission_seq, 1);
     }
 
     #[test]
@@ -972,30 +1052,95 @@ mod tests {
     }
 
     #[test]
-    fn claude_and_codex_exclusion_sets_independent() {
-        // Verify that the exclusion sets are built and both populated from claims
-        // (since we add to both sets for simplicity), but discovery functions only
-        // search their own filesystem layout so cross-tool contamination is impossible.
-        let claude_path = PathBuf::from("/home/user/.claude/projects/slug/session-a.jsonl");
-        let codex_path =
-            PathBuf::from("/home/user/.codex/sessions/2026/02/27/rollout-abc.jsonl");
+    fn no_op_scan_does_not_advance_emission_seq() {
+        let now = Utc::now();
+        let mut engine = EmitEngine::new(Box::new(MockModelClient {
+            response: "unused".to_string(),
+        }));
 
-        let mut claude_excluded: HashSet<PathBuf> = HashSet::new();
-        let mut codex_excluded: HashSet<PathBuf> = HashSet::new();
+        let mut sleeping = sample_session(now);
+        sleeping.state = SessionState::Idle;
+        sleeping.last_activity_at = now - Duration::milliseconds(61_000);
 
-        // Simulate two sessions claiming different paths
-        claude_excluded.insert(claude_path.clone());
-        codex_excluded.insert(claude_path.clone());
-        claude_excluded.insert(codex_path.clone());
-        codex_excluded.insert(codex_path.clone());
+        let first = engine.sync(&SyncRequest {
+            id: "req-1".to_string(),
+            now,
+            config: ThoughtConfig::default(),
+            sessions: vec![sleeping.clone()],
+        });
+        assert_eq!(first.updates.len(), 1);
+        assert_eq!(first.updates[0].emission_seq, 1);
 
-        // A Claude path in codex_excluded can never match a Codex rollout-* file
-        // because discover_codex_path_excluding only considers rollout-*.jsonl
-        // in ~/.codex/sessions/. The important thing is that each set contains
-        // both paths but discovery is type-scoped by filesystem layout.
-        assert!(claude_excluded.contains(&claude_path));
-        assert!(codex_excluded.contains(&codex_path));
-        assert_eq!(claude_excluded.len(), 2);
-        assert_eq!(codex_excluded.len(), 2);
+        let second = engine.sync(&SyncRequest {
+            id: "req-2".to_string(),
+            now: now + Duration::seconds(1),
+            config: ThoughtConfig::default(),
+            sessions: vec![sleeping],
+        });
+        assert!(second.updates.is_empty());
+
+        let waking = sample_session(now + Duration::seconds(2));
+        let third = engine.sync(&SyncRequest {
+            id: "req-3".to_string(),
+            now: now + Duration::seconds(2),
+            config: ThoughtConfig::default(),
+            sessions: vec![waking],
+        });
+        assert_eq!(third.updates.len(), 2);
+        assert_eq!(third.updates[0].thought, None);
+        assert_eq!(third.updates[0].emission_seq, 2);
+        assert_eq!(third.updates[1].emission_seq, 3);
+    }
+
+    #[test]
+    fn ambiguous_transcript_binding_falls_back_to_terminal_only() {
+        let _lock = HOME_LOCK.lock().expect("home lock");
+        let home = tempdir().expect("tempdir");
+        std::env::set_var("HOME", home.path());
+
+        let cwd = PathBuf::from("/tmp/shared");
+        let codex_day = home
+            .path()
+            .join(".codex")
+            .join("sessions")
+            .join("2026")
+            .join("03")
+            .join("08");
+        fs::create_dir_all(&codex_day).expect("create codex dir");
+        for name in ["rollout-a.jsonl", "rollout-b.jsonl"] {
+            fs::write(
+                codex_day.join(name),
+                format!(
+                    "{{\"type\":\"session_meta\",\"payload\":{{\"cwd\":\"{}\"}}}}\n",
+                    cwd.display()
+                ),
+            )
+            .expect("write codex transcript");
+        }
+
+        let now = Utc::now();
+        let mut engine = EmitEngine::new(Box::new(MockModelClient {
+            response: "watching logs".to_string(),
+        }));
+        let mut session = sample_session(now);
+        session.session_id = "tmux:work:1.0:%1".to_string();
+        session.tool = Some("codex".to_string());
+        session.cwd = cwd.display().to_string();
+        session.replay_text = "tail -f logs/app.log".to_string();
+
+        let result = engine.sync(&SyncRequest {
+            id: "req-1".to_string(),
+            now,
+            config: ThoughtConfig::default(),
+            sessions: vec![session],
+        });
+
+        assert_eq!(result.updates.len(), 1);
+        assert_eq!(result.updates[0].token_count, 1000);
+        let state = engine
+            .per_session
+            .get("tmux:work:1.0:%1")
+            .expect("pane state should exist");
+        assert!(state.claimed_jsonl_path.is_none());
     }
 }

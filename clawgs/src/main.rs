@@ -81,6 +81,9 @@ struct TmuxEmitArgs {
     model: String,
 
     #[arg(long)]
+    config_json: Option<String>,
+
+    #[arg(long)]
     socket: Option<PathBuf>,
 }
 
@@ -276,6 +279,7 @@ fn run_tmux_emit(args: TmuxEmitArgs) -> Result<()> {
     let mut engine = EmitEngine::new(Box::new(model_client));
     let mut stdout = io::stdout().lock();
     let mut seq = 0u64;
+    let tmux_config = tmux_emit_config(&args)?;
     let socket_path = args.socket.unwrap_or_else(default_tmux_socket_path);
     let mut socket_guard = None;
 
@@ -290,7 +294,7 @@ fn run_tmux_emit(args: TmuxEmitArgs) -> Result<()> {
         &mut engine,
         &mut seq,
         args.max_capture_lines,
-        &args.model,
+        &tmux_config,
     )?;
 
     if args.once {
@@ -338,10 +342,28 @@ fn run_tmux_emit(args: TmuxEmitArgs) -> Result<()> {
             &mut engine,
             &mut seq,
             args.max_capture_lines,
-            &args.model,
+            &tmux_config,
         )?;
         next_reconcile_at = Instant::now() + Duration::from_millis(args.interval_ms);
     }
+}
+
+fn tmux_emit_config(args: &TmuxEmitArgs) -> Result<clawgs::emit::protocol::ThoughtConfig> {
+    let mut config = match args.config_json.as_deref() {
+        Some(raw) => {
+            serde_json::from_str(raw).context("failed to parse --config-json for tmux-emit")?
+        }
+        None => clawgs::emit::protocol::ThoughtConfig::default(),
+    };
+
+    if !args.model.trim().is_empty() {
+        config.model = args.model.clone();
+    }
+
+    config
+        .validate()
+        .map_err(|error| anyhow::anyhow!("invalid tmux emit config: {error}"))?;
+    Ok(config)
 }
 
 fn write_json_line<W: Write, T: Serialize>(writer: &mut W, value: &T) -> Result<()> {
@@ -365,7 +387,7 @@ fn emit_tmux_scan<W: Write>(
     engine: &mut EmitEngine,
     seq: &mut u64,
     max_capture_lines: usize,
-    model: &str,
+    config: &clawgs::emit::protocol::ThoughtConfig,
 ) -> Result<()> {
     *seq += 1;
     let now = chrono::Utc::now();
@@ -374,10 +396,7 @@ fn emit_tmux_scan<W: Write>(
     let result = engine.sync(&SyncRequest {
         id: format!("tmux-{}", *seq),
         now,
-        config: clawgs::emit::protocol::ThoughtConfig {
-            model: model.to_string(),
-            ..Default::default()
-        },
+        config: config.clone(),
         sessions,
     });
 

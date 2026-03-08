@@ -56,4 +56,5 @@ fn emit_stdio_writes_hello_and_sync_result() {
         serde_json::from_str(lines.next().expect("sync_result line")).expect("result json");
     assert_eq!(result["type"], "sync_result");
     assert_eq!(result["id"], "req-1");
+    assert!(result["stream_instance_id"].as_str().is_some());
 }

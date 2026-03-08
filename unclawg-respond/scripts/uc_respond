@@ -645,6 +645,15 @@ def _load_published_soul_version(config: Config) -> int | None:
     return _load_published_soul_snapshot(config).version
 
 
+def _safe_load_published_soul_snapshot(config: Config) -> SoulSnapshot:
+    try:
+        return _load_published_soul_snapshot(config)
+    except ApiError as error:
+        if error.status_code in {403, 404}:
+            return SoulSnapshot(version=None, content="")
+        raise
+
+
 def _choose_revision_for_approval(revision_map: dict[str, list[dict[str, Any]]], approval_id: str) -> dict[str, Any] | None:
     revisions = revision_map.get(approval_id, [])
     if not revisions:
@@ -663,6 +672,30 @@ def _choose_revision_for_approval(revision_map: dict[str, list[dict[str, Any]]],
     if not candidates:
         return None
     return max(candidates, key=rank)
+
+
+def _load_revision_map(config: Config) -> dict[str, list[dict[str, Any]]]:
+    revision_map: dict[str, list[dict[str, Any]]] = {}
+    for status in ("pending", "dispatched", "expired", "fulfilled", "failed"):
+        for revision in _fetch_all_agent_revisions(config, status):
+            approval_id = str(revision.get("approval_id") or "")
+            if not approval_id:
+                continue
+            revision_map.setdefault(approval_id, []).append(revision)
+    return revision_map
+
+
+def _find_revision_for_approval(
+    revision_map: dict[str, list[dict[str, Any]]],
+    approval_id: str,
+    revision_id: str | None,
+) -> dict[str, Any] | None:
+    if revision_id:
+        for revision in revision_map.get(approval_id, []):
+            if str(revision.get("id") or "") == revision_id:
+                return revision
+        return None
+    return _choose_revision_for_approval(revision_map, approval_id)
 
 
 def _feedback_fingerprint(feedback: dict[str, Any] | None) -> str:
@@ -713,15 +746,68 @@ def _semantic_compare_text(value: Any) -> str:
 
 
 def _extract_seed_text(approval_detail: dict[str, Any]) -> str:
-    context = approval_detail.get("context")
-    payload = context.get("payload") if isinstance(context, dict) else None
-    if not isinstance(payload, dict):
+    payload = _approval_payload(approval_detail)
+    if not payload:
         return ""
 
     proposed_reply = _strip_revision_audit_markers(payload.get("proposed_reply"))
     if proposed_reply:
         return proposed_reply
     return _strip_revision_audit_markers(payload.get("summary"))
+
+
+def _approval_payload(approval_detail: dict[str, Any]) -> dict[str, Any]:
+    context = approval_detail.get("context")
+    payload = context.get("payload") if isinstance(context, dict) else None
+    if not isinstance(payload, dict):
+        return {}
+    return payload
+
+
+def _extract_summary_text(approval_detail: dict[str, Any]) -> str:
+    return _strip_revision_audit_markers(_approval_payload(approval_detail).get("summary"))
+
+
+def _extract_source_post_text(approval_detail: dict[str, Any]) -> str:
+    payload = _approval_payload(approval_detail)
+    source_post = payload.get("source_post")
+    if isinstance(source_post, dict):
+        text = _strip_revision_audit_markers(source_post.get("text"))
+        if text:
+            return text
+    candidate = payload.get("candidate")
+    if isinstance(candidate, dict):
+        return _strip_revision_audit_markers(candidate.get("source_post_text"))
+    return ""
+
+
+def _extract_source_post_url(approval_detail: dict[str, Any]) -> str:
+    payload = _approval_payload(approval_detail)
+    source_post = payload.get("source_post")
+    if isinstance(source_post, dict):
+        url = _normalize_text(source_post.get("url"))
+        if url:
+            return url
+    candidate = payload.get("candidate")
+    if isinstance(candidate, dict):
+        return _normalize_text(candidate.get("source_post_url"))
+    return ""
+
+
+def _extract_source_post_author(approval_detail: dict[str, Any]) -> str:
+    payload = _approval_payload(approval_detail)
+    source_post = payload.get("source_post")
+    if isinstance(source_post, dict):
+        author = _normalize_text(source_post.get("author"))
+        if author:
+            return author
+    candidate = payload.get("candidate")
+    if isinstance(candidate, dict):
+        author = _normalize_text(candidate.get("source_author_handle"))
+        if author:
+            return author
+        return _normalize_text(candidate.get("source_author_name"))
+    return ""
 
 
 def _extract_context_type(approval_detail: dict[str, Any]) -> str:
@@ -847,6 +933,23 @@ def _is_noop_edit(edited_content: str, baseline: str) -> bool:
     return _semantic_compare_text(edited_content) == normalized_baseline
 
 
+def _is_feedback_echo_edit(edited_content: str, feedback_text: str) -> bool:
+    normalized_feedback = _semantic_compare_text(feedback_text)
+    if not normalized_feedback:
+        return False
+    return _semantic_compare_text(edited_content) == normalized_feedback
+
+
+def _should_clarify_social_rewrite(edited_content: str, baseline: str, feedback_text: str) -> bool:
+    if not _normalize_text(edited_content):
+        return True
+    if _is_noop_edit(edited_content, baseline):
+        return True
+    if _is_feedback_echo_edit(edited_content, feedback_text):
+        return True
+    return False
+
+
 def _ordered_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     ordered = [item for item in messages if isinstance(item, dict) and item.get("deleted_at") is None]
     ordered.sort(key=_message_key)
@@ -954,6 +1057,10 @@ def _build_revision_context(
     return {
         "approval_id": approval_id,
         "context_type": _extract_context_type(approval_detail),
+        "approval_summary": _extract_summary_text(approval_detail),
+        "source_post_text": _extract_source_post_text(approval_detail),
+        "source_post_url": _extract_source_post_url(approval_detail),
+        "source_post_author": _extract_source_post_author(approval_detail),
         "seed_text": seed_text,
         "latest_feedback": latest_feedback,
         "latest_feedback_text": _strip_revision_audit_markers((latest_feedback or {}).get("content")),
@@ -1374,10 +1481,52 @@ def _build_social_rewrite_context_dump(context: dict[str, Any]) -> dict[str, Any
                 }
             )
 
+    target_draft_text = _normalize_text(context.get("latest_prior_edit_text")) or _normalize_text(context.get("seed_text"))
+    markers = {
+        "task": "<<TASK>>",
+        "source_post": "<<SOURCE_POST>>",
+        "summary": "<<THREAD_SUMMARY>>",
+        "current_draft": "<<CURRENT_DRAFT>>",
+        "latest_feedback": "<<LATEST_FEEDBACK>>",
+        "output_rules": "<<OUTPUT_RULES>>",
+        "return_format": "reply_text_only",
+    }
+    rewrite_brief = "\n".join(
+        [
+            markers["task"],
+            "Rewrite the social reply into publish-ready text.",
+            "",
+            markers["source_post"],
+            _normalize_text(context.get("source_post_text")) or "(missing)",
+            "",
+            markers["summary"],
+            _normalize_text(context.get("approval_summary")) or "(missing)",
+            "",
+            markers["current_draft"],
+            target_draft_text or "(missing)",
+            "",
+            markers["latest_feedback"],
+            _normalize_text(context.get("latest_feedback_text")) or "(missing)",
+            "",
+            markers["output_rules"],
+            "- Return revised reply text only.",
+            "- Do not echo the feedback verbatim.",
+            "- Do not mention these markers, the soul, or internal process.",
+            "- Keep useful humor only if it still matches the latest feedback.",
+            "- Remove invented personal claims unless they are directly supported by the source post.",
+            "- Make the rewrite materially different from the current draft when feedback asks for changes.",
+        ]
+    )
+
     return {
         "approval_id": _normalize_text(context.get("approval_id")),
         "context_type": _normalize_text(context.get("context_type")),
+        "approval_summary": _normalize_text(context.get("approval_summary")),
+        "source_post_text": _normalize_text(context.get("source_post_text")),
+        "source_post_url": _normalize_text(context.get("source_post_url")),
+        "source_post_author": _normalize_text(context.get("source_post_author")),
         "seed_text": _normalize_text(context.get("seed_text")),
+        "target_draft_text": target_draft_text,
         "latest_prior_edit_text": _normalize_text(context.get("latest_prior_edit_text")),
         "latest_feedback_text": _normalize_text(context.get("latest_feedback_text")),
         "feedback_history": feedback_history,
@@ -1386,6 +1535,8 @@ def _build_social_rewrite_context_dump(context: dict[str, Any]) -> dict[str, Any
         "revision_outcomes": context.get("revision_outcomes") if isinstance(context.get("revision_outcomes"), list) else [],
         "soul_text": _normalize_text(context.get("soul_text")),
         "soul_version": context.get("soul_version"),
+        "rewrite_markers": markers,
+        "rewrite_brief": rewrite_brief,
     }
 
 
@@ -1516,26 +1667,40 @@ def _build_fulfillment_payload(
         seed_baseline = _normalize_text(context_bundle.get("seed_text"))
         active_baseline = _normalize_text(context_bundle.get("latest_prior_edit_text")) or seed_baseline
         context_type = _normalize_text(context_bundle.get("context_type")).lower()
+        feedback_text = _normalize_text(context_bundle.get("latest_feedback_text"))
+        edited_content = ""
         if context_type == "social_reply":
-            edited_content = _rewrite_social_reply_from_context_dump(context_bundle)
+            social_rewrite = _rewrite_social_reply_from_context_dump(context_bundle)
+            if not _should_clarify_social_rewrite(social_rewrite, active_baseline, feedback_text):
+                edited_content = social_rewrite
         else:
             edited_content = _build_edit_content(context_bundle)
             if _is_noop_edit(edited_content, active_baseline):
-                feedback_text = _normalize_text(context_bundle.get("latest_feedback_text"))
                 edited_content = _force_material_rewrite(active_baseline or edited_content, feedback_text)
                 edited_content = _apply_soul_constraints(edited_content, _normalize_text(context_bundle.get("soul_text")))
                 edited_content = _strip_revision_audit_markers(edited_content)[:1900]
 
         if not edited_content:
-            fallback_feedback = _normalize_text(context_bundle.get("latest_feedback_text"))
-            edited_content = _strip_revision_audit_markers(fallback_feedback or active_baseline)[:1900]
-
-        content = (
-            f"Revised draft under soul v{soul_marker}."
-            if soul_snapshot.version is not None
-            else "Revised draft after latest feedback."
-        )
-        message_type = "edit_diff"
+            if context_type == "social_reply":
+                content = _build_clarification_comment(context_bundle)
+                message_type = "comment"
+                action_kind = "clarification"
+            else:
+                fallback_feedback = _normalize_text(context_bundle.get("latest_feedback_text"))
+                edited_content = _strip_revision_audit_markers(fallback_feedback or active_baseline)[:1900]
+                content = (
+                    f"Revised draft under soul v{soul_marker}."
+                    if soul_snapshot.version is not None
+                    else "Revised draft after latest feedback."
+                )
+                message_type = "edit_diff"
+        else:
+            content = (
+                f"Revised draft under soul v{soul_marker}."
+                if soul_snapshot.version is not None
+                else "Revised draft after latest feedback."
+            )
+            message_type = "edit_diff"
 
     if message_type == "edit_diff":
         action_kind = "edit_diff"
@@ -1645,24 +1810,10 @@ def cmd_reconcile(args: argparse.Namespace) -> int:
     config = resolve_config(args.agent_id)
     _print_target(config)
 
-    soul_snapshot = SoulSnapshot(version=None, content="")
-    try:
-        soul_snapshot = _load_published_soul_snapshot(config)
-    except ApiError as error:
-        if error.status_code in {403, 404}:
-            soul_snapshot = SoulSnapshot(version=None, content="")
-        else:
-            raise
+    soul_snapshot = _safe_load_published_soul_snapshot(config)
 
     pending_approvals = _fetch_pending_approvals(config)
-
-    revision_map: dict[str, list[dict[str, Any]]] = {}
-    for status in ("pending", "dispatched", "expired", "fulfilled", "failed"):
-        for revision in _fetch_all_agent_revisions(config, status):
-            approval_id = str(revision.get("approval_id") or "")
-            if not approval_id:
-                continue
-            revision_map.setdefault(approval_id, []).append(revision)
+    revision_map = _load_revision_map(config)
 
     summary = {
         "fulfilled": 0,
@@ -1810,6 +1961,188 @@ def cmd_reconcile(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_canary(args: argparse.Namespace) -> int:
+    config = resolve_config(args.agent_id)
+    _print_target(config)
+
+    approval_id = str(args.approval_id or "").strip()
+    if not approval_id:
+        raise SystemExit("--approval-id is required")
+
+    soul_snapshot = _safe_load_published_soul_snapshot(config)
+
+    try:
+        messages = _fetch_messages(config, approval_id)
+    except ApiError as error:
+        print(
+            json.dumps(
+                {
+                    "approval_id": approval_id,
+                    "action": f"failed_{(error.code() or 'http_error').lower()}",
+                    "reason": "message_fetch_failed",
+                    "forced": bool(args.force),
+                },
+                indent=2,
+            )
+        )
+        return 1
+
+    decision = _queue_decision(messages, soul_snapshot.version)
+    if not decision.should_process and not args.force:
+        print(
+            json.dumps(
+                {
+                    "approval_id": approval_id,
+                    "action": "skip_not_queued",
+                    "reason": decision.reason,
+                    "forced": False,
+                },
+                indent=2,
+            )
+        )
+        return 0
+
+    revision_map = _load_revision_map(config)
+    requested_revision_id = str(args.revision_id or "").strip() or None
+    revision = _find_revision_for_approval(revision_map, approval_id, requested_revision_id)
+    if revision is None:
+        print(
+            json.dumps(
+                {
+                    "approval_id": approval_id,
+                    "revision_id": requested_revision_id,
+                    "action": "blocked_revision_not_found" if requested_revision_id else "blocked_no_revision",
+                    "reason": decision.reason,
+                    "forced": bool(args.force),
+                },
+                indent=2,
+            )
+        )
+        return 1
+
+    revision_id = str(revision.get("id") or "")
+    if not revision_id:
+        print(
+            json.dumps(
+                {
+                    "approval_id": approval_id,
+                    "action": "blocked_bad_revision",
+                    "reason": decision.reason,
+                    "forced": bool(args.force),
+                },
+                indent=2,
+            )
+        )
+        return 1
+
+    try:
+        detail_payload = _request_json(config, "GET", f"/v0/approval-requests/{approval_id}")
+    except ApiError as error:
+        print(
+            json.dumps(
+                {
+                    "approval_id": approval_id,
+                    "revision_id": revision_id,
+                    "action": f"failed_{(error.code() or 'http_error').lower()}",
+                    "reason": decision.reason,
+                    "forced": bool(args.force),
+                },
+                indent=2,
+            )
+        )
+        return 1
+
+    detail = _response_data(detail_payload)
+    status = str(detail.get("status") or "")
+    if status in {"approved", "denied"}:
+        print(
+            json.dumps(
+                {
+                    "approval_id": approval_id,
+                    "revision_id": revision_id,
+                    "action": "skip_resolved",
+                    "reason": decision.reason,
+                    "forced": bool(args.force),
+                },
+                indent=2,
+            )
+        )
+        return 0
+
+    try:
+        expected_version = int(detail.get("version"))
+    except (TypeError, ValueError):
+        print(
+            json.dumps(
+                {
+                    "approval_id": approval_id,
+                    "revision_id": revision_id,
+                    "action": "failed_invalid_version",
+                    "reason": decision.reason,
+                    "forced": bool(args.force),
+                },
+                indent=2,
+            )
+        )
+        return 1
+
+    payload, mode, action_kind = _build_fulfillment_payload(
+        approval_id=approval_id,
+        revision_id=revision_id,
+        expected_version=expected_version,
+        latest_feedback=decision.latest_feedback,
+        approval_detail=detail,
+        soul_version=soul_snapshot.version,
+        soul_text=soul_snapshot.content,
+        messages=messages,
+        revision=revision,
+        revision_history=revision_map.get(approval_id, []),
+    )
+
+    result = {
+        "approval_id": approval_id,
+        "revision_id": revision_id,
+        "reason": decision.reason,
+        "forced": bool(args.force),
+        "message_type": mode,
+        "action_kind": action_kind,
+        "idempotency_key": payload["idempotency_key"],
+        "soul_version": soul_snapshot.version,
+    }
+
+    if args.dry_run:
+        result["action"] = "dry_run"
+        result["payload"] = payload
+        print(json.dumps(result, indent=2))
+        return 0
+
+    try:
+        response = _request_json(
+            config,
+            "POST",
+            f"/v0/approval-requests/{approval_id}/messages/fulfill",
+            body=payload,
+        )
+        result["action"] = "fulfilled"
+        result["response"] = _response_data(response)
+        print(json.dumps(result, indent=2))
+        return 0
+    except ApiError as error:
+        code = error.code() or "HTTP_ERROR"
+        if error.status_code == 409 and code in {
+            "APPROVAL_ALREADY_RESOLVED",
+            "REVISION_REQUEST_STALE",
+            "REVISION_REQUEST_EXPIRED",
+            "VERSION_CONFLICT",
+        }:
+            result["action"] = f"skip_{code.lower()}"
+            print(json.dumps(result, indent=2))
+            return 0
+        result["action"] = f"failed_{code.lower()}"
+        print(json.dumps(result, indent=2))
+        return 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="OpenClaw revision wrapper")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -1831,6 +2164,14 @@ def build_parser() -> argparse.ArgumentParser:
     fulfill.add_argument("--revision-id", required=True)
     fulfill.add_argument("--input", required=True)
     fulfill.set_defaults(func=cmd_fulfill)
+
+    canary = subparsers.add_parser("canary", help="Rebuild one approval deterministically")
+    canary.add_argument("--agent-id", default=None)
+    canary.add_argument("--approval-id", required=True)
+    canary.add_argument("--revision-id", default=None)
+    canary.add_argument("--dry-run", action="store_true")
+    canary.add_argument("--force", action="store_true")
+    canary.set_defaults(func=cmd_canary)
 
     reconcile = subparsers.add_parser("reconcile", help="Reconcile pending approvals requiring machine follow-up")
     reconcile.add_argument("--agent-id", default=None)

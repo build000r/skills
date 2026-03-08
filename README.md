@@ -1,8 +1,8 @@
 # AI Agent Skills
 
-An open-source collection of reusable skills for agentic workflows.
-This repo includes coding-focused skills plus supporting skills for planning,
-operations, and content workflows.
+An open-source monorepo of reusable skills for agentic workflows.
+It includes engineering workflows, creator/media systems, OpenClaw runtime
+skills, and a few skill-backed local apps.
 
 Compatible with [Claude Code](https://claude.ai/claude-code),
 [Codex](https://openai.com/index/introducing-codex/),
@@ -10,103 +10,251 @@ Compatible with [Claude Code](https://claude.ai/claude-code),
 
 https://github.com/user-attachments/assets/531fe967-ed44-4863-80be-c21e36b9331a
 
-## Skill Catalog
+## What This Repo Actually Contains
 
-| Skill | Category | Description |
-|-------|----------|-------------|
-| [divide-and-conquer](./divide-and-conquer/) | Engineering | Split complex implementation work into parallel, non-overlapping sub-agents |
-| [domain-planner](./domain-planner/) | Engineering | Create multi-repo feature plans with a structured 6-phase process |
-| [domain-reviewer](./domain-reviewer/) | Engineering | Audit domain slices against plan and retire completed slices cleanly |
-| [domain-scaffolder-backend](./domain-scaffolder-backend/) | Engineering | Scaffold backend domain code from plans using a tests-first flow |
-| [domain-scaffolder-frontend](./domain-scaffolder-frontend/) | Engineering | Scaffold frontend domain code from plans using project UI patterns |
-| [skill-issue](./skill-issue/) | Engineering | Create, iterate, validate, and package reusable skills |
-| [reproduce](./reproduce/) | Engineering | Enforce command-first verification and keep browser DevTools as a strict last resort |
-| [codex-tmux](./codex-tmux/) | Utility | Run Codex in persistent tmux sessions with completion signaling |
-| [ask-cascade](./ask-cascade/) | Utility | Enforce high-level-to-detail question ordering for user decisions |
-| [commit](./commit/) | Utility | Batch and commit working changes with clean conventional messages |
-| [prompt-reviewer](./prompt-reviewer/) | Analysis | Score prompting quality and track performance trends over time |
-| [trend-to-content](./trend-to-content/) | Content | Turn trends into SEO pages, video scripts, and copy workflows |
-| [research-paper](./research-paper/) | Content | Generate dense, research-paper style writing from a topic |
-| [openclaw-client-bootstrap](./openclaw-client-bootstrap/) | Ops | Bootstrap production OpenClaw client kits with guarded defaults |
-| [unclawg-internet](./unclawg-internet/) | OpenClaw | Self-service onboarding — CLI device auth, agent machine keys, env block |
-| [unclawg-discover](./unclawg-discover/) | OpenClaw | Multi-platform social listening and customer discovery |
-| [unclawg-feed](./unclawg-feed/) | OpenClaw | Generate proposed replies and submit approval cards to the portal |
-| [unclawg-respond](./unclawg-respond/) | OpenClaw | Poll revision requests, generate edits, fulfill via API |
+This repo is not just a folder of prompt files. It is a skill monorepo with
+several different patterns:
 
-## If You Only Want Coding Skills
+- top-level installable skills (`*/SKILL.md`)
+- helper scripts and reference docs bundled with those skills
+- skill-backed local apps, like `clawgs/`
+- asset/runtime bundles, like `openclaw-client-bootstrap/`
 
-Install this subset first:
+The public install surface is the set of tracked top-level directories that
+contain `SKILL.md`. If you are browsing a local checkout, you may also see
+gitignored or incubating skill directories. `npx skills add build000r/skills --all`
+installs the tracked top-level catalog, not every directory in a developer's
+local checkout.
+
+At the repo level:
+
+- `_shared/` contains shared snippets reused by multiple skills
+- `scripts/` contains repo-wide helper scripts
+- `dist/` contains packaged `.skill` build artifacts
+
+## Skill Lanes
+
+### Engineering And Agent Workflow
+
+| Skill | What it is for |
+|------|-----------------|
+| [ask-cascade](./ask-cascade/) | High-level-to-detail question ordering before asking the user |
+| [codex-tmux](./codex-tmux/) | Long-running Codex work in persistent tmux sessions |
+| [commit](./commit/) | Batch commits with clean, high-level messages |
+| [describe](./describe/) | Turn a bug or feature conversation into concrete test cases before patching |
+| [divide-and-conquer](./divide-and-conquer/) | Split complex work into non-overlapping parallel agents |
+| [domain-planner](./domain-planner/) | Multi-repo slice planning, contracts, and implementation orchestration |
+| [domain-reviewer](./domain-reviewer/) | Audit live work against plans and retire completed slices cleanly |
+| [domain-scaffolder-backend](./domain-scaffolder-backend/) | Tests-first backend scaffolding from an approved plan |
+| [domain-scaffolder-frontend](./domain-scaffolder-frontend/) | Frontend scaffolding from an approved plan plus project UI patterns |
+| [prompt-reviewer](./prompt-reviewer/) | Score prompting quality from Claude/Codex session history |
+| [reproduce](./reproduce/) | Command-first verification and QA ladder before handing testing back |
+| [skill-issue](./skill-issue/) | Create, iterate, validate, and package skills themselves |
+
+### Tooling, Media, And Creative Systems
+
+| Skill | What it is for |
+|------|-----------------|
+| [clawgs](./clawgs/) | Transcript extraction and thought-emission daemon for Claude/Codex logs |
+| [remotion](./remotion/) | Remotion best-practices reference pack for video work in React |
+| [research-paper](./research-paper/) | Dense research-paper style pages plus companion X article drafts |
+| [throngterm-sprite](./throngterm-sprite/) | Generate repo-specific thronglet sprite packs |
+| [trend-to-content](./trend-to-content/) | Trend research, PSEO generation, and video/copy workflows |
+
+### OpenClaw And Unclawg Operator Skills
+
+| Skill | What it is for |
+|------|-----------------|
+| [openclaw-client-bootstrap](./openclaw-client-bootstrap/) | Build deployable OpenClaw client kits with Tailscale, Telegram, SPAPS, and embedded runtime skills |
+| [openclaw-docs-audit](./openclaw-docs-audit/) | Diff bootstrap/docs config against upstream OpenClaw releases |
+
+### Unclawg Runtime And Marketing Loop
+
+These four skills are the approval-gated discovery-to-reply loop:
+
+`onboard -> discover -> feed approvals -> respond to revisions`
+
+| Skill | What it is for |
+|------|-----------------|
+| [unclawg-internet](./unclawg-internet/) | Onboarding, machine-key setup, soul interview, and discovery mode creation |
+| [unclawg-discover](./unclawg-discover/) | Social listening and lead discovery across multiple platforms |
+| [unclawg-feed](./unclawg-feed/) | Generate proposed replies and submit approval cards |
+| [unclawg-respond](./unclawg-respond/) | Process revision requests and fulfill approved edits |
+
+## Install Patterns
+
+Use `--all` only if you want the full tracked catalog.
+If you want an "all of this lane" install, use one of the bundles below.
+The examples use the top-level directory name after `-s`.
+
+### Everything In This Repo
 
 ```bash
-npx skills add build000r/skills -s divide-and-conquer
-npx skills add build000r/skills -s domain-planner
-npx skills add build000r/skills -s domain-reviewer
-npx skills add build000r/skills -s domain-scaffolder-backend
-npx skills add build000r/skills -s domain-scaffolder-frontend
-npx skills add build000r/skills -s skill-issue
-npx skills add build000r/skills -s reproduce
-npx skills add build000r/skills -s codex-tmux
-npx skills add build000r/skills -s ask-cascade
-npx skills add build000r/skills -s commit
-```
-
-## Install Everything
-
-```bash
-# Install all skills (coding + utility + content + ops)
 npx skills add build000r/skills --all
 ```
 
-Or install individually:
+### Engineering Core
 
 ```bash
-npx skills add build000r/skills -s divide-and-conquer
-npx skills add build000r/skills -s prompt-reviewer
-npx skills add build000r/skills -s trend-to-content
-npx skills add build000r/skills -s research-paper
-npx skills add build000r/skills -s skill-issue
-npx skills add build000r/skills -s reproduce
-npx skills add build000r/skills -s openclaw-client-bootstrap
-npx skills add build000r/skills -s unclawg-internet
-npx skills add build000r/skills -s unclawg-discover
-npx skills add build000r/skills -s unclawg-feed
-npx skills add build000r/skills -s unclawg-respond
-npx skills add build000r/skills -s domain-planner
-npx skills add build000r/skills -s domain-reviewer
-npx skills add build000r/skills -s domain-scaffolder-backend
-npx skills add build000r/skills -s domain-scaffolder-frontend
-npx skills add build000r/skills -s codex-tmux
-npx skills add build000r/skills -s ask-cascade
-npx skills add build000r/skills -s commit
+for skill in \
+  ask-cascade \
+  commit \
+  describe \
+  divide-and-conquer \
+  domain-planner \
+  domain-reviewer \
+  domain-scaffolder-backend \
+  domain-scaffolder-frontend \
+  reproduce \
+  skill-issue
+do
+  npx skills add build000r/skills -s "$skill"
+done
 ```
 
-## Quick Usage
+### Engineering Tooling
 
-Tell your agent to use a skill directly:
+```bash
+for skill in \
+  clawgs \
+  codex-tmux \
+  prompt-reviewer
+do
+  npx skills add build000r/skills -s "$skill"
+done
+```
+
+### Unclawg Marketing / Runtime Loop
+
+```bash
+for skill in \
+  unclawg-internet \
+  unclawg-discover \
+  unclawg-feed \
+  unclawg-respond
+do
+  npx skills add build000r/skills -s "$skill"
+done
+```
+
+### OpenClaw Operator / Bootstrap
+
+```bash
+for skill in \
+  openclaw-client-bootstrap \
+  openclaw-docs-audit
+do
+  npx skills add build000r/skills -s "$skill"
+done
+```
+
+### Content / Media
+
+```bash
+for skill in \
+  remotion \
+  research-paper \
+  throngterm-sprite \
+  trend-to-content
+do
+  npx skills add build000r/skills -s "$skill"
+done
+```
+
+You can mix bundles as needed. There is no repo-defined category-aware `--all`
+flag today, so the bundle loops above are the clearest "all skills in this lane"
+pattern.
+
+## Repo Patterns
+
+### 1. Standard Skill Pack
+
+Most skills look roughly like this:
 
 ```text
-Use $divide-and-conquer to split this feature into parallel implementation agents.
-Then run a review pass and give me one commit per logical unit.
+domain-planner/
+├── SKILL.md
+├── references/
+├── scripts/
+└── assets/templates/
 ```
+
+The skill instructions live in `SKILL.md`. Reusable commands go in `scripts/`.
+Reference material and templates live beside them.
+
+### 2. App-Backed Skill
+
+`clawgs` is the clearest example of a skill that also ships a real local tool:
 
 ```text
-Use $trend-to-content in research mode to find trends in the AI coding niche
-and return 10 content ideas ranked by distribution potential.
+clawgs/
+├── SKILL.md
+├── scripts/install.sh
+├── scripts/check.sh
+├── references/
+├── Cargo.toml
+├── src/
+└── tests/
 ```
 
-## Local Development (Claude + Codex)
+In this pattern, the skill tells the agent when and how to use the tool, while
+the app handles deterministic work such as parsing, protocol handling, or a
+daemon lifecycle. Use this pattern when plain prompt instructions are not enough.
 
-For local iteration, symlink each skill directory into both agent homes:
+### 3. Asset And Runtime Bundle Skill
+
+`openclaw-client-bootstrap` is a skill that ships deployable assets and embedded
+child skills:
+
+```text
+openclaw-client-bootstrap/
+├── SKILL.md
+├── scripts/
+├── references/
+└── assets/
+    ├── client-kit/
+    └── instances/0_claw/custom-skills/
+```
+
+The top-level skill handles authoring, review, deployment, and sync. The
+embedded custom skills are runtime-safe copies or variants that get shipped with
+the generated instance kit.
+
+### 4. Mode-Overlay Skill
+
+Several skills are designed as public generic instructions plus local private
+overlays in `modes/`. Good examples include:
+
+- `domain-planner`
+- `prompt-reviewer`
+- `research-paper`
+- `unclawg-discover`
+
+Tracked files stay reusable. Project-specific paths, domains, and private config
+stay in gitignored mode files.
+
+## Local Development
+
+For local iteration, symlink the top-level skill directories in your checkout
+into Claude and Codex:
 
 ```bash
 ./scripts/link-skills.sh
 ```
 
-This creates/updates links in:
+This creates or updates links in:
 
 - `~/.claude/skills/`
 - `~/.codex/skills/`
 
-## License
+It links top-level skill directories only. Embedded runtime custom skills stay
+inside their parent asset bundles. If your local checkout includes private or
+incubating top-level skills, those get linked too.
 
-MIT
+If a skill is app-backed, do its own install/verify step after linking. For
+example, `clawgs/` includes `scripts/install.sh` and `scripts/check.sh`.
+
+## Licensing
+
+Licensing is skill-specific. Check each skill directory's frontmatter and any
+bundled `LICENSE` or `LICENSE.txt` file before redistributing or packaging it.

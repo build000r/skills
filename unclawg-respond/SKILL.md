@@ -80,6 +80,7 @@ This skill is **mechanical**. It polls revision requests, reads feedback, genera
 ```bash
 uc_respond smoke
 uc_respond list --status pending
+uc_respond canary --approval-id <id> [--revision-id <id>] [--dry-run] [--force]
 uc_respond fulfill --approval-id <id> --revision-id <id> --input <revised.json>
 uc_respond reconcile --agent-id <agent_id> [--dry-run]
 ```
@@ -144,9 +145,23 @@ Optional preview mode:
 uc_respond reconcile --agent-id "${OPENCLAW_AGENT_ID}" --dry-run
 ```
 
-### Phase 2 — Optional Single-item Override
+### Phase 2 — Single-card Canary / Override
 
-If you need targeted retry for one card:
+If you need deterministic validation for one card before a full reconcile:
+
+```bash
+uc_respond canary --approval-id <id> --dry-run
+uc_respond canary --approval-id <id>
+```
+
+Use `--force` when the card currently looks `up_to_date` because of a bad prior machine reply, but you still want to rebuild exactly that approval:
+
+```bash
+uc_respond canary --approval-id <id> --dry-run --force
+uc_respond canary --approval-id <id> --force
+```
+
+If you need a fully hand-authored payload for one card:
 
 ```bash
 uc_respond fulfill --approval-id <id> --revision-id <id> --input <revised.json>

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import importlib.machinery
 import importlib.util
+import json
 import os
 import sys
 from pathlib import Path
@@ -49,12 +50,15 @@ def _approval_detail(
     summary: str | None = None,
     version: int = 3,
     context_type: str | None = None,
+    payload_extras: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {}
     if proposed_reply is not None:
         payload["proposed_reply"] = proposed_reply
     if summary is not None:
         payload["summary"] = summary
+    if payload_extras:
+        payload.update(payload_extras)
     context: dict[str, Any] = {"payload": payload}
     if context_type is not None:
         context["context_type"] = context_type
@@ -185,6 +189,215 @@ def test_reconcile_prints_target_before_network_calls(monkeypatch, capsys) -> No
     assert rc == 0
     assert order[0] == "print"
     assert stdout[0] == "target api_url=http://localhost:8010 tenant_id=tenant-dev agent_id=larry"
+
+
+def test_canary_dry_run_builds_single_approval_payload(monkeypatch, capsys) -> None:
+    uc = _load_uc_respond()
+    cfg = uc.Config(
+        api_url="http://localhost:8010",
+        tenant_id="tenant-dev",
+        machine_key_id="mk_test",
+        machine_secret="ms_test",
+        agent_id="larry",
+        api_key=None,
+    )
+
+    monkeypatch.setattr(uc, "resolve_config", lambda _: cfg)
+    monkeypatch.setattr(uc, "_print_target", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(uc, "_safe_load_published_soul_snapshot", lambda _cfg: uc.SoulSnapshot(version=7, content=""))
+    monkeypatch.setattr(
+        uc,
+        "_fetch_messages",
+        lambda _cfg, _approval_id: [
+            _msg(
+                author_type="human",
+                message_type="feedback",
+                content="Make this tighter.",
+                created_at="2026-03-03T12:00:00Z",
+                sequence=1,
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        uc,
+        "_load_revision_map",
+        lambda _cfg: {
+            "apr-1": [
+                _revision(
+                    revision_id="rev-1",
+                    status="pending",
+                    created_at="2026-03-03T12:01:00Z",
+                )
+            ]
+        },
+    )
+    monkeypatch.setattr(
+        uc,
+        "_request_json",
+        lambda _cfg, method, path, **_kwargs: {"data": _approval_detail(proposed_reply="Draft text.", version=3)}
+        if method == "GET" and path == "/v0/approval-requests/apr-1"
+        else (_ for _ in ()).throw(AssertionError(f"unexpected request: {method} {path}")),
+    )
+
+    rc = uc.cmd_canary(
+        argparse.Namespace(
+            agent_id="larry",
+            approval_id="apr-1",
+            revision_id=None,
+            dry_run=True,
+            force=False,
+        )
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert rc == 0
+    assert payload["approval_id"] == "apr-1"
+    assert payload["revision_id"] == "rev-1"
+    assert payload["action"] == "dry_run"
+    assert payload["message_type"] == "edit_diff"
+    assert payload["forced"] is False
+    assert payload["payload"]["revision_request_id"] == "rev-1"
+
+
+def test_canary_skips_not_queued_without_force(monkeypatch, capsys) -> None:
+    uc = _load_uc_respond()
+    cfg = uc.Config(
+        api_url="http://localhost:8010",
+        tenant_id="tenant-dev",
+        machine_key_id="mk_test",
+        machine_secret="ms_test",
+        agent_id="larry",
+        api_key=None,
+    )
+
+    monkeypatch.setattr(uc, "resolve_config", lambda _: cfg)
+    monkeypatch.setattr(uc, "_print_target", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(uc, "_safe_load_published_soul_snapshot", lambda _cfg: uc.SoulSnapshot(version=7, content=""))
+    monkeypatch.setattr(
+        uc,
+        "_fetch_messages",
+        lambda _cfg, _approval_id: [
+            _msg(
+                author_type="human",
+                message_type="feedback",
+                content="Make this tighter.",
+                created_at="2026-03-03T12:00:00Z",
+                sequence=1,
+            ),
+            _msg(
+                author_type="machine",
+                message_type="edit_diff",
+                content="Revised draft under soul v7.",
+                edited_content="Tighter draft.",
+                created_at="2026-03-03T12:01:00Z",
+                sequence=2,
+            ),
+        ],
+    )
+    monkeypatch.setattr(
+        uc,
+        "_load_revision_map",
+        lambda _cfg: (_ for _ in ()).throw(AssertionError("revision map should not load when canary is skipped")),
+    )
+    monkeypatch.setattr(
+        uc,
+        "_request_json",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("unexpected request")),
+    )
+
+    rc = uc.cmd_canary(
+        argparse.Namespace(
+            agent_id="larry",
+            approval_id="apr-1",
+            revision_id=None,
+            dry_run=True,
+            force=False,
+        )
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert rc == 0
+    assert payload == {
+        "approval_id": "apr-1",
+        "action": "skip_not_queued",
+        "reason": "up_to_date",
+        "forced": False,
+    }
+
+
+def test_canary_force_dry_run_rebuilds_up_to_date_card(monkeypatch, capsys) -> None:
+    uc = _load_uc_respond()
+    cfg = uc.Config(
+        api_url="http://localhost:8010",
+        tenant_id="tenant-dev",
+        machine_key_id="mk_test",
+        machine_secret="ms_test",
+        agent_id="larry",
+        api_key=None,
+    )
+
+    monkeypatch.setattr(uc, "resolve_config", lambda _: cfg)
+    monkeypatch.setattr(uc, "_print_target", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(uc, "_safe_load_published_soul_snapshot", lambda _cfg: uc.SoulSnapshot(version=8, content=""))
+    monkeypatch.setattr(
+        uc,
+        "_fetch_messages",
+        lambda _cfg, _approval_id: [
+            _msg(
+                author_type="human",
+                message_type="feedback",
+                content="Make this tighter.",
+                created_at="2026-03-03T12:00:00Z",
+                sequence=1,
+            ),
+            _msg(
+                author_type="machine",
+                message_type="edit_diff",
+                content="Revised draft under soul v8.",
+                edited_content="Tighter draft.",
+                created_at="2026-03-03T12:01:00Z",
+                sequence=2,
+            ),
+        ],
+    )
+    monkeypatch.setattr(
+        uc,
+        "_load_revision_map",
+        lambda _cfg: {
+            "apr-1": [
+                _revision(
+                    revision_id="rev-1",
+                    status="pending",
+                    created_at="2026-03-03T12:02:00Z",
+                )
+            ]
+        },
+    )
+    monkeypatch.setattr(
+        uc,
+        "_request_json",
+        lambda _cfg, method, path, **_kwargs: {"data": _approval_detail(proposed_reply="Draft text.", version=3)}
+        if method == "GET" and path == "/v0/approval-requests/apr-1"
+        else (_ for _ in ()).throw(AssertionError(f"unexpected request: {method} {path}")),
+    )
+
+    rc = uc.cmd_canary(
+        argparse.Namespace(
+            agent_id="larry",
+            approval_id="apr-1",
+            revision_id=None,
+            dry_run=True,
+            force=True,
+        )
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert rc == 0
+    assert payload["approval_id"] == "apr-1"
+    assert payload["action"] == "dry_run"
+    assert payload["reason"] == "up_to_date"
+    assert payload["forced"] is True
+    assert payload["payload"]["revision_request_id"] == "rev-1"
 
 
 def test_load_agent_env_reads_openclaw_state_dir(monkeypatch, tmp_path) -> None:
@@ -587,7 +800,15 @@ def test_build_fulfillment_payload_social_context_dump_uses_latest_feedback_comm
     uc = _load_uc_respond()
     detail = _approval_detail(
         proposed_reply="Seed social draft.",
+        summary="A clearer explanation should beat hype.",
         context_type="social_reply",
+        payload_extras={
+            "source_post": {
+                "text": "Prediction markets only work when the process is disciplined.",
+                "url": "https://x.example/post/1",
+                "author": "@disciplineposter",
+            }
+        },
     )
     older_feedback = _msg(
         author_type="human",
@@ -639,6 +860,14 @@ def test_build_fulfillment_payload_social_context_dump_uses_latest_feedback_comm
     assert captured_dump["feedback_history"][-1]["content"] == "latest comment should drive rewrite"
     assert captured_dump["trigger_message_ids"] == ["msg-new"]
     assert isinstance(captured_dump["revision_outcomes"], list)
+    assert captured_dump["target_draft_text"] == "Seed social draft."
+    assert captured_dump["approval_summary"] == "A clearer explanation should beat hype."
+    assert captured_dump["source_post_text"] == "Prediction markets only work when the process is disciplined."
+    assert captured_dump["source_post_author"] == "@disciplineposter"
+    assert captured_dump["rewrite_markers"]["return_format"] == "reply_text_only"
+    assert "<<TASK>>" in captured_dump["rewrite_brief"]
+    assert "<<LATEST_FEEDBACK>>" in captured_dump["rewrite_brief"]
+    assert "latest comment should drive rewrite" in captured_dump["rewrite_brief"]
 
 
 def test_build_fulfillment_payload_deadpan_feedback_generates_material_rewrite() -> None:
@@ -776,6 +1005,80 @@ def test_build_fulfillment_payload_social_one_liner_feedback_returns_edit_diff(m
     assert message_type == "edit_diff"
     assert action_kind == "edit_diff"
     assert payload["edited_content"] == "social rewrite one liner"
+
+
+def test_build_fulfillment_payload_social_empty_rewrite_returns_clarification(monkeypatch) -> None:
+    uc = _load_uc_respond()
+    detail = _approval_detail(
+        proposed_reply=(
+            "\"Who use it properly\" is doing a lot of heavy lifting here lol. "
+            "My agent used prediction markets very improperly at 3am once."
+        ),
+        context_type="social_reply",
+    )
+    feedback = _msg(
+        author_type="human",
+        message_type="feedback",
+        content="thats quite a prediction",
+        created_at="2026-03-03T12:00:00Z",
+        sequence=2,
+    )
+    revision = _revision(revision_id="rev-social-empty", status="pending", created_at="2026-03-03T12:01:00Z")
+    monkeypatch.setattr(uc, "_call_social_rewrite_model", lambda _dump: "")
+
+    payload, message_type, action_kind = uc._build_fulfillment_payload(
+        approval_id="apr-test",
+        revision_id="rev-social-empty",
+        expected_version=3,
+        latest_feedback=feedback,
+        approval_detail=detail,
+        soul_version=9,
+        messages=[feedback],
+        revision=revision,
+        revision_history=[revision],
+    )
+
+    assert message_type == "comment"
+    assert action_kind == "clarification"
+    assert "Need clarification" in payload["content"]
+    assert "edited_content" not in payload
+
+
+def test_build_fulfillment_payload_social_feedback_echo_returns_clarification(monkeypatch) -> None:
+    uc = _load_uc_respond()
+    detail = _approval_detail(
+        proposed_reply=(
+            "\"Who use it properly\" is doing a lot of heavy lifting here lol. "
+            "My agent used prediction markets very improperly at 3am once."
+        ),
+        context_type="social_reply",
+    )
+    feedback = _msg(
+        author_type="human",
+        message_type="feedback",
+        content="thats quite a prediction",
+        created_at="2026-03-03T12:00:00Z",
+        sequence=2,
+    )
+    revision = _revision(revision_id="rev-social-echo", status="pending", created_at="2026-03-03T12:01:00Z")
+    monkeypatch.setattr(uc, "_call_social_rewrite_model", lambda _dump: "thats quite a prediction")
+
+    payload, message_type, action_kind = uc._build_fulfillment_payload(
+        approval_id="apr-test",
+        revision_id="rev-social-echo",
+        expected_version=3,
+        latest_feedback=feedback,
+        approval_detail=detail,
+        soul_version=9,
+        messages=[feedback],
+        revision=revision,
+        revision_history=[revision],
+    )
+
+    assert message_type == "comment"
+    assert action_kind == "clarification"
+    assert "Need clarification" in payload["content"]
+    assert "edited_content" not in payload
 
 
 def test_queue_decision_uses_human_comment_as_feedback_signal() -> None:

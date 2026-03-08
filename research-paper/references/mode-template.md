@@ -20,13 +20,18 @@ cwd_match: ~/repos/{project-name}
 
 ## Companion Outputs
 
-Describe the required derivatives that every paper should generate.
+Describe the required derivatives that every paper should generate. Keep this narrow unless the project genuinely needs more than the default companion X article.
 
 - **X article path**: `src/pages/research/{Name}ResearchPage.x-article.md` (or your preferred location)
 - **X article format**: Markdown / plain text / HTML / CMS draft
 - **X article paste target**: `https://x.com/compose/articles/edit`
 - **X article routing**: None / file-based / manual (describe exact pattern)
 - **If site article also exists**: separate file / same source / generated from X article
+- **Primary discovery surface**: X Articles / search / feed / community / email / infer per topic
+- **Companion audience job**: "When ___, I want to ___, so I can ___"
+- **Credibility pattern**: method line / author line / source-base line / custom
+- **Default CTA**: subscribe / share / request full paper / none / custom
+- **Extra derivative scope**: none by default; describe only if this mode truly requires more outputs
 
 If you omit companion output paths, the skill defaults to a sibling file beside the paper:
 
@@ -72,6 +77,7 @@ Describe how to gather project-specific data before writing. Examples:
 
 - **Who**: Name/role of primary reader
 - **Expertise**: Expert / intermediate / general
+- **Job-to-be-done**: "When ___, I want to ___, so I can ___"
 - **Jargon**: Use freely / define on first use / avoid
 
 ## Tone
@@ -122,6 +128,8 @@ Examples:
 - Append the X article to a shared social-drafts file
 - Update `llms.txt` or other discovery surfaces
 - Add homepage/nav links
+
+Keep this list limited to artifacts and registrations the project actually needs. Do not add channel-by-channel distribution tasks unless they are truly required by the mode.
 
 ## Existing Papers
 

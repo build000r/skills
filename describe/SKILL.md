@@ -22,11 +22,24 @@ test case spec that makes implementation and review unambiguous.
 
 ## Workflow
 
-### 1) Scope (ask-cascade: strategic, ask alone)
+### 1) Scope (infer first; ask only if ambiguous)
 
-Single question, wait for answer:
+Infer `bug fix`, `small feature`, or `refactor` from the user's request and
+the code context whenever the answer is obvious. Do not stop to ask the user
+to classify the work when the phrasing already makes the scope clear.
 
-> "What are we changing — bug fix, small feature, or refactor?"
+Examples:
+- "fix", "broken", "regression", "why is X failing" → **bug fix**
+- "add", "build", "new widget", "support X" → **small feature**
+- "extract", "clean up", "dedupe", "reorganize without behavior change" → **refactor**
+
+Ask only when multiple classifications are plausibly correct and the choice
+would materially change the test plan. If you must ask, make the question
+specific to the ambiguity rather than forcing the user to do meta-labeling.
+
+Fallback question:
+
+> "Should I treat this as a bug fix, a small feature, or a refactor for test coverage?"
 
 This determines test case shape:
 - **Bug fix** → regression test is mandatory, root cause must be identified
@@ -56,7 +69,7 @@ independent questions. Apply ask-cascade rules:
 
 Typical rounds:
 
-**R2 — Core behavior (1-2 questions, depends on R1):**
+**R2 — Core behavior (1-2 questions, depends on inferred or confirmed scope):**
 - What's the exact input that triggers the bug / starts the feature?
 - What's the expected output or state change?
 
@@ -154,6 +167,8 @@ at different granularities (API endpoint, utility function, UI behavior).
 - **Vague assertions:** "it should work correctly" → specify exact output
 - **Missing regression guards:** every change risks breaking something —
   name what must survive unchanged
+- **Unnecessary meta questions:** do not ask the user to classify obvious
+  work as bug fix / feature / refactor when the request already answers it
 - **Premature implementation:** if you catch yourself writing fix code,
   stop — finish the spec first
 - **Over-specifying:** 20 test cases for a one-line fix is waste —

@@ -2,7 +2,8 @@
 name: research-paper
 description: >
   Generate dense, academic research paper-style pages on any topic, plus a
-  companion X article draft that is easy to paste into the X Articles composer.
+  companion X article draft that keeps the paper's thesis but packages it for
+  fast scanning and direct paste into the X Articles composer.
   Use when: "research paper", "write a paper on", "research page", "/research-paper",
   "internal paper on", "write up on [topic]".
   Supports project-specific modes (styling, data sources, routing) via local `modes/` directory.
@@ -19,6 +20,12 @@ Every run produces a two-part bundle:
 - A companion X article derived from that paper
 
 Do the condensation in that order: research -> paper -> X article. Do not introduce claims in the article that are not supported by the paper.
+
+## Intent Guardrails
+
+- Keep the research paper as the canonical artifact. The X article is a derivative packaging layer, not a second research workflow.
+- Use distribution principles to improve scanability, clarity, and shareability of the companion X article, not to replace evidence with hype.
+- Do not expand the default skill into a full content-marketing system (channel calendars, paid plans, multi-platform asset packs) unless the active mode explicitly requires it.
 
 ## Modes
 
@@ -75,12 +82,13 @@ Write the mode file to `modes/{project-name}.md` using `references/mode-template
 3. Gather data (mode-specific data sources + web research)
 4. Research the topic (WebSearch for publications, data, perspectives)
 5. Map findings to paper structure
-6. Run headline pass (generate + score candidate titles)
-7. Write the canonical paper
-8. Derive the companion X article
-9. Add routing / registration (if mode requires it)
-10. Type-check / validate
-11. Post-creation tasks (mode-specific: homepage links, nav updates, manifests, etc.)
+6. Create the companion article brief
+7. Run title / hook passes
+8. Write the canonical paper
+9. Derive the companion X article
+10. Add routing / registration (if mode requires it)
+11. Type-check / validate
+12. Post-creation tasks (mode-specific: homepage links, nav updates, manifests, etc.)
 ```
 
 ## Step 2: Parse Topic
@@ -122,9 +130,30 @@ Follow the paper section structure defined in the mode file. Map gathered data a
 
 Use the default structure from `references/paper-structure.md`.
 
-## Step 6: Headline Pass
+## Step 6: Create the Companion Article Brief
 
-Before writing the page, generate 5 candidate titles and select one with a simple scorecard.
+Before writing the X article, define a short packaging brief. This is a planning artifact, not a separate deliverable unless the mode explicitly asks for it.
+
+Required fields:
+- **Primary reader**: role, context, and sophistication level
+- **Reader job**: "When ___, I want to ___, so I can ___"
+- **Primary discovery surface**: the one place this draft should feel natively packaged for
+- **Credibility requirement**: data, method, lived experience, or named sources needed near the top
+- **Share trigger hypothesis**: utility, surprise, identity, concern, or another evidence-backed reason this would travel
+- **CTA**: the one action the X article should ask for
+
+If the mode already defines audience or companion defaults, use them. Otherwise infer the brief from the topic and user context. The brief shapes framing and packaging only; it must not change the thesis or add claims the paper does not support.
+
+## Step 7: Title / Hook Pass
+
+Before writing the bundle, generate candidate titles for the paper and the companion X article.
+
+For the paper:
+- Generate 5 candidate titles and select one with the scorecard below.
+
+For the X article:
+- Generate 3-5 title/deck pairs optimized for fast comprehension and scanability.
+- The X article title can be more direct and outcome-led than the paper title, but it still has to match the evidence.
 
 Score each title 1-5 on:
 - **Specificity**: Includes concrete domain terms, not generic abstractions.
@@ -132,16 +161,19 @@ Score each title 1-5 on:
 - **Curiosity/tension**: Creates a reason to click.
 - **Scanability**: Easy to parse in one glance.
 - **Brevity**: Prefer concise title + subtitle over clause stacking.
+- **Audience fit**: Feels native to the reader/job defined in the companion brief.
 
 Selection constraints:
-- Prefer 8-16 words total.
+- Prefer 8-16 words total for the paper title.
+- Prefer 8-14 words for the X article title, with nuance pushed into an optional deck.
 - Avoid more than 2 commas.
 - Avoid filler like "comprehensive", "ultimate", "complete guide".
 - Keep one contrarian edge or strong claim in the subtitle.
+- For the X article, favor simple language and a clear payoff over academic phrasing.
 
 If two titles score similarly and user preference matters, present the top 2 and let the user choose.
 
-## Step 7: Write the Page
+## Step 8: Write the Page
 
 Use divide-and-conquer with parallel agents when the bundle requires multiple files (e.g. paper + X article + route update). Otherwise, single agent.
 
@@ -162,6 +194,8 @@ Write a standalone HTML or markdown file at the user's preferred location. Ask w
 - Tables for data-heavy sections (comparison matrices, reference ranges, benchmarks).
 - Real numbers from research — not vague qualifiers.
 - 600-1000 lines. Prioritize density over brevity.
+- Keep the canonical paper dense and research-led. Do not flatten it into a social-first article.
+- Put most scanability and packaging optimizations into the companion X article, not the paper.
 
 If the mode does not define companion output locations, use this default beside the paper file:
 
@@ -169,13 +203,19 @@ If the mode does not define companion output locations, use this default beside 
 
 For canonical paper structure, use `references/paper-structure.md`. For X article structure, use `references/companion-outputs.md`.
 
-## Step 8: Derive the Companion X Article
+## Step 9: Derive the Companion X Article
 
 Turn the paper into an X article draft without changing the thesis.
 
 Requirements:
 - Same core argument as the paper, with lighter citation density and a stronger narrative opening.
+- Use the companion brief to choose one primary reader and one primary discovery surface. Do not optimize equally for every channel.
+- Deliver the payoff in the first 100-150 words: what the reader will get and why it matters now.
+- Add a short trust / credibility stamp near the top (method, dataset, experience, or named source base).
+- Make headers read like conclusions and keep paragraphs short enough to scan quickly.
 - Preserve the best numbers, the sharpest contrarian point, and one useful framework/table at most.
+- End with one explicit next action or question that fits the chosen surface.
+- Write the draft so sections can be excerpted into other surfaces later, but do not generate a full multi-channel package unless the mode explicitly asks.
 - Format for direct paste into [X Articles](https://x.com/compose/articles/edit) unless the mode overrides it.
 - Prefer markdown or plain text with clear headings, short paragraphs, and minimal cleanup required before paste.
 - If the mode does not specify article routing, treat the article as a draft asset, not a live page.
@@ -183,15 +223,15 @@ Requirements:
 
 Use the default X article structure in `references/companion-outputs.md` unless the mode overrides it.
 
-## Step 9: Add Routing
+## Step 10: Add Routing
 
 Only if the mode specifies routing or registration steps (e.g. "add import to AppRoutes.tsx", "register the paper in a manifest", or "promote the article draft into a blog route"). Skip for file-based routing frameworks and generic mode.
 
-## Step 10: Validate
+## Step 11: Validate
 
 Run the mode's validation command if specified (e.g. `npx tsc --noEmit`). For generic mode, verify the paper and X article files were written correctly.
 
-## Step 11: Post-Creation Tasks
+## Step 12: Post-Creation Tasks
 
 Check the mode file for a "Post-Creation" section. If present, execute every step — these are required, not optional. Common post-creation tasks include adding the paper to a homepage link array, updating a navigation component, registering the paper in a manifest, or appending the X article to a social/content drafts ledger. **Do not skip this step.** Also update the mode's "Existing Papers" list with the new paper.
 
@@ -205,6 +245,7 @@ Report to the user:
 - The paper and X article file paths (and URL paths if applicable)
 - Key sections and what they cover
 - Notable findings from the research
+- The inferred companion brief (reader, surface, CTA) when it materially shaped the X article
 - The chosen X article angle
 - Reminder that the paper is noindex / not publicly linked unless the mode says otherwise
 

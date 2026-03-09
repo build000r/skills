@@ -11,8 +11,8 @@ use crate::{
 
 use super::model_client::ModelClient;
 use super::protocol::{
-    BubblePrecedence, SessionSnapshot, SessionState, SyncMetrics, SyncRequest, SyncResultMessage,
-    ThoughtConfig, ThoughtSource, ThoughtState, ThoughtUpdate,
+    BubblePrecedence, RestState, SessionSnapshot, SessionState, SyncMetrics, SyncRequest,
+    SyncResultMessage, ThoughtConfig, ThoughtSource, ThoughtState, ThoughtUpdate,
 };
 
 const SUMMARY_HISTORY_CAP: usize = 10;
@@ -20,7 +20,9 @@ const TERMINAL_CONTEXT_CHARS: usize = 800;
 const TERMINAL_MIN_MEANINGFUL_DELTA_CHARS: usize = 100;
 const MAX_THOUGHT_CHARS: usize = 120;
 const STATIC_SLEEPING_THOUGHT: &str = "Sleeping.";
-const SLEEPING_AFTER_MS: i64 = 60_000;
+const DROWSY_AFTER_MS: i64 = 10_000;
+const SLEEPING_AFTER_MS: i64 = 30_000;
+const DEEP_SLEEP_AFTER_MS: i64 = 60_000;
 
 pub const DEFAULT_AGENT_PREAMBLE: &str = "You are a status reporter for a coding agent session.";
 pub const DEFAULT_TERMINAL_PREAMBLE: &str = "Terminal session status reporter.";
@@ -33,6 +35,7 @@ struct SessionRuntimeState {
     sleeping_emitted: bool,
     thought_state: ThoughtState,
     thought_source: ThoughtSource,
+    rest_state: RestState,
     objective_fingerprint: Option<String>,
     objective_stable_since: DateTime<Utc>,
     claimed_jsonl_path: Option<PathBuf>,
@@ -56,6 +59,7 @@ impl SessionRuntimeState {
             sleeping_emitted: is_sleeping_text(session.thought.as_deref()),
             thought_state: session.thought_state,
             thought_source: session.thought_source,
+            rest_state: session.rest_state,
             objective_fingerprint: session.objective_fingerprint.clone(),
             objective_stable_since: thought_updated_at,
             claimed_jsonl_path: None,
@@ -162,11 +166,13 @@ impl EmitEngine {
                 .or_insert_with(|| {
                     SessionRuntimeState::initialize_from_session(session, request.now)
                 });
+            let next_rest_state = rest_state_for_session(session, request.now);
 
-            if is_sleeping_session(session, request.now) {
+            if is_sleeping_rest_state(next_rest_state) {
                 let should_emit_sleeping = state.thought_state != ThoughtState::Sleeping
                     || !state.sleeping_emitted
-                    || !is_sleeping_text(state.last_emitted_thought.as_deref());
+                    || !is_sleeping_text(state.last_emitted_thought.as_deref())
+                    || state.rest_state != next_rest_state;
 
                 if should_emit_sleeping {
                     let update = thought_update(
@@ -181,6 +187,7 @@ impl EmitEngine {
                         false,
                         request.now,
                         Some("sleeping".to_string()),
+                        next_rest_state,
                     );
                     updates.push(update);
                 } else {
@@ -190,6 +197,7 @@ impl EmitEngine {
                 state.sleeping_emitted = true;
                 state.thought_state = ThoughtState::Sleeping;
                 state.thought_source = ThoughtSource::StaticSleeping;
+                state.rest_state = next_rest_state;
                 state.last_emitted_thought = Some(STATIC_SLEEPING_THOUGHT.to_string());
                 state.last_call_at = Some(request.now);
                 state.last_terminal_context = Some(trim_terminal_context(&session.replay_text));
@@ -202,9 +210,11 @@ impl EmitEngine {
                     state,
                     session,
                     request.now,
+                    next_rest_state,
                 ));
                 state.thought_state = ThoughtState::Holding;
                 state.thought_source = ThoughtSource::CarryForward;
+                state.rest_state = next_rest_state;
                 state.sleeping_emitted = false;
                 state.last_emitted_thought = None;
                 state.last_call_at = Some(request.now);
@@ -241,6 +251,16 @@ impl EmitEngine {
             }
 
             if !objective_changed && !state.should_call_for_cadence(&request.config, request.now) {
+                if emit_rest_state_change_if_needed(
+                    &mut updates,
+                    &self.stream_instance_id,
+                    state,
+                    session,
+                    next_rest_state,
+                    request.now,
+                ) {
+                    continue;
+                }
                 metrics.suppressed += 1;
                 continue;
             }
@@ -252,6 +272,16 @@ impl EmitEngine {
                     state.last_terminal_context.as_deref(),
                 )
             {
+                if emit_rest_state_change_if_needed(
+                    &mut updates,
+                    &self.stream_instance_id,
+                    state,
+                    session,
+                    next_rest_state,
+                    request.now,
+                ) {
+                    continue;
+                }
                 metrics.suppressed += 1;
                 continue;
             }
@@ -291,6 +321,16 @@ impl EmitEngine {
             }
 
             if is_duplicate_thought(state.last_emitted_thought.as_deref(), &thought) {
+                if emit_rest_state_change_if_needed(
+                    &mut updates,
+                    &self.stream_instance_id,
+                    state,
+                    session,
+                    next_rest_state,
+                    request.now,
+                ) {
+                    continue;
+                }
                 metrics.suppressed += 1;
                 continue;
             }
@@ -318,6 +358,7 @@ impl EmitEngine {
                 objective_changed,
                 request.now,
                 Some(objective_fingerprint.clone()),
+                next_rest_state,
             ));
 
             state.last_emitted_thought = Some(thought.clone());
@@ -328,6 +369,7 @@ impl EmitEngine {
             }
             state.thought_state = next_state;
             state.thought_source = ThoughtSource::Llm;
+            state.rest_state = next_rest_state;
             state.sleeping_emitted = false;
             state.last_terminal_context = Some(trim_terminal_context(&session.replay_text));
             metrics.llm_calls += 1;
@@ -355,10 +397,12 @@ impl EmitEngine {
                 .or_insert_with(|| {
                     SessionRuntimeState::initialize_from_session(session, request.now)
                 });
+            let next_rest_state = rest_state_for_session(session, request.now);
 
             let needs_clear = state.last_emitted_thought.is_some()
                 || session.thought.is_some()
-                || state.thought_state != ThoughtState::Holding;
+                || state.thought_state != ThoughtState::Holding
+                || state.rest_state != next_rest_state;
 
             if needs_clear {
                 updates.push(clear_thought_update(
@@ -366,10 +410,12 @@ impl EmitEngine {
                     state,
                     session,
                     request.now,
+                    next_rest_state,
                 ));
                 state.last_emitted_thought = None;
                 state.thought_state = ThoughtState::Holding;
                 state.thought_source = ThoughtSource::CarryForward;
+                state.rest_state = next_rest_state;
                 state.sleeping_emitted = false;
                 state.last_call_at = Some(request.now);
             } else {
@@ -384,6 +430,7 @@ fn clear_thought_update(
     state: &mut SessionRuntimeState,
     session: &SessionSnapshot,
     now: DateTime<Utc>,
+    rest_state: RestState,
 ) -> ThoughtUpdate {
     thought_update(
         stream_instance_id,
@@ -397,7 +444,48 @@ fn clear_thought_update(
         false,
         now,
         None,
+        rest_state,
     )
+}
+
+fn emit_rest_state_change_if_needed(
+    updates: &mut Vec<ThoughtUpdate>,
+    stream_instance_id: &str,
+    state: &mut SessionRuntimeState,
+    session: &SessionSnapshot,
+    next_rest_state: RestState,
+    now: DateTime<Utc>,
+) -> bool {
+    if state.rest_state == next_rest_state {
+        return false;
+    }
+
+    updates.push(thought_update(
+        stream_instance_id,
+        state,
+        session,
+        current_thought_for_update(state, session),
+        session.token_count,
+        session.context_limit,
+        state.thought_state,
+        state.thought_source,
+        false,
+        now,
+        state.objective_fingerprint.clone(),
+        next_rest_state,
+    ));
+    state.rest_state = next_rest_state;
+    true
+}
+
+fn current_thought_for_update(
+    state: &SessionRuntimeState,
+    session: &SessionSnapshot,
+) -> Option<String> {
+    state
+        .last_emitted_thought
+        .clone()
+        .or_else(|| session.thought.clone())
 }
 
 fn thought_update(
@@ -412,6 +500,7 @@ fn thought_update(
     objective_changed: bool,
     at: DateTime<Utc>,
     objective_fingerprint: Option<String>,
+    rest_state: RestState,
 ) -> ThoughtUpdate {
     ThoughtUpdate {
         session_id: session.session_id.clone(),
@@ -426,15 +515,31 @@ fn thought_update(
         bubble_precedence: BubblePrecedence::ThoughtFirst,
         at,
         objective_fingerprint,
+        rest_state,
     }
 }
 
-fn is_sleeping_session(session: &SessionSnapshot, now: DateTime<Utc>) -> bool {
-    if session.state != SessionState::Idle {
-        return false;
+fn rest_state_for_session(session: &SessionSnapshot, now: DateTime<Utc>) -> RestState {
+    if session.exited || session.state == SessionState::Exited {
+        return RestState::DeepSleep;
+    }
+    if session.state != SessionState::Idle && session.state != SessionState::Attention {
+        return RestState::Active;
     }
     let idle_ms = (now - session.last_activity_at).num_milliseconds().max(0);
-    idle_ms >= SLEEPING_AFTER_MS
+    if idle_ms >= DEEP_SLEEP_AFTER_MS {
+        RestState::DeepSleep
+    } else if idle_ms >= SLEEPING_AFTER_MS {
+        RestState::Sleeping
+    } else if idle_ms >= DROWSY_AFTER_MS {
+        RestState::Drowsy
+    } else {
+        RestState::Active
+    }
+}
+
+fn is_sleeping_rest_state(rest_state: RestState) -> bool {
+    matches!(rest_state, RestState::Sleeping | RestState::DeepSleep)
 }
 
 fn is_sleeping_text(thought: Option<&str>) -> bool {
@@ -899,6 +1004,7 @@ mod tests {
             token_count: 1000,
             context_limit: 192_000,
             last_activity_at: now,
+            rest_state: RestState::Active,
         }
     }
 
@@ -959,6 +1065,25 @@ mod tests {
     }
 
     #[test]
+    fn idle_rest_state_uses_10_30_60_thresholds() {
+        let now = Utc::now();
+        let mut session = sample_session(now);
+        session.state = SessionState::Idle;
+
+        session.last_activity_at = now - Duration::milliseconds(9_999);
+        assert_eq!(rest_state_for_session(&session, now), RestState::Active);
+
+        session.last_activity_at = now - Duration::milliseconds(10_000);
+        assert_eq!(rest_state_for_session(&session, now), RestState::Drowsy);
+
+        session.last_activity_at = now - Duration::milliseconds(30_000);
+        assert_eq!(rest_state_for_session(&session, now), RestState::Sleeping);
+
+        session.last_activity_at = now - Duration::milliseconds(60_000);
+        assert_eq!(rest_state_for_session(&session, now), RestState::DeepSleep);
+    }
+
+    #[test]
     fn idle_session_emits_sleeping() {
         let now = Utc::now();
         let mut engine = EmitEngine::new(Box::new(MockModelClient {
@@ -967,7 +1092,7 @@ mod tests {
 
         let mut session = sample_session(now);
         session.state = SessionState::Idle;
-        session.last_activity_at = now - Duration::milliseconds(61_000);
+        session.last_activity_at = now - Duration::milliseconds(31_000);
 
         let request = SyncRequest {
             id: "req-1".to_string(),
@@ -981,6 +1106,54 @@ mod tests {
         assert_eq!(result.updates[0].thought.as_deref(), Some("Sleeping."));
         assert_eq!(result.updates[0].thought_state, ThoughtState::Sleeping);
         assert_eq!(result.updates[0].emission_seq, 1);
+    }
+
+    #[test]
+    fn attention_session_emits_sleeping() {
+        let now = Utc::now();
+        let mut engine = EmitEngine::new(Box::new(MockModelClient {
+            response: "unused".to_string(),
+        }));
+
+        let mut session = sample_session(now);
+        session.state = SessionState::Attention;
+        session.last_activity_at = now - Duration::milliseconds(31_000);
+
+        let request = SyncRequest {
+            id: "req-1".to_string(),
+            now,
+            config: ThoughtConfig::default(),
+            sessions: vec![session],
+        };
+
+        let result = engine.sync(&request);
+        assert_eq!(result.updates.len(), 1);
+        assert_eq!(result.updates[0].thought.as_deref(), Some("Sleeping."));
+        assert_eq!(result.updates[0].thought_state, ThoughtState::Sleeping);
+        assert_eq!(result.updates[0].rest_state, RestState::Sleeping);
+    }
+
+    #[test]
+    fn emitted_sleeping_update_serializes_rest_state_explicitly() {
+        let now = Utc::now();
+        let mut engine = EmitEngine::new(Box::new(MockModelClient {
+            response: "unused".to_string(),
+        }));
+
+        let mut session = sample_session(now);
+        session.state = SessionState::Attention;
+        session.last_activity_at = now - Duration::milliseconds(31_000);
+
+        let result = engine.sync(&SyncRequest {
+            id: "req-1".to_string(),
+            now,
+            config: ThoughtConfig::default(),
+            sessions: vec![session],
+        });
+
+        let serialized =
+            serde_json::to_value(&result.updates[0]).expect("sleeping update should serialize");
+        assert_eq!(serialized.get("rest_state").and_then(|value| value.as_str()), Some("sleeping"));
     }
 
     #[test]
@@ -1092,7 +1265,7 @@ mod tests {
 
         let mut sleeping = sample_session(now);
         sleeping.state = SessionState::Idle;
-        sleeping.last_activity_at = now - Duration::milliseconds(61_000);
+        sleeping.last_activity_at = now - Duration::milliseconds(31_000);
 
         let first = engine.sync(&SyncRequest {
             id: "req-1".to_string(),

@@ -20,6 +20,26 @@ test case spec that makes implementation and review unambiguous.
 - **describe** = patches, bug fixes, small features (single test spec)
 - **reproduce** = verify the fix after implementation
 
+## Execution Profiles
+
+This skill is agent-platform neutral. Pick the strongest path your runtime
+supports:
+
+- **Profile A: Subagent-capable runtimes**
+  - Use a fresh-context read-only subagent for post-spec user-story synthesis
+    when implementation is likely to follow.
+- **Profile B: Single-agent runtimes**
+  - Run the same synthesis as an explicit second-pass inline review.
+  - If the user explicitly requested a subagent, do not silently fake one;
+    state the limitation and ask whether the inline fallback is acceptable.
+
+Terminology used below:
+
+- **"Spawn subagent"** = delegate if the runtime supports it; otherwise use the
+  explicit inline fallback from Profile B.
+- **"Implementation handoff"** = either inline implementation or a
+  `codex-tmux` run, depending on user request and task size.
+
 ## Workflow
 
 ### 1) Scope (infer first; ask only if ambiguous)
@@ -114,6 +134,59 @@ Present the spec. Ask one final question (not generic approval):
 
 If the user adds cases or corrections, update the spec and re-present.
 
+### 6) Post-spec user-story synthesis (optional, preferred when implementation may follow)
+
+Trigger this branch when any of these are true:
+
+- The user says or strongly implies "if this looks good, implement it"
+- The user asks for a TL;DR of user stories after the spec
+- The user explicitly asks for a subagent pass before coding
+
+Workflow:
+
+1. Build a compact input packet:
+   - original user request
+   - accepted describe spec
+   - key clarifications from the conversation
+   - relevant repo/product context
+2. Use [references/post-spec-prompts.md](references/post-spec-prompts.md) and
+   spawn a fresh-context read-only subagent to answer the underlying product
+   question and distill user stories plus non-goals.
+3. If the runtime has no subagent primitive, perform the same pass inline as a
+   clearly labeled second review. Do not pretend it was a subagent.
+4. Return a TL;DR user-story summary to the user:
+   - 1 short paragraph or 3-5 flat bullets
+   - no implementation detail
+   - emphasize what will be true for users after the change
+5. Ask one approval question:
+   - `If these stories look right, should I implement them?`
+
+### 7) Implementation handoff (optional, only after user approval)
+
+Only enter this step after the user explicitly approves the TL;DR stories.
+
+Rules:
+
+1. Treat the accepted describe spec as locked scope.
+2. If the user explicitly asked for `codex-tmux`, prefer it even for smaller
+   tasks.
+3. Also prefer `codex-tmux` when the implementation is likely to take 5+
+   minutes or benefits from fresh context.
+4. Build the implementation prompt from:
+   - original request
+   - accepted user stories
+   - accepted describe spec
+   - relevant file refs
+   - concrete validation commands
+5. Use the prompt template in
+   [references/post-spec-prompts.md](references/post-spec-prompts.md).
+6. After launching `codex-tmux`, report:
+   - session name
+   - `watch live` command
+   - `status` command
+7. If not using `codex-tmux`, implement inline but still keep the locked-spec
+   discipline.
+
 ## Output Template
 
 Use this structure. Adjust sections as needed but keep the Given/When/Then
@@ -157,6 +230,21 @@ format strict.
 - Total: N
 ```
 
+### Optional Post-Spec TL;DR Template
+
+If Step 6 is triggered, append a short user-story summary after the spec:
+
+```markdown
+## TL;DR User Stories
+- As a <role>, I want <goal>, so that <outcome>.
+- ...
+
+## Non-Goals
+- ...
+
+Question: If these stories look right, should I implement them?
+```
+
 ## Examples
 
 See [references/examples.md](references/examples.md) for worked examples
@@ -175,3 +263,5 @@ at different granularities (API endpoint, utility function, UI behavior).
   match coverage to risk
 - **Skipping code reading:** never generate test cases from the
   conversation alone — read the actual code first
+- **Silent execution jumps:** do not jump from spec to implementation without
+  the explicit post-spec approval gate when Step 6 was used

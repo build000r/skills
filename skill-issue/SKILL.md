@@ -1,6 +1,6 @@
 ---
 name: skill-issue
-description: Create, update, and package skills for AI coding agents. Use when asked to "create a skill", "make a skill", "new skill", "skill template", "design a skill", "build a skill", or when working with SKILL.md files, frontmatter, bundled resources (scripts/, references/, assets/), or .skill packaging. Also triggers on "how do I make a skill", "skill best practices", "skill structure", or requests to extend an agent's capabilities with reusable workflows.
+description: Create, update, review, and package skills for AI coding agents. Use when asked to "create a skill", "make a skill", "new skill", "skill template", "design a skill", "build a skill", "review this skill", "improve this skill based on past runs", "when did we last use this skill", or when working with SKILL.md files, frontmatter, bundled resources (scripts/, references/, assets/), .skill packaging, or Claude/Codex transcript-driven skill reliability. Also triggers on "how do I make a skill", "skill best practices", "skill structure", "skill reliability", or requests to extend an agent's capabilities with reusable workflows.
 license: Complete terms in LICENSE.txt
 ---
 
@@ -63,6 +63,57 @@ For directory structure details, resource types, progressive disclosure patterns
 7. Publish to marketplaces (optional) — see `references/publishing.md`
 
 Follow these steps in order, skipping only if clearly not applicable.
+
+## Reliability Review Mode
+
+Use this mode when the user wants to improve a skill from real transcript evidence instead of intuition: "review this skill", "how is this skill doing", "when did we last use this skill", "look at past invocations", or "reduce unnecessary checkpoints."
+
+This mode reads Claude/Codex JSONL logs directly, writes a lightweight last-seen marker, and saves review snapshots for trend reporting.
+
+### Review Flow
+
+1. Scan transcript history for a target skill:
+
+```bash
+scripts/review_skill_usage.py --skill skill-issue --source both --since month --limit 50 > /tmp/skill-issue-review.json
+```
+
+This writes `~/.claude/skill-markers/<skill>.json` by default with the latest detected invocation date. Use `--no-marker` only when you explicitly need read-only behavior.
+
+2. Read the generated JSON and focus on reliability signals:
+- `ack_rate`: how often the run included an explicit `Using <skill>` marker
+- `validation_rate`: how often the run executed a concrete verification command
+- `checkpoint_rate`: how often the agent asked for confirmation/checkpoint prompts
+- `correction_rate`: how often the user redirected the run after it started
+- `completion_rate`: how often the transcript reached a clear completion event
+
+3. Turn the metrics into concrete improvement suggestions:
+- Low `ack_rate`: require a stable first commentary marker so invocation discovery does not depend on path heuristics
+- Low `validation_rate`: add or tighten the required verification block in the skill
+- High `checkpoint_rate`: move repeated preferences into `modes/` or default rules so humans are only asked when information is missing or risky
+- High `correction_rate`: tighten trigger language, non-goals, or ask-cascade guidance
+- Repeated raw shell stems (`rg`, `sed`, `find`, etc.): bundle scripts/references instead of relying on freehand shell work
+
+4. Save the review for trend tracking:
+
+```bash
+scripts/save_skill_review.py --input /tmp/skill-issue-review.json
+```
+
+This appends to `~/.claude/skill-review-history.jsonl`.
+
+5. Show the trend when history exists:
+
+```bash
+scripts/show_skill_trend.py --skill skill-issue --weeks 8
+```
+
+### Evidence Rules
+
+- Prefer `assistant_ack` and `skill_path` as strong invocation evidence.
+- Treat raw user mentions as weak evidence unless paired with a path touch or explicit ack marker.
+- If the review finds no Claude Code matches, say so clearly instead of implying cross-provider coverage.
+- Optimize suggestions for one goal: remove human checkpoints except where human input is genuinely required.
 
 ### Step 1: Understand the Skill
 

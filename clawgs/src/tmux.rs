@@ -3,7 +3,9 @@ use std::process::Command;
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 
-use crate::emit::protocol::{SessionSnapshot, SessionState, ThoughtSource, ThoughtState};
+use crate::emit::protocol::{
+    RestState, SessionSnapshot, SessionState, ThoughtSource, ThoughtState,
+};
 
 const FIELD_SEP: char = '\u{1f}';
 
@@ -88,6 +90,7 @@ pub fn scan_sessions_with_bin(
             token_count: 0,
             context_limit: 0,
             last_activity_at: now,
+            rest_state: RestState::Active,
         });
     }
 

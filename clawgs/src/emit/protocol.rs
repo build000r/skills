@@ -41,6 +41,21 @@ impl Default for ThoughtSource {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
+pub enum RestState {
+    Active,
+    Drowsy,
+    Sleeping,
+    DeepSleep,
+}
+
+impl Default for RestState {
+    fn default() -> Self {
+        Self::Active
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
 pub enum BubblePrecedence {
     ThoughtFirst,
 }
@@ -137,6 +152,8 @@ pub struct SessionSnapshot {
     pub token_count: u64,
     pub context_limit: u64,
     pub last_activity_at: DateTime<Utc>,
+    #[serde(default)]
+    pub rest_state: RestState,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -168,6 +185,8 @@ pub struct ThoughtUpdate {
     pub at: DateTime<Utc>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub objective_fingerprint: Option<String>,
+    #[serde(default)]
+    pub rest_state: RestState,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

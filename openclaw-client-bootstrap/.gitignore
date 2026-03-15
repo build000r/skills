@@ -1,22 +1,10 @@
 # Private deployment state (never ship in public package)
-# Runtime-sync workflow secrets are uploaded via ../.env-manager (not stored here):
-#   ./sync.sh --github opensource/skills
-# Required keys live in local secret sources only:
-#   OPENCLAW_0_CLAW_DEPLOY_HOST
-#   OPENCLAW_0_CLAW_DEPLOY_SSH_USER
-#   OPENCLAW_0_CLAW_DEPLOY_SSH_KEY or OPENCLAW_0_CLAW_DEPLOY_SSH_KEY_FILE
-#   OPENCLAW_0_CLAW_DEPLOY_KNOWN_HOST or OPENCLAW_0_CLAW_DEPLOY_KNOWN_HOST_FILE
-#   OPENCLAW_0_CLAW_TAILSCALE_AUTHKEY
 references/deployed-instances.md
 references/deployed-instances.local.md
 assets/instances/
 !assets/instances/
 assets/instances/*
 !assets/instances/README.md
-!assets/instances/0_claw/
-assets/instances/0_claw/*
-!assets/instances/0_claw/custom-skills/
-!assets/instances/0_claw/custom-skills/**
 
 # Local/operator artifacts
 assets/client-kit/.env

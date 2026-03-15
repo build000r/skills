@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
-SOURCE_DIR_DEFAULT="${REPO_ROOT}/openclaw-client-bootstrap/assets/instances/0_claw/custom-skills"
+SOURCE_DIR_DEFAULT="${REPO_ROOT}/openclaw-client-bootstrap/assets/runtime-skills"
 REMOTE_SKILLS_DIR_DEFAULT="/home/openclaw/.openclaw/custom-skills"
 REMOTE_CONFIG_PATH_DEFAULT="/home/openclaw/.openclaw/openclaw.json"
 
@@ -24,7 +24,7 @@ usage() {
   cat <<'EOF'
 Usage: sync-runtime-skills.sh [options]
 
-Syncs the tracked 0_claw runtime-safe custom skills to a live OpenClaw home
+Syncs the tracked reusable runtime-safe skills to a live OpenClaw home
 with fail-closed, atomic promotion semantics.
 
 Options:

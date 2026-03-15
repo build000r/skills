@@ -33,17 +33,17 @@ set -euo pipefail
 #   Each --message auto-resumes the last session. Use --new to start fresh.
 #
 # POSITIONAL SHORTHAND
-#   talk.sh ingredient-claw "message"  Equivalent to --claw ingredient-claw --message "message"
+#   talk.sh example-claw "message"  Equivalent to --claw example-claw --message "message"
 #
 # EXAMPLES
 #   talk.sh --list
 #   talk.sh --claw my-claw --message "hello"                 # auto-resumes last thread
-#   talk.sh --claw ingredient-claw --message "follow up"     # continues same thread
-#   talk.sh --claw ingredient-claw --new --message "fresh start"
-#   talk.sh --claw ingredient-claw --tail
-#   talk.sh --claw ingredient-claw --logs 100
+#   talk.sh --claw example-claw --message "follow up"     # continues same thread
+#   talk.sh --claw example-claw --new --message "fresh start"
+#   talk.sh --claw example-claw --tail
+#   talk.sh --claw example-claw --logs 100
 #   talk.sh --ssh
-#   talk.sh --claw ingredient-claw --ssh     # SSH with env vars pre-loaded for that claw
+#   talk.sh --claw example-claw --ssh     # SSH with env vars pre-loaded for that claw
 #   talk.sh --health --require-root-proof --json
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

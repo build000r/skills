@@ -143,7 +143,7 @@ When projects use `staticFile()` for images/assets, those files live in each pro
 cp /path/to/project/video/public/* {videos_hub_path}/public/
 ```
 
-**Note:** This flattens all assets into one folder. If two projects have files with the same name, they'll conflict. Namespace your files (e.g., `htma-recipe.jpg`, `cyclechef-logo.png`) to avoid collisions.
+**Note:** This flattens all assets into one folder. If two projects have files with the same name, they'll conflict. Namespace your files (e.g., `project-a-recipe.jpg`, `project-b-logo.png`) to avoid collisions.
 
 Hub public assets location: `{videos_hub_path}/public/`
 

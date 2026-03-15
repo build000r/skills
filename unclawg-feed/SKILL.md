@@ -48,7 +48,7 @@ If you already run an OpenClaw runtime and just need this skill to work with it:
 
 1. In the Unclawg portal sidebar, run **Add Agent**.
 2. Complete Step 1 (create machine key), then choose **Connect existing claw** in Step 2.
-3. Use your runtime claw ID (for example `0_claw` or `ingredient-claw`) and issue the connect packet.
+3. Use your runtime claw ID (for example `example-claw`) and issue the connect packet.
 4. Save the generated env block as `.claude/agents/<agent-id>.env`.
 5. Re-run `/unclawg-feed`; it will auto-discover that identity file.
 

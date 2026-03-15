@@ -26,9 +26,9 @@ Treat tracked skills as AI runtime instructions, and keep operator/admin runbook
 - Runtime skills should fail closed when required wrapper bins are missing.
 - Keep local project overlays in `modes/` (gitignored).
 - Keep admin-only skills (for example `unclawg-admin`) gitignored/private.
-- Keep deploy secrets gitignored/private. For this repo's runtime-sync
-  workflow secrets, source from `../.env-manager` and publish with:
-  `cd ../.env-manager && set -a && source ./.env.secrets && set +a && ./sync.sh --github opensource/skills`
+- Keep deploy secrets gitignored/private. If you automate runtime sync in CI,
+  keep host keys, SSH material, and live deploy targets in your own secret
+  store. Do not commit live-instance workflows to the public repo.
 - Do not point a production claw at `../skills` wholesale; curate a runtime-safe subset.
 
 ## Architectural Decision First
@@ -112,20 +112,20 @@ TALK="$(ls ~/.codex/skills/openclaw-client-bootstrap/scripts/talk.sh \
            2>/dev/null | head -1)"
 
 bash "$TALK" --list                                        # see all claws + live agent IDs
-bash "$TALK" --message "what recipes exist?"               # message primary claw
+bash "$TALK" --message "what work is queued?"              # message primary claw
 bash "$TALK" --claw my-claw --message "hello"              # message a co-located claw
-bash "$TALK" --claw ingredient-claw --message "follow up" --session-id <id>  # continue thread
-bash "$TALK" --claw ingredient-claw --tail                 # tail logs live (Ctrl-C to stop)
-bash "$TALK" --claw ingredient-claw --logs 100             # last 100 log lines
+bash "$TALK" --claw example-claw --message "follow up" --session-id <id>  # continue thread
+bash "$TALK" --claw example-claw --tail                    # tail logs live (Ctrl-C to stop)
+bash "$TALK" --claw example-claw --logs 100                # last 100 log lines
 bash "$TALK" --health                                      # health summary for all claws
-bash "$TALK" --health --claw ingredient-claw                # health summary for one claw
+bash "$TALK" --health --claw example-claw                  # health summary for one claw
 bash "$TALK" --health --emit-logs --log-dir ~/.openclaw/logs --log-prefix openclaw  # health + persisted snapshots
 bash "$TALK" --ssh                                         # plain SSH into the droplet (non-root)
 bash "$TALK" --ssh-user aiops --ssh                        # use dedicated collab user
-bash "$TALK" --claw ingredient-claw --ssh                  # SSH with claw env pre-loaded
+bash "$TALK" --claw example-claw --ssh                     # SSH with claw env pre-loaded
 ```
 
-**Positional shorthand:** `talk.sh ingredient-claw "message"` is equivalent to `--claw ingredient-claw --message "message"`.
+**Positional shorthand:** `talk.sh example-claw "message"` is equivalent to `--claw example-claw --message "message"`.
 
 **Agent IDs vs persona names:** The `--agent` value (auto-discovered from `agents list`) is the agent config ID like `content-creator`. The persona name lives in `SOUL.md` — these are different. `--list` shows both.
 
@@ -196,7 +196,7 @@ After every incident or rollout, run this loop to keep the bootstrap skill accur
 3. **Capture drift and breakages**
    - Record root cause + fix in `references/deployment-workflow.md` and update template assets/scripts
 4. **Patch the reusable kit, not just the live box**
-   - Update `assets/client-kit/*`, then sync stable instance snapshots in `assets/instances/<claw>/`
+   - Update `assets/client-kit/*`, then sync any private instance snapshots in your ignored `assets/instances/<claw>/`
 5. **Re-validate**
    - `bash scripts/validate_client_kit.sh assets/client-kit`
    - `bash scripts/review_kit.sh --skill`

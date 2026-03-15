@@ -65,12 +65,12 @@ If local validation required manual seed/restart/env commands, move those steps 
 Example closeout loop:
 
 ```bash
-if [ -d ../../.env-manager ]; then
-  ENVM="$(cd ../../.env-manager && pwd)"
+if [ -d ./.env-manager ]; then
+  ENVM="$(cd ./.env-manager && pwd)"
 elif [ -d ../.env-manager ]; then
   ENVM="$(cd ../.env-manager && pwd)"
-elif [ -d "$HOME/repos/.env-manager" ]; then
-  ENVM="$HOME/repos/.env-manager"
+elif [ -d ../../.env-manager ]; then
+  ENVM="$(cd ../../.env-manager && pwd)"
 fi
 REPOS_ROOT="${REPOS_ROOT:-$(cd "$ENVM/.." && pwd)}"
 SANITY="$(ls ~/.codex/skills/dev-sanity/scripts/sanity_check.sh ~/.claude/skills/dev-sanity/scripts/sanity_check.sh "$REPOS_ROOT/opensource/skills/dev-sanity/scripts/sanity_check.sh" 2>/dev/null | head -1)"

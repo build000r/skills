@@ -53,8 +53,8 @@ set -euo pipefail
 #   # Dry-run Codex push
 #   ./update-oauth-token.sh --dry-run
 #
-#   # Only update ingredient-claw, skip restart
-#   ./update-oauth-token.sh --claw ingredient-claw --no-restart
+#   # Only update example-claw, skip restart
+#   ./update-oauth-token.sh --claw example-claw --no-restart
 #
 # NOTE
 #   If you SSH as non-root, restarting systemd units may require passwordless sudo.

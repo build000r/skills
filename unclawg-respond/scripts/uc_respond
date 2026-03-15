@@ -192,39 +192,51 @@ def _apply_env_defaults(path: Path, *, overwrite: bool = False) -> None:
             os.environ.setdefault(key, value)
 
 
+def _apply_single_agent_env(directory: Path, *, overwrite: bool = False) -> None:
+    if not directory.exists():
+        return
+    candidates = sorted(
+        path for path in directory.glob("*.env") if path.is_file() and path.name != ".env"
+    )
+    if len(candidates) == 1:
+        _apply_env_defaults(candidates[0], overwrite=overwrite)
+
+
 def _load_agent_env(agent_id: str | None) -> None:
     cwd = Path.cwd()
 
     # Runtime fallback paths used by OpenClaw client boxes.
-    runtime_env = (os.environ.get("LARRY_ENV_PATH") or "").strip()
+    runtime_env = (os.environ.get("OPENCLAW_ENV_PATH") or "").strip()
     if runtime_env:
         _apply_env_defaults(Path(runtime_env), overwrite=True)
 
     state_dir = (os.environ.get("OPENCLAW_STATE_DIR") or "").strip()
     if state_dir:
-        _apply_env_defaults(Path(state_dir) / ".env")
+        state_dir_path = Path(state_dir)
+        _apply_env_defaults(state_dir_path / ".env")
+        _apply_single_agent_env(state_dir_path)
+
+    runtime_dirs = [
+        Path("/home/openclaw/.openclaw"),
+        Path("/agent/.openclaw"),
+        Path("/workspace/.openclaw"),
+    ]
 
     # Agent-scoped runtime envs should win over inherited process env vars.
     if agent_id:
-        _apply_env_defaults(Path(f"/home/openclaw/.openclaw/{agent_id}.env"), overwrite=True)
-        _apply_env_defaults(Path(f"/agent/.openclaw/{agent_id}.env"), overwrite=True)
-        _apply_env_defaults(Path(f"/workspace/.openclaw/{agent_id}.env"), overwrite=True)
+        for directory in runtime_dirs:
+            _apply_env_defaults(directory / f"{agent_id}.env", overwrite=True)
 
-    for fallback in (
-        "/home/openclaw/.openclaw/larry.env",
-        "/home/openclaw/.openclaw/.env",
-        "/agent/.openclaw/larry.env",
-        "/workspace/.openclaw/larry.env",
-    ):
-        _apply_env_defaults(Path(fallback))
+    for directory in runtime_dirs:
+        _apply_env_defaults(directory / ".env")
+        _apply_single_agent_env(directory)
 
     if agent_id:
         _apply_env_defaults(cwd / ".claude" / "agents" / f"{agent_id}.env", overwrite=True)
     current_agent = os.environ.get("OPENCLAW_AGENT_ID")
     if current_agent:
-        _apply_env_defaults(Path(f"/home/openclaw/.openclaw/{current_agent}.env"), overwrite=True)
-        _apply_env_defaults(Path(f"/agent/.openclaw/{current_agent}.env"), overwrite=True)
-        _apply_env_defaults(Path(f"/workspace/.openclaw/{current_agent}.env"), overwrite=True)
+        for directory in runtime_dirs:
+            _apply_env_defaults(directory / f"{current_agent}.env", overwrite=True)
         _apply_env_defaults(cwd / ".claude" / "agents" / f"{current_agent}.env", overwrite=True)
     _apply_env_defaults(cwd / "services" / "approval_feedback_api" / ".env")
 

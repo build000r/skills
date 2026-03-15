@@ -1,10 +1,11 @@
-# Deployed Instance Configs
+# Private Instance Snapshots
 
-This directory is the **source of truth** for all non-secret claw config.
+This directory is for local, private, per-instance snapshots only.
 
-Droplets are ephemeral. If a droplet is rebuilt, all files here can be re-deployed
-with no data loss. The `.env` (secrets) lives only on the server and in your secrets
-manager — never committed here.
+The public repo should track reusable runtime-safe skills in
+`../runtime-skills/`, not live client or environment-specific instance trees.
+If you keep per-claw non-secret snapshots locally for disaster recovery, put
+them here and keep them ignored.
 
 ## Directory Structure
 
@@ -19,16 +20,17 @@ assets/instances/
     checklists/         ← deployment and ops checklists (optional)
 ```
 
-## What Lives Here vs What Stays on Server
+## What Lives Here vs What Stays In The Public Repo
 
-| File | Here (skill) | Server only |
+| File | Ignored locally | Public repo |
 |------|-------------|-------------|
-| `openclaw.json` | ✅ (no secrets inline) | Copy of this |
-| `SOUL.md` | ✅ | Copy of this |
-| `AGENTS.md` | ✅ | Copy of this |
-| `USER.md` | ✅ | Copy of this |
-| `.env.example` | ✅ (placeholders only) | — |
-| `.env` | ❌ never | ✅ real secrets |
+| `openclaw.json` | ✅ (no secrets inline) | ❌ |
+| `SOUL.md` | ✅ | ❌ |
+| `AGENTS.md` | ✅ | ❌ |
+| `USER.md` | ✅ | ❌ |
+| `.env.example` | ✅ (placeholders only) | ❌ |
+| `.env` | ❌ never | ❌ |
+| `assets/runtime-skills/<skill>/` | ❌ | ✅ tracked reusable bundle |
 
 ## Redeploy from Skill
 
@@ -47,10 +49,10 @@ scripts/04-validate.sh
 
 If this is a brand-new droplet, run bootstrap + tailscale scripts first as root, then switch to non-root Tailnet SSH for day-2 operations.
 
-## Adding a New Instance
+## Adding A New Local Snapshot
 
 After bootstrapping a new claw:
 1. Copy the generated kit's non-secret files into `assets/instances/<claw-name>/`
 2. Replace real secret values in `.env` with placeholders → save as `.env.example`
-3. Commit — the skill now has the full claw identity backed up
-4. Add the instance to `references/deployed-instances.md`
+3. Do **not** commit the instance directory in the public repo
+4. Keep tracked reusable runtime-safe skills in `assets/runtime-skills/`

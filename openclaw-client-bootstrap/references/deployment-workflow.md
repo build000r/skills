@@ -85,14 +85,14 @@ Existing DigitalOcean droplet
 Since both claws run under the same Linux user, you can't use `su - <claw-name>`. Instead, override the state dir env vars:
 
 ```bash
-# Talk to a co-located claw (e.g. ingredient-claw at /home/openclaw-ingredient)
-OPENCLAW_STATE_DIR=/home/openclaw-ingredient/.openclaw \
-OPENCLAW_CONFIG_PATH=/home/openclaw-ingredient/.openclaw/openclaw.json \
+# Talk to a co-located claw (e.g. example-claw at /home/example-claw/.openclaw)
+OPENCLAW_STATE_DIR=/home/example-claw/.openclaw \
+OPENCLAW_CONFIG_PATH=/home/example-claw/.openclaw/openclaw.json \
 /home/openclaw/.npm-global/bin/openclaw agents list
 
 # Send a message to an agent
-OPENCLAW_STATE_DIR=/home/openclaw-ingredient/.openclaw \
-OPENCLAW_CONFIG_PATH=/home/openclaw-ingredient/.openclaw/openclaw.json \
+OPENCLAW_STATE_DIR=/home/example-claw/.openclaw \
+OPENCLAW_CONFIG_PATH=/home/example-claw/.openclaw/openclaw.json \
 /home/openclaw/.npm-global/bin/openclaw agent \
   --agent content-creator \
   --message "summarize recent work" \

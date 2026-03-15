@@ -9,7 +9,7 @@ const { spawnSync } = require('child_process');
 
 function usage() {
   console.log('Usage: node generate-logo-pack.js --input <path> --output <dir> [--name <label>] [--bg-to-alpha] [--bg-threshold <0-255>] [--scale <0-1>]');
-  console.log('Example: node generate-logo-pack.js --input ../unclawg/public/larry.png --output ../unclawg/.throngterm/sprites --name Larry --bg-to-alpha');
+  console.log('Example: node generate-logo-pack.js --input ../my-app/public/logo.png --output ../my-app/.throngterm/sprites --name MyApp --bg-to-alpha');
 }
 
 function argValue(args, key) {

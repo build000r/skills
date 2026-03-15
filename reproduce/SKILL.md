@@ -63,13 +63,13 @@ Before escalating, list and try multiple ideas from different surfaces:
 
 ### 3) Use ecosystem checks when available
 
-If `.env-manager` exists (HTMA/OpenClaw local ecosystem), run:
+If a repo-adjacent `.env-manager` exists, run:
 
 ```bash
-if [ -d ../.env-manager ]; then
+if [ -d ./.env-manager ]; then
+  ENVM="$(cd ./.env-manager && pwd)"
+elif [ -d ../.env-manager ]; then
   ENVM="$(cd ../.env-manager && pwd)"
-elif [ -d "$HOME/repos/.env-manager" ]; then
-  ENVM="$HOME/repos/.env-manager"
 fi
 REPOS_ROOT="${REPOS_ROOT:-$(cd "$ENVM/.." && pwd)}"
 SANITY="$(ls ~/.codex/skills/dev-sanity/scripts/sanity_check.sh ~/.claude/skills/dev-sanity/scripts/sanity_check.sh "$REPOS_ROOT/opensource/skills/dev-sanity/scripts/sanity_check.sh" 2>/dev/null | head -1)"
@@ -165,9 +165,9 @@ Required sequence:
 3. Validate from automation entrypoint (not ad-hoc one-off commands).
 4. Re-run `$dev-sanity` checks to verify the loop is healthy.
 
-Preferred path in this repo layout:
-1. Update `../../.env-manager/Makefile` (or referenced scripts) when local seed/restart behavior should be standardized.
-2. Start/restart using `.env-manager` targets.
+Preferred path when this repo sits beside a local env manager:
+1. Update `"$ENVM"/Makefile` (or referenced scripts) when local seed/restart behavior should be standardized.
+2. Start/restart using the env manager's targets.
 3. Run `bash "$SANITY" --errors-only`, `--health-only`, and `--wiring-only`.
 
 Do not leave critical local recovery steps as undocumented manual commands in chat output.

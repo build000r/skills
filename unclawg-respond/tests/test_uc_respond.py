@@ -429,32 +429,61 @@ def test_load_agent_env_reads_openclaw_state_dir(monkeypatch, tmp_path) -> None:
     assert os.environ["OPENCLAW_AGENT_ID"] == "larry"
 
 
-def test_load_agent_env_overwrites_inherited_vars_from_larry_env(monkeypatch, tmp_path) -> None:
+def test_load_agent_env_overwrites_inherited_vars_from_explicit_runtime_env(monkeypatch, tmp_path) -> None:
     uc = _load_uc_respond()
-    larry_env = tmp_path / "larry.env"
-    larry_env.write_text(
+    runtime_env = tmp_path / "agent.env"
+    runtime_env.write_text(
         "OPENCLAW_API_URL=https://api.unclawg.com\n"
         "OPENCLAW_TENANT_ID=tenant-correct\n"
         "OPENCLAW_MACHINE_KEY_ID=mk_correct\n"
         "OPENCLAW_MACHINE_SECRET=ms_correct\n"
-        "OPENCLAW_AGENT_ID=larry\n",
+        "OPENCLAW_AGENT_ID=agent-one\n",
         encoding="utf-8",
     )
 
-    monkeypatch.setenv("LARRY_ENV_PATH", str(larry_env))
+    monkeypatch.setenv("OPENCLAW_ENV_PATH", str(runtime_env))
     monkeypatch.setenv("OPENCLAW_API_URL", "https://wrong.example.com")
     monkeypatch.setenv("OPENCLAW_TENANT_ID", "tenant-wrong")
     monkeypatch.setenv("OPENCLAW_MACHINE_KEY_ID", "mk_wrong")
     monkeypatch.setenv("OPENCLAW_MACHINE_SECRET", "ms_wrong")
     monkeypatch.setenv("OPENCLAW_AGENT_ID", "other-agent")
 
-    uc._load_agent_env("larry")
+    uc._load_agent_env("agent-one")
 
     assert os.environ["OPENCLAW_API_URL"] == "https://api.unclawg.com"
     assert os.environ["OPENCLAW_TENANT_ID"] == "tenant-correct"
     assert os.environ["OPENCLAW_MACHINE_KEY_ID"] == "mk_correct"
     assert os.environ["OPENCLAW_MACHINE_SECRET"] == "ms_correct"
-    assert os.environ["OPENCLAW_AGENT_ID"] == "larry"
+    assert os.environ["OPENCLAW_AGENT_ID"] == "agent-one"
+
+
+def test_load_agent_env_reads_single_agent_env_from_state_dir(monkeypatch, tmp_path) -> None:
+    uc = _load_uc_respond()
+    state_dir = tmp_path / "openclaw-state"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    (state_dir / "agent-one.env").write_text(
+        "OPENCLAW_API_URL=https://api.unclawg.com\n"
+        "OPENCLAW_TENANT_ID=tenant-dev\n"
+        "OPENCLAW_MACHINE_KEY_ID=mk_test\n"
+        "OPENCLAW_MACHINE_SECRET=ms_test\n"
+        "OPENCLAW_AGENT_ID=agent-one\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.delenv("OPENCLAW_API_URL", raising=False)
+    monkeypatch.delenv("OPENCLAW_TENANT_ID", raising=False)
+    monkeypatch.delenv("OPENCLAW_MACHINE_KEY_ID", raising=False)
+    monkeypatch.delenv("OPENCLAW_MACHINE_SECRET", raising=False)
+    monkeypatch.delenv("OPENCLAW_AGENT_ID", raising=False)
+    monkeypatch.setenv("OPENCLAW_STATE_DIR", str(state_dir))
+
+    uc._load_agent_env(None)
+
+    assert os.environ["OPENCLAW_API_URL"] == "https://api.unclawg.com"
+    assert os.environ["OPENCLAW_TENANT_ID"] == "tenant-dev"
+    assert os.environ["OPENCLAW_MACHINE_KEY_ID"] == "mk_test"
+    assert os.environ["OPENCLAW_MACHINE_SECRET"] == "ms_test"
+    assert os.environ["OPENCLAW_AGENT_ID"] == "agent-one"
 
 
 def test_build_fulfillment_payload_uses_latest_feedback_and_end_with_directive() -> None:

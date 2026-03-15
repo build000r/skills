@@ -35,7 +35,7 @@ Get set up with OpenClaw — account, agent, soul, and discovery config in one s
 
 ### Existing OpenClaw Runtime (Skip Full Bootstrap)
 
-If a runtime already exists (for example `0_claw`) and you only need a new agent identity:
+If a runtime already exists (for example `example-claw`) and you only need a new agent identity:
 
 1. In the portal sidebar, run **Add Agent**.
 2. Create the machine key (Step 1), then choose **Connect existing claw** (Step 2).

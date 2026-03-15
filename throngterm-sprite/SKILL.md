@@ -79,7 +79,7 @@ ls .throngterm/sprites/
 ### Option B: Logo/image-based character (new behavior)
 
 Use this when your repo already has a logo/mascot asset (for example
-`public/logo.png`, `public/larry.png`, `public/brand.svg`):
+`public/logo.png`, `public/mascot.png`, `public/brand.svg`):
 
 ```bash
 mkdir -p .throngterm/sprites

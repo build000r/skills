@@ -7,7 +7,7 @@ description: >
   Use when: "/unclawg-discover", "find customers", "find leads",
   "find outreach candidates", "find posts to reply to", "build engagement queue",
   "find unclawg customers", "find agent builder leads",
-  "buildooor leads".
+  "workflow tool leads".
 metadata:
   openclaw:
     emoji: "🔎"
@@ -309,7 +309,7 @@ gitignored operator mode.
 ```sql
 INSERT INTO social_engagement_queue
   (id, platform, post_url, post_author, post_title, post_caption,
-   post_metrics, posted_at, persona, htma_angle,
+   post_metrics, posted_at, persona, market_angle,
    status, created_at, updated_at)
 VALUES (gen_random_uuid(), ...)
 ON CONFLICT (post_url) DO NOTHING;

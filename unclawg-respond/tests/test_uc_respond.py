@@ -167,7 +167,7 @@ def test_reconcile_prints_target_before_network_calls(monkeypatch, capsys) -> No
         tenant_id="tenant-dev",
         machine_key_id="mk_test",
         machine_secret="ms_test",
-        agent_id="larry",
+        agent_id="example-agent",
         api_key=None,
     )
 
@@ -183,12 +183,12 @@ def test_reconcile_prints_target_before_network_calls(monkeypatch, capsys) -> No
     monkeypatch.setattr(uc, "_fetch_all_agent_revisions", lambda *_args, **_kwargs: [])
     monkeypatch.setattr(uc, "_request_json", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("unexpected network call")))
 
-    rc = uc.cmd_reconcile(argparse.Namespace(agent_id="larry", dry_run=True))
+    rc = uc.cmd_reconcile(argparse.Namespace(agent_id="example-agent", dry_run=True))
     stdout = capsys.readouterr().out.splitlines()
 
     assert rc == 0
     assert order[0] == "print"
-    assert stdout[0] == "target api_url=http://localhost:8010 tenant_id=tenant-dev agent_id=larry"
+    assert stdout[0] == "target api_url=http://localhost:8010 tenant_id=tenant-dev agent_id=example-agent"
 
 
 def test_canary_dry_run_builds_single_approval_payload(monkeypatch, capsys) -> None:
@@ -198,7 +198,7 @@ def test_canary_dry_run_builds_single_approval_payload(monkeypatch, capsys) -> N
         tenant_id="tenant-dev",
         machine_key_id="mk_test",
         machine_secret="ms_test",
-        agent_id="larry",
+        agent_id="example-agent",
         api_key=None,
     )
 
@@ -241,7 +241,7 @@ def test_canary_dry_run_builds_single_approval_payload(monkeypatch, capsys) -> N
 
     rc = uc.cmd_canary(
         argparse.Namespace(
-            agent_id="larry",
+            agent_id="example-agent",
             approval_id="apr-1",
             revision_id=None,
             dry_run=True,
@@ -266,7 +266,7 @@ def test_canary_skips_not_queued_without_force(monkeypatch, capsys) -> None:
         tenant_id="tenant-dev",
         machine_key_id="mk_test",
         machine_secret="ms_test",
-        agent_id="larry",
+        agent_id="example-agent",
         api_key=None,
     )
 
@@ -307,7 +307,7 @@ def test_canary_skips_not_queued_without_force(monkeypatch, capsys) -> None:
 
     rc = uc.cmd_canary(
         argparse.Namespace(
-            agent_id="larry",
+            agent_id="example-agent",
             approval_id="apr-1",
             revision_id=None,
             dry_run=True,
@@ -332,7 +332,7 @@ def test_canary_force_dry_run_rebuilds_up_to_date_card(monkeypatch, capsys) -> N
         tenant_id="tenant-dev",
         machine_key_id="mk_test",
         machine_secret="ms_test",
-        agent_id="larry",
+        agent_id="example-agent",
         api_key=None,
     )
 
@@ -383,7 +383,7 @@ def test_canary_force_dry_run_rebuilds_up_to_date_card(monkeypatch, capsys) -> N
 
     rc = uc.cmd_canary(
         argparse.Namespace(
-            agent_id="larry",
+            agent_id="example-agent",
             approval_id="apr-1",
             revision_id=None,
             dry_run=True,
@@ -405,11 +405,11 @@ def test_load_agent_env_reads_openclaw_state_dir(monkeypatch, tmp_path) -> None:
     state_dir = tmp_path / "openclaw-state"
     state_dir.mkdir(parents=True, exist_ok=True)
     (state_dir / ".env").write_text(
-        "OPENCLAW_API_URL=https://api.unclawg.com\n"
+        "OPENCLAW_API_URL=https://api.example.com\n"
         "OPENCLAW_TENANT_ID=tenant-dev\n"
         "OPENCLAW_MACHINE_KEY_ID=mk_test\n"
         "OPENCLAW_MACHINE_SECRET=ms_test\n"
-        "OPENCLAW_AGENT_ID=larry\n",
+        "OPENCLAW_AGENT_ID=example-agent\n",
         encoding="utf-8",
     )
 
@@ -422,18 +422,18 @@ def test_load_agent_env_reads_openclaw_state_dir(monkeypatch, tmp_path) -> None:
 
     uc._load_agent_env(None)
 
-    assert os.environ["OPENCLAW_API_URL"] == "https://api.unclawg.com"
+    assert os.environ["OPENCLAW_API_URL"] == "https://api.example.com"
     assert os.environ["OPENCLAW_TENANT_ID"] == "tenant-dev"
     assert os.environ["OPENCLAW_MACHINE_KEY_ID"] == "mk_test"
     assert os.environ["OPENCLAW_MACHINE_SECRET"] == "ms_test"
-    assert os.environ["OPENCLAW_AGENT_ID"] == "larry"
+    assert os.environ["OPENCLAW_AGENT_ID"] == "example-agent"
 
 
 def test_load_agent_env_overwrites_inherited_vars_from_explicit_runtime_env(monkeypatch, tmp_path) -> None:
     uc = _load_uc_respond()
     runtime_env = tmp_path / "agent.env"
     runtime_env.write_text(
-        "OPENCLAW_API_URL=https://api.unclawg.com\n"
+        "OPENCLAW_API_URL=https://api.example.com\n"
         "OPENCLAW_TENANT_ID=tenant-correct\n"
         "OPENCLAW_MACHINE_KEY_ID=mk_correct\n"
         "OPENCLAW_MACHINE_SECRET=ms_correct\n"
@@ -450,7 +450,7 @@ def test_load_agent_env_overwrites_inherited_vars_from_explicit_runtime_env(monk
 
     uc._load_agent_env("agent-one")
 
-    assert os.environ["OPENCLAW_API_URL"] == "https://api.unclawg.com"
+    assert os.environ["OPENCLAW_API_URL"] == "https://api.example.com"
     assert os.environ["OPENCLAW_TENANT_ID"] == "tenant-correct"
     assert os.environ["OPENCLAW_MACHINE_KEY_ID"] == "mk_correct"
     assert os.environ["OPENCLAW_MACHINE_SECRET"] == "ms_correct"
@@ -462,7 +462,7 @@ def test_load_agent_env_reads_single_agent_env_from_state_dir(monkeypatch, tmp_p
     state_dir = tmp_path / "openclaw-state"
     state_dir.mkdir(parents=True, exist_ok=True)
     (state_dir / "agent-one.env").write_text(
-        "OPENCLAW_API_URL=https://api.unclawg.com\n"
+        "OPENCLAW_API_URL=https://api.example.com\n"
         "OPENCLAW_TENANT_ID=tenant-dev\n"
         "OPENCLAW_MACHINE_KEY_ID=mk_test\n"
         "OPENCLAW_MACHINE_SECRET=ms_test\n"
@@ -479,7 +479,7 @@ def test_load_agent_env_reads_single_agent_env_from_state_dir(monkeypatch, tmp_p
 
     uc._load_agent_env(None)
 
-    assert os.environ["OPENCLAW_API_URL"] == "https://api.unclawg.com"
+    assert os.environ["OPENCLAW_API_URL"] == "https://api.example.com"
     assert os.environ["OPENCLAW_TENANT_ID"] == "tenant-dev"
     assert os.environ["OPENCLAW_MACHINE_KEY_ID"] == "mk_test"
     assert os.environ["OPENCLAW_MACHINE_SECRET"] == "ms_test"
@@ -1432,7 +1432,7 @@ def test_reconcile_deny_path_uses_message_fulfill_and_not_decisions(monkeypatch)
         tenant_id="tenant-dev",
         machine_key_id="mk_test",
         machine_secret="ms_test",
-        agent_id="larry",
+        agent_id="example-agent",
         api_key=None,
     )
     requests: list[tuple[str, str]] = []
@@ -1473,7 +1473,7 @@ def test_reconcile_deny_path_uses_message_fulfill_and_not_decisions(monkeypatch)
 
     monkeypatch.setattr(uc, "_request_json", _request_json)
 
-    rc = uc.cmd_reconcile(argparse.Namespace(agent_id="larry", dry_run=False))
+    rc = uc.cmd_reconcile(argparse.Namespace(agent_id="example-agent", dry_run=False))
 
     assert rc == 0
     assert any(path.endswith("/messages/fulfill") for _, path in requests)

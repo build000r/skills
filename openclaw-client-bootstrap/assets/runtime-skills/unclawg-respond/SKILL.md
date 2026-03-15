@@ -1,7 +1,7 @@
 ---
 name: unclawg-respond
 description: >
-  Runtime-safe revision handling for Larry. Uses only uc_respond wrapper commands
+  Runtime-safe revision handling for a configured agent. Uses only uc_respond wrapper commands
   to list pending revisions and fulfill approved edits.
 metadata: { "openclaw": { "emoji": "🔁", "requires": { "bins": ["uc_respond"] } } }
 ---
@@ -25,8 +25,8 @@ Process pending revision requests and send fulfill messages.
 ```bash
 uc_respond smoke
 uc_respond list --status pending
-uc_respond reconcile --agent-id "${OPENCLAW_AGENT_ID:-larry}" --dry-run
-uc_respond reconcile --agent-id "${OPENCLAW_AGENT_ID:-larry}"
+uc_respond reconcile --agent-id "${OPENCLAW_AGENT_ID:-example-agent}" --dry-run
+uc_respond reconcile --agent-id "${OPENCLAW_AGENT_ID:-example-agent}"
 ```
 
 ## Manual Override (Operator Shell Only)

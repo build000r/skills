@@ -60,7 +60,7 @@ Existing DigitalOcean droplet
 
 **Prerequisites on existing droplet:** Docker already running (it is if existing claw uses sandbox mode). No new Tailscale install needed. No new bootstrap-do.sh.
 
-**Important: co-located claws share the same Linux user (`openclaw`).** The `APP_HOME` (e.g. `/home/openclaw-ingredient`) is a directory path created by the install script — it is NOT a new Linux user account. Both gateway processes run under the `openclaw` user, differentiated by `OPENCLAW_STATE_DIR` and `OPENCLAW_CONFIG_PATH` env vars set in their respective systemd units.
+**Important: co-located claws share the same Linux user (`openclaw`).** The `APP_HOME` (e.g. `/home/example-claw`) is a directory path created by the install script — it is NOT a new Linux user account. Both gateway processes run under the `openclaw` user, differentiated by `OPENCLAW_STATE_DIR` and `OPENCLAW_CONFIG_PATH` env vars set in their respective systemd units.
 
 **Deploy steps (Option B only):**
 1. Build kit locally as normal (new_client_kit.sh)
@@ -268,8 +268,8 @@ Create one wrapper command per integration under `${OPENCLAW_HOME}/bin`.
 If skill examples use pipelines, each segment must be allowed.
 
 ```bash
-# Example: ingredient skill read path
-openclaw approvals allowlist add --agent "*" "/home/openclaw-ingredient/.openclaw/bin/ccurl"
+# Example: shared read-wrapper path
+openclaw approvals allowlist add --agent "*" "/home/example-claw/.openclaw/bin/ccurl"
 openclaw approvals allowlist add --agent "*" "/usr/bin/jq"
 ```
 
@@ -300,7 +300,7 @@ Use fixed IDs/handles in `approvals.exec.targets[*].to`.
 
 ### Concrete examples
 
-1. Ingredient data combo:
+1. Example data combo:
    - Wrapper: `ccurl`
    - Skill examples: `ccurl ... | jq ...`
    - Allowlist: `ccurl` + `jq`

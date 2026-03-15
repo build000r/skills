@@ -1,7 +1,7 @@
 ---
 name: unclawg-discover
 description: >
-  Runtime-safe multi-platform discovery for Larry. Uses only uc_discover wrapper
+  Runtime-safe multi-platform discovery for a configured agent. Uses only uc_discover wrapper
   commands for Reddit, Hacker News, Twitter/X (Apify), and LinkedIn (Apify).
 metadata: { "openclaw": { "emoji": "🔎", "requires": { "bins": ["uc_discover"] } } }
 ---

@@ -28,7 +28,6 @@ local checkout.
 
 At the repo level:
 
-- `_shared/` contains shared snippets reused by multiple skills
 - `scripts/` contains repo-wide helper scripts
 - `dist/` contains packaged `.skill` build artifacts
 
@@ -49,7 +48,14 @@ At the repo level:
 | [domain-scaffolder-frontend](./domain-scaffolder-frontend/) | Frontend scaffolding from an approved plan plus project UI patterns |
 | [prompt-reviewer](./prompt-reviewer/) | Score prompting quality from Claude/Codex session history |
 | [reproduce](./reproduce/) | Command-first verification and QA ladder before handing testing back |
+| [crap](./crap/) | Rank Rust, Python, and TypeScript hotspots with CRAP-style scoring and `/describe` follow-ons |
 | [skill-issue](./skill-issue/) | Create, iterate, validate, and package skills themselves |
+
+### Deal And Legal Workflow
+
+| Skill | What it is for |
+|------|-----------------|
+| [dealmaker](./dealmaker/) | Map party interests to fair agreement packages, then draft service terms and AI/GitHub collaboration clauses |
 
 ### Tooling, Media, And Creative Systems
 
@@ -97,6 +103,7 @@ npx skills add build000r/skills --all
 
 ```bash
 for skill in \
+  crap \
   ask-cascade \
   commit \
   describe \
@@ -107,6 +114,16 @@ for skill in \
   domain-scaffolder-frontend \
   reproduce \
   skill-issue
+do
+  npx skills add build000r/skills -s "$skill"
+done
+```
+
+### Deal / Legal
+
+```bash
+for skill in \
+  dealmaker
 do
   npx skills add build000r/skills -s "$skill"
 done
@@ -213,7 +230,8 @@ openclaw-client-bootstrap/
 ├── references/
 └── assets/
     ├── client-kit/
-    └── instances/0_claw/custom-skills/
+    ├── runtime-skills/
+    └── instances/        # local/private, gitignored except README
 ```
 
 The top-level skill handles authoring, review, deployment, and sync. The

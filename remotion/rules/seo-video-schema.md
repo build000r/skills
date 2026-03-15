@@ -23,7 +23,7 @@ The schema is metadata *about* the video, not the video itself. The video stays 
 
 | Field | Description | Example |
 |-------|-------------|---------|
-| `name` | Video title | "How HTMA Testing Works" |
+| `name` | Video title | "How Video Testing Works" |
 | `description` | What the video shows | "See how our program..." |
 | `thumbnailUrl` | Preview image URL | Must be actual image, not video frame |
 | `uploadDate` | ISO 8601 date | "2025-01-15" |

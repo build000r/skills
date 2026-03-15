@@ -76,7 +76,7 @@ twitter_replyguy:
     notes: "Latest from specific high-value accounts"
 ```
 
-### Example: @buildooor Persona Query Mapping
+### Example: Persona Query Mapping
 
 ```yaml
 P1_ai_builder:

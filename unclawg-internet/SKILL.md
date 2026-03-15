@@ -217,7 +217,7 @@ Continue?
 ### Step 4 — Start CLI Device Flow (via Unclawg auth facade)
 
 ```bash
-# client_id must be app slug, e.g. "unclawg" or "buildooor" (not application UUID)
+# client_id must be app slug, e.g. "unclawg" or "your-app-slug" (not application UUID)
 OPENCLAW_CLIENT_ID="${OPENCLAW_CLIENT_ID:-unclawg}"
 
 DEVICE_START_RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST \

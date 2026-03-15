@@ -1,7 +1,7 @@
 ---
 name: unclawg-feed
 description: >
-  Runtime-safe feed workflow for Larry. Uses only uc_feed wrapper commands to
+  Runtime-safe feed workflow for a configured agent. Uses only uc_feed wrapper commands to
   smoke test auth, read soul policy, and submit social-reply approval requests.
 metadata: { "openclaw": { "emoji": "📬", "requires": { "bins": ["uc_feed"] } } }
 ---
@@ -21,7 +21,7 @@ Convert candidate posts into approval requests through OpenClaw APIs.
 ```bash
 uc_feed smoke
 uc_feed soul --agent-id "${OPENCLAW_AGENT_ID}"
-uc_feed submit --input-json '{"agent_id":"larry","action":"social_reply_approval",...}'
+uc_feed submit --input-json '{"agent_id":"example-agent","action":"social_reply_approval",...}'
 ```
 
 ## Input Contract

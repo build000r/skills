@@ -25,7 +25,7 @@ browser DevTools.
 6. Open DevTools only if non-browser paths cannot observe the behavior.
 7. If DevTools is used, include the DevTools Justification block.
 8. Finalize with regression protection: add or update tests so the issue is prevented from silently returning.
-9. For local-environment bugs, codify seed/restart/env-sync steps in `.env-manager` automation so future runs are one command.
+9. For local-environment bugs, codify seed/restart/env-sync steps in the repo's standard env/bootstrap automation so future runs are one command.
 
 ## Workflow
 
@@ -63,29 +63,32 @@ Before escalating, list and try multiple ideas from different surfaces:
 
 ### 3) Use ecosystem checks when available
 
-If a repo-adjacent `.env-manager` exists, run:
+If the repo has a standard local env/bootstrap entrypoint, use that before asking
+the user to click around manually. Good candidates include `make` targets,
+`just` recipes, or repo-local scripts such as `scripts/dev-status.sh`.
+
+If this repo keeps that automation in a sibling workspace, set `LOCAL_ENV_ROOT`
+to that path first.
+
+If `$dev-sanity` is installed, run:
 
 ```bash
-if [ -d ./.env-manager ]; then
-  ENVM="$(cd ./.env-manager && pwd)"
-elif [ -d ../.env-manager ]; then
-  ENVM="$(cd ../.env-manager && pwd)"
-fi
-REPOS_ROOT="${REPOS_ROOT:-$(cd "$ENVM/.." && pwd)}"
-SANITY="$(ls ~/.codex/skills/dev-sanity/scripts/sanity_check.sh ~/.claude/skills/dev-sanity/scripts/sanity_check.sh "$REPOS_ROOT/opensource/skills/dev-sanity/scripts/sanity_check.sh" 2>/dev/null | head -1)"
-bash "$SANITY" --errors-only
+SANITY="$(ls ~/.codex/skills/dev-sanity/scripts/sanity_check.sh ~/.claude/skills/dev-sanity/scripts/sanity_check.sh 2>/dev/null | head -1)"
+[ -n "$SANITY" ] && bash "$SANITY" --errors-only
 ```
 
 For Google/email workflows, prefer `gog` plus service logs instead of manual inbox/browser checks.
 
-For local bug closeout, also run:
+For local bug closeout, also run the repo's own status/health/wiring entrypoints
+plus, when available:
 
 ```bash
-bash "$SANITY" --health-only
-bash "$SANITY" --wiring-only
+[ -n "$SANITY" ] && bash "$SANITY" --health-only
+[ -n "$SANITY" ] && bash "$SANITY" --wiring-only
 ```
 
-Reference `$dev-sanity` whenever the issue is local runtime/configuration behavior.
+Reference `$dev-sanity` whenever the issue is local runtime/configuration behavior
+and that skill is available.
 
 ### 4) Fill gaps instead of punting
 
@@ -157,18 +160,21 @@ If no test can be added, explicitly state why and provide the closest durable al
 
 ### 8) Local automation lock-in (required for local env bugs)
 
-If resolution required manual seeding, startup ordering, env sync, or restarts, update `.env-manager` so the same class of bug is faster to catch and recover.
+If resolution required manual seeding, startup ordering, env sync, or restarts,
+update the repo's local env/bootstrap automation so the same class of bug is
+faster to catch and recover.
 
 Required sequence:
-1. Promote manual local commands into `.env-manager` automation (typically `Makefile` targets and scripts it calls).
+1. Promote manual local commands into the standard automation entrypoint (typically `Makefile`, `Justfile`, or scripts it calls).
 2. Ensure seeding and restart flows are idempotent or clearly split into explicit safe targets.
 3. Validate from automation entrypoint (not ad-hoc one-off commands).
 4. Re-run `$dev-sanity` checks to verify the loop is healthy.
 
-Preferred path when this repo sits beside a local env manager:
-1. Update `"$ENVM"/Makefile` (or referenced scripts) when local seed/restart behavior should be standardized.
-2. Start/restart using the env manager's targets.
-3. Run `bash "$SANITY" --errors-only`, `--health-only`, and `--wiring-only`.
+Preferred path when a separate env workspace exists:
+1. Export `LOCAL_ENV_ROOT=/abs/path/to/that/workspace`.
+2. Update that workspace's `Makefile`, `Justfile`, or bootstrap scripts when local seed/restart behavior should be standardized.
+3. Start/restart using those entrypoints.
+4. If `$dev-sanity` is installed, run `bash "$SANITY" --errors-only`, `--health-only`, and `--wiring-only`.
 
 Do not leave critical local recovery steps as undocumented manual commands in chat output.
 
@@ -188,7 +194,7 @@ Verification Summary
 - Alternatives attempted: <3+ non-DevTools ideas tried or ruled out>
 - Access requested (if any): <what was requested and why>
 - Regression protection: <failing test added/updated, file path, and pass result; or why not feasible>
-- Local automation updates: <.env-manager Makefile/script changes for seed/restart/env sync; or not applicable>
+- Local automation updates: <Makefile/Justfile/script changes for seed/restart/env sync; or not applicable>
 - Dev sanity closeout: <errors/health/wiring results; or not applicable>
 - Decision: PASS | FAIL | PARTIAL
 - Next command (if needed): `<command>`

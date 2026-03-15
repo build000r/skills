@@ -43,6 +43,14 @@ IGNORED_DIRS = {
 }
 
 
+def should_ignore_dir(name: str, *, allow_coverage_dir: bool = False) -> bool:
+    if allow_coverage_dir and name == "coverage":
+        return False
+    if name in IGNORED_DIRS:
+        return True
+    return name.startswith(".venv.")
+
+
 @dataclass
 class CoverageRecord:
     instrumented: set[int] = field(default_factory=set)
@@ -161,6 +169,12 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Only display the top N ranked findings. FINAL_SCORE still uses all findings.",
     )
+    parser.add_argument(
+        "--threshold",
+        type=float,
+        default=None,
+        help="Optional target FINAL_SCORE threshold to echo in the report. The /crap skill defaults to 30 when omitted.",
+    )
     return parser.parse_args()
 
 
@@ -182,7 +196,7 @@ def iter_supported_files(target: Path, languages: Iterable[str]) -> list[Path]:
 
     found: list[Path] = []
     for current_root, dirs, files in os.walk(target):
-        dirs[:] = sorted(d for d in dirs if d not in IGNORED_DIRS)
+        dirs[:] = sorted(d for d in dirs if not should_ignore_dir(d))
         root_path = Path(current_root)
         for name in sorted(files):
             path = root_path / name
@@ -194,7 +208,7 @@ def iter_supported_files(target: Path, languages: Iterable[str]) -> list[Path]:
 def find_coverage_files(repo_root: Path) -> list[Path]:
     matches: list[Path] = []
     for current_root, dirs, files in os.walk(repo_root):
-        dirs[:] = sorted(d for d in dirs if d not in IGNORED_DIRS)
+        dirs[:] = sorted(d for d in dirs if not should_ignore_dir(d, allow_coverage_dir=True))
         root_path = Path(current_root)
         for name in files:
             if name in {"lcov.info", "coverage.xml", "cobertura.xml"}:
@@ -547,7 +561,12 @@ def derive_group(repo_root: Path, path: Path, language: str) -> str:
     return f"{language}-{area.replace('_', '-')}"
 
 
-def render_report(repo_root: Path, findings: list[Finding], top: int | None = None) -> str:
+def render_report(
+    repo_root: Path,
+    findings: list[Finding],
+    top: int | None = None,
+    threshold: float | None = None,
+) -> str:
     displayed_findings = findings if top is None else findings[:top]
     if top is not None and top < len(findings):
         lines = [f"CRAP Report (top {len(displayed_findings)} of {len(findings)} findings)"]
@@ -563,6 +582,9 @@ def render_report(repo_root: Path, findings: list[Finding], top: int | None = No
 
     numeric_scores = [finding.crap for finding in findings if finding.crap is not None]
     final_score = max(numeric_scores) if numeric_scores else 0.0
+    if threshold is not None:
+        status = "met" if final_score < threshold else "not met"
+        lines.append(f"Threshold target: < {threshold:.2f} ({status})")
     lines.append(f"FINAL_SCORE: {final_score:.2f}")
 
     numeric_findings = [finding for finding in displayed_findings if finding.crap is not None]
@@ -609,6 +631,10 @@ def main() -> int:
         print(f"Target not found: {target}", file=sys.stderr)
         return 1
 
+    if args.threshold is not None and args.threshold <= 0:
+        print(f"Threshold must be positive: {args.threshold}", file=sys.stderr)
+        return 2
+
     languages, unsupported = requested_languages(args.languages)
     if unsupported:
         unsupported_list = ", ".join(sorted(unsupported))
@@ -651,7 +677,7 @@ def main() -> int:
         return 0
 
     findings.sort(key=sort_key)
-    print(render_report(repo_root, findings, top=args.top))
+    print(render_report(repo_root, findings, top=args.top, threshold=args.threshold))
     return 0
 
 

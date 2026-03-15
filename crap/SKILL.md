@@ -7,9 +7,10 @@ description: >
   ask-cascade gate. Also bootstrap machine-readable coverage Makefile targets
   when a repo lacks them, and optionally run a one-shot remediation loop with
   divide-and-conquer, commits, and reruns until the scoped score is below a
-  threshold. Use when: "/crap", "CRAP score", "risk score",
-  "complexity and coverage", "hotspots by coverage", "why is this N/A",
-  "take it under 30", "fix the hotspots", or "what should we /describe next".
+  threshold. Optional threshold input defaults to 30. Use when: "/crap",
+  "CRAP score", "risk score", "complexity and coverage",
+  "hotspots by coverage", "why is this N/A", "take it under 30",
+  "fix the hotspots", or "what should we /describe next".
 license: MIT
 ---
 
@@ -34,6 +35,8 @@ execution, for example:
 
 - `do it`
 - `take it under 30`
+- `/crap 25`
+- `/crap --threshold 25`
 - `fix the hotspots`
 - `keep going`
 
@@ -62,7 +65,27 @@ python3 scripts/analyze_crap.py
 python3 scripts/analyze_crap.py /path/to/repo
 python3 scripts/analyze_crap.py /path/to/repo --languages rust,python
 python3 scripts/analyze_crap.py /path/to/repo --languages python --top 20
+python3 scripts/analyze_crap.py /path/to/repo --languages python --threshold 25 --top 20
 ```
+
+## Threshold Resolution
+
+Treat the target threshold as explicit input when the user provides one.
+
+Resolve it in this order:
+
+1. `--threshold N` in the skill request or analyzer invocation
+2. A bare numeric argument after `/crap`, for example `/crap 25`
+3. Natural-language phrasing such as `take it under 25` or `get this below 20`
+4. Default target: `FINAL_SCORE < 30`
+
+Guardrails:
+
+- Thresholds must be positive numbers.
+- Keep the threshold scoped. A package-scoped run against `25` is not a
+  repo-wide `25` claim.
+- In one-shot remediation mode, restate the resolved threshold before starting
+  the loop.
 
 ## Analyzer Behavior
 
@@ -198,8 +221,8 @@ loop directly.
 
 Requirements:
 
-1. Set a threshold first. Default to `FINAL_SCORE < 30` unless the user gives a
-   different number.
+1. Set a threshold first using the resolution order above. Default to
+   `FINAL_SCORE < 30`.
 2. Establish a trustworthy baseline before choosing slices.
 3. Use `divide-and-conquer` when hotspot groups are independent and the runtime
    supports it. Otherwise use the same concern split in a single-agent loop.
@@ -236,5 +259,7 @@ Requirements:
   with a handwritten alternative.
 - If you add a human summary, place it after the raw analyzer output and keep
   scope labels exact.
+- If a threshold was explicitly provided or the user is in one-shot mode, state
+  the resolved target alongside the score comparison.
 - In one-shot remediation mode, keep inner-loop analyzer reruns concise with
   `--top`, but always report the true current `FINAL_SCORE`.

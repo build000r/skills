@@ -5,6 +5,9 @@ Use this mode when the user explicitly wants execution, not just analysis.
 Examples:
 
 - `take it under 30`
+- `take it under 25`
+- `/crap 25`
+- `/crap --threshold 25`
 - `fix the hotspots`
 - `do it`
 - `one-shot crap`
@@ -25,6 +28,8 @@ Run a bounded improvement loop:
 ## Default Threshold
 
 - Default target: `FINAL_SCORE < 30`
+- Optional explicit input: `/crap 25`, `/crap --threshold 25`, or natural
+  language like `get this under 25`
 - If the user gives a different threshold, use that instead.
 - Keep the threshold scoped. Do not compare a package-scoped score to a
   repo-wide threshold without saying so.
@@ -79,6 +84,7 @@ Record:
 
 - previous `FINAL_SCORE`
 - new `FINAL_SCORE`
+- active threshold
 - moved hotspots
 - whether unrelated failing suites still exist
 
@@ -114,6 +120,7 @@ Stop when any of these becomes true:
 For each loop close-out, report:
 
 - scope label
+- threshold
 - baseline score
 - current score
 - top moved hotspots

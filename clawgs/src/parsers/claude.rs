@@ -17,81 +17,15 @@ pub(crate) fn parse(path: &Path, options: &ExtractOptions) -> Result<ParseSnapsh
     let mut token_count = 0u64;
 
     for entry in &parsed.entries {
-        let entry_type = entry
-            .get("type")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        let message = entry.get("message");
         let ts = extract_timestamp(entry);
-
-        if entry_type == "user" {
-            if let Some(text) = extract_user_text(message) {
-                user_task = Some(truncate(&text, options.max_task_chars));
-            }
-            continue;
-        }
-
-        if entry_type != "assistant" {
-            continue;
-        }
-
-        let Some(message) = message else {
-            continue;
-        };
-
-        if message.get("role").and_then(Value::as_str) != Some("assistant") {
-            continue;
-        }
-
-        if let Some(input_tokens) = message
-            .get("usage")
-            .and_then(|usage| usage.get("input_tokens"))
-            .and_then(Value::as_u64)
-        {
-            token_count = input_tokens;
-        }
-
-        if let Some(blocks) = message.get("content").and_then(Value::as_array) {
-            for block in blocks {
-                let block_type = block
-                    .get("type")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default();
-
-                if block_type == "tool_use" {
-                    let action = Action {
-                        tool: block
-                            .get("name")
-                            .and_then(Value::as_str)
-                            .unwrap_or("unknown")
-                            .to_string(),
-                        detail: block
-                            .get("input")
-                            .and_then(|input| extract_tool_detail(input, options)),
-                        kind: "tool_use".to_string(),
-                        ts: ts.clone(),
-                    };
-                    push_action(&mut recent_actions, action.clone(), options.max_actions);
-                    current_tool = Some(action);
-                    continue;
-                }
-
-                if block_type == "text" {
-                    if let Some(text) = block.get("text").and_then(Value::as_str) {
-                        let trimmed = text.trim();
-                        if trimmed.len() > 5 {
-                            let action = Action {
-                                tool: "said".to_string(),
-                                detail: Some(truncate(trimmed, options.max_detail_chars)),
-                                kind: "text".to_string(),
-                                ts: ts.clone(),
-                            };
-                            push_action(&mut recent_actions, action, options.max_actions);
-                        }
-                    }
-                }
-            }
-        }
+        update_user_task(entry, options, &mut user_task);
+        update_token_count(entry, &mut token_count);
+        record_actions(
+            &mut recent_actions,
+            &mut current_tool,
+            assistant_actions(entry, options, &ts),
+            options.max_actions,
+        );
     }
 
     Ok(ParseSnapshot {
@@ -106,34 +40,139 @@ pub(crate) fn parse(path: &Path, options: &ExtractOptions) -> Result<ParseSnapsh
     })
 }
 
+fn entry_type(entry: &Value) -> &str {
+    entry
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+}
+
+fn message<'a>(entry: &'a Value) -> Option<&'a Value> {
+    entry.get("message")
+}
+
+fn update_user_task(entry: &Value, options: &ExtractOptions, user_task: &mut Option<String>) {
+    (entry_type(entry) == "user")
+        .then_some(message(entry))
+        .flatten()
+        .and_then(|message| extract_user_text(Some(message)))
+        .map(|text| truncate(&text, options.max_task_chars))
+        .map(|text| *user_task = Some(text));
+}
+
+fn update_token_count(entry: &Value, token_count: &mut u64) {
+    assistant_message(entry)
+        .and_then(|message| message.get("usage"))
+        .and_then(|usage| usage.get("input_tokens"))
+        .and_then(Value::as_u64)
+        .map(|value| *token_count = value);
+}
+
+fn assistant_actions(entry: &Value, options: &ExtractOptions, ts: &Option<String>) -> Vec<Action> {
+    assistant_message(entry)
+        .and_then(|message| message.get("content").and_then(Value::as_array))
+        .map(|blocks| {
+            blocks
+                .iter()
+                .filter_map(|block| block_action(block, options, ts))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn assistant_message(entry: &Value) -> Option<&Value> {
+    (entry_type(entry) == "assistant")
+        .then_some(message(entry))
+        .flatten()
+        .filter(|message| message.get("role").and_then(Value::as_str) == Some("assistant"))
+}
+
+fn block_action(block: &Value, options: &ExtractOptions, ts: &Option<String>) -> Option<Action> {
+    match block
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+    {
+        "tool_use" => Some(tool_use_action(block, options, ts)),
+        "text" => text_action(block, options, ts),
+        _ => None,
+    }
+}
+
+fn tool_use_action(block: &Value, options: &ExtractOptions, ts: &Option<String>) -> Action {
+    Action {
+        tool: block
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown")
+            .to_string(),
+        detail: block
+            .get("input")
+            .and_then(|input| extract_tool_detail(input, options)),
+        kind: "tool_use".to_string(),
+        ts: ts.clone(),
+    }
+}
+
+fn text_action(block: &Value, options: &ExtractOptions, ts: &Option<String>) -> Option<Action> {
+    block
+        .get("text")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|text| text.len() > 5)
+        .map(|text| Action {
+            tool: "said".to_string(),
+            detail: Some(truncate(text, options.max_detail_chars)),
+            kind: "text".to_string(),
+            ts: ts.clone(),
+        })
+}
+
+fn record_actions(
+    recent_actions: &mut Vec<Action>,
+    current_tool: &mut Option<Action>,
+    actions: Vec<Action>,
+    max_actions: usize,
+) {
+    for action in actions {
+        let is_tool_use = action.kind == "tool_use";
+        push_action(recent_actions, action.clone(), max_actions);
+        if is_tool_use {
+            *current_tool = Some(action);
+        }
+    }
+}
+
 fn extract_user_text(message: Option<&Value>) -> Option<String> {
-    let message = message?;
-    if message.get("role").and_then(Value::as_str) != Some("user") {
-        return None;
-    }
+    let content = user_message(message)?.get("content")?;
+    content_text(content).or_else(|| content_block_text(content))
+}
 
-    let content = message.get("content")?;
-    if let Some(text) = content.as_str() {
-        let trimmed = text.trim();
-        if !trimmed.is_empty() {
-            return Some(trimmed.to_string());
-        }
-    }
+fn user_message(message: Option<&Value>) -> Option<&Value> {
+    message.filter(|message| message.get("role").and_then(Value::as_str) == Some("user"))
+}
 
-    if let Some(blocks) = content.as_array() {
-        for block in blocks {
-            if block.get("type").and_then(Value::as_str) == Some("text") {
-                if let Some(text) = block.get("text").and_then(Value::as_str) {
-                    let trimmed = text.trim();
-                    if !trimmed.is_empty() {
-                        return Some(trimmed.to_string());
-                    }
-                }
-            }
-        }
-    }
+fn content_text(content: &Value) -> Option<String> {
+    content
+        .as_str()
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(ToString::to_string)
+}
 
-    None
+fn content_block_text(content: &Value) -> Option<String> {
+    content.as_array()?.iter().find_map(text_block_content)
+}
+
+fn text_block_content(block: &Value) -> Option<String> {
+    block
+        .get("type")
+        .and_then(Value::as_str)
+        .filter(|block_type| *block_type == "text")
+        .and_then(|_| block.get("text").and_then(Value::as_str))
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(ToString::to_string)
 }
 
 #[cfg(test)]
@@ -166,5 +205,39 @@ mod tests {
             snapshot.current_tool.as_ref().map(|a| a.tool.as_str()),
             Some("read_file")
         );
+    }
+
+    #[test]
+    fn extract_user_text_supports_string_and_blocks() {
+        let string_message = serde_json::json!({
+            "role": "user",
+            "content": "  summarize logs  "
+        });
+        let block_message = serde_json::json!({
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "  inspect parser  "}
+            ]
+        });
+
+        assert_eq!(
+            extract_user_text(Some(&string_message)).as_deref(),
+            Some("summarize logs")
+        );
+        assert_eq!(
+            extract_user_text(Some(&block_message)).as_deref(),
+            Some("inspect parser")
+        );
+    }
+
+    #[test]
+    fn extract_user_text_rejects_non_user_messages() {
+        let assistant_message = serde_json::json!({
+            "role": "assistant",
+            "content": "ignored"
+        });
+
+        assert_eq!(extract_user_text(Some(&assistant_message)), None);
+        assert_eq!(extract_user_text(None), None);
     }
 }

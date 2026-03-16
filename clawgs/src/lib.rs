@@ -186,32 +186,9 @@ pub fn infer_tool_from_file(path: &Path) -> Result<AgentTool> {
 
     for line in reader.lines().take(40) {
         let line = line?;
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-
-        let value: Value = match serde_json::from_str(trimmed) {
-            Ok(v) => v,
-            Err(_) => continue,
-        };
-
-        let entry_type = value.get("type").and_then(Value::as_str).unwrap_or("");
-
-        if entry_type == "session_meta"
-            || entry_type == "response"
-            || entry_type == "response_item"
-            || entry_type == "event_msg"
+        if let Some(tool) = parsed_line_value(&line).and_then(|value| infer_tool_from_entry(&value))
         {
-            return Ok(AgentTool::Codex);
-        }
-
-        if entry_type == "assistant" || entry_type == "user" || value.get("message").is_some() {
-            return Ok(AgentTool::Claude);
-        }
-
-        if value.get("payload").is_some() {
-            return Ok(AgentTool::Codex);
+            return Ok(tool);
         }
     }
 
@@ -222,57 +199,22 @@ pub fn infer_tool_from_file(path: &Path) -> Result<AgentTool> {
 }
 
 pub fn discover_for_tool(cwd: &Path, tool: AgentTool) -> Result<ResolvedInput> {
-    let path = match tool {
-        AgentTool::Claude => discover_claude_path(cwd),
-        AgentTool::Codex => discover_codex_path(cwd),
-    }
-    .ok_or_else(|| {
-        anyhow!(
-            "no {} transcript JSONL found for cwd {}",
-            tool.as_str(),
-            cwd.display()
-        )
-    })?;
-
-    Ok(ResolvedInput {
-        tool,
-        path,
-        discovered: true,
-    })
+    discovered_path_for_tool(cwd, tool)
+        .map(|path| discovered_input(tool, path))
+        .ok_or_else(|| {
+            anyhow!(
+                "no {} transcript JSONL found for cwd {}",
+                tool.as_str(),
+                cwd.display()
+            )
+        })
 }
 
 pub fn discover_auto(cwd: &Path) -> Result<ResolvedInput> {
-    let claude_path = discover_claude_path(cwd);
-    let codex_path = discover_codex_path(cwd);
-
-    match (claude_path, codex_path) {
-        (Some(path), None) => Ok(ResolvedInput {
-            tool: AgentTool::Claude,
-            path,
-            discovered: true,
-        }),
-        (None, Some(path)) => Ok(ResolvedInput {
-            tool: AgentTool::Codex,
-            path,
-            discovered: true,
-        }),
-        (Some(claude), Some(codex)) => {
-            let claude_time = modified_or_epoch(&claude);
-            let codex_time = modified_or_epoch(&codex);
-            if codex_time > claude_time {
-                Ok(ResolvedInput {
-                    tool: AgentTool::Codex,
-                    path: codex,
-                    discovered: true,
-                })
-            } else {
-                Ok(ResolvedInput {
-                    tool: AgentTool::Claude,
-                    path: claude,
-                    discovered: true,
-                })
-            }
-        }
+    match (discover_claude_path(cwd), discover_codex_path(cwd)) {
+        (Some(path), None) => Ok(discovered_input(AgentTool::Claude, path)),
+        (None, Some(path)) => Ok(discovered_input(AgentTool::Codex, path)),
+        (Some(claude), Some(codex)) => Ok(newer_discovered_input(claude, codex)),
         (None, None) => Err(anyhow!(
             "no Claude or Codex transcript JSONL found for cwd {}",
             cwd.display()
@@ -318,39 +260,10 @@ pub fn discover_codex_paths(cwd: &Path) -> Vec<PathBuf> {
         return Vec::new();
     };
     let sessions_dir = home.join(".codex").join("sessions");
-    let mut matches = Vec::new();
-
-    for year in sorted_numeric_subdirs_reverse(&sessions_dir, 4) {
-        for month in sorted_numeric_subdirs_reverse(&year, 2) {
-            for day in sorted_numeric_subdirs_reverse(&month, 2) {
-                let mut rollout_files: Vec<PathBuf> = match fs::read_dir(&day) {
-                    Ok(entries) => entries
-                        .filter_map(|entry| entry.ok())
-                        .map(|entry| entry.path())
-                        .filter(|path| {
-                            let name = path
-                                .file_name()
-                                .and_then(|n| n.to_str())
-                                .unwrap_or_default();
-                            name.starts_with("rollout-") && name.ends_with(".jsonl")
-                        })
-                        .collect(),
-                    Err(_) => continue,
-                };
-
-                rollout_files.sort();
-                rollout_files.reverse();
-
-                for file_path in rollout_files {
-                    if codex_file_matches_cwd(&file_path, cwd) {
-                        matches.push(file_path);
-                    }
-                }
-            }
-        }
-    }
-
-    matches
+    sorted_numeric_subdirs_reverse(&sessions_dir, 4)
+        .into_iter()
+        .flat_map(|year| codex_paths_in_year(&year, cwd))
+        .collect()
 }
 
 pub fn discover_claude_path_excluding(cwd: &Path, excluded: &HashSet<PathBuf>) -> Option<PathBuf> {
@@ -360,39 +273,10 @@ pub fn discover_claude_path_excluding(cwd: &Path, excluded: &HashSet<PathBuf>) -
 }
 
 fn claude_file_matches_cwd(path: &Path, cwd: &Path) -> bool {
-    let cwd_str = cwd.display().to_string();
-    let file = match fs::File::open(path) {
-        Ok(file) => file,
-        Err(_) => return false,
-    };
-    let reader = std::io::BufReader::new(file);
-
-    // Claude JSONL can start with non-message records (e.g. file-history
-    // snapshots). Scan a small prefix for any top-level `cwd` fields.
-    let mut saw_cwd_field = false;
-    for line in reader.lines().take(64) {
-        let line = match line {
-            Ok(value) => value,
-            Err(_) => continue,
-        };
-        if line.trim().is_empty() {
-            continue;
-        }
-        let value: Value = match serde_json::from_str(&line) {
-            Ok(value) => value,
-            Err(_) => continue,
-        };
-        if let Some(entry_cwd) = value.get("cwd").and_then(Value::as_str) {
-            saw_cwd_field = true;
-            if entry_cwd == cwd_str {
-                return true;
-            }
-        }
-    }
-
-    // Legacy files may not include top-level `cwd`; preserve historical
-    // behavior in that case.
-    !saw_cwd_field
+    fs::File::open(path)
+        .ok()
+        .map(std::io::BufReader::new)
+        .is_some_and(|reader| reader_matches_or_lacks_cwd(reader, &cwd.display().to_string()))
 }
 
 pub fn discover_codex_path_excluding(cwd: &Path, excluded: &HashSet<PathBuf>) -> Option<PathBuf> {
@@ -468,6 +352,119 @@ fn home_dir() -> Option<PathBuf> {
     std::env::var("HOME").ok().map(PathBuf::from)
 }
 
+fn parsed_line_value(line: &str) -> Option<Value> {
+    let trimmed = line.trim();
+    (!trimmed.is_empty())
+        .then_some(trimmed)
+        .and_then(|trimmed| serde_json::from_str(trimmed).ok())
+}
+
+fn infer_tool_from_entry(value: &Value) -> Option<AgentTool> {
+    let entry_type = value
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    codex_entry_tool(entry_type)
+        .or_else(|| claude_entry_tool(value, entry_type))
+        .or_else(|| value.get("payload").map(|_| AgentTool::Codex))
+}
+
+fn codex_entry_tool(entry_type: &str) -> Option<AgentTool> {
+    matches!(
+        entry_type,
+        "session_meta" | "response" | "response_item" | "event_msg"
+    )
+    .then_some(AgentTool::Codex)
+}
+
+fn claude_entry_tool(value: &Value, entry_type: &str) -> Option<AgentTool> {
+    matches!(entry_type, "assistant" | "user")
+        .then_some(AgentTool::Claude)
+        .or_else(|| value.get("message").map(|_| AgentTool::Claude))
+}
+
+fn discovered_path_for_tool(cwd: &Path, tool: AgentTool) -> Option<PathBuf> {
+    match tool {
+        AgentTool::Claude => discover_claude_path(cwd),
+        AgentTool::Codex => discover_codex_path(cwd),
+    }
+}
+
+fn discovered_input(tool: AgentTool, path: PathBuf) -> ResolvedInput {
+    ResolvedInput {
+        tool,
+        path,
+        discovered: true,
+    }
+}
+
+fn newer_discovered_input(claude: PathBuf, codex: PathBuf) -> ResolvedInput {
+    if modified_or_epoch(&codex) > modified_or_epoch(&claude) {
+        discovered_input(AgentTool::Codex, codex)
+    } else {
+        discovered_input(AgentTool::Claude, claude)
+    }
+}
+
+fn codex_paths_in_year(year: &Path, cwd: &Path) -> Vec<PathBuf> {
+    sorted_numeric_subdirs_reverse(year, 2)
+        .into_iter()
+        .flat_map(|month| codex_paths_in_month(&month, cwd))
+        .collect()
+}
+
+fn codex_paths_in_month(month: &Path, cwd: &Path) -> Vec<PathBuf> {
+    sorted_numeric_subdirs_reverse(month, 2)
+        .into_iter()
+        .flat_map(|day| matching_codex_rollouts(&day, cwd))
+        .collect()
+}
+
+fn matching_codex_rollouts(day: &Path, cwd: &Path) -> Vec<PathBuf> {
+    codex_rollout_files(day)
+        .into_iter()
+        .filter(|path| codex_file_matches_cwd(path, cwd))
+        .collect()
+}
+
+fn codex_rollout_files(day: &Path) -> Vec<PathBuf> {
+    let mut rollout_files: Vec<PathBuf> = match fs::read_dir(day) {
+        Ok(entries) => entries
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.path())
+            .filter(|path| {
+                let name = path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or_default();
+                name.starts_with("rollout-") && name.ends_with(".jsonl")
+            })
+            .collect(),
+        Err(_) => return Vec::new(),
+    };
+
+    rollout_files.sort();
+    rollout_files.reverse();
+    rollout_files
+}
+
+fn reader_matches_or_lacks_cwd<R: BufRead>(reader: R, cwd_str: &str) -> bool {
+    let matches: Vec<bool> = reader
+        .lines()
+        .take(64)
+        .filter_map(|line| line.ok())
+        .filter_map(|line| parsed_line_value(&line))
+        .filter_map(|value| {
+            value
+                .get("cwd")
+                .and_then(Value::as_str)
+                .map(|entry| entry == cwd_str)
+        })
+        .collect();
+
+    matches.is_empty() || matches.into_iter().any(|matched| matched)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -503,6 +500,15 @@ mod tests {
 
         let tool = infer_tool_from_file(file.path()).expect("infer tool");
         assert_eq!(tool, AgentTool::Claude);
+    }
+
+    #[test]
+    fn infer_codex_tool_from_payload_marker() {
+        let file = NamedTempFile::new().expect("temp file");
+        fs::write(file.path(), "{\"payload\":{\"cwd\":\"/tmp/project\"}}\n").expect("write file");
+
+        let tool = infer_tool_from_file(file.path()).expect("infer tool");
+        assert_eq!(tool, AgentTool::Codex);
     }
 
     /// Helper: create a fake Claude project dir under a temp HOME with JSONL files.
@@ -668,5 +674,81 @@ mod tests {
         assert_ne!(first, second, "same-cwd sessions must not claim same file");
         assert_eq!(first, paths[1], "first claim should be newest file");
         assert_eq!(second, paths[0], "second claim should be next newest file");
+    }
+
+    #[test]
+    fn discover_for_tool_finds_codex_rollout() {
+        let _lock = HOME_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let cwd = PathBuf::from("/tmp/codex-project");
+        let codex_day = tmp
+            .path()
+            .join(".codex")
+            .join("sessions")
+            .join("2026")
+            .join("03")
+            .join("16");
+        fs::create_dir_all(&codex_day).expect("mkdir");
+        let rollout = codex_day.join("rollout-a.jsonl");
+        fs::write(
+            &rollout,
+            format!(
+                "{{\"type\":\"session_meta\",\"payload\":{{\"cwd\":\"{}\"}}}}\n",
+                cwd.display()
+            ),
+        )
+        .expect("write");
+        std::env::set_var("HOME", tmp.path());
+
+        let resolved = discover_for_tool(&cwd, AgentTool::Codex).expect("discover codex");
+
+        assert_eq!(resolved.tool, AgentTool::Codex);
+        assert_eq!(resolved.path, rollout);
+        assert!(resolved.discovered);
+    }
+
+    #[test]
+    fn discover_auto_prefers_newer_codex_rollout() {
+        let _lock = HOME_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let cwd = PathBuf::from("/tmp/mixed-project");
+        std::env::set_var("HOME", tmp.path());
+
+        let cwd_slug = cwd.display().to_string().replace('/', "-");
+        let claude_dir = tmp.path().join(".claude").join("projects").join(cwd_slug);
+        fs::create_dir_all(&claude_dir).expect("mkdir");
+        let claude_file = claude_dir.join("session-a.jsonl");
+        fs::write(
+            &claude_file,
+            format!(
+                "{{\"type\":\"assistant\",\"cwd\":\"{}\",\"message\":{{\"role\":\"assistant\"}}}}\n",
+                cwd.display()
+            ),
+        )
+        .expect("write");
+        thread::sleep(Duration::from_millis(50));
+
+        let codex_day = tmp
+            .path()
+            .join(".codex")
+            .join("sessions")
+            .join("2026")
+            .join("03")
+            .join("16");
+        fs::create_dir_all(&codex_day).expect("mkdir");
+        let codex_file = codex_day.join("rollout-z.jsonl");
+        fs::write(
+            &codex_file,
+            format!(
+                "{{\"type\":\"session_meta\",\"payload\":{{\"cwd\":\"{}\"}}}}\n",
+                cwd.display()
+            ),
+        )
+        .expect("write");
+
+        let resolved = discover_auto(&cwd).expect("discover newest");
+
+        assert_eq!(resolved.tool, AgentTool::Codex);
+        assert_eq!(resolved.path, codex_file);
     }
 }

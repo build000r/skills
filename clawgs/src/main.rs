@@ -10,7 +10,7 @@ use serde_json::Value;
 
 use clawgs::emit::engine::{EmitEngine, DEFAULT_AGENT_PREAMBLE, DEFAULT_TERMINAL_PREAMBLE};
 use clawgs::emit::model_client::{thought_models, OpenRouterModelClient};
-use clawgs::emit::protocol::{ErrorMessage, HelloMessage, SyncRequest};
+use clawgs::emit::protocol::{ErrorMessage, HelloMessage, SyncRequest, SyncResultMessage};
 use clawgs::tmux::scan_sessions;
 use clawgs::{extract, resolve_input, ExtractOptions, ToolSelection};
 
@@ -170,10 +170,7 @@ fn run_extract(args: ExtractArgs) -> Result<()> {
 }
 
 fn run_emit(args: EmitArgs) -> Result<()> {
-    if !args.stdio {
-        anyhow::bail!("emit requires --stdio");
-    }
-
+    ensure_emit_stdio(&args)?;
     let model_client = OpenRouterModelClient::new()
         .map_err(|error| anyhow::anyhow!("failed to initialize model client: {error}"))?;
     let mut engine = EmitEngine::new(Box::new(model_client));
@@ -189,67 +186,97 @@ fn run_emit(args: EmitArgs) -> Result<()> {
         if trimmed.is_empty() {
             continue;
         }
-
-        let value: Value = match serde_json::from_str(trimmed) {
-            Ok(value) => value,
-            Err(error) => {
-                write_json_line(
-                    &mut stdout,
-                    &ErrorMessage::new(None, "invalid_json", format!("invalid JSON: {error}")),
-                )?;
-                continue;
-            }
-        };
-
-        let request_id = value
-            .get("id")
-            .and_then(Value::as_str)
-            .map(|value| value.to_string());
-        let msg_type = value
-            .get("type")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-
-        if msg_type != "sync" {
-            write_json_line(
-                &mut stdout,
-                &ErrorMessage::new(
-                    request_id,
-                    "unknown_message_type",
-                    format!("unsupported message type: {msg_type}"),
-                ),
-            )?;
-            continue;
-        }
-
-        let request: SyncRequest = match serde_json::from_value(value) {
-            Ok(request) => request,
-            Err(error) => {
-                write_json_line(
-                    &mut stdout,
-                    &ErrorMessage::new(
-                        request_id,
-                        "invalid_request",
-                        format!("invalid sync request shape: {error}"),
-                    ),
-                )?;
-                continue;
-            }
-        };
-
-        if let Err(error) = request.config.validate() {
-            write_json_line(
-                &mut stdout,
-                &ErrorMessage::new(Some(request.id), "invalid_config", error),
-            )?;
-            continue;
-        }
-
-        let response = engine.sync(&request);
-        write_json_line(&mut stdout, &response)?;
+        handle_emit_line(&mut stdout, &mut engine, trimmed)?;
     }
 
     Ok(())
+}
+
+fn ensure_emit_stdio(args: &EmitArgs) -> Result<()> {
+    if args.stdio {
+        Ok(())
+    } else {
+        anyhow::bail!("emit requires --stdio");
+    }
+}
+
+fn handle_emit_line<W: Write>(
+    stdout: &mut W,
+    engine: &mut EmitEngine,
+    trimmed: &str,
+) -> Result<()> {
+    let response = parsed_emit_message(trimmed)
+        .and_then(|value| sync_response_for_value(engine, value))
+        .map(EmitLineResult::Sync)
+        .unwrap_or_else(EmitLineResult::Error);
+    response.write(stdout)
+}
+
+fn parsed_emit_message(trimmed: &str) -> std::result::Result<Value, ErrorMessage> {
+    serde_json::from_str(trimmed)
+        .map_err(|error| ErrorMessage::new(None, "invalid_json", format!("invalid JSON: {error}")))
+}
+
+fn sync_response_for_value(
+    engine: &mut EmitEngine,
+    value: Value,
+) -> std::result::Result<SyncResultMessage, ErrorMessage> {
+    match emit_message_type(&value) {
+        "sync" => sync_response_for_request(engine, value),
+        msg_type => Err(ErrorMessage::new(
+            emit_request_id(&value),
+            "unknown_message_type",
+            format!("unsupported message type: {msg_type}"),
+        )),
+    }
+}
+
+fn sync_response_for_request(
+    engine: &mut EmitEngine,
+    value: Value,
+) -> std::result::Result<SyncResultMessage, ErrorMessage> {
+    let request_id = emit_request_id(&value);
+    let request: SyncRequest = serde_json::from_value(value).map_err(|error| {
+        ErrorMessage::new(
+            request_id,
+            "invalid_request",
+            format!("invalid sync request shape: {error}"),
+        )
+    })?;
+
+    request
+        .config
+        .validate()
+        .map_err(|error| ErrorMessage::new(Some(request.id.clone()), "invalid_config", error))?;
+    Ok(engine.sync(&request))
+}
+
+fn emit_request_id(value: &Value) -> Option<String> {
+    value
+        .get("id")
+        .and_then(Value::as_str)
+        .map(|value| value.to_string())
+}
+
+fn emit_message_type(value: &Value) -> &str {
+    value
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+}
+
+enum EmitLineResult {
+    Sync(SyncResultMessage),
+    Error(ErrorMessage),
+}
+
+impl EmitLineResult {
+    fn write<W: Write>(self, stdout: &mut W) -> Result<()> {
+        match self {
+            Self::Sync(response) => write_json_line(stdout, &response),
+            Self::Error(error) => write_json_line(stdout, &error),
+        }
+    }
 }
 
 fn run_defaults() -> Result<()> {
@@ -328,31 +355,7 @@ fn run_tmux_emit_loop<W: Write>(
     let mut buf = [0u8; 512];
 
     loop {
-        let timeout = next_reconcile_at
-            .saturating_duration_since(Instant::now())
-            .min(Duration::from_millis(1_000));
-        socket
-            .set_read_timeout(Some(timeout))
-            .context("failed to set tmux socket timeout")?;
-
-        let mut should_scan = false;
-        match socket.recv(&mut buf) {
-            Ok(_) => {
-                drain_tmux_socket(socket, &mut buf)?;
-                should_scan = true;
-            }
-            Err(error)
-                if error.kind() == io::ErrorKind::WouldBlock
-                    || error.kind() == io::ErrorKind::TimedOut =>
-            {
-                if Instant::now() >= next_reconcile_at {
-                    should_scan = true;
-                }
-            }
-            Err(error) => return Err(error).context("failed to read tmux notify socket"),
-        }
-
-        if !should_scan {
+        if !should_scan_tmux(socket, &mut buf, next_reconcile_at)? {
             continue;
         }
 
@@ -417,19 +420,7 @@ fn emit_tmux_scan<W: Write>(
 }
 
 fn default_tmux_socket_path() -> PathBuf {
-    if let Ok(value) = std::env::var("CLAWGS_TMUX_SOCKET") {
-        let trimmed = value.trim();
-        if !trimmed.is_empty() {
-            return PathBuf::from(trimmed);
-        }
-    }
-
-    let username = std::env::var("USER")
-        .ok()
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| "default".to_string());
-
-    std::env::temp_dir().join(format!("clawgs-tmux-{username}.sock"))
+    tmux_socket_override().unwrap_or_else(fallback_tmux_socket_path)
 }
 
 struct TmuxSocketGuard {
@@ -444,22 +435,75 @@ impl Drop for TmuxSocketGuard {
 }
 
 fn bind_tmux_socket(path: &PathBuf) -> Result<TmuxSocketGuard> {
-    if path.exists() {
-        std::fs::remove_file(path).with_context(|| {
-            format!(
-                "failed to remove existing tmux socket at {}",
-                path.display()
-            )
-        })?;
-    }
-
+    remove_existing_socket(path)?;
     let socket = UnixDatagram::bind(path)
         .with_context(|| format!("failed to bind tmux notify socket at {}", path.display()))?;
-
     Ok(TmuxSocketGuard {
         path: path.clone(),
         reader: socket,
     })
+}
+
+fn tmux_socket_override() -> Option<PathBuf> {
+    trimmed_env_var("CLAWGS_TMUX_SOCKET").map(PathBuf::from)
+}
+
+fn fallback_tmux_socket_path() -> PathBuf {
+    std::env::temp_dir().join(format!("clawgs-tmux-{}.sock", username_or_default()))
+}
+
+fn username_or_default() -> String {
+    trimmed_env_var("USER").unwrap_or_else(|| "default".to_string())
+}
+
+fn trimmed_env_var(key: &str) -> Option<String> {
+    std::env::var(key)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn remove_existing_socket(path: &PathBuf) -> Result<()> {
+    match path.exists() {
+        true => std::fs::remove_file(path).with_context(|| {
+            format!(
+                "failed to remove existing tmux socket at {}",
+                path.display()
+            )
+        }),
+        false => Ok(()),
+    }
+}
+
+fn should_scan_tmux(
+    socket: &UnixDatagram,
+    buf: &mut [u8],
+    next_reconcile_at: Instant,
+) -> Result<bool> {
+    socket
+        .set_read_timeout(Some(tmux_socket_timeout(next_reconcile_at)))
+        .context("failed to set tmux socket timeout")?;
+    match socket.recv(buf) {
+        Ok(_) => {
+            drain_tmux_socket(socket, buf)?;
+            Ok(true)
+        }
+        Err(error) if is_tmux_retryable_error(&error) => Ok(Instant::now() >= next_reconcile_at),
+        Err(error) => Err(error).context("failed to read tmux notify socket"),
+    }
+}
+
+fn tmux_socket_timeout(next_reconcile_at: Instant) -> Duration {
+    next_reconcile_at
+        .saturating_duration_since(Instant::now())
+        .min(Duration::from_millis(1_000))
+}
+
+fn is_tmux_retryable_error(error: &io::Error) -> bool {
+    matches!(
+        error.kind(),
+        io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+    )
 }
 
 fn drain_tmux_socket(socket: &UnixDatagram, buf: &mut [u8]) -> Result<()> {
@@ -488,9 +532,11 @@ fn drain_tmux_socket(socket: &UnixDatagram, buf: &mut [u8]) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
     use std::sync::Mutex;
 
     use clawgs::emit::model_client::ModelClient;
+    use tempfile::tempdir;
 
     use super::*;
 
@@ -538,5 +584,53 @@ mod tests {
         } else {
             std::env::remove_var("CLAWGS_TMUX_BIN");
         }
+    }
+
+    #[test]
+    fn default_tmux_socket_path_uses_override_when_present() {
+        let _lock = ENV_LOCK.lock().expect("env lock");
+        std::env::set_var("CLAWGS_TMUX_SOCKET", " /tmp/custom.sock ");
+
+        assert_eq!(
+            default_tmux_socket_path(),
+            PathBuf::from("/tmp/custom.sock")
+        );
+
+        std::env::remove_var("CLAWGS_TMUX_SOCKET");
+    }
+
+    #[test]
+    fn default_tmux_socket_path_falls_back_to_username() {
+        let _lock = ENV_LOCK.lock().expect("env lock");
+        std::env::remove_var("CLAWGS_TMUX_SOCKET");
+        std::env::set_var("USER", "tester");
+
+        let socket_path = default_tmux_socket_path();
+
+        assert!(socket_path.ends_with(Path::new("clawgs-tmux-tester.sock")));
+        std::env::remove_var("USER");
+    }
+
+    #[test]
+    fn bind_tmux_socket_replaces_existing_file() {
+        let dir = tempdir().expect("tempdir");
+        let socket_path = dir.path().join("notify.sock");
+        std::fs::write(&socket_path, "stale").expect("write stale file");
+
+        let guard = bind_tmux_socket(&socket_path).expect("bind socket");
+
+        assert!(socket_path.exists());
+        drop(guard);
+        assert!(!socket_path.exists());
+    }
+
+    #[test]
+    fn remove_existing_socket_is_noop_for_missing_path() {
+        let dir = tempdir().expect("tempdir");
+        let socket_path = dir.path().join("missing.sock");
+
+        remove_existing_socket(&socket_path).expect("missing path should be fine");
+
+        assert!(!socket_path.exists());
     }
 }

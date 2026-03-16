@@ -79,51 +79,42 @@ pub(crate) fn push_action(actions: &mut Vec<Action>, action: Action, max_actions
 }
 
 pub(crate) fn extract_tool_detail(input: &Value, options: &ExtractOptions) -> Option<String> {
-    if let Some(file_path) = input.get("file_path").and_then(Value::as_str) {
-        return Some(basename(file_path).to_string());
-    }
-    if let Some(command) = input.get("command").and_then(Value::as_str) {
-        return Some(truncate(command, options.max_detail_chars));
-    }
-    if let Some(pattern) = input.get("pattern").and_then(Value::as_str) {
-        return Some(truncate(pattern, options.max_detail_chars));
-    }
-    None
+    string_field(input, "file_path")
+        .map(|file_path| basename(file_path).to_string())
+        .or_else(|| {
+            string_field(input, "command")
+                .map(|command| truncate(command, options.max_detail_chars))
+        })
+        .or_else(|| {
+            string_field(input, "pattern")
+                .map(|pattern| truncate(pattern, options.max_detail_chars))
+        })
 }
 
 pub(crate) fn extract_timestamp(entry: &Value) -> Option<String> {
-    for key in ["timestamp", "created_at", "time", "ts"] {
-        if let Some(value) = entry.get(key) {
-            if let Some(value) = scalar_to_string(value) {
-                return Some(value);
-            }
-        }
-    }
-
-    let payload = entry.get("payload")?;
-    for key in ["timestamp", "created_at", "time", "ts"] {
-        if let Some(value) = payload.get(key) {
-            if let Some(value) = scalar_to_string(value) {
-                return Some(value);
-            }
-        }
-    }
-
-    None
+    timestamp_from_value(entry).or_else(|| entry.get("payload").and_then(timestamp_from_value))
 }
 
 fn scalar_to_string(value: &Value) -> Option<String> {
-    if let Some(value) = value.as_str() {
-        return Some(value.to_string());
+    match value {
+        Value::String(value) => Some(value.clone()),
+        Value::Number(_) | Value::Bool(_) => Some(value.to_string()),
+        _ => None,
     }
-    if value.is_number() || value.is_boolean() {
-        return Some(value.to_string());
-    }
-    None
 }
 
 fn basename(path: &str) -> &str {
     path.rsplit('/').next().unwrap_or(path)
+}
+
+fn string_field<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
+    value.get(key).and_then(Value::as_str)
+}
+
+fn timestamp_from_value(value: &Value) -> Option<String> {
+    ["timestamp", "created_at", "time", "ts"]
+        .into_iter()
+        .find_map(|key| value.get(key).and_then(scalar_to_string))
 }
 
 #[cfg(test)]
@@ -149,5 +140,35 @@ mod tests {
     fn truncate_limits_chars() {
         assert_eq!(truncate("hello", 3), "hel");
         assert_eq!(truncate("hi", 10), "hi");
+    }
+
+    #[test]
+    fn extract_tool_detail_prefers_file_path_then_command_then_pattern() {
+        let options = ExtractOptions::default();
+        let file_input = serde_json::json!({"file_path": "/tmp/demo.txt", "command": "ignored"});
+        let command_input = serde_json::json!({"command": "cargo test --all"});
+        let pattern_input = serde_json::json!({"pattern": "extract timestamp"});
+
+        assert_eq!(
+            extract_tool_detail(&file_input, &options).as_deref(),
+            Some("demo.txt")
+        );
+        assert_eq!(
+            extract_tool_detail(&command_input, &options).as_deref(),
+            Some("cargo test --all")
+        );
+        assert_eq!(
+            extract_tool_detail(&pattern_input, &options).as_deref(),
+            Some("extract timestamp")
+        );
+    }
+
+    #[test]
+    fn extract_timestamp_uses_entry_then_payload_scalars() {
+        let top_level = serde_json::json!({"timestamp": 12345});
+        let payload = serde_json::json!({"payload": {"created_at": true}});
+
+        assert_eq!(extract_timestamp(&top_level).as_deref(), Some("12345"));
+        assert_eq!(extract_timestamp(&payload).as_deref(), Some("true"));
     }
 }

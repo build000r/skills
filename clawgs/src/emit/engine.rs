@@ -5,8 +5,8 @@ use std::path::{Path, PathBuf};
 use chrono::{DateTime, Utc};
 
 use crate::{
-    discover_claude_paths, discover_codex_paths, extract, resolve_input, AgentTool, ExtractOptions,
-    Snapshot, ToolSelection,
+    discover_claude_paths, discover_codex_paths, extract, resolve_input, Action, AgentTool,
+    ExtractOptions, Snapshot, ToolSelection,
 };
 
 use super::model_client::ModelClient;
@@ -100,6 +100,13 @@ impl SessionRuntimeState {
             None => true,
         }
     }
+}
+
+struct PreparedSessionContext {
+    context_snapshot: Option<Snapshot>,
+    next_rest_state: RestState,
+    objective_fingerprint: String,
+    objective_changed: bool,
 }
 
 pub struct EmitEngine {
@@ -250,52 +257,34 @@ fn process_session(
         return;
     }
 
-    if state.thought_state == ThoughtState::Sleeping {
-        updates.push(clear_thought_update(
-            stream_instance_id,
-            state,
-            session,
-            request.now,
-            next_rest_state,
-        ));
-        state.thought_state = ThoughtState::Holding;
-        state.thought_source = ThoughtSource::CarryForward;
-        state.rest_state = next_rest_state;
-        state.sleeping_emitted = false;
-        state.last_emitted_thought = None;
-        state.last_call_at = Some(request.now);
-    }
-
-    let context_group_is_ambiguous = transcript_group_key(session)
-        .and_then(|group_key| transcript_group_counts.get(&group_key).copied())
-        .unwrap_or_default()
-        > 1;
-    let (context_snapshot, resolved_path) = context_snapshot_for_session_with_claim(
+    wake_from_sleep_if_needed(
+        stream_instance_id,
+        state,
         session,
-        state.claimed_jsonl_path.as_deref(),
-        context_group_is_ambiguous,
+        request.now,
+        next_rest_state,
+        updates,
     );
-    state.claimed_jsonl_path = resolved_path;
 
-    if suppress_for_initial_context(state, session, context_snapshot.as_ref(), metrics) {
+    let Some(prepared) = prepare_session_context(
+        state,
+        session,
+        request.now,
+        transcript_group_counts,
+        next_rest_state,
+        metrics,
+    ) else {
         return;
-    }
-
-    let objective_fingerprint = context_snapshot
-        .as_ref()
-        .map(|snapshot| context_focus_fingerprint(snapshot, &session.state).to_string())
-        .unwrap_or_else(|| terminal_objective_fingerprint(&session.replay_text, &session.state));
-    let objective_changed =
-        update_objective_fingerprint(state, &objective_fingerprint, request.now);
+    };
 
     if suppress_for_cadence_or_terminal_delta(
         stream_instance_id,
         state,
         session,
-        context_snapshot.as_ref(),
+        prepared.context_snapshot.as_ref(),
         &request.config,
-        objective_changed,
-        next_rest_state,
+        prepared.objective_changed,
+        prepared.next_rest_state,
         request.now,
         updates,
         metrics,
@@ -303,9 +292,151 @@ fn process_session(
         return;
     }
 
+    emit_session_thought(
+        model_client,
+        stream_instance_id,
+        state,
+        request,
+        session,
+        &prepared,
+        updates,
+        metrics,
+    );
+}
+
+fn wake_from_sleep_if_needed(
+    stream_instance_id: &str,
+    state: &mut SessionRuntimeState,
+    session: &SessionSnapshot,
+    now: DateTime<Utc>,
+    next_rest_state: RestState,
+    updates: &mut Vec<ThoughtUpdate>,
+) {
+    if state.thought_state != ThoughtState::Sleeping {
+        return;
+    }
+
+    updates.push(clear_thought_update(
+        stream_instance_id,
+        state,
+        session,
+        now,
+        next_rest_state,
+    ));
+    state.thought_state = ThoughtState::Holding;
+    state.thought_source = ThoughtSource::CarryForward;
+    state.rest_state = next_rest_state;
+    state.sleeping_emitted = false;
+    state.last_emitted_thought = None;
+    state.last_call_at = Some(now);
+}
+
+fn prepare_session_context(
+    state: &mut SessionRuntimeState,
+    session: &SessionSnapshot,
+    now: DateTime<Utc>,
+    transcript_group_counts: &HashMap<String, usize>,
+    next_rest_state: RestState,
+    metrics: &mut SyncMetrics,
+) -> Option<PreparedSessionContext> {
+    let (context_snapshot, resolved_path) = context_snapshot_for_session_with_claim(
+        session,
+        state.claimed_jsonl_path.as_deref(),
+        transcript_group_is_ambiguous(session, transcript_group_counts),
+    );
+    state.claimed_jsonl_path = resolved_path;
+
+    if suppress_for_initial_context(state, session, context_snapshot.as_ref(), metrics) {
+        return None;
+    }
+
+    let objective_fingerprint =
+        objective_fingerprint_for_session(context_snapshot.as_ref(), session);
+    let objective_changed = update_objective_fingerprint(state, &objective_fingerprint, now);
+
+    Some(PreparedSessionContext {
+        context_snapshot,
+        next_rest_state,
+        objective_fingerprint,
+        objective_changed,
+    })
+}
+
+fn transcript_group_is_ambiguous(
+    session: &SessionSnapshot,
+    transcript_group_counts: &HashMap<String, usize>,
+) -> bool {
+    transcript_group_key(session)
+        .and_then(|group_key| transcript_group_counts.get(&group_key).copied())
+        .unwrap_or_default()
+        > 1
+}
+
+fn objective_fingerprint_for_session(
+    context_snapshot: Option<&Snapshot>,
+    session: &SessionSnapshot,
+) -> String {
+    context_snapshot
+        .map(|snapshot| context_focus_fingerprint(snapshot, &session.state).to_string())
+        .unwrap_or_else(|| terminal_objective_fingerprint(&session.replay_text, &session.state))
+}
+
+fn emit_session_thought(
+    model_client: &dyn ModelClient,
+    stream_instance_id: &str,
+    state: &mut SessionRuntimeState,
+    request: &SyncRequest,
+    session: &SessionSnapshot,
+    prepared: &PreparedSessionContext,
+    updates: &mut Vec<ThoughtUpdate>,
+    metrics: &mut SyncMetrics,
+) {
     state.last_call_at = Some(request.now);
-    let prompt = context_snapshot
-        .as_ref()
+    let prompt = prompt_for_session(prepared.context_snapshot.as_ref(), session, state, request);
+    let Some(raw_thought) =
+        complete_session_thought(model_client, &prompt, request, session, state, metrics)
+    else {
+        return;
+    };
+
+    let thought = sanitize_thought_text(&raw_thought);
+    if thought.is_empty() {
+        metrics.suppressed += 1;
+        return;
+    }
+
+    if handle_duplicate_generated_thought(
+        &thought,
+        updates,
+        stream_instance_id,
+        state,
+        session,
+        prepared.next_rest_state,
+        request.now,
+        metrics,
+    ) {
+        return;
+    }
+
+    publish_generated_thought(
+        stream_instance_id,
+        state,
+        session,
+        &thought,
+        prepared,
+        request.now,
+        updates,
+        metrics,
+    );
+}
+
+fn prompt_for_session(
+    context_snapshot: Option<&Snapshot>,
+    session: &SessionSnapshot,
+    state: &SessionRuntimeState,
+    request: &SyncRequest,
+) -> String {
+    context_snapshot
         .map(|snapshot| {
             build_context_prompt(
                 snapshot,
@@ -321,75 +452,108 @@ fn process_session(
                 state.last_terminal_context.as_deref(),
                 request.config.terminal_prompt.as_deref(),
             )
-        });
+        })
+}
 
-    let raw_thought = match model_client.complete(&prompt, request.config.model_override()) {
-        Ok(value) => value,
+fn complete_session_thought(
+    model_client: &dyn ModelClient,
+    prompt: &str,
+    request: &SyncRequest,
+    session: &SessionSnapshot,
+    state: &mut SessionRuntimeState,
+    metrics: &mut SyncMetrics,
+) -> Option<String> {
+    match model_client.complete(prompt, request.config.model_override()) {
+        Ok(value) => Some(value),
         Err(_) => {
             metrics.suppressed += 1;
             state.last_terminal_context = Some(trim_terminal_context(&session.replay_text));
-            return;
+            None
         }
-    };
+    }
+}
 
-    let thought = sanitize_thought_text(&raw_thought);
-    if thought.is_empty() {
-        metrics.suppressed += 1;
-        return;
+fn handle_duplicate_generated_thought(
+    thought: &str,
+    updates: &mut Vec<ThoughtUpdate>,
+    stream_instance_id: &str,
+    state: &mut SessionRuntimeState,
+    session: &SessionSnapshot,
+    next_rest_state: RestState,
+    now: DateTime<Utc>,
+    metrics: &mut SyncMetrics,
+) -> bool {
+    if !is_duplicate_thought(state.last_emitted_thought.as_deref(), thought) {
+        return false;
     }
 
-    if is_duplicate_thought(state.last_emitted_thought.as_deref(), &thought) {
-        if emit_rest_state_change_if_needed(
-            updates,
-            stream_instance_id,
-            state,
-            session,
-            next_rest_state,
-            request.now,
-        ) {
-            return;
-        }
-        metrics.suppressed += 1;
-        return;
+    if emit_rest_state_change_if_needed(
+        updates,
+        stream_instance_id,
+        state,
+        session,
+        next_rest_state,
+        now,
+    ) {
+        return true;
     }
+    metrics.suppressed += 1;
+    true
+}
 
-    let next_state = if objective_changed {
-        ThoughtState::Active
-    } else {
-        ThoughtState::Holding
-    };
-    let token_count = context_snapshot
-        .as_ref()
-        .map(|snapshot| snapshot.token_count)
-        .unwrap_or(session.token_count);
-
+fn publish_generated_thought(
+    stream_instance_id: &str,
+    state: &mut SessionRuntimeState,
+    session: &SessionSnapshot,
+    thought: &str,
+    prepared: &PreparedSessionContext,
+    now: DateTime<Utc>,
+    updates: &mut Vec<ThoughtUpdate>,
+    metrics: &mut SyncMetrics,
+) {
+    let next_state = next_thought_state(prepared.objective_changed);
+    let token_count = token_count_for_context(prepared.context_snapshot.as_ref(), session);
     updates.push(thought_update(
         stream_instance_id,
         state,
         session,
-        Some(thought.clone()),
+        Some(thought.to_string()),
         token_count,
         session.context_limit,
         next_state,
         ThoughtSource::Llm,
-        objective_changed,
-        request.now,
-        Some(objective_fingerprint),
-        next_rest_state,
+        prepared.objective_changed,
+        now,
+        Some(prepared.objective_fingerprint.clone()),
+        prepared.next_rest_state,
     ));
 
-    state.last_emitted_thought = Some(thought.clone());
-    state.summary_history.push(thought);
+    state.last_emitted_thought = Some(thought.to_string());
+    state.summary_history.push(thought.to_string());
     if state.summary_history.len() > SUMMARY_HISTORY_CAP {
         let start = state.summary_history.len() - SUMMARY_HISTORY_CAP;
         state.summary_history = state.summary_history.split_off(start);
     }
     state.thought_state = next_state;
     state.thought_source = ThoughtSource::Llm;
-    state.rest_state = next_rest_state;
+    state.rest_state = prepared.next_rest_state;
     state.sleeping_emitted = false;
     state.last_terminal_context = Some(trim_terminal_context(&session.replay_text));
     metrics.llm_calls += 1;
+}
+
+fn next_thought_state(objective_changed: bool) -> ThoughtState {
+    if objective_changed {
+        ThoughtState::Active
+    } else {
+        ThoughtState::Holding
+    }
+}
+
+fn token_count_for_context(context_snapshot: Option<&Snapshot>, session: &SessionSnapshot) -> u64 {
+    context_snapshot
+        .map(|snapshot| snapshot.token_count)
+        .unwrap_or(session.token_count)
 }
 
 fn handle_sleeping_session(
@@ -481,40 +645,28 @@ fn suppress_for_cadence_or_terminal_delta(
     updates: &mut Vec<ThoughtUpdate>,
     metrics: &mut SyncMetrics,
 ) -> bool {
-    if !objective_changed && !state.should_call_for_cadence(config, now) {
-        if emit_rest_state_change_if_needed(
+    if should_suppress_for_cadence(state, config, objective_changed, now) {
+        return suppress_with_rest_state_change(
             updates,
             stream_instance_id,
             state,
             session,
             next_rest_state,
             now,
-        ) {
-            return true;
-        }
-        metrics.suppressed += 1;
-        return true;
+            metrics,
+        );
     }
 
-    if context_snapshot.is_none()
-        && !objective_changed
-        && !has_meaningful_terminal_delta(
-            &session.replay_text,
-            state.last_terminal_context.as_deref(),
-        )
-    {
-        if emit_rest_state_change_if_needed(
+    if should_suppress_for_terminal_delta(session, state, context_snapshot, objective_changed) {
+        return suppress_with_rest_state_change(
             updates,
             stream_instance_id,
             state,
             session,
             next_rest_state,
             now,
-        ) {
-            return true;
-        }
-        metrics.suppressed += 1;
-        return true;
+            metrics,
+        );
     }
 
     false
@@ -615,13 +767,63 @@ fn thought_update(
 }
 
 fn rest_state_for_session(session: &SessionSnapshot, now: DateTime<Utc>) -> RestState {
-    if session.exited || session.state == SessionState::Exited {
-        return RestState::DeepSleep;
+    match (session.exited, &session.state) {
+        (true, _) | (_, SessionState::Exited) => RestState::DeepSleep,
+        (false, SessionState::Idle | SessionState::Attention) => {
+            idle_rest_state((now - session.last_activity_at).num_milliseconds().max(0))
+        }
+        _ => RestState::Active,
     }
-    if session.state != SessionState::Idle && session.state != SessionState::Attention {
-        return RestState::Active;
+}
+
+fn should_suppress_for_cadence(
+    state: &SessionRuntimeState,
+    config: &ThoughtConfig,
+    objective_changed: bool,
+    now: DateTime<Utc>,
+) -> bool {
+    !objective_changed && !state.should_call_for_cadence(config, now)
+}
+
+fn should_suppress_for_terminal_delta(
+    session: &SessionSnapshot,
+    state: &SessionRuntimeState,
+    context_snapshot: Option<&Snapshot>,
+    objective_changed: bool,
+) -> bool {
+    context_snapshot.is_none()
+        && !objective_changed
+        && !has_meaningful_terminal_delta(
+            &session.replay_text,
+            state.last_terminal_context.as_deref(),
+        )
+}
+
+fn suppress_with_rest_state_change(
+    updates: &mut Vec<ThoughtUpdate>,
+    stream_instance_id: &str,
+    state: &mut SessionRuntimeState,
+    session: &SessionSnapshot,
+    next_rest_state: RestState,
+    now: DateTime<Utc>,
+    metrics: &mut SyncMetrics,
+) -> bool {
+    if emit_rest_state_change_if_needed(
+        updates,
+        stream_instance_id,
+        state,
+        session,
+        next_rest_state,
+        now,
+    ) {
+        true
+    } else {
+        metrics.suppressed += 1;
+        true
     }
-    let idle_ms = (now - session.last_activity_at).num_milliseconds().max(0);
+}
+
+fn idle_rest_state(idle_ms: i64) -> RestState {
     if idle_ms >= DEEP_SLEEP_AFTER_MS {
         RestState::DeepSleep
     } else if idle_ms >= SLEEPING_AFTER_MS {
@@ -658,60 +860,93 @@ fn transcript_group_key(session: &SessionSnapshot) -> Option<String> {
     Some(format!("{tool}:{}", session.cwd))
 }
 
-fn context_snapshot_for_session_with_claim(
-    session: &SessionSnapshot,
+fn claimed_context_snapshot(
+    selection: ToolSelection,
+    cwd: &Path,
     existing_claim: Option<&Path>,
-    group_is_ambiguous: bool,
-) -> (Option<Snapshot>, Option<PathBuf>) {
-    let selection = match tool_selection_for_session(session.tool.as_deref()) {
-        Some(s) => s,
-        None => return (None, None),
-    };
-    let cwd = Path::new(&session.cwd);
+) -> Option<(Option<Snapshot>, Option<PathBuf>)> {
+    existing_claim
+        .filter(|claimed| claimed.exists())
+        .and_then(|claimed| resolved_claim_snapshot(selection, cwd, claimed))
+}
 
-    // If we already have a claimed path and the file still exists, reuse it
-    if let Some(claimed) = existing_claim {
-        if claimed.exists() {
-            let resolved = resolve_input(selection, cwd, Some(claimed)).ok();
-            if let Some(resolved) = resolved {
-                let output = extract(
+fn resolved_claim_snapshot(
+    selection: ToolSelection,
+    cwd: &Path,
+    claimed: &Path,
+) -> Option<(Option<Snapshot>, Option<PathBuf>)> {
+    resolve_input(selection, cwd, Some(claimed))
+        .ok()
+        .map(|resolved| {
+            (
+                extract(
                     resolved.tool,
                     &resolved.path,
                     cwd,
                     resolved.discovered,
                     &ExtractOptions::default(),
                 )
-                .ok();
-                return (output.map(|o| o.snapshot), Some(claimed.to_path_buf()));
-            }
-        }
+                .ok()
+                .map(|output| output.snapshot),
+                Some(claimed.to_path_buf()),
+            )
+        })
+}
+
+fn unique_context_snapshot(
+    selection: ToolSelection,
+    cwd: &Path,
+) -> (Option<Snapshot>, Option<PathBuf>) {
+    let Some(agent_tool) = selection_agent_tool(selection) else {
+        return (None, None);
+    };
+    let candidates = transcript_candidates(agent_tool, cwd);
+    match candidates.as_slice() {
+        [path] => (extract_snapshot(agent_tool, path, cwd), Some(path.clone())),
+        _ => (None, None),
+    }
+}
+
+fn selection_agent_tool(selection: ToolSelection) -> Option<AgentTool> {
+    match selection {
+        ToolSelection::Claude => Some(AgentTool::Claude),
+        ToolSelection::Codex => Some(AgentTool::Codex),
+        ToolSelection::Auto => None,
+    }
+}
+
+fn transcript_candidates(agent_tool: AgentTool, cwd: &Path) -> Vec<PathBuf> {
+    match agent_tool {
+        AgentTool::Claude => discover_claude_paths(cwd),
+        AgentTool::Codex => discover_codex_paths(cwd),
+    }
+}
+
+fn extract_snapshot(agent_tool: AgentTool, path: &Path, cwd: &Path) -> Option<Snapshot> {
+    extract(agent_tool, path, cwd, true, &ExtractOptions::default())
+        .ok()
+        .map(|output| output.snapshot)
+}
+
+fn context_snapshot_for_session_with_claim(
+    session: &SessionSnapshot,
+    existing_claim: Option<&Path>,
+    group_is_ambiguous: bool,
+) -> (Option<Snapshot>, Option<PathBuf>) {
+    let Some(selection) = tool_selection_for_session(session.tool.as_deref()) else {
+        return (None, None);
+    };
+    let cwd = Path::new(&session.cwd);
+
+    if let Some(claimed_snapshot) = claimed_context_snapshot(selection, cwd, existing_claim) {
+        return claimed_snapshot;
     }
 
-    // Otherwise, only claim a transcript when the pane has a unique binding.
     if group_is_ambiguous {
         return (None, None);
     }
 
-    let agent_tool = match selection {
-        ToolSelection::Claude => AgentTool::Claude,
-        ToolSelection::Codex => AgentTool::Codex,
-        ToolSelection::Auto => return (None, None),
-    };
-
-    let candidates = match agent_tool {
-        AgentTool::Claude => discover_claude_paths(cwd),
-        AgentTool::Codex => discover_codex_paths(cwd),
-    };
-
-    if candidates.len() != 1 {
-        return (None, None);
-    }
-
-    let path = candidates[0].clone();
-
-    let output = extract(agent_tool, &path, cwd, true, &ExtractOptions::default()).ok();
-
-    (output.map(|o| o.snapshot), Some(path))
+    unique_context_snapshot(selection, cwd)
 }
 
 fn is_initial_thought_candidate(state: &SessionRuntimeState, session: &SessionSnapshot) -> bool {
@@ -750,64 +985,89 @@ fn build_context_prompt(
     summary_history: &[String],
     custom_preamble: Option<&str>,
 ) -> String {
-    let mut parts: Vec<String> = Vec::new();
-    let preamble = custom_preamble.unwrap_or(DEFAULT_AGENT_PREAMBLE);
-    parts.push(preamble.to_string());
-    parts.push(format!("State: {}", state_label(state)));
+    let mut parts = vec![
+        custom_preamble
+            .unwrap_or(DEFAULT_AGENT_PREAMBLE)
+            .to_string(),
+        format!("State: {}", state_label(state)),
+    ];
+    parts.extend(task_lines(snapshot.user_task.as_deref()));
+    parts.extend(summary_history_lines(summary_history));
+    parts.extend(action_lines(&snapshot.recent_actions));
+    parts.extend(current_tool_lines(snapshot.current_tool.as_ref()));
+    parts.extend(context_prompt_tail());
+    parts.join("\n")
+}
 
-    if let Some(task) = snapshot.user_task.as_ref() {
-        parts.push(format!("Task: {task}"));
+fn task_lines(task: Option<&str>) -> Vec<String> {
+    task.map(|task| vec![format!("Task: {task}")])
+        .unwrap_or_default()
+}
+
+fn summary_history_lines(summary_history: &[String]) -> Vec<String> {
+    if summary_history.is_empty() {
+        return Vec::new();
     }
 
-    if !summary_history.is_empty() {
-        let recent: Vec<&String> = summary_history
+    let mut lines = vec!["Recent status:".to_string()];
+    lines.extend(
+        summary_history
             .iter()
             .rev()
             .take(3)
             .collect::<Vec<_>>()
             .into_iter()
             .rev()
-            .collect();
-        parts.push("Recent status:".to_string());
-        for status in recent {
-            parts.push(format!("  {status}"));
-        }
+            .map(|status| format!("  {status}")),
+    );
+    lines
+}
+
+fn action_lines(actions: &[Action]) -> Vec<String> {
+    if actions.is_empty() {
+        return Vec::new();
     }
 
-    if !snapshot.recent_actions.is_empty() {
-        parts.push("Actions:".to_string());
-        for action in &snapshot.recent_actions {
-            if action.tool == "said" {
-                parts.push(format!(
-                    "  said: {}",
-                    action.detail.as_deref().unwrap_or_default()
-                ));
-            } else {
-                let detail_part = action
-                    .detail
-                    .as_ref()
-                    .map(|value| format!(": {value}"))
-                    .unwrap_or_default();
-                parts.push(format!("  {}{detail_part}", action.tool));
-            }
-        }
+    let mut lines = vec!["Actions:".to_string()];
+    lines.extend(actions.iter().map(format_action_line));
+    lines
+}
+
+fn format_action_line(action: &Action) -> String {
+    if action.tool == "said" {
+        format!("  said: {}", action.detail.as_deref().unwrap_or_default())
+    } else {
+        format!(
+            "  {}{}",
+            action.tool,
+            detail_suffix(action.detail.as_deref())
+        )
     }
+}
 
-    if let Some(action) = snapshot.current_tool.as_ref() {
-        let detail_part = action
-            .detail
-            .as_ref()
-            .map(|value| format!(": {value}"))
-            .unwrap_or_default();
-        parts.push(format!("Now: {}{detail_part}", action.tool));
-    }
+fn current_tool_lines(action: Option<&Action>) -> Vec<String> {
+    action
+        .map(|action| {
+            vec![format!(
+                "Now: {}{}",
+                action.tool,
+                detail_suffix(action.detail.as_deref())
+            )]
+        })
+        .unwrap_or_default()
+}
 
-    parts.push(String::new());
-    parts.push("Write a 1-line status (max 60 chars). Explain the PURPOSE and WHY, not the tool or command.".to_string());
-    parts.push("Do not speculate about anticipated future steps.".to_string());
-    parts.push("Reply with ONLY the status line, nothing else.".to_string());
+fn detail_suffix(detail: Option<&str>) -> String {
+    detail.map(|value| format!(": {value}")).unwrap_or_default()
+}
 
-    parts.join("\n")
+fn context_prompt_tail() -> Vec<String> {
+    vec![
+        String::new(),
+        "Write a 1-line status (max 60 chars). Explain the PURPOSE and WHY, not the tool or command.".to_string(),
+        "Do not speculate about anticipated future steps.".to_string(),
+        "Reply with ONLY the status line, nothing else.".to_string(),
+    ]
 }
 
 fn build_terminal_prompt(
@@ -879,12 +1139,24 @@ fn has_meaningful_terminal_delta(current: &str, previous: Option<&str>) -> bool 
 fn changed_non_whitespace_chars(current: &str, previous: &str) -> usize {
     let cur: Vec<char> = current.chars().collect();
     let prev: Vec<char> = previous.chars().collect();
+    let prefix = shared_prefix_len(&cur, &prev);
+    let (cur_suffix, _prev_suffix) = shared_suffix_bounds(&cur, &prev, prefix);
 
+    cur[prefix..cur_suffix]
+        .iter()
+        .filter(|ch| !ch.is_whitespace())
+        .count()
+}
+
+fn shared_prefix_len(cur: &[char], prev: &[char]) -> usize {
     let mut prefix = 0usize;
     while prefix < cur.len() && prefix < prev.len() && cur[prefix] == prev[prefix] {
         prefix += 1;
     }
+    prefix
+}
 
+fn shared_suffix_bounds(cur: &[char], prev: &[char], prefix: usize) -> (usize, usize) {
     let mut cur_suffix = cur.len();
     let mut prev_suffix = prev.len();
     while cur_suffix > prefix
@@ -894,11 +1166,7 @@ fn changed_non_whitespace_chars(current: &str, previous: &str) -> usize {
         cur_suffix -= 1;
         prev_suffix -= 1;
     }
-
-    cur[prefix..cur_suffix]
-        .iter()
-        .filter(|ch| !ch.is_whitespace())
-        .count()
+    (cur_suffix, prev_suffix)
 }
 
 fn sanitize_thought_text(raw: &str) -> String {
@@ -951,37 +1219,54 @@ fn strip_ansi(value: &str) -> String {
     let mut output = String::with_capacity(value.len());
     let mut chars = value.chars().peekable();
     while let Some(ch) = chars.next() {
-        if ch == '\x1b' {
-            if chars.peek() == Some(&'[') {
-                chars.next();
-                while let Some(&next) = chars.peek() {
-                    chars.next();
-                    if next.is_ascii_alphabetic() || next == '~' {
-                        break;
-                    }
-                }
-            } else if chars.peek() == Some(&']') {
-                chars.next();
-                while let Some(&next) = chars.peek() {
-                    chars.next();
-                    if next == '\x07' {
-                        break;
-                    }
-                    if next == '\x1b' && chars.peek() == Some(&'\\') {
-                        chars.next();
-                        break;
-                    }
-                }
-            } else {
-                chars.next();
-            }
-        } else if ch.is_control() && ch != '\n' && ch != '\t' {
-            continue;
-        } else {
-            output.push(ch);
+        match ch {
+            '\x1b' => skip_escape_sequence(&mut chars),
+            _ if should_skip_control(ch) => continue,
+            _ => output.push(ch),
         }
     }
     output
+}
+
+fn should_skip_control(ch: char) -> bool {
+    ch.is_control() && ch != '\n' && ch != '\t'
+}
+
+fn skip_escape_sequence(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) {
+    match chars.peek().copied() {
+        Some('[') => skip_csi_sequence(chars),
+        Some(']') => skip_osc_sequence(chars),
+        Some(_) => {
+            chars.next();
+        }
+        None => {}
+    }
+}
+
+fn skip_csi_sequence(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) {
+    chars.next();
+    while let Some(next) = chars.next() {
+        if next.is_ascii_alphabetic() || next == '~' {
+            break;
+        }
+    }
+}
+
+fn skip_osc_sequence(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) {
+    chars.next();
+    while let Some(next) = chars.next() {
+        if next == '\x07' || osc_escape_terminated(next, chars) {
+            break;
+        }
+    }
+}
+
+fn osc_escape_terminated(next: char, chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -> bool {
+    if next != '\x1b' || chars.peek() != Some(&'\\') {
+        return false;
+    }
+    chars.next();
+    true
 }
 
 fn context_focus_fingerprint(snapshot: &Snapshot, state: &SessionState) -> u64 {

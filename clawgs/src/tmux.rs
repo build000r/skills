@@ -22,6 +22,15 @@ pub fn scan_sessions_with_bin(
     max_capture_lines: usize,
     tmux_bin: &str,
 ) -> Result<Vec<SessionSnapshot>> {
+    let stdout = list_tmux_panes(tmux_bin)?;
+    Ok(stdout
+        .lines()
+        .filter_map(parse_pane_meta_line)
+        .filter_map(|meta| pane_meta_to_session(now, max_capture_lines, tmux_bin, meta))
+        .collect())
+}
+
+fn list_tmux_panes(tmux_bin: &str) -> Result<String> {
     let format = format!(
         "#{{session_name}}{sep}#{{window_index}}{sep}#{{pane_index}}{sep}#{{pane_id}}{sep}#{{pane_current_path}}{sep}#{{pane_current_command}}{sep}#{{?pane_active,1,0}}{sep}#{{?pane_dead,1,0}}",
         sep = FIELD_SEP
@@ -35,7 +44,7 @@ pub fn scan_sessions_with_bin(
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         if tmux_server_missing(&stderr) {
-            return Ok(Vec::new());
+            return Ok(String::new());
         }
 
         anyhow::bail!(
@@ -44,57 +53,7 @@ pub fn scan_sessions_with_bin(
         );
     }
 
-    let stdout =
-        String::from_utf8(output.stdout).context("tmux list-panes output was not UTF-8")?;
-    let mut sessions = Vec::new();
-
-    for line in stdout.lines() {
-        let trimmed = line.trim_end();
-        if trimmed.is_empty() {
-            continue;
-        }
-
-        let Some(meta) = parse_pane_line(trimmed) else {
-            continue;
-        };
-
-        if meta.dead {
-            continue;
-        }
-
-        let replay_text =
-            capture_pane_text(tmux_bin, &meta.pane_id, max_capture_lines).unwrap_or_default();
-
-        let tool = infer_tool(&meta.current_command);
-        let state = if meta.active {
-            SessionState::Busy
-        } else {
-            SessionState::Idle
-        };
-
-        sessions.push(SessionSnapshot {
-            session_id: format!(
-                "tmux:{}:{}.{}:{}",
-                meta.session_name, meta.window_index, meta.pane_index, meta.pane_id
-            ),
-            state,
-            exited: false,
-            tool,
-            cwd: meta.current_path,
-            replay_text,
-            thought: None,
-            thought_state: ThoughtState::Holding,
-            thought_source: ThoughtSource::CarryForward,
-            objective_fingerprint: None,
-            thought_updated_at: None,
-            token_count: 0,
-            context_limit: 0,
-            last_activity_at: now,
-            rest_state: RestState::Active,
-        });
-    }
-
-    Ok(sessions)
+    String::from_utf8(output.stdout).context("tmux list-panes output was not UTF-8")
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -124,6 +83,58 @@ fn parse_pane_line(line: &str) -> Option<PaneMeta> {
     })
 }
 
+fn parse_pane_meta_line(line: &str) -> Option<PaneMeta> {
+    let trimmed = line.trim_end();
+    (!trimmed.is_empty())
+        .then(|| parse_pane_line(trimmed))
+        .flatten()
+}
+
+fn pane_meta_to_session(
+    now: DateTime<Utc>,
+    max_capture_lines: usize,
+    tmux_bin: &str,
+    meta: PaneMeta,
+) -> Option<SessionSnapshot> {
+    (!meta.dead).then(|| build_session_snapshot(now, max_capture_lines, tmux_bin, meta))
+}
+
+fn build_session_snapshot(
+    now: DateTime<Utc>,
+    max_capture_lines: usize,
+    tmux_bin: &str,
+    meta: PaneMeta,
+) -> SessionSnapshot {
+    let replay_text =
+        capture_pane_text(tmux_bin, &meta.pane_id, max_capture_lines).unwrap_or_default();
+    let state = if meta.active {
+        SessionState::Busy
+    } else {
+        SessionState::Idle
+    };
+
+    SessionSnapshot {
+        session_id: format!(
+            "tmux:{}:{}.{}:{}",
+            meta.session_name, meta.window_index, meta.pane_index, meta.pane_id
+        ),
+        state,
+        exited: false,
+        tool: infer_tool(&meta.current_command),
+        cwd: meta.current_path,
+        replay_text,
+        thought: None,
+        thought_state: ThoughtState::Holding,
+        thought_source: ThoughtSource::CarryForward,
+        objective_fingerprint: None,
+        thought_updated_at: None,
+        token_count: 0,
+        context_limit: 0,
+        last_activity_at: now,
+        rest_state: RestState::Active,
+    }
+}
+
 fn capture_pane_text(tmux_bin: &str, pane_id: &str, max_capture_lines: usize) -> Result<String> {
     let start = capture_start(max_capture_lines);
     let output = Command::new(tmux_bin)
@@ -147,21 +158,21 @@ fn capture_start(max_capture_lines: usize) -> String {
 
 fn infer_tool(current_command: &str) -> Option<String> {
     let normalized = current_command.trim().to_lowercase();
-
-    if normalized.contains("claude") {
-        Some("claude".to_string())
-    } else if normalized.contains("codex") {
-        Some("codex".to_string())
-    } else {
-        None
-    }
+    ["claude", "codex"]
+        .into_iter()
+        .find(|tool| normalized.contains(tool))
+        .map(|tool| tool.to_string())
 }
 
 fn tmux_server_missing(stderr: &str) -> bool {
     let lower = stderr.to_lowercase();
-    lower.contains("no server running")
-        || lower.contains("failed to connect to server")
-        || lower.contains("no sessions")
+    [
+        "no server running",
+        "failed to connect to server",
+        "no sessions",
+    ]
+    .iter()
+    .any(|fragment| lower.contains(fragment))
 }
 
 #[cfg(test)]
@@ -193,5 +204,23 @@ mod tests {
         assert_eq!(capture_start(0), "-0");
         assert_eq!(capture_start(1), "-0");
         assert_eq!(capture_start(200), "-199");
+    }
+
+    #[test]
+    fn tmux_server_missing_recognizes_expected_errors() {
+        assert!(tmux_server_missing("No server running on /tmp/tmux"));
+        assert!(tmux_server_missing("failed to connect to server"));
+        assert!(tmux_server_missing("no sessions"));
+        assert!(!tmux_server_missing("permission denied"));
+    }
+
+    #[test]
+    fn infer_tool_matches_supported_agents() {
+        assert_eq!(infer_tool("  Claude  ").as_deref(), Some("claude"));
+        assert_eq!(
+            infer_tool("/usr/bin/codex --json").as_deref(),
+            Some("codex")
+        );
+        assert_eq!(infer_tool("vim"), None);
     }
 }

@@ -304,7 +304,27 @@ fn run_tmux_emit(args: TmuxEmitArgs) -> Result<()> {
     let socket = socket_guard
         .as_ref()
         .expect("socket guard must exist when not once");
-    let mut next_reconcile_at = Instant::now() + Duration::from_millis(args.interval_ms);
+    run_tmux_emit_loop(
+        &mut stdout,
+        &mut engine,
+        &mut seq,
+        args.max_capture_lines,
+        args.interval_ms,
+        &tmux_config,
+        &socket.reader,
+    )
+}
+
+fn run_tmux_emit_loop<W: Write>(
+    stdout: &mut W,
+    engine: &mut EmitEngine,
+    seq: &mut u64,
+    max_capture_lines: usize,
+    interval_ms: u64,
+    tmux_config: &clawgs::emit::protocol::ThoughtConfig,
+    socket: &UnixDatagram,
+) -> Result<()> {
+    let mut next_reconcile_at = Instant::now() + Duration::from_millis(interval_ms);
     let mut buf = [0u8; 512];
 
     loop {
@@ -312,14 +332,13 @@ fn run_tmux_emit(args: TmuxEmitArgs) -> Result<()> {
             .saturating_duration_since(Instant::now())
             .min(Duration::from_millis(1_000));
         socket
-            .reader
             .set_read_timeout(Some(timeout))
             .context("failed to set tmux socket timeout")?;
 
         let mut should_scan = false;
-        match socket.reader.recv(&mut buf) {
+        match socket.recv(&mut buf) {
             Ok(_) => {
-                drain_tmux_socket(&socket.reader, &mut buf)?;
+                drain_tmux_socket(socket, &mut buf)?;
                 should_scan = true;
             }
             Err(error)
@@ -337,14 +356,8 @@ fn run_tmux_emit(args: TmuxEmitArgs) -> Result<()> {
             continue;
         }
 
-        emit_tmux_scan(
-            &mut stdout,
-            &mut engine,
-            &mut seq,
-            args.max_capture_lines,
-            &tmux_config,
-        )?;
-        next_reconcile_at = Instant::now() + Duration::from_millis(args.interval_ms);
+        emit_tmux_scan(stdout, engine, seq, max_capture_lines, tmux_config)?;
+        next_reconcile_at = Instant::now() + Duration::from_millis(interval_ms);
     }
 }
 
@@ -471,4 +484,59 @@ fn drain_tmux_socket(socket: &UnixDatagram, buf: &mut [u8]) -> Result<()> {
         .set_nonblocking(false)
         .context("failed to restore tmux socket blocking mode")?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Mutex;
+
+    use clawgs::emit::model_client::ModelClient;
+
+    use super::*;
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    struct DummyModelClient;
+
+    impl ModelClient for DummyModelClient {
+        fn complete(&self, _prompt: &str, _model_override: Option<&str>) -> Result<String, String> {
+            Ok("unused".to_string())
+        }
+    }
+
+    #[test]
+    fn run_tmux_emit_loop_surfaces_scan_errors_after_socket_event() {
+        let _lock = ENV_LOCK.lock().expect("env lock");
+        let previous_tmux_bin = std::env::var("CLAWGS_TMUX_BIN").ok();
+        std::env::set_var("CLAWGS_TMUX_BIN", "/definitely/missing-tmux");
+
+        let (sender, receiver) = UnixDatagram::pair().expect("socket pair");
+        sender.send(b"tick").expect("send tick");
+
+        let mut stdout = Vec::new();
+        let mut engine = EmitEngine::new(Box::new(DummyModelClient));
+        let mut seq = 0u64;
+        let config = clawgs::emit::protocol::ThoughtConfig::default();
+
+        let error = run_tmux_emit_loop(
+            &mut stdout,
+            &mut engine,
+            &mut seq,
+            50,
+            1_000,
+            &config,
+            &receiver,
+        )
+        .expect_err("scan failure");
+
+        assert!(error
+            .to_string()
+            .contains("failed to run /definitely/missing-tmux list-panes"));
+
+        if let Some(value) = previous_tmux_bin {
+            std::env::set_var("CLAWGS_TMUX_BIN", value);
+        } else {
+            std::env::remove_var("CLAWGS_TMUX_BIN");
+        }
+    }
 }

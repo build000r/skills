@@ -150,229 +150,20 @@ impl EmitEngine {
             }
         }
 
-        let model_client = &self.model_client;
+        let model_client = &*self.model_client;
+        let stream_instance_id = self.stream_instance_id.clone();
 
         for session in &request.sessions {
-            metrics.sessions_seen += 1;
-
-            if session.exited {
-                metrics.suppressed += 1;
-                continue;
-            }
-
-            let state = self
-                .per_session
-                .entry(session.session_id.clone())
-                .or_insert_with(|| {
-                    SessionRuntimeState::initialize_from_session(session, request.now)
-                });
-            let next_rest_state = rest_state_for_session(session, request.now);
-
-            if is_sleeping_rest_state(next_rest_state) {
-                let should_emit_sleeping = state.thought_state != ThoughtState::Sleeping
-                    || !state.sleeping_emitted
-                    || !is_sleeping_text(state.last_emitted_thought.as_deref())
-                    || state.rest_state != next_rest_state;
-
-                if should_emit_sleeping {
-                    let update = thought_update(
-                        &self.stream_instance_id,
-                        state,
-                        session,
-                        Some(STATIC_SLEEPING_THOUGHT.to_string()),
-                        session.token_count,
-                        session.context_limit,
-                        ThoughtState::Sleeping,
-                        ThoughtSource::StaticSleeping,
-                        false,
-                        request.now,
-                        Some("sleeping".to_string()),
-                        next_rest_state,
-                    );
-                    updates.push(update);
-                } else {
-                    metrics.suppressed += 1;
-                }
-
-                state.sleeping_emitted = true;
-                state.thought_state = ThoughtState::Sleeping;
-                state.thought_source = ThoughtSource::StaticSleeping;
-                state.rest_state = next_rest_state;
-                state.last_emitted_thought = Some(STATIC_SLEEPING_THOUGHT.to_string());
-                state.last_call_at = Some(request.now);
-                state.last_terminal_context = Some(trim_terminal_context(&session.replay_text));
-                continue;
-            }
-
-            if state.thought_state == ThoughtState::Sleeping {
-                updates.push(clear_thought_update(
-                    &self.stream_instance_id,
-                    state,
-                    session,
-                    request.now,
-                    next_rest_state,
-                ));
-                state.thought_state = ThoughtState::Holding;
-                state.thought_source = ThoughtSource::CarryForward;
-                state.rest_state = next_rest_state;
-                state.sleeping_emitted = false;
-                state.last_emitted_thought = None;
-                state.last_call_at = Some(request.now);
-            }
-
-            let context_group_is_ambiguous = transcript_group_key(session)
-                .and_then(|group_key| transcript_group_counts.get(&group_key).copied())
-                .unwrap_or_default()
-                > 1;
-            let (context_snapshot, resolved_path) = context_snapshot_for_session_with_claim(
+            process_session(
+                model_client,
+                &stream_instance_id,
+                &mut self.per_session,
+                request,
                 session,
-                state.claimed_jsonl_path.as_deref(),
-                context_group_is_ambiguous,
+                &transcript_group_counts,
+                &mut updates,
+                &mut metrics,
             );
-            state.claimed_jsonl_path = resolved_path;
-            if is_initial_thought_candidate(state, session)
-                && !has_adequate_initial_context(context_snapshot.as_ref(), &session.replay_text)
-            {
-                state.last_terminal_context = Some(trim_terminal_context(&session.replay_text));
-                metrics.suppressed += 1;
-                continue;
-            }
-            let objective_fingerprint = if let Some(snapshot) = context_snapshot.as_ref() {
-                context_focus_fingerprint(snapshot, &session.state).to_string()
-            } else {
-                terminal_objective_fingerprint(&session.replay_text, &session.state)
-            };
-
-            let objective_changed =
-                state.objective_fingerprint.as_deref() != Some(objective_fingerprint.as_str());
-            if objective_changed {
-                state.objective_stable_since = request.now;
-                state.objective_fingerprint = Some(objective_fingerprint.clone());
-            }
-
-            if !objective_changed && !state.should_call_for_cadence(&request.config, request.now) {
-                if emit_rest_state_change_if_needed(
-                    &mut updates,
-                    &self.stream_instance_id,
-                    state,
-                    session,
-                    next_rest_state,
-                    request.now,
-                ) {
-                    continue;
-                }
-                metrics.suppressed += 1;
-                continue;
-            }
-
-            if context_snapshot.is_none()
-                && !objective_changed
-                && !has_meaningful_terminal_delta(
-                    &session.replay_text,
-                    state.last_terminal_context.as_deref(),
-                )
-            {
-                if emit_rest_state_change_if_needed(
-                    &mut updates,
-                    &self.stream_instance_id,
-                    state,
-                    session,
-                    next_rest_state,
-                    request.now,
-                ) {
-                    continue;
-                }
-                metrics.suppressed += 1;
-                continue;
-            }
-
-            state.last_call_at = Some(request.now);
-
-            let prompt = if let Some(snapshot) = context_snapshot.as_ref() {
-                build_context_prompt(
-                    snapshot,
-                    &session.state,
-                    &state.summary_history,
-                    request.config.agent_prompt.as_deref(),
-                )
-            } else {
-                build_terminal_prompt(
-                    &session.replay_text,
-                    &session.state,
-                    state.last_terminal_context.as_deref(),
-                    request.config.terminal_prompt.as_deref(),
-                )
-            };
-
-            let raw_thought = match model_client.complete(&prompt, request.config.model_override())
-            {
-                Ok(value) => value,
-                Err(_) => {
-                    metrics.suppressed += 1;
-                    state.last_terminal_context = Some(trim_terminal_context(&session.replay_text));
-                    continue;
-                }
-            };
-
-            let thought = sanitize_thought_text(&raw_thought);
-            if thought.is_empty() {
-                metrics.suppressed += 1;
-                continue;
-            }
-
-            if is_duplicate_thought(state.last_emitted_thought.as_deref(), &thought) {
-                if emit_rest_state_change_if_needed(
-                    &mut updates,
-                    &self.stream_instance_id,
-                    state,
-                    session,
-                    next_rest_state,
-                    request.now,
-                ) {
-                    continue;
-                }
-                metrics.suppressed += 1;
-                continue;
-            }
-
-            let next_state = if objective_changed {
-                ThoughtState::Active
-            } else {
-                ThoughtState::Holding
-            };
-
-            let token_count = context_snapshot
-                .as_ref()
-                .map(|snapshot| snapshot.token_count)
-                .unwrap_or(session.token_count);
-
-            updates.push(thought_update(
-                &self.stream_instance_id,
-                state,
-                session,
-                Some(thought.clone()),
-                token_count,
-                session.context_limit,
-                next_state,
-                ThoughtSource::Llm,
-                objective_changed,
-                request.now,
-                Some(objective_fingerprint.clone()),
-                next_rest_state,
-            ));
-
-            state.last_emitted_thought = Some(thought.clone());
-            state.summary_history.push(thought);
-            if state.summary_history.len() > SUMMARY_HISTORY_CAP {
-                let start = state.summary_history.len() - SUMMARY_HISTORY_CAP;
-                state.summary_history = state.summary_history.split_off(start);
-            }
-            state.thought_state = next_state;
-            state.thought_source = ThoughtSource::Llm;
-            state.rest_state = next_rest_state;
-            state.sleeping_emitted = false;
-            state.last_terminal_context = Some(trim_terminal_context(&session.replay_text));
-            metrics.llm_calls += 1;
         }
 
         SyncResultMessage::new(
@@ -423,6 +214,310 @@ impl EmitEngine {
             }
         }
     }
+}
+
+fn process_session(
+    model_client: &dyn ModelClient,
+    stream_instance_id: &str,
+    per_session: &mut HashMap<String, SessionRuntimeState>,
+    request: &SyncRequest,
+    session: &SessionSnapshot,
+    transcript_group_counts: &HashMap<String, usize>,
+    updates: &mut Vec<ThoughtUpdate>,
+    metrics: &mut SyncMetrics,
+) {
+    metrics.sessions_seen += 1;
+
+    if session.exited {
+        metrics.suppressed += 1;
+        return;
+    }
+
+    let state = per_session
+        .entry(session.session_id.clone())
+        .or_insert_with(|| SessionRuntimeState::initialize_from_session(session, request.now));
+    let next_rest_state = rest_state_for_session(session, request.now);
+
+    if handle_sleeping_session(
+        stream_instance_id,
+        state,
+        session,
+        request.now,
+        next_rest_state,
+        updates,
+        metrics,
+    ) {
+        return;
+    }
+
+    if state.thought_state == ThoughtState::Sleeping {
+        updates.push(clear_thought_update(
+            stream_instance_id,
+            state,
+            session,
+            request.now,
+            next_rest_state,
+        ));
+        state.thought_state = ThoughtState::Holding;
+        state.thought_source = ThoughtSource::CarryForward;
+        state.rest_state = next_rest_state;
+        state.sleeping_emitted = false;
+        state.last_emitted_thought = None;
+        state.last_call_at = Some(request.now);
+    }
+
+    let context_group_is_ambiguous = transcript_group_key(session)
+        .and_then(|group_key| transcript_group_counts.get(&group_key).copied())
+        .unwrap_or_default()
+        > 1;
+    let (context_snapshot, resolved_path) = context_snapshot_for_session_with_claim(
+        session,
+        state.claimed_jsonl_path.as_deref(),
+        context_group_is_ambiguous,
+    );
+    state.claimed_jsonl_path = resolved_path;
+
+    if suppress_for_initial_context(state, session, context_snapshot.as_ref(), metrics) {
+        return;
+    }
+
+    let objective_fingerprint = context_snapshot
+        .as_ref()
+        .map(|snapshot| context_focus_fingerprint(snapshot, &session.state).to_string())
+        .unwrap_or_else(|| terminal_objective_fingerprint(&session.replay_text, &session.state));
+    let objective_changed =
+        update_objective_fingerprint(state, &objective_fingerprint, request.now);
+
+    if suppress_for_cadence_or_terminal_delta(
+        stream_instance_id,
+        state,
+        session,
+        context_snapshot.as_ref(),
+        &request.config,
+        objective_changed,
+        next_rest_state,
+        request.now,
+        updates,
+        metrics,
+    ) {
+        return;
+    }
+
+    state.last_call_at = Some(request.now);
+    let prompt = context_snapshot
+        .as_ref()
+        .map(|snapshot| {
+            build_context_prompt(
+                snapshot,
+                &session.state,
+                &state.summary_history,
+                request.config.agent_prompt.as_deref(),
+            )
+        })
+        .unwrap_or_else(|| {
+            build_terminal_prompt(
+                &session.replay_text,
+                &session.state,
+                state.last_terminal_context.as_deref(),
+                request.config.terminal_prompt.as_deref(),
+            )
+        });
+
+    let raw_thought = match model_client.complete(&prompt, request.config.model_override()) {
+        Ok(value) => value,
+        Err(_) => {
+            metrics.suppressed += 1;
+            state.last_terminal_context = Some(trim_terminal_context(&session.replay_text));
+            return;
+        }
+    };
+
+    let thought = sanitize_thought_text(&raw_thought);
+    if thought.is_empty() {
+        metrics.suppressed += 1;
+        return;
+    }
+
+    if is_duplicate_thought(state.last_emitted_thought.as_deref(), &thought) {
+        if emit_rest_state_change_if_needed(
+            updates,
+            stream_instance_id,
+            state,
+            session,
+            next_rest_state,
+            request.now,
+        ) {
+            return;
+        }
+        metrics.suppressed += 1;
+        return;
+    }
+
+    let next_state = if objective_changed {
+        ThoughtState::Active
+    } else {
+        ThoughtState::Holding
+    };
+    let token_count = context_snapshot
+        .as_ref()
+        .map(|snapshot| snapshot.token_count)
+        .unwrap_or(session.token_count);
+
+    updates.push(thought_update(
+        stream_instance_id,
+        state,
+        session,
+        Some(thought.clone()),
+        token_count,
+        session.context_limit,
+        next_state,
+        ThoughtSource::Llm,
+        objective_changed,
+        request.now,
+        Some(objective_fingerprint),
+        next_rest_state,
+    ));
+
+    state.last_emitted_thought = Some(thought.clone());
+    state.summary_history.push(thought);
+    if state.summary_history.len() > SUMMARY_HISTORY_CAP {
+        let start = state.summary_history.len() - SUMMARY_HISTORY_CAP;
+        state.summary_history = state.summary_history.split_off(start);
+    }
+    state.thought_state = next_state;
+    state.thought_source = ThoughtSource::Llm;
+    state.rest_state = next_rest_state;
+    state.sleeping_emitted = false;
+    state.last_terminal_context = Some(trim_terminal_context(&session.replay_text));
+    metrics.llm_calls += 1;
+}
+
+fn handle_sleeping_session(
+    stream_instance_id: &str,
+    state: &mut SessionRuntimeState,
+    session: &SessionSnapshot,
+    now: DateTime<Utc>,
+    next_rest_state: RestState,
+    updates: &mut Vec<ThoughtUpdate>,
+    metrics: &mut SyncMetrics,
+) -> bool {
+    if !is_sleeping_rest_state(next_rest_state) {
+        return false;
+    }
+
+    let should_emit_sleeping = state.thought_state != ThoughtState::Sleeping
+        || !state.sleeping_emitted
+        || !is_sleeping_text(state.last_emitted_thought.as_deref())
+        || state.rest_state != next_rest_state;
+
+    if should_emit_sleeping {
+        updates.push(thought_update(
+            stream_instance_id,
+            state,
+            session,
+            Some(STATIC_SLEEPING_THOUGHT.to_string()),
+            session.token_count,
+            session.context_limit,
+            ThoughtState::Sleeping,
+            ThoughtSource::StaticSleeping,
+            false,
+            now,
+            Some("sleeping".to_string()),
+            next_rest_state,
+        ));
+    } else {
+        metrics.suppressed += 1;
+    }
+
+    state.sleeping_emitted = true;
+    state.thought_state = ThoughtState::Sleeping;
+    state.thought_source = ThoughtSource::StaticSleeping;
+    state.rest_state = next_rest_state;
+    state.last_emitted_thought = Some(STATIC_SLEEPING_THOUGHT.to_string());
+    state.last_call_at = Some(now);
+    state.last_terminal_context = Some(trim_terminal_context(&session.replay_text));
+    true
+}
+
+fn suppress_for_initial_context(
+    state: &mut SessionRuntimeState,
+    session: &SessionSnapshot,
+    context_snapshot: Option<&Snapshot>,
+    metrics: &mut SyncMetrics,
+) -> bool {
+    if is_initial_thought_candidate(state, session)
+        && !has_adequate_initial_context(context_snapshot, &session.replay_text)
+    {
+        state.last_terminal_context = Some(trim_terminal_context(&session.replay_text));
+        metrics.suppressed += 1;
+        return true;
+    }
+
+    false
+}
+
+fn update_objective_fingerprint(
+    state: &mut SessionRuntimeState,
+    objective_fingerprint: &str,
+    now: DateTime<Utc>,
+) -> bool {
+    let objective_changed = state.objective_fingerprint.as_deref() != Some(objective_fingerprint);
+    if objective_changed {
+        state.objective_stable_since = now;
+        state.objective_fingerprint = Some(objective_fingerprint.to_string());
+    }
+    objective_changed
+}
+
+fn suppress_for_cadence_or_terminal_delta(
+    stream_instance_id: &str,
+    state: &mut SessionRuntimeState,
+    session: &SessionSnapshot,
+    context_snapshot: Option<&Snapshot>,
+    config: &ThoughtConfig,
+    objective_changed: bool,
+    next_rest_state: RestState,
+    now: DateTime<Utc>,
+    updates: &mut Vec<ThoughtUpdate>,
+    metrics: &mut SyncMetrics,
+) -> bool {
+    if !objective_changed && !state.should_call_for_cadence(config, now) {
+        if emit_rest_state_change_if_needed(
+            updates,
+            stream_instance_id,
+            state,
+            session,
+            next_rest_state,
+            now,
+        ) {
+            return true;
+        }
+        metrics.suppressed += 1;
+        return true;
+    }
+
+    if context_snapshot.is_none()
+        && !objective_changed
+        && !has_meaningful_terminal_delta(
+            &session.replay_text,
+            state.last_terminal_context.as_deref(),
+        )
+    {
+        if emit_rest_state_change_if_needed(
+            updates,
+            stream_instance_id,
+            state,
+            session,
+            next_rest_state,
+            now,
+        ) {
+            return true;
+        }
+        metrics.suppressed += 1;
+        return true;
+    }
+
+    false
 }
 
 fn clear_thought_update(
@@ -1153,7 +1248,12 @@ mod tests {
 
         let serialized =
             serde_json::to_value(&result.updates[0]).expect("sleeping update should serialize");
-        assert_eq!(serialized.get("rest_state").and_then(|value| value.as_str()), Some("sleeping"));
+        assert_eq!(
+            serialized
+                .get("rest_state")
+                .and_then(|value| value.as_str()),
+            Some("sleeping")
+        );
     }
 
     #[test]
@@ -1407,6 +1507,52 @@ mod tests {
             second.updates[0].thought.as_deref(),
             Some("isolating auth regression")
         );
+    }
+
+    #[test]
+    fn duplicate_thought_emits_rest_state_transition() {
+        let now = Utc::now();
+        let mut engine = EmitEngine::new(Box::new(MockModelClient {
+            response: "reviewing auth fallback".to_string(),
+        }));
+        let mut first_session = sample_session(now);
+        first_session.state = SessionState::Attention;
+
+        let first = engine.sync(&SyncRequest {
+            id: "req-1".to_string(),
+            now,
+            config: ThoughtConfig::default(),
+            sessions: vec![first_session],
+        });
+        assert_eq!(first.updates.len(), 1);
+        assert_eq!(first.updates[0].rest_state, RestState::Active);
+
+        let mut second_session = sample_session(now + Duration::seconds(20));
+        second_session.state = SessionState::Attention;
+        second_session.last_activity_at = now + Duration::seconds(5);
+
+        let second = engine.sync(&SyncRequest {
+            id: "req-2".to_string(),
+            now: now + Duration::seconds(20),
+            config: ThoughtConfig::default(),
+            sessions: vec![second_session],
+        });
+
+        assert_eq!(second.updates.len(), 1);
+        assert_eq!(
+            second.updates[0].thought.as_deref(),
+            Some("reviewing auth fallback")
+        );
+        assert_eq!(second.updates[0].rest_state, RestState::Drowsy);
+        assert_eq!(second.updates[0].thought_state, ThoughtState::Active);
+    }
+
+    #[test]
+    fn strip_ansi_removes_escape_sequences_and_controls() {
+        assert_eq!(strip_ansi("\x1b[31mred\x1b[0m"), "red");
+        assert_eq!(strip_ansi("\x1b]0;title\x07hello"), "hello");
+        assert_eq!(strip_ansi("\x1b]0;title\x1b\\hello"), "hello");
+        assert_eq!(strip_ansi("a\x08b\n\tc\x1bX!"), "ab\n\tc!");
     }
 
     #[test]

@@ -191,4 +191,101 @@ mod tests {
             Some("exec_command")
         );
     }
+
+    #[test]
+    fn extract_user_input_text_returns_first_nonempty_input_block() {
+        let payload = serde_json::json!({
+            "content": [
+                {"type": "text", "text": "ignore"},
+                {"type": "input_text", "text": "  inspect parser branches  "},
+                {"type": "input_text", "text": "later"}
+            ]
+        });
+
+        assert_eq!(
+            extract_user_input_text(&payload).as_deref(),
+            Some("inspect parser branches")
+        );
+    }
+
+    #[test]
+    fn extract_user_input_text_skips_empty_or_missing_blocks() {
+        let empty_payload = serde_json::json!({
+            "content": [
+                {"type": "input_text", "text": "   "},
+                {"type": "text", "text": "ignore"}
+            ]
+        });
+        let missing_payload = serde_json::json!({"content": "not-an-array"});
+
+        assert_eq!(extract_user_input_text(&empty_payload), None);
+        assert_eq!(extract_user_input_text(&missing_payload), None);
+    }
+
+    #[test]
+    fn parse_codex_collects_reasoning_actions_and_file_details() {
+        let file = NamedTempFile::new().expect("temp file");
+        fs::write(
+            file.path(),
+            concat!(
+                "{\"type\":\"response_item\",\"payload\":{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Review parser output\"}]}}\n",
+                "{\"type\":\"response\",\"payload\":{\"usage\":{\"input_tokens\":77}}}\n",
+                "{\"type\":\"response_item\",\"payload\":{\"type\":\"function_call\",\"name\":\"read_file\",\"arguments\":\"{\\\"file_path\\\":\\\"/tmp/demo.txt\\\"}\"}}\n",
+                "{\"type\":\"event_msg\",\"payload\":{\"type\":\"agent_reasoning\",\"text\":\"checking transcript details\"}}\n",
+                "{\"type\":\"response_item\",\"payload\":{\"type\":\"reasoning\",\"summary\":[{\"type\":\"summary_text\",\"text\":\"looking at fallback handling\"},{\"type\":\"other\",\"text\":\"ignored\"}]}}\n"
+            ),
+        )
+        .expect("write fixture");
+
+        let snapshot = parse(file.path(), &ExtractOptions::default()).expect("parse");
+
+        assert_eq!(snapshot.user_task.as_deref(), Some("Review parser output"));
+        assert_eq!(snapshot.token_count, 77);
+        assert_eq!(snapshot.recent_actions.len(), 3);
+        assert_eq!(snapshot.recent_actions[0].tool, "read_file");
+        assert_eq!(
+            snapshot.recent_actions[0].detail.as_deref(),
+            Some("demo.txt")
+        );
+        assert_eq!(snapshot.recent_actions[1].tool, "thinking");
+        assert_eq!(
+            snapshot.recent_actions[1].detail.as_deref(),
+            Some("checking transcript details")
+        );
+        assert_eq!(snapshot.recent_actions[2].tool, "thinking");
+        assert_eq!(
+            snapshot.recent_actions[2].detail.as_deref(),
+            Some("looking at fallback handling")
+        );
+        assert_eq!(
+            snapshot
+                .current_tool
+                .as_ref()
+                .map(|action| action.tool.as_str()),
+            Some("thinking")
+        );
+    }
+
+    #[test]
+    fn parse_codex_ignores_markup_and_oversized_user_inputs() {
+        let file = NamedTempFile::new().expect("temp file");
+        let oversized = "a".repeat(1001);
+        fs::write(
+            file.path(),
+            format!(
+                concat!(
+                    "{{\"type\":\"response_item\",\"payload\":{{\"role\":\"user\",\"content\":[{{\"type\":\"input_text\",\"text\":\"<system>\"}}]}}}}\n",
+                    "{{\"type\":\"response_item\",\"payload\":{{\"role\":\"user\",\"content\":[{{\"type\":\"input_text\",\"text\":\"{oversized}\"}}]}}}}\n",
+                    "{{\"type\":\"event_msg\",\"payload\":{{\"type\":\"user_message\",\"message\":\"   \"}}}}\n",
+                    "{{\"type\":\"event_msg\",\"payload\":{{\"type\":\"user_message\",\"message\":\"Use the fallback task\"}}}}\n"
+                ),
+                oversized = oversized
+            ),
+        )
+        .expect("write fixture");
+
+        let snapshot = parse(file.path(), &ExtractOptions::default()).expect("parse");
+
+        assert_eq!(snapshot.user_task.as_deref(), Some("Use the fallback task"));
+    }
 }

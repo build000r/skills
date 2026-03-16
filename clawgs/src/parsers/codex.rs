@@ -315,6 +315,30 @@ mod tests {
     }
 
     #[test]
+    fn user_response_item_text_rejects_short_markup_input() {
+        let payload = serde_json::json!({
+            "role": "user",
+            "content": [
+                {"type": "input_text", "text": "<system>"}
+            ]
+        });
+
+        assert_eq!(user_response_item_text(&payload), None);
+    }
+
+    #[test]
+    fn user_response_item_text_rejects_exactly_1000_chars() {
+        let payload = serde_json::json!({
+            "role": "user",
+            "content": [
+                {"type": "input_text", "text": "a".repeat(1000)}
+            ]
+        });
+
+        assert_eq!(user_response_item_text(&payload), None);
+    }
+
+    #[test]
     fn parse_codex_collects_reasoning_actions_and_file_details() {
         let file = NamedTempFile::new().expect("temp file");
         fs::write(

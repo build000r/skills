@@ -108,6 +108,16 @@ This appends to `~/.claude/skill-review-history.jsonl`.
 scripts/show_skill_trend.py --skill skill-issue --weeks 8
 ```
 
+6. Mine deterministic opportunity cards from the post-invocation review:
+
+```bash
+scripts/generate_skill_opportunities.py --input /tmp/skill-issue-review.json
+```
+
+This ranks concrete improvement ideas such as verification gaps, over-checkpointing,
+contract-clarity problems, and automation gaps so `skill-issue` can iterate on the
+highest-leverage changes first.
+
 ### Evidence Rules
 
 - Prefer `assistant_ack` and `skill_path` as strong invocation evidence.

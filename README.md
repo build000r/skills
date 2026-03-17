@@ -46,6 +46,7 @@ At the repo level:
 | [domain-reviewer](./domain-reviewer/) | Audit live work against plans and retire completed slices cleanly |
 | [domain-scaffolder-backend](./domain-scaffolder-backend/) | Tests-first backend scaffolding from an approved plan |
 | [domain-scaffolder-frontend](./domain-scaffolder-frontend/) | Frontend scaffolding from an approved plan plus project UI patterns |
+| [mutate](./mutate/) | Run language-appropriate mutation testing on scoped hotspots and feed survivors back into a CRAP/mutate loop |
 | [prompt-reviewer](./prompt-reviewer/) | Score prompting quality from Claude/Codex session history |
 | [reproduce](./reproduce/) | Command-first verification and QA ladder before handing testing back |
 | [crap](./crap/) | Rank Rust, Python, and TypeScript hotspots with CRAP-style scoring and `/describe` follow-ons |
@@ -104,6 +105,7 @@ npx skills add build000r/skills --all
 ```bash
 for skill in \
   crap \
+  mutate \
   ask-cascade \
   commit \
   describe \

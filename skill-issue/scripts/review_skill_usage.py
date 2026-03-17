@@ -9,6 +9,7 @@ Outputs JSON with:
   - matched invocations from Claude/Codex session logs
   - last-invoked marker data
   - heuristic reliability signals and improvement opportunities
+  - operator evidence packets for concrete patch planning
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ import argparse
 import json
 from datetime import datetime, timezone
 
+from lib.skill_evidence import generate_evidence_report
 from lib.skill_review import parse_date, scan_skill_invocations, write_marker
 
 
@@ -57,6 +59,7 @@ def main() -> None:
         until=until,
         limit=args.limit,
     )
+    report["evidence_packets"] = generate_evidence_report(report)
 
     if args.no_marker:
         report["marker_file"] = None

@@ -1,6 +1,6 @@
 ---
 name: skill-issue
-description: Create, update, review, and package skills for AI coding agents. Use when asked to "create a skill", "make a skill", "new skill", "skill template", "design a skill", "build a skill", "review this skill", "improve this skill based on past runs", "when did we last use this skill", or when working with SKILL.md files, frontmatter, bundled resources (scripts/, references/, assets/), .skill packaging, or Claude/Codex transcript-driven skill reliability. Also triggers on "how do I make a skill", "skill best practices", "skill structure", "skill reliability", or requests to extend an agent's capabilities with reusable workflows.
+description: Create, update, review, and package skills for AI coding agents. Use when asked to "create a skill", "make a skill", "new skill", "skill template", "design a skill", "build a skill", "review this skill", "improve this skill based on past runs", "when did we last use this skill", or when working with SKILL.md files, frontmatter, bundled resources (scripts/, references/, assets/), .skill packaging, or Claude/Codex transcript-driven skill reliability. Also triggers on "how do I make a skill", "skill best practices", "skill structure", "skill reliability", "operator evidence", or requests to extend an agent's capabilities with reusable workflows.
 license: Complete terms in LICENSE.txt
 ---
 
@@ -68,7 +68,7 @@ Follow these steps in order, skipping only if clearly not applicable.
 
 Use this mode when the user wants to improve a skill from real transcript evidence instead of intuition: "review this skill", "how is this skill doing", "when did we last use this skill", "look at past invocations", or "reduce unnecessary checkpoints."
 
-This mode reads Claude/Codex JSONL logs directly, writes a lightweight last-seen marker, and saves review snapshots for trend reporting.
+This mode reads Claude/Codex JSONL logs directly, writes a lightweight last-seen marker, builds operator evidence packets from repeated transcript failures, and saves review snapshots for trend reporting.
 
 ### Review Flow
 
@@ -96,14 +96,29 @@ This counts raw Codex `function_call` entries and Claude `tool_use` blocks, sort
 - `correction_rate`: how often the user redirected the run after it started
 - `completion_rate`: how often the transcript reached a clear completion event
 
-3. Turn the metrics into concrete improvement suggestions:
-- Low `ack_rate`: require a stable first commentary marker so invocation discovery does not depend on path heuristics
-- Low `validation_rate`: add or tighten the required verification block in the skill
-- High `checkpoint_rate`: move repeated preferences into `modes/` or default rules so humans are only asked when information is missing or risky
-- High `correction_rate`: tighten trigger language, non-goals, or ask-cascade guidance
-- Repeated raw shell stems (`rg`, `sed`, `find`, etc.): bundle scripts/references instead of relying on freehand shell work
+3. Build operator evidence packets before patching the skill:
 
-4. Save the review for trend tracking:
+```bash
+scripts/generate_skill_evidence_packets.py --input /tmp/skill-issue-review.json
+```
+
+This turns repeated transcript failures into packetized review artifacts with:
+- a failure family (`verification-gap`, `contract-clarity`, `checkpoint-defaults`, etc.)
+- an expected contract
+- representative traces
+- a replay slice with holdout examples
+- target files and a watch metric
+
+Read [references/operator-evidence-loop.md](references/operator-evidence-loop.md) for the packet structure and graduation rules.
+
+4. Use one packet to drive the next change instead of editing from vibes:
+- Low `ack_rate` / `observability-gap`: require a stable first commentary marker so invocation discovery does not depend on path heuristics
+- Low `validation_rate` / `verification-gap`: add or tighten the required verification block in the skill
+- High `checkpoint_rate` / `checkpoint-defaults`: move repeated preferences into `modes/` or default rules so humans are only asked when information is missing or risky
+- High `correction_rate` / `contract-clarity`: tighten trigger language, non-goals, or ask-cascade guidance
+- Repeated raw shell stems (`rg`, `sed`, `find`, etc.) / `automation-gap`: bundle scripts/references instead of relying on freehand shell work
+
+5. Save the review for trend tracking:
 
 ```bash
 scripts/save_skill_review.py --input /tmp/skill-issue-review.json
@@ -111,13 +126,13 @@ scripts/save_skill_review.py --input /tmp/skill-issue-review.json
 
 This appends to `~/.claude/skill-review-history.jsonl`.
 
-5. Show the trend when history exists:
+6. Show the trend when history exists:
 
 ```bash
 scripts/show_skill_trend.py --skill skill-issue --weeks 8
 ```
 
-6. Mine deterministic opportunity cards from the post-invocation review:
+7. Mine deterministic opportunity cards from the post-invocation review:
 
 ```bash
 scripts/generate_skill_opportunities.py --input /tmp/skill-issue-review.json
@@ -127,12 +142,16 @@ This ranks concrete improvement ideas such as verification gaps, over-checkpoint
 contract-clarity problems, and automation gaps so `skill-issue` can iterate on the
 highest-leverage changes first.
 
+Do not jump straight from aggregate rates to a patch. Build or read one operator evidence packet first.
+
 ### Evidence Rules
 
 - Prefer `assistant_ack` and `skill_path` as strong invocation evidence.
 - Treat raw user mentions as weak evidence unless paired with a path touch or explicit ack marker.
 - If the review finds no Claude Code matches, say so clearly instead of implying cross-provider coverage.
 - Optimize suggestions for one goal: remove human checkpoints except where human input is genuinely required.
+- Prefer repeated trace clusters over a single memorable anecdote when deciding what to patch next.
+- Treat evidence packets as the default bridge from review metrics to concrete edits; use full eval suites only when the contract and replay slice have stabilized.
 
 ### Step 1: Understand the Skill
 

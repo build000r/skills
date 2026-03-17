@@ -48,6 +48,7 @@ def main() -> None:
         "providers": report.get("summary", {}).get("providers", {}),
         "metrics": report.get("summary", {}).get("metrics", {}),
         "opportunities": report.get("opportunities", []),
+        "evidence_packet_summary": report.get("evidence_packets", {}).get("summary", {}),
         "marker_file": report.get("marker_file"),
     }
 

@@ -61,6 +61,107 @@ class AnalyzeCrapCoverageTests(unittest.TestCase):
 
             self.assertEqual(files, [wanted.resolve()])
 
+    def test_analyze_rust_does_not_treat_lifetimes_as_single_quoted_strings(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source = Path(tmpdir) / "sample.rs"
+            source.write_text(
+                "\n".join(
+                    [
+                        "fn frame() -> &'static str {",
+                        '    "ok"',
+                        "}",
+                        "",
+                        "fn small() {",
+                        "    let value = 1;",
+                        "}",
+                        "",
+                        "fn with_char() {",
+                        "    let marker = ':';",
+                        "}",
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            findings = {
+                symbol: (start_line, end_line, cc)
+                for symbol, start_line, end_line, cc in MODULE.analyze_rust(source)
+            }
+
+            self.assertEqual(findings["frame"], (1, 3, 1))
+            self.assertEqual(findings["small"], (5, 7, 1))
+            self.assertEqual(findings["with_char"], (9, 11, 1))
+
+    def test_analyze_typescript_keeps_single_quoted_strings_as_literals(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source = Path(tmpdir) / "sample.ts"
+            source.write_text(
+                "\n".join(
+                    [
+                        "export function sample() {",
+                        "  const label = '{not a block}';",
+                        "  if (label) {",
+                        "    return label;",
+                        "  }",
+                        "  return 'fallback';",
+                        "}",
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            findings = MODULE.analyze_typescript(source)
+
+            self.assertEqual(findings, [("sample", 1, 7, 2)])
+
+    def test_render_report_mentions_mutation_hand_off_below_threshold(self) -> None:
+        repo = Path("/tmp/repo")
+        report = MODULE.render_report(
+            repo,
+            [
+                MODULE.Finding(
+                    language="python",
+                    path=repo / "src" / "sample.py",
+                    symbol="sample",
+                    start_line=1,
+                    end_line=3,
+                    cc=2,
+                    coverage=1.0,
+                    crap=10.0,
+                )
+            ],
+        )
+
+        self.assertIn(
+            "- mutation-hardening: /mutate the top hotspot groups once the baseline test path is green; use survivors to drive stronger tests, then rerun CRAP toward < 8",
+            report,
+        )
+
+    def test_render_report_defers_mutation_hand_off_above_threshold(self) -> None:
+        repo = Path("/tmp/repo")
+        report = MODULE.render_report(
+            repo,
+            [
+                MODULE.Finding(
+                    language="python",
+                    path=repo / "src" / "sample.py",
+                    symbol="sample",
+                    start_line=1,
+                    end_line=3,
+                    cc=6,
+                    coverage=0.2,
+                    crap=72.0,
+                )
+            ],
+        )
+
+        self.assertIn(
+            "- mutation-hardening: defer /mutate until the scoped FINAL_SCORE is below 30 or the hotspot is otherwise stable enough to mutate economically",
+            report,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

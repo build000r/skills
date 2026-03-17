@@ -379,6 +379,20 @@ def strip_code_like_text(text: str) -> str:
     state = "code"
     quote_char = ""
 
+    def single_quote_closes_before_newline(start_index: int) -> bool:
+        cursor = start_index + 1
+        while cursor < length:
+            current = text[cursor]
+            if current == "\n":
+                return False
+            if current == "\\":
+                cursor += 2
+                continue
+            if current == "'":
+                return True
+            cursor += 1
+        return False
+
     while i < length:
         current = text[i]
         nxt = text[i + 1] if i + 1 < length else ""
@@ -394,7 +408,9 @@ def strip_code_like_text(text: str) -> str:
                 result.extend("  ")
                 i += 2
                 continue
-            if current in {'"', "'", "`"}:
+            if current in {'"', "`"} or (
+                current == "'" and single_quote_closes_before_newline(i)
+            ):
                 state = "string"
                 quote_char = current
                 result.append(" ")
@@ -618,6 +634,14 @@ def render_report(
     lines.append(
         f"- cross-language: /describe thresholds, coverage gaps, and launch recommendation across {group_names}"
     )
+    if final_score < 30:
+        lines.append(
+            "- mutation-hardening: /mutate the top hotspot groups once the baseline test path is green; use survivors to drive stronger tests, then rerun CRAP toward < 8"
+        )
+    else:
+        lines.append(
+            "- mutation-hardening: defer /mutate until the scoped FINAL_SCORE is below 30 or the hotspot is otherwise stable enough to mutate economically"
+        )
     lines.append(
         "Do we need to adjust any of these findings/next actions, or does this look good to launch?"
     )

@@ -20,9 +20,10 @@ Run a bounded improvement loop:
 1. establish a trustworthy baseline
 2. split the work by concern
 3. implement the highest-return slices
-4. rerun coverage and CRAP
-5. commit stable progress
-6. repeat until the scoped `FINAL_SCORE` is below the agreed threshold or a
+4. hand stable slices to mutation testing when they drop below `30`
+5. rerun coverage and CRAP
+6. commit stable progress
+7. repeat until the scoped `FINAL_SCORE` is below the agreed threshold or a
    real blocker stops progress
 
 ## Default Threshold
@@ -88,6 +89,21 @@ Record:
 - moved hotspots
 - whether unrelated failing suites still exist
 
+### 4.5 Mutation hardening hand-off
+
+When a narrowed hotspot is below `30`, the baseline test path is green, and the
+language is still within CRAP's supported v1 set (`rust`, `python`,
+`typescript`):
+
+- run the sibling `mutate` skill or the repo-native mutation command on that
+  same narrowed scope
+- use surviving mutants to drive stronger tests before adding more production
+  code changes
+- rerun coverage and CRAP after the mutation-driven test changes land
+
+Do not present mutation results as a CRAP input. They are a separate signal
+about test strength.
+
 ### 5. Commit stable progress
 
 Use the `commit` skill after each meaningful stable batch, not only at the very
@@ -135,4 +151,6 @@ For each loop close-out, report:
 - Fix the measurement before chasing inflated hotspots.
 - If a failing suite already clusters around a hotspot, stabilizing that suite
   can be higher value than chasing the raw highest CRAP number.
+- `FINAL_SCORE < 30` is a good mutation hand-off point; `FINAL_SCORE < 8` is a
+  strong healthy end-state for stabilized hotspots.
 - Treat `FINAL_SCORE` as “worst current hotspot,” not a repo average.

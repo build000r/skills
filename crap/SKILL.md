@@ -5,12 +5,13 @@ description: >
   a ranked risk report, end the analysis block with a single FINAL_SCORE line,
   and suggest divide-and-conquer /describe follow-ons behind a launch-or-adjust
   ask-cascade gate. Also bootstrap machine-readable coverage Makefile targets
-  when a repo lacks them, and optionally run a one-shot remediation loop with
-  divide-and-conquer, commits, and reruns until the scoped score is below a
-  threshold. Optional threshold input defaults to 30. Use when: "/crap",
-  "CRAP score", "risk score", "complexity and coverage",
-  "hotspots by coverage", "why is this N/A", "take it under 30",
-  "fix the hotspots", or "what should we /describe next".
+  when a repo lacks them, hand stable hotspots off to sibling `mutate` runs,
+  and optionally run a one-shot remediation loop with divide-and-conquer,
+  commits, and reruns until the scoped score is below a threshold. Optional
+  threshold input defaults to 30. Use when: "/crap", "CRAP score",
+  "risk score", "complexity and coverage", "hotspots by coverage",
+  "why is this N/A", "take it under 30", "fix the hotspots", or
+  "what should we /describe next".
 license: MIT
 ---
 
@@ -86,6 +87,31 @@ Guardrails:
   repo-wide `25` claim.
 - In one-shot remediation mode, restate the resolved threshold before starting
   the loop.
+
+## Mutation-Testing Hand-Off
+
+`crap` and `mutate` solve different problems.
+
+- `crap` ranks change risk from complexity plus coverage.
+- `mutate` checks whether the tests around a scoped hotspot are strong enough
+  to kill realistic defects.
+- Mutation testing does **not** directly change CRAP. Only coverage and
+  complexity changes move the CRAP score.
+
+Default hand-off rule:
+
+1. Prioritize coverage bootstrap, characterization tests, and simplification
+   while the scoped `FINAL_SCORE` is still `>= 30`.
+2. Start mentioning or running the sibling `mutate` skill when the scoped
+   `FINAL_SCORE` is below `30`, the baseline test path is green, coverage is
+   numeric, the hotspot language is still within CRAP's supported set
+   (`rust`, `python`, `typescript`), and the hotspot scope is narrow enough to
+   mutate economically.
+3. Treat `FINAL_SCORE < 8` as a strong end-state target for stabilized
+   hotspots, not as the prerequisite for mentioning `mutate`.
+4. If the user explicitly wants mutation testing while the scoped score is
+   still `>= 30`, keep the scope tight and say that the mutation signal may be
+   noisy until the hotspot stabilizes.
 
 ## Analyzer Behavior
 
@@ -229,15 +255,19 @@ Requirements:
 4. Implement tests first for each slice.
 5. After each slice, rerun the canonical test path, the coverage target, and
    the analyzer.
-6. Use `scripts/analyze_crap.py ... --top 20` for inner-loop reruns to keep
+6. When a slice drops below `30`, the baseline is green, and the hotspot
+   language is one of CRAP's supported v1 languages (`rust`, `python`,
+   `typescript`), optionally run the sibling `mutate` skill on that narrowed
+   scope before the next CRAP rerun.
+7. Use `scripts/analyze_crap.py ... --top 20` for inner-loop reruns to keep
    output concise while preserving the true `FINAL_SCORE`.
-7. Use the `commit` skill after each stable logical batch. Do not wait until
+8. Use the `commit` skill after each stable logical batch. Do not wait until
    the very end if the loop is making clean progress.
-8. Continue iterating until:
+9. Continue iterating until:
    - the scoped score is below threshold, or
    - a real blocker or diminishing-return stop condition from
      [references/one-shot-loop.md](references/one-shot-loop.md) is hit.
-9. Report the score delta after each loop step:
+10. Report the score delta after each loop step:
    - baseline score
    - current score
    - top moved hotspots
@@ -257,6 +287,10 @@ Requirements:
 - Treat the analyzer output as the formatting source of truth. Do not replace
   its `Suggested /describe follow-on` block or its final launch gate question
   with a handwritten alternative.
+- If the scoped `FINAL_SCORE` is below `30` and the reported language is still
+  within CRAP's supported v1 set (`rust`, `python`, `typescript`), mention the
+  sibling `mutate` skill as a follow-on path. Make it explicit that mutation
+  results are a test-quality signal, not a direct CRAP input.
 - If you add a human summary, place it after the raw analyzer output and keep
   scope labels exact.
 - If a threshold was explicitly provided or the user is in one-shot mode, state

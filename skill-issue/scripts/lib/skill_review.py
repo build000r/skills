@@ -188,6 +188,14 @@ def command_stem(command: str) -> str | None:
     return stem
 
 
+def normalize_tool_name(name: Any) -> str | None:
+    """Return a normalized tool/function name when present."""
+    if not isinstance(name, str):
+        return None
+    normalized = name.strip()
+    return normalized or None
+
+
 def find_skill_path_hits(value: Any, skill: str) -> list[str]:
     """Collect strings from nested JSON-like data that mention a skill path."""
     hits: list[str] = []
@@ -387,24 +395,17 @@ def list_session_files(source: str, since: datetime, until: datetime) -> list[tu
     return items
 
 
-def parse_session(provider: str, path: Path, mtime: datetime, skill: str) -> dict[str, Any]:
-    """Parse a Claude/Codex transcript into a skill-invocation summary."""
+def collect_session_data(provider: str, path: Path, mtime: datetime) -> dict[str, Any]:
+    """Collect normalized messages and tool calls from one transcript file."""
     user_messages: list[str] = []
     assistant_messages: list[str] = []
     function_calls: list[dict[str, Any]] = []
-    validation_commands: list[str] = []
-    checkpoint_messages: list[str] = []
-    correction_messages: list[str] = []
-    command_stems: Counter[str] = Counter()
-    touched_paths: list[str] = []
-    matched_on: set[str] = set()
     task_complete = False
     project = None
     timestamp = mtime
 
     seen_user = set()
     seen_assistant = set()
-    seen_paths = set()
 
     with open(path, "r") as handle:
         for line in handle:
@@ -425,20 +426,12 @@ def parse_session(provider: str, path: Path, mtime: datetime, skill: str) -> dic
                     cleaned = normalize_user_message(text)
                     if cleaned and cleaned not in seen_user:
                         seen_user.add(cleaned)
-                        user_messages.append(truncate(cleaned, 500))
-                        if has_user_trigger(cleaned, skill):
-                            matched_on.add("user_trigger")
-                        if CORRECTION_PATTERN.search(cleaned):
-                            correction_messages.append(truncate(cleaned))
+                        user_messages.append(cleaned)
 
                 text = extract_codex_assistant_text(entry)
                 if text and text not in seen_assistant:
                     seen_assistant.add(text)
-                    assistant_messages.append(truncate(text, 500))
-                    if is_assistant_ack(text, skill):
-                        matched_on.add("assistant_ack")
-                    if is_checkpoint_message(text):
-                        checkpoint_messages.append(truncate(text))
+                    assistant_messages.append(text)
 
                 call = extract_codex_function_call(entry)
                 if call:
@@ -453,39 +446,75 @@ def parse_session(provider: str, path: Path, mtime: datetime, skill: str) -> dic
                     cleaned = normalize_user_message(text)
                     if cleaned and cleaned not in seen_user:
                         seen_user.add(cleaned)
-                        user_messages.append(truncate(cleaned, 500))
-                        if has_user_trigger(cleaned, skill):
-                            matched_on.add("user_trigger")
-                        if CORRECTION_PATTERN.search(cleaned):
-                            correction_messages.append(truncate(cleaned))
+                        user_messages.append(cleaned)
 
                 for text in extract_claude_assistant_text(entry):
                     if text and text not in seen_assistant:
                         seen_assistant.add(text)
-                        assistant_messages.append(truncate(text, 500))
-                        if is_assistant_ack(text, skill):
-                            matched_on.add("assistant_ack")
-                        if is_checkpoint_message(text):
-                            checkpoint_messages.append(truncate(text))
+                        assistant_messages.append(text)
 
                 function_calls.extend(extract_claude_tool_uses(entry))
 
-        for call in function_calls:
-            command = call.get("command")
-            if command:
-                for pattern in VALIDATION_PATTERNS:
-                    if pattern.search(command):
-                        validation_commands.append(truncate(command))
-                        break
-                stem = command_stem(command)
-                if stem:
-                    command_stems[stem] += 1
+    return {
+        "provider": provider,
+        "file": str(path),
+        "project": project or infer_project_from_path(provider, path),
+        "timestamp": timestamp,
+        "user_messages": user_messages,
+        "assistant_messages": assistant_messages,
+        "function_calls": function_calls,
+        "task_complete": task_complete,
+    }
 
-            for hit in find_skill_path_hits(call.get("arguments"), skill):
-                if hit not in seen_paths:
-                    seen_paths.add(hit)
-                    touched_paths.append(hit)
-                    matched_on.add("skill_path")
+
+def parse_session(provider: str, path: Path, mtime: datetime, skill: str) -> dict[str, Any]:
+    """Parse a Claude/Codex transcript into a skill-invocation summary."""
+    validation_commands: list[str] = []
+    checkpoint_messages: list[str] = []
+    correction_messages: list[str] = []
+    command_stems: Counter[str] = Counter()
+    tool_counts: Counter[str] = Counter()
+    touched_paths: list[str] = []
+    matched_on: set[str] = set()
+    seen_paths = set()
+    session = collect_session_data(provider, path, mtime)
+    user_messages = session["user_messages"]
+    assistant_messages = session["assistant_messages"]
+    function_calls = session["function_calls"]
+    task_complete = session["task_complete"]
+
+    for text in user_messages:
+        if has_user_trigger(text, skill):
+            matched_on.add("user_trigger")
+        if CORRECTION_PATTERN.search(text):
+            correction_messages.append(truncate(text))
+
+    for text in assistant_messages:
+        if is_assistant_ack(text, skill):
+            matched_on.add("assistant_ack")
+        if is_checkpoint_message(text):
+            checkpoint_messages.append(truncate(text))
+
+    for call in function_calls:
+        tool_name = normalize_tool_name(call.get("name"))
+        if tool_name:
+            tool_counts[tool_name] += 1
+
+        command = call.get("command")
+        if command:
+            for pattern in VALIDATION_PATTERNS:
+                if pattern.search(command):
+                    validation_commands.append(truncate(command))
+                    break
+            stem = command_stem(command)
+            if stem:
+                command_stems[stem] += 1
+
+        for hit in find_skill_path_hits(call.get("arguments"), skill):
+            if hit not in seen_paths:
+                seen_paths.add(hit)
+                touched_paths.append(hit)
+                matched_on.add("skill_path")
 
     match_score = 0
     if "assistant_ack" in matched_on:
@@ -497,17 +526,22 @@ def parse_session(provider: str, path: Path, mtime: datetime, skill: str) -> dic
 
     return {
         "provider": provider,
-        "file": str(path),
-        "project": project or infer_project_from_path(provider, path),
-        "timestamp": timestamp.isoformat(),
+        "file": session["file"],
+        "project": session["project"],
+        "timestamp": session["timestamp"].isoformat(),
         "matched_on": sorted(matched_on),
         "match_score": match_score,
-        "user_request": user_messages[0] if user_messages else None,
-        "assistant_ack": next((msg for msg in assistant_messages if is_assistant_ack(msg, skill)), None),
+        "user_request": truncate(user_messages[0], 500) if user_messages else None,
+        "assistant_ack": next(
+            (truncate(msg, 500) for msg in assistant_messages if is_assistant_ack(msg, skill)),
+            None,
+        ),
         "validation_commands": validation_commands,
         "checkpoint_messages": checkpoint_messages[:5],
         "user_corrections": correction_messages[:5],
         "touched_paths": touched_paths[:10],
+        "tool_calls": sum(tool_counts.values()),
+        "tool_counts": dict(tool_counts),
         "command_stems": dict(command_stems),
         "task_complete": task_complete,
     }
@@ -518,6 +552,29 @@ def infer_project_from_path(provider: str, path: Path) -> str:
     if provider == "claude":
         return path.parent.name.replace("-", "/")[1:] if path.parent.name.startswith("-") else path.parent.name
     return "unknown"
+
+
+def build_tool_count_rows(
+    tool_counts: Counter[str],
+    provider_tool_counts: dict[str, Counter[str]] | None = None,
+) -> list[dict[str, Any]]:
+    """Render tool counters as stable JSON rows."""
+    provider_tool_counts = provider_tool_counts or {}
+    rows = []
+    for tool, count in sorted(tool_counts.items(), key=lambda item: (-item[1], item[0])):
+        providers = {}
+        for provider in sorted(provider_tool_counts):
+            provider_count = provider_tool_counts[provider].get(tool, 0)
+            if provider_count:
+                providers[provider] = provider_count
+        row = {
+            "tool": tool,
+            "count": count,
+        }
+        if providers:
+            row["providers"] = providers
+        rows.append(row)
+    return rows
 
 
 def build_opportunities(
@@ -662,6 +719,8 @@ def scan_skill_invocations(
     sessions_scanned = 0
     providers = Counter()
     stems = Counter()
+    tools = Counter()
+    provider_tools: dict[str, Counter[str]] = defaultdict(Counter)
 
     for provider, path, mtime in list_session_files(source, since, until):
         sessions_scanned += 1
@@ -671,6 +730,8 @@ def scan_skill_invocations(
         invocations.append(parsed)
         providers[provider] += 1
         stems.update(parsed["command_stems"])
+        tools.update(parsed["tool_counts"])
+        provider_tools[provider].update(parsed["tool_counts"])
         if len(invocations) >= limit:
             break
 
@@ -696,6 +757,9 @@ def scan_skill_invocations(
             {"stem": stem, "count": count}
             for stem, count in stems.most_common(8)
         ],
+        "total_tool_calls": sum(tools.values()),
+        "unique_tools": len(tools),
+        "top_tools": build_tool_count_rows(tools, provider_tools)[:8],
     }
 
     report = {
@@ -708,10 +772,76 @@ def scan_skill_invocations(
         "invocations_found": total,
         "last_invoked_at": last_invoked_at,
         "summary": summary,
+        "tool_counts": build_tool_count_rows(tools, provider_tools),
         "invocations": invocations,
     }
     report["opportunities"] = build_opportunities(skill, source, invocations, summary)
     return report
+
+
+def scan_tool_invocations(
+    source: str = "both",
+    since: datetime | None = None,
+    until: datetime | None = None,
+    limit: int | None = None,
+    skill: str | None = None,
+) -> dict[str, Any]:
+    """Count raw tool/function invocations across transcript files."""
+    since = since or parse_date("month")
+    until = until or datetime.now(timezone.utc)
+
+    sessions_scanned = 0
+    sessions_matched = 0
+    sessions_with_tool_calls = 0
+    providers = Counter()
+    tool_counts = Counter()
+    provider_tools: dict[str, Counter[str]] = defaultdict(Counter)
+
+    for provider, path, mtime in list_session_files(source, since, until):
+        sessions_scanned += 1
+
+        if skill:
+            session = parse_session(provider, path, mtime, skill)
+            if session["match_score"] < 2:
+                continue
+            session_tool_counts = Counter(session["tool_counts"])
+        else:
+            session_data = collect_session_data(provider, path, mtime)
+            session_tool_counts = Counter()
+            for call in session_data["function_calls"]:
+                tool_name = normalize_tool_name(call.get("name"))
+                if tool_name:
+                    session_tool_counts[tool_name] += 1
+
+        sessions_matched += 1
+        providers[provider] += 1
+
+        if session_tool_counts:
+            sessions_with_tool_calls += 1
+            tool_counts.update(session_tool_counts)
+            provider_tools[provider].update(session_tool_counts)
+
+        if limit is not None and sessions_matched >= limit:
+            break
+
+    return {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "source": source,
+        "since": since.isoformat(),
+        "until": until.isoformat(),
+        "skill": skill,
+        "limit": limit,
+        "sessions_scanned": sessions_scanned,
+        "sessions_matched": sessions_matched,
+        "sessions_with_tool_calls": sessions_with_tool_calls,
+        "providers": dict(providers),
+        "summary": {
+            "total_tool_calls": sum(tool_counts.values()),
+            "unique_tools": len(tool_counts),
+            "top_tools": build_tool_count_rows(tool_counts, provider_tools)[:12],
+        },
+        "tool_counts": build_tool_count_rows(tool_counts, provider_tools),
+    }
 
 
 def write_marker(report: dict[str, Any]) -> Path:

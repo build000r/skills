@@ -80,6 +80,15 @@ scripts/review_skill_usage.py --skill skill-issue --source both --since month --
 
 This writes `~/.claude/skill-markers/<skill>.json` by default with the latest detected invocation date. Use `--no-marker` only when you explicitly need read-only behavior.
 
+Optional, when you need deterministic raw tool tallies for evals, count the underlying tool calls directly:
+
+```bash
+scripts/count_tool_invocations.py --skill skill-issue --source both --since month
+scripts/count_tool_invocations.py --source both --since week
+```
+
+This counts raw Codex `function_call` entries and Claude `tool_use` blocks, sorted by count then tool name.
+
 2. Read the generated JSON and focus on reliability signals:
 - `ack_rate`: how often the run included an explicit `Using <skill>` marker
 - `validation_rate`: how often the run executed a concrete verification command

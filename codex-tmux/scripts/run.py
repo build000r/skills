@@ -22,10 +22,10 @@ Usage:
     # Read result file directly
     python3 scripts/run.py result --session codex-20260220-143022
 
-    # Override model/effort/prefix
+    # Set explicit model/effort/prefix
     python3 scripts/run.py launch \
         --task "..." --cd ~/repos/myapp \
-        --prefix dac-review --model gpt-5.2-codex --reasoning-effort high
+        --prefix dac-review --model gpt-5.4 --reasoning-effort xhigh
 """
 
 from __future__ import annotations
@@ -39,8 +39,8 @@ from datetime import datetime
 from pathlib import Path
 from textwrap import dedent
 
-DEFAULT_MODEL = "gpt-5.3-codex"
-DEFAULT_REASONING_EFFORT = "xhigh"
+DEFAULT_MODEL = "gpt-5.4"
+DEFAULT_REASONING_EFFORT = "high"
 DEFAULT_RESULT_DIR = Path("/tmp/codex-tmux")
 DEFAULT_PREFIX = "codex"
 
@@ -352,9 +352,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
                           help=f"Session name prefix (default: {DEFAULT_PREFIX})")
     p_launch.add_argument("--result-dir", default=str(DEFAULT_RESULT_DIR),
                           help=f"Directory for result files (default: {DEFAULT_RESULT_DIR})")
-    p_launch.add_argument("--model", default=DEFAULT_MODEL)
+    p_launch.add_argument("--model", default=DEFAULT_MODEL, choices=[DEFAULT_MODEL],
+                          help=f"Model to use (fixed: {DEFAULT_MODEL})")
     p_launch.add_argument("--reasoning-effort", default=DEFAULT_REASONING_EFFORT,
-                          choices=["minimal", "low", "medium", "high", "xhigh"])
+                          choices=["medium", "high", "xhigh"],
+                          help="Reasoning effort (prefer higher tiers; when unsure, pick the next higher tier)")
     p_launch.add_argument("--codex-bin", default="codex")
 
     # status

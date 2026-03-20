@@ -19,9 +19,9 @@ Conflict check verifies these concerns don't overlap in files, but prompts stay 
 Multiple Explore agents (physically read-only) gather context, one general-purpose agent writes.
 
 ```
-Agent A (Explore, runtime-fast): Research how auth is implemented across the codebase
-Agent B (Explore, runtime-fast): Research how the test framework is configured
-Agent C (general-purpose, runtime-default): Implement the change (uses findings from A and B)
+Agent A (Explore, gpt-5.4/medium): Research how auth is implemented across the codebase
+Agent B (Explore, gpt-5.4/medium): Research how the test framework is configured
+Agent C (general-purpose, gpt-5.4/high): Implement the change (uses findings from A and B)
 ```
 
 Note: Agent C must run AFTER A and B complete. Use this only when A/B are
@@ -44,9 +44,9 @@ Caution: Only safe if layers don't share files (e.g., shared types file). Confli
 Each agent investigates a different hypothesis or area. All Explore type (cannot write).
 
 ```
-Agent A (Explore, runtime-fast): Check if the bug is in the API layer
-Agent B (Explore, runtime-fast): Check if the bug is in the database queries
-Agent C (Explore, runtime-fast): Check if the bug is in the frontend state management
+Agent A (Explore, gpt-5.4/medium): Check if the bug is in the API layer
+Agent B (Explore, gpt-5.4/medium): Check if the bug is in the database queries
+Agent C (Explore, gpt-5.4/medium): Check if the bug is in the frontend state management
 ```
 
 All three launch in a single message. Results reviewed by orchestrator to determine root cause.
@@ -100,7 +100,7 @@ Before finalizing a split, verify:
 - [ ] Research agents use Explore type (physically cannot write)
 - [ ] Write agents use general-purpose type
 - [ ] Command-only agents use Bash type
-- [ ] Model selection is runtime-native (Codex -> Codex models, Claude -> Claude models)
+- [ ] Explicit model selection uses `gpt-5.4`, with reasoning effort chosen from `medium|high|xhigh`
 - [ ] All parallel agents are launched in a single message
 - [ ] The orchestrator can review each agent's work independently
 - [ ] Recombining results requires no conflict resolution
@@ -110,5 +110,5 @@ Before finalizing a split, verify:
 - **Too granular**: 10 agents each doing one tiny thing = overhead > benefit
 - **Too coarse**: 1 agent doing everything = no parallelism
 - **Sweet spot**: 2-5 agents, each with a meaningful chunk of work
-- **Research agents**: Can be more numerous since Explore type is read-only and runtime-fast/default tiers are cheap
+- **Research agents**: Can be more numerous since Explore type is read-only and `gpt-5.4/medium` is usually enough
 - **Implementation agents**: Fewer is better to minimize conflict risk

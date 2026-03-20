@@ -50,6 +50,12 @@ Path B (conversation died):
 
 No recursive agents. No `claude --resume`. The signal is a dumb tmux primitive.
 
+## Model Policy
+
+- Use `gpt-5.4` whenever you pass `--model`. Older `gpt-5.x-codex` variants are out of scope for this skill.
+- Default to `high` reasoning. Use `medium` only for clearly bounded work, and `xhigh` for reviews, ambiguity, or high-risk changes.
+- When unsure between two reasoning tiers, choose the next higher one.
+
 ## Usage Protocol
 
 ### Step 1: Build your prompt
@@ -63,6 +69,8 @@ python3 ~/.claude/skills/codex-tmux/scripts/run.py launch \
     --task "<your prompt string>" \
     --cd "<repo working directory>"
 ```
+
+Defaults are `gpt-5.4` and `high` reasoning. Raise to `xhigh` when the task is reviewer-grade or ambiguous.
 
 The script outputs JSON to stdout:
 
@@ -125,8 +133,8 @@ python3 scripts/run.py launch \
     --cd ~/repos/myapp \
     [--prefix codex]              # session name prefix (default: codex)
     [--result-dir /tmp/codex-tmux] # where to write results (default: /tmp/codex-tmux)
-    [--model gpt-5.3-codex]       # codex model (default: gpt-5.3-codex)
-    [--reasoning-effort xhigh]    # minimal|low|medium|high|xhigh (default: xhigh)
+    [--model gpt-5.4]             # fixed model (default and only allowed value: gpt-5.4)
+    [--reasoning-effort high]     # medium|high|xhigh (default: high; round up when unsure)
     [--codex-bin codex]            # path to codex binary (default: codex)
 ```
 

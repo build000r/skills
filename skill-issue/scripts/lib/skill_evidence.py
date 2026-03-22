@@ -2,7 +2,7 @@
 Operator-evidence packet generation for skill review reports.
 
 This bridges aggregate transcript-review metrics to concrete skill edits and
-small replay slices before a team invests in a fuller eval harness.
+historical reference slices before a team invests in a fuller eval harness.
 """
 
 from __future__ import annotations
@@ -120,7 +120,7 @@ def infer_task_type(user_request: str | None) -> str:
 
 
 def enrich_invocation(invocation: dict[str, Any]) -> dict[str, Any]:
-    """Attach stable metadata used for replay slices."""
+    """Attach stable metadata used for historical reference slices."""
     enriched = dict(invocation)
     project = invocation.get("project")
     if isinstance(project, str) and project.startswith("/"):
@@ -198,7 +198,7 @@ def _holdout_examples(
     all_invocations: list[dict[str, Any]],
     max_controls: int,
 ) -> list[dict[str, Any]]:
-    """Pick a few non-matching runs as simple anti-regression controls."""
+    """Pick a few non-matching past runs as simple anti-regression controls."""
     if not focus_examples or max_controls <= 0:
         return []
 
@@ -231,6 +231,18 @@ def _automation_supporting_metrics(invocations: list[dict[str, Any]]) -> dict[st
         stem_counts.update(stems & RAW_SHELL_STEMS)
     return {
         "top_raw_shell_stems": [stem for stem, _ in stem_counts.most_common(3)],
+    }
+
+
+def _post_ship_window(affected_runs: int) -> dict[str, Any]:
+    """Recommend a lightweight live-traffic observation window after shipping."""
+    min_new_invocations = max(5, min(20, affected_runs * 2))
+    return {
+        "type": "real_invocation_window",
+        "source_of_truth": "future real skill invocations",
+        "synthetic_reruns": "avoid by default",
+        "min_new_invocations": min_new_invocations,
+        "max_days": 14,
     }
 
 
@@ -272,14 +284,16 @@ def generate_evidence_report(
             "suggested_fix_class": rule["suggested_fix_class"],
             "target_files": rule["target_files"],
             "watch_metric": rule["watch_metric"],
+            "experiment_unit": "real_invocation_window",
             "affected_runs": affected_runs,
             "total_runs": total_runs,
             "prevalence": prevalence,
             "representative_traces": traces,
-            "replay_slice": {
+            "historical_reference_slice": {
                 "target_examples": traces,
                 "holdout_examples": _holdout_examples(issue_type, matches, invocations, max_controls),
             },
+            "post_ship_window": _post_ship_window(affected_runs),
             "skill_issue_brief": _packet_brief(
                 skill=skill,
                 issue_type=issue_type,
@@ -288,6 +302,7 @@ def generate_evidence_report(
                 expected_contract=rule["expected_contract"],
             ),
         }
+        packet["replay_slice"] = packet["historical_reference_slice"]
         if issue_type == "automation-gap":
             packet["supporting_metrics"] = _automation_supporting_metrics(matches)
         packets.append(packet)
@@ -330,7 +345,7 @@ def render_evidence_markdown(report: dict[str, Any]) -> str:
     lines = [f"## Operator Evidence Packets ({skill})", ""]
     lines.append(
         "Turns repeated transcript failures into packetized review artifacts that can "
-        "drive a targeted skill patch and a small replay slice."
+        "drive a targeted skill patch and a post-ship live observation window."
     )
     lines.append("")
     lines.append(f"- Sessions scanned: {source_review.get('sessions_scanned', 0)}")
@@ -358,6 +373,15 @@ def render_evidence_markdown(report: dict[str, Any]) -> str:
         lines.append(f"Expected contract: {packet['expected_contract']}")
         lines.append(f"Target files: {', '.join(packet['target_files'])}")
         lines.append(f"Watch metric: {packet['watch_metric']}")
+        if packet.get("experiment_unit"):
+            lines.append(f"Experiment unit: {packet['experiment_unit']}")
+        if packet.get("post_ship_window"):
+            window = packet["post_ship_window"]
+            lines.append(
+                "Post-ship window: "
+                f"next {window.get('min_new_invocations')} real invocations or "
+                f"{window.get('max_days')} days"
+            )
         lines.append(f"Skill-issue brief: {packet['skill_issue_brief']}")
         if packet.get("supporting_metrics"):
             stems = packet["supporting_metrics"].get("top_raw_shell_stems", [])
@@ -368,8 +392,8 @@ def render_evidence_markdown(report: dict[str, Any]) -> str:
             lines.append(
                 f"- {trace.get('timestamp')} | {trace.get('signal')} | {trace.get('user_request') or 'n/a'}"
             )
-        lines.append("Replay slice:")
-        for trace in packet.get("replay_slice", {}).get("holdout_examples", []):
+        lines.append("Historical reference slice:")
+        for trace in packet.get("historical_reference_slice", {}).get("holdout_examples", []):
             lines.append(
                 f"- holdout | {trace.get('timestamp')} | {trace.get('user_request') or 'n/a'}"
             )

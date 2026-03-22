@@ -70,6 +70,8 @@ Use this mode when the user wants to improve a skill from real transcript eviden
 
 This mode reads Claude/Codex JSONL logs directly, writes a lightweight last-seen marker, builds operator evidence packets from repeated transcript failures, and saves review snapshots for trend reporting.
 
+Treat real user-triggered skill invocations as the experiment corpus. Do not fabricate synthetic reruns by default. Patch from live traces, ship once, then watch the next real invocation window.
+
 ### Review Flow
 
 1. Scan transcript history for a target skill:
@@ -99,15 +101,16 @@ This counts raw Codex `function_call` entries and Claude `tool_use` blocks, sort
 3. Build operator evidence packets before patching the skill:
 
 ```bash
-scripts/generate_skill_evidence_packets.py --input /tmp/skill-issue-review.json
+scripts/generate_skill_evidence_packets.py --input /tmp/skill-issue-review.json --json > /tmp/skill-issue-packets.json
 ```
 
 This turns repeated transcript failures into packetized review artifacts with:
 - a failure family (`verification-gap`, `contract-clarity`, `checkpoint-defaults`, etc.)
 - an expected contract
 - representative traces
-- a replay slice with holdout examples
+- a historical reference slice with holdout examples
 - target files and a watch metric
+- a post-ship observation window for future real invocations
 
 Read [references/operator-evidence-loop.md](references/operator-evidence-loop.md) for the packet structure and graduation rules.
 
@@ -118,7 +121,21 @@ Read [references/operator-evidence-loop.md](references/operator-evidence-loop.md
 - High `correction_rate` / `contract-clarity`: tighten trigger language, non-goals, or ask-cascade guidance
 - Repeated raw shell stems (`rg`, `sed`, `find`, etc.) / `automation-gap`: bundle scripts/references instead of relying on freehand shell work
 
-5. Save the review for trend tracking:
+5. If you ship a packet-driven change, log the shipment and expected watch window:
+
+```bash
+scripts/log_skill_packet_decision.py \
+  --input /tmp/skill-issue-packets.json \
+  --packet-id verification-gap-global \
+  --review /tmp/skill-issue-review.json \
+  --notes "tightened verification block in closeout"
+```
+
+This appends to `~/.claude/skill-packet-ledger.jsonl` with the packet id, expected contract,
+watch metric baseline, and the next live observation window. The ledger is for shipped changes
+against real traffic, not synthetic replay runs.
+
+6. Save the review for trend tracking:
 
 ```bash
 scripts/save_skill_review.py --input /tmp/skill-issue-review.json
@@ -126,13 +143,13 @@ scripts/save_skill_review.py --input /tmp/skill-issue-review.json
 
 This appends to `~/.claude/skill-review-history.jsonl`.
 
-6. Show the trend when history exists:
+7. Show the trend when history exists:
 
 ```bash
 scripts/show_skill_trend.py --skill skill-issue --weeks 8
 ```
 
-7. Mine deterministic opportunity cards from the post-invocation review:
+8. Mine deterministic opportunity cards from the post-invocation review:
 
 ```bash
 scripts/generate_skill_opportunities.py --input /tmp/skill-issue-review.json
@@ -142,7 +159,14 @@ This ranks concrete improvement ideas such as verification gaps, over-checkpoint
 contract-clarity problems, and automation gaps so `skill-issue` can iterate on the
 highest-leverage changes first.
 
-Do not jump straight from aggregate rates to a patch. Build or read one operator evidence packet first.
+9. After enough new real invocations arrive, rerun the review and compare the watch metric to the
+logged baseline:
+
+- Prefer the next 5-20 real invocations of that skill, or a 1-2 week window for lower-volume skills
+- Judge success from live post-ship behavior, not from synthetic reruns of canned prompts
+- Only reach for fuller evals when the contract and historical reference slice have stabilized
+
+Do not jump straight from aggregate rates to a patch. Build or read one operator evidence packet first, and do not treat synthetic reruns as the default source of truth.
 
 ### Evidence Rules
 
@@ -151,7 +175,7 @@ Do not jump straight from aggregate rates to a patch. Build or read one operator
 - If the review finds no Claude Code matches, say so clearly instead of implying cross-provider coverage.
 - Optimize suggestions for one goal: remove human checkpoints except where human input is genuinely required.
 - Prefer repeated trace clusters over a single memorable anecdote when deciding what to patch next.
-- Treat evidence packets as the default bridge from review metrics to concrete edits; use full eval suites only when the contract and replay slice have stabilized.
+- Treat evidence packets as the default bridge from review metrics to concrete edits; use full eval suites only when the contract and historical reference slice have stabilized.
 
 ### Step 1: Understand the Skill
 

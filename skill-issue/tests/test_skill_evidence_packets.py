@@ -89,10 +89,15 @@ class SkillEvidencePacketTests(unittest.TestCase):
         contract_packet = next(packet for packet in report["packets"] if packet["issue_type"] == "contract-clarity")
         self.assertEqual(contract_packet["watch_metric"], "correction_rate")
         self.assertEqual(len(contract_packet["representative_traces"]), 2)
-        self.assertEqual(len(contract_packet["replay_slice"]["holdout_examples"]), 1)
+        self.assertEqual(len(contract_packet["historical_reference_slice"]["holdout_examples"]), 1)
         self.assertTrue(
-            contract_packet["replay_slice"]["holdout_examples"][0]["signal"].startswith("holdout control:")
+            contract_packet["historical_reference_slice"]["holdout_examples"][0]["signal"].startswith(
+                "holdout control:"
+            )
         )
+        self.assertEqual(contract_packet["experiment_unit"], "real_invocation_window")
+        self.assertEqual(contract_packet["post_ship_window"]["type"], "real_invocation_window")
+        self.assertIs(contract_packet["replay_slice"], contract_packet["historical_reference_slice"])
 
     def test_render_evidence_markdown_includes_packet_details(self) -> None:
         report = {
@@ -118,7 +123,9 @@ class SkillEvidencePacketTests(unittest.TestCase):
                             "user_request": "review this skill",
                         }
                     ],
-                    "replay_slice": {"holdout_examples": []},
+                    "experiment_unit": "real_invocation_window",
+                    "post_ship_window": {"min_new_invocations": 5, "max_days": 14},
+                    "historical_reference_slice": {"holdout_examples": []},
                 }
             ],
         }
@@ -128,6 +135,8 @@ class SkillEvidencePacketTests(unittest.TestCase):
         self.assertIn("## Operator Evidence Packets (skill-issue)", markdown)
         self.assertIn("verification-gap", markdown)
         self.assertIn("validation_rate", markdown)
+        self.assertIn("Historical reference slice", markdown)
+        self.assertIn("next 5 real invocations or 14 days", markdown)
 
 
 if __name__ == "__main__":

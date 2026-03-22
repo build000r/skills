@@ -19,6 +19,7 @@ METRIC_ORDER = (
     "ack_rate",
     "validation_rate",
     "checkpoint_rate",
+    "risk_gating_rate",
     "correction_rate",
     "completion_rate",
 )
@@ -55,8 +56,8 @@ def render_markdown(skill: str, aggregated: dict[str, dict], weeks: int) -> str:
     ack_values = [aggregated[w]["metrics"]["ack_rate"] for w in week_keys]
     lines.append(f"**Ack Rate:** {ack_values[-1]:.2f} {spark(ack_values)}")
     lines.append("")
-    lines.append("| Week | Reviews | Invocations | Ack | Validate | Checkpoints | Corrections | Complete |")
-    lines.append("|------|---------|-------------|-----|----------|-------------|-------------|----------|")
+    lines.append("| Week | Reviews | Invocations | Ack | Validate | Checkpoints | Risk Gates | Corrections | Complete |")
+    lines.append("|------|---------|-------------|-----|----------|-------------|------------|-------------|----------|")
 
     for week in week_keys:
         data = aggregated[week]
@@ -64,7 +65,8 @@ def render_markdown(skill: str, aggregated: dict[str, dict], weeks: int) -> str:
         lines.append(
             f"| {week} | {data['reviews']} | {data['invocations']} | "
             f"{metrics['ack_rate']:.2f} | {metrics['validation_rate']:.2f} | "
-            f"{metrics['checkpoint_rate']:.2f} | {metrics['correction_rate']:.2f} | "
+            f"{metrics['checkpoint_rate']:.2f} | {metrics['risk_gating_rate']:.2f} | "
+            f"{metrics['correction_rate']:.2f} | "
             f"{metrics['completion_rate']:.2f} |"
         )
 

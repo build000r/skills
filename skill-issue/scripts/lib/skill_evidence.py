@@ -62,6 +62,20 @@ PACKET_RULES = {
         "target_files": ["SKILL.md", "modes/"],
         "watch_metric": "checkpoint_rate",
     },
+    "risk-gating-gap": {
+        "failure_family": "The skill crosses risky boundaries without the human gate the workflow expects.",
+        "why_now": (
+            "When users have to say wait, ask first, or bring in an outside reviewer, "
+            "the skill is treating risky branches as defaults instead of gated paths."
+        ),
+        "expected_contract": (
+            "Pause for confirmation, clarification, or designated outside review before "
+            "irreversible or high-risk actions."
+        ),
+        "suggested_fix_class": "add-risk-gating-rules",
+        "target_files": ["SKILL.md", "references/", "modes/"],
+        "watch_metric": "risk_gating_rate",
+    },
     "contract-clarity": {
         "failure_family": "The skill activates, but users still have to redirect it onto the right path.",
         "why_now": (
@@ -138,6 +152,8 @@ def _matches(issue_type: str, invocation: dict[str, Any]) -> bool:
         return not invocation.get("validation_commands")
     if issue_type == "checkpoint-defaults":
         return bool(invocation.get("checkpoint_messages"))
+    if issue_type == "risk-gating-gap":
+        return bool(invocation.get("risk_gating_messages"))
     if issue_type == "contract-clarity":
         return bool(invocation.get("user_corrections"))
     if issue_type == "closeout-gap":
@@ -155,6 +171,8 @@ def _signal(issue_type: str, invocation: dict[str, Any]) -> str:
         return "no validation command detected"
     if issue_type == "checkpoint-defaults":
         return (invocation.get("checkpoint_messages") or ["checkpoint prompt detected"])[0]
+    if issue_type == "risk-gating-gap":
+        return (invocation.get("risk_gating_messages") or ["risk gate should have existed"])[0]
     if issue_type == "contract-clarity":
         return (invocation.get("user_corrections") or ["user redirect detected"])[0]
     if issue_type == "closeout-gap":
@@ -183,6 +201,8 @@ def _holdout_signal(issue_type: str, invocation: dict[str, Any]) -> str:
         return "holdout control: validation command detected"
     if issue_type == "checkpoint-defaults":
         return "holdout control: no checkpoint prompt detected"
+    if issue_type == "risk-gating-gap":
+        return "holdout control: no missing risk gate cue detected"
     if issue_type == "contract-clarity":
         return "holdout control: no user redirect detected"
     if issue_type == "closeout-gap":

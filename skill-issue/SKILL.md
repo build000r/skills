@@ -95,6 +95,7 @@ This counts raw Codex `function_call` entries and Claude `tool_use` blocks, sort
 - `ack_rate`: how often the run included an explicit `Using <skill>` marker
 - `validation_rate`: how often the run executed a concrete verification command
 - `checkpoint_rate`: how often the agent asked for confirmation/checkpoint prompts
+- `risk_gating_rate`: how often users explicitly signaled that the run should have paused for clarification, approval, or outside review before a risky step
 - `correction_rate`: how often the user redirected the run after it started
 - `completion_rate`: how often the transcript reached a clear completion event
 
@@ -118,6 +119,7 @@ Read [references/operator-evidence-loop.md](references/operator-evidence-loop.md
 - Low `ack_rate` / `observability-gap`: require a stable first commentary marker so invocation discovery does not depend on path heuristics
 - Low `validation_rate` / `verification-gap`: add or tighten the required verification block in the skill
 - High `checkpoint_rate` / `checkpoint-defaults`: move repeated preferences into `modes/` or default rules so humans are only asked when information is missing or risky
+- High `risk_gating_rate` / `risk-gating-gap`: add explicit pause points for irreversible or high-risk branches so the skill asks first or routes to the right reviewer before proceeding
 - High `correction_rate` / `contract-clarity`: tighten trigger language, non-goals, or ask-cascade guidance
 - Repeated raw shell stems (`rg`, `sed`, `find`, etc.) / `automation-gap`: bundle scripts/references instead of relying on freehand shell work
 
@@ -156,10 +158,25 @@ scripts/generate_skill_opportunities.py --input /tmp/skill-issue-review.json
 ```
 
 This ranks concrete improvement ideas such as verification gaps, over-checkpointing,
-contract-clarity problems, and automation gaps so `skill-issue` can iterate on the
-highest-leverage changes first.
+missing risk gates, contract-clarity problems, and automation gaps so `skill-issue`
+can iterate on the highest-leverage changes first.
 
-9. After enough new real invocations arrive, rerun the review and compare the watch metric to the
+9. When the question is portfolio-level rather than "improve this one skill", run the catalog-wide miner:
+
+```bash
+scripts/generate_skill_portfolio_opportunities.py --source both --since month
+```
+
+Use this when you want to find:
+- repeated manual workflows that should become new skills
+- requests that look like an existing skill but are not activating it reliably
+- overlapping skills that should likely collapse into one canonical skill plus `modes/` or aliases
+
+This is a cross-skill scan. It reads all top-level skills in the current skills root and all matching
+Claude/Codex sessions in range, then ranks `skill-creation-opportunity`,
+`skill-discoverability-gap`, and `skill-consolidation-opportunity` cards.
+
+10. After enough new real invocations arrive, rerun the review and compare the watch metric to the
 logged baseline:
 
 - Prefer the next 5-20 real invocations of that skill, or a 1-2 week window for lower-volume skills
@@ -174,6 +191,7 @@ Do not jump straight from aggregate rates to a patch. Build or read one operator
 - Treat raw user mentions as weak evidence unless paired with a path touch or explicit ack marker.
 - If the review finds no Claude Code matches, say so clearly instead of implying cross-provider coverage.
 - Optimize suggestions for one goal: remove human checkpoints except where human input is genuinely required.
+- Treat interruption-like cues as weak evidence by themselves; prefer explicit user language like "wait", "ask first", "before sending", or "bring X in the loop" before labeling a missing risk gate.
 - Prefer repeated trace clusters over a single memorable anecdote when deciding what to patch next.
 - Treat evidence packets as the default bridge from review metrics to concrete edits; use full eval suites only when the contract and historical reference slice have stabilized.
 

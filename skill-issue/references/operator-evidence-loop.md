@@ -25,7 +25,7 @@ Do not skip straight from aggregate rates to patching `SKILL.md`. Build or read 
 Each packet should capture one failure family:
 
 1. **Failure family**
-   Example: `contract-clarity`, `verification-gap`, `checkpoint-defaults`
+   Example: `contract-clarity`, `verification-gap`, `checkpoint-defaults`, `risk-gating-gap`
 2. **Why this cluster matters**
    One short statement tying the packet to user pain or workflow drift
 3. **Expected contract**
@@ -54,6 +54,7 @@ These map cleanly onto `skill-issue`'s current review metrics:
 | `observability-gap` | skill path touched without explicit ack | emit a stable `Using <skill>` acknowledgement early | `ack_rate` |
 | `verification-gap` | no validation command detected | run a concrete verification path before handoff | `validation_rate` |
 | `checkpoint-defaults` | repeated checkpoint prompts | default common choices; ask only when missing or risky | `checkpoint_rate` |
+| `risk-gating-gap` | user says wait/ask first/bring in review before proceeding | pause for confirmation, clarification, or named outside review before risky actions | `risk_gating_rate` |
 | `contract-clarity` | user redirects after activation | branch correctly earlier using tighter triggers and non-goals | `correction_rate` |
 | `closeout-gap` | no completion event detected | end with explicit verification evidence and clear completion | `completion_rate` |
 | `automation-gap` | repeated raw shell stems | bundle recurring shell work into scripts or concise references | raw shell stem frequency |

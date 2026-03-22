@@ -53,6 +53,28 @@ CORRECTION_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+RISK_GATING_PATTERN = re.compile(
+    r"\b("
+    r"wait until|hold on|not yet|should have asked|needed to ask|"
+    r"ask further questions|ask first|clarify first|clarify if required|"
+    r"confirm first|check first|"
+    r"before (?:diving in|proceeding|upload(?:ing)?|email(?:ing)?|"
+    r"send(?:ing)?|ship(?:ping)?|publish(?:ing)?|post(?:ing)?|deploy(?:ing)?)|"
+    r"human in the loop|lawyer in the loop"
+    r")\b",
+    re.IGNORECASE,
+)
+
+RISK_GATING_ACTION_PATTERN = re.compile(
+    r"\b(ask|clarify|confirm|check(?: with)?|approval|approve|sign[- ]?off|reach out to)\b",
+    re.IGNORECASE,
+)
+
+RISK_GATING_BOUNDARY_PATTERN = re.compile(
+    r"\b(before|first|until|prior to|if required|in the loop)\b",
+    re.IGNORECASE,
+)
+
 COMMAND_STEM_EXCLUDE = {"python", "python3", "bash", "sh", "zsh", "env"}
 
 
@@ -223,6 +245,16 @@ def find_skill_path_hits(value: Any, skill: str) -> list[str]:
 def is_checkpoint_message(message: str) -> bool:
     """Detect user-facing checkpoint prompts rather than normal progress updates."""
     return "?" in message and bool(CHECKPOINT_PATTERN.search(message))
+
+
+def is_risk_gating_message(message: str) -> bool:
+    """Detect user cues that the run should have paused before a risky boundary."""
+    if RISK_GATING_PATTERN.search(message):
+        return True
+    return bool(
+        RISK_GATING_ACTION_PATTERN.search(message)
+        and RISK_GATING_BOUNDARY_PATTERN.search(message)
+    )
 
 
 def extract_codex_user_text(entry: dict[str, Any]) -> str | None:
@@ -472,6 +504,7 @@ def parse_session(provider: str, path: Path, mtime: datetime, skill: str) -> dic
     validation_commands: list[str] = []
     checkpoint_messages: list[str] = []
     correction_messages: list[str] = []
+    risk_gating_messages: list[str] = []
     command_stems: Counter[str] = Counter()
     tool_counts: Counter[str] = Counter()
     touched_paths: list[str] = []
@@ -488,6 +521,8 @@ def parse_session(provider: str, path: Path, mtime: datetime, skill: str) -> dic
             matched_on.add("user_trigger")
         if CORRECTION_PATTERN.search(text):
             correction_messages.append(truncate(text))
+        if is_risk_gating_message(text):
+            risk_gating_messages.append(truncate(text))
 
     for text in assistant_messages:
         if is_assistant_ack(text, skill):
@@ -539,6 +574,7 @@ def parse_session(provider: str, path: Path, mtime: datetime, skill: str) -> dic
         "validation_commands": validation_commands,
         "checkpoint_messages": checkpoint_messages[:5],
         "user_corrections": correction_messages[:5],
+        "risk_gating_messages": risk_gating_messages[:5],
         "touched_paths": touched_paths[:10],
         "tool_calls": sum(tool_counts.values()),
         "tool_counts": dict(tool_counts),
@@ -652,6 +688,27 @@ def build_opportunities(
             }
         )
 
+    risk_gating_examples = [inv for inv in invocations if inv["risk_gating_messages"]]
+    if risk_gating_examples and summary["metrics"]["risk_gating_rate"] >= 0.1:
+        opportunities.append(
+            {
+                "id": "risk-gating-gap",
+                "priority": "high",
+                "summary": (
+                    "Users are explicitly flagging steps that should have paused for confirmation, "
+                    "clarification, or outside review before proceeding. Add risk-gating rules so "
+                    "irreversible or high-risk branches are not treated as defaults."
+                ),
+                "evidence": [
+                    {
+                        "timestamp": inv["timestamp"],
+                        "message": inv["risk_gating_messages"][0],
+                    }
+                    for inv in risk_gating_examples[:3]
+                ],
+            }
+        )
+
     correction_examples = [inv for inv in invocations if inv["user_corrections"]]
     if correction_examples and summary["metrics"]["correction_rate"] >= 0.15:
         opportunities.append(
@@ -750,6 +807,7 @@ def scan_skill_invocations(
             "ack_rate": rate(lambda item: "assistant_ack" in item["matched_on"]),
             "validation_rate": rate(lambda item: bool(item["validation_commands"])),
             "checkpoint_rate": rate(lambda item: bool(item["checkpoint_messages"])),
+            "risk_gating_rate": rate(lambda item: bool(item["risk_gating_messages"])),
             "correction_rate": rate(lambda item: bool(item["user_corrections"])),
             "completion_rate": rate(lambda item: item["task_complete"]),
         },
@@ -891,7 +949,14 @@ def aggregate_history_by_week(records: list[dict[str, Any]]) -> dict[str, dict[s
         count = len(items)
         invocations = sum(item.get("invocations", 0) for item in items)
         metrics = {}
-        for key in ("ack_rate", "validation_rate", "checkpoint_rate", "correction_rate", "completion_rate"):
+        for key in (
+            "ack_rate",
+            "validation_rate",
+            "checkpoint_rate",
+            "risk_gating_rate",
+            "correction_rate",
+            "completion_rate",
+        ):
             values = [item.get("metrics", {}).get(key, 0.0) for item in items]
             metrics[key] = round(sum(values) / len(values), 3) if values else 0.0
         aggregated[week] = {

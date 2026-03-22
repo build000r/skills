@@ -69,6 +69,22 @@ ISSUE_RULES = {
             "skill only asks when information is missing or risky."
         ),
     },
+    "risk-gating-gap": {
+        "impact_weight": 4.5,
+        "confidence_weight": 0.8,
+        "severity": "high",
+        "suggested_fix_class": "add-risk-gating-rules",
+        "target_files": ["SKILL.md", "references/", "modes/"],
+        "hypothesis": (
+            "The skill is treating an irreversible or externally reviewed step as a "
+            "default path when it should pause for confirmation, clarification, or a "
+            "designated human reviewer."
+        ),
+        "recommendation": (
+            "Add explicit risk gates for high-cost steps, including when to ask first, "
+            "wait for clarification, or bring in a named reviewer before proceeding."
+        ),
+    },
     "automation-gap": {
         "impact_weight": 3.0,
         "confidence_weight": 0.85,
@@ -238,6 +254,8 @@ def _evidence_for_rule(issue_type: str, invocation: dict[str, Any]) -> dict[str,
         evidence["signal"] = (invocation.get("user_corrections") or ["user redirect detected"])[0]
     elif issue_type == "checkpoint-defaults":
         evidence["signal"] = (invocation.get("checkpoint_messages") or ["checkpoint prompt detected"])[0]
+    elif issue_type == "risk-gating-gap":
+        evidence["signal"] = (invocation.get("risk_gating_messages") or ["risk gate should have existed"])[0]
     elif issue_type == "closeout-gap":
         evidence["signal"] = "no completion event detected"
     elif issue_type == "observability-gap":
@@ -256,6 +274,8 @@ def _predicate_matches(issue_type: str, invocation: dict[str, Any]) -> bool:
         return bool(invocation.get("user_corrections"))
     if issue_type == "checkpoint-defaults":
         return bool(invocation.get("checkpoint_messages"))
+    if issue_type == "risk-gating-gap":
+        return bool(invocation.get("risk_gating_messages"))
     if issue_type == "closeout-gap":
         return not invocation.get("task_complete")
     if issue_type == "observability-gap":

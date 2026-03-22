@@ -29,6 +29,7 @@ class SkillEvidencePacketTests(unittest.TestCase):
                     "validation_commands": [],
                     "checkpoint_messages": [],
                     "user_corrections": ["focus on transcript evidence, not just heuristics"],
+                    "risk_gating_messages": ["it should wait until fixes are made before uploading"],
                     "command_stems": {"rg": 2, "sed": 1},
                     "task_complete": False,
                 },
@@ -41,6 +42,7 @@ class SkillEvidencePacketTests(unittest.TestCase):
                     "validation_commands": [],
                     "checkpoint_messages": ["should I ask more questions first?"],
                     "user_corrections": ["use a tighter operator-evidence loop"],
+                    "risk_gating_messages": ["ask further questions before diving in further"],
                     "command_stems": {"rg": 1},
                     "task_complete": True,
                 },
@@ -53,6 +55,7 @@ class SkillEvidencePacketTests(unittest.TestCase):
                     "validation_commands": ["python3 scripts/quick_validate.py skill-issue"],
                     "checkpoint_messages": [],
                     "user_corrections": [],
+                    "risk_gating_messages": [],
                     "command_stems": {"python3": 1},
                     "task_complete": True,
                 },
@@ -65,6 +68,7 @@ class SkillEvidencePacketTests(unittest.TestCase):
                     "validation_commands": [],
                     "checkpoint_messages": [],
                     "user_corrections": [],
+                    "risk_gating_messages": [],
                     "command_stems": {"ls": 1},
                     "task_complete": False,
                 },
@@ -84,6 +88,7 @@ class SkillEvidencePacketTests(unittest.TestCase):
 
         packet_types = [packet["issue_type"] for packet in report["packets"]]
         self.assertIn("verification-gap", packet_types)
+        self.assertIn("risk-gating-gap", packet_types)
         self.assertIn("contract-clarity", packet_types)
 
         contract_packet = next(packet for packet in report["packets"] if packet["issue_type"] == "contract-clarity")
@@ -98,6 +103,10 @@ class SkillEvidencePacketTests(unittest.TestCase):
         self.assertEqual(contract_packet["experiment_unit"], "real_invocation_window")
         self.assertEqual(contract_packet["post_ship_window"]["type"], "real_invocation_window")
         self.assertIs(contract_packet["replay_slice"], contract_packet["historical_reference_slice"])
+
+        risk_packet = next(packet for packet in report["packets"] if packet["issue_type"] == "risk-gating-gap")
+        self.assertEqual(risk_packet["watch_metric"], "risk_gating_rate")
+        self.assertEqual(risk_packet["representative_traces"][0]["signal"], "it should wait until fixes are made before uploading")
 
     def test_render_evidence_markdown_includes_packet_details(self) -> None:
         report = {

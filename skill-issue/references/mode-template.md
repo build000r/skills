@@ -16,7 +16,7 @@ cwd_match: ~/repos/{project-name}
 
 Naming and structural conventions for skills in this org:
 
-- **Naming pattern**: `{domain}-{action}` (e.g., `pdf-editor`, `deploy-debug`)
+- **Naming pattern**: `{domain}-{action}` (e.g., `pdf-editor`, `deploy`)
 - **Required SKILL.md sections**: frontmatter, description, workflow, output
 - **Max SKILL.md lines**: 500 (recommended) | custom limit
 - **Required frontmatter fields**: name, description, license

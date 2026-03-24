@@ -24,6 +24,7 @@
 - `current_tool` (`Action | null`): latest detected tool/thinking action
 - `token_count` (`number`): latest observed `input_tokens`
 - `recent_actions` (`Action[]`): bounded action list, oldest to newest
+- `commit_signal` (`CommitSignal`, optional): Codex-only commit-readiness nudge derived from transcript evidence
 
 ### Action
 
@@ -31,6 +32,14 @@
 - `detail` (`string | null`): short normalized detail
 - `kind` (`"tool_use" | "text" | "thinking" | "function_call" | "other"`)
 - `ts` (`string | null`): timestamp when available in source event
+
+### CommitSignal
+
+- `candidate` (`boolean`): `true` when edits were observed, validation succeeded, the dirty tree was checked, and no commit was seen
+- `edited` (`boolean`): `true` when a completed edit action such as `apply_patch` was observed
+- `validated` (`boolean`): `true` when a successful test/lint/typecheck command was paired with successful command output
+- `dirty_checked` (`boolean`): `true` when the transcript shows a git dirty-tree check
+- `commit_seen` (`boolean`): `true` when the transcript shows a git commit command
 
 ## stats
 
@@ -65,7 +74,14 @@
         "kind": "function_call",
         "ts": null
       }
-    ]
+    ],
+    "commit_signal": {
+      "candidate": false,
+      "edited": false,
+      "validated": false,
+      "dirty_checked": false,
+      "commit_seen": false
+    }
   },
   "stats": {
     "events_seen": 4,

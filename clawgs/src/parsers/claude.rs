@@ -33,6 +33,7 @@ pub(crate) fn parse(path: &Path, options: &ExtractOptions) -> Result<ParseSnapsh
         recent_actions,
         current_tool,
         token_count,
+        commit_signal: None,
         events_seen: parsed.entries.len() as u64,
         malformed_lines_skipped: parsed.malformed_lines_skipped,
         bytes_read: parsed.bytes_read,

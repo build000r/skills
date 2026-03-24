@@ -1,0 +1,8 @@
+{"type":"session_meta","payload":{"cwd":"/tmp/project"}}
+{"type":"event_msg","payload":{"type":"user_message","message":"Ship preview-first widget fix"}}
+{"type":"response_item","payload":{"type":"function_call","name":"exec_command","arguments":"{\"cmd\":\"git status --short\",\"workdir\":\"/tmp/project\"}","call_id":"call_status"}}
+{"type":"response_item","payload":{"type":"custom_tool_call","status":"completed","name":"apply_patch","call_id":"call_patch","input":"*** Begin Patch\n*** Update File: /tmp/project/src/widget.tsx\n@@\n-const broken = true;\n+const broken = false;\n*** End Patch\n"}}
+{"type":"response_item","payload":{"type":"function_call","name":"exec_command","arguments":"{\"cmd\":\"cargo test --manifest-path clawgs/Cargo.toml codex -- --nocapture\",\"workdir\":\"/tmp/project\"}","call_id":"call_validate"}}
+{"type":"response_item","payload":{"type":"function_call_output","call_id":"call_validate","output":"Chunk ID: abc123\nWall time: 0.0100 seconds\nProcess exited with code 0\nOriginal token count: 12\nOutput:\n\nvalidation passed\n"}}
+{"type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":144379}}}}
+{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Warning: apply_patch was requested via exec_command. Use the apply_patch tool instead of exec_command."}]}}

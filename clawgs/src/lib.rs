@@ -68,6 +68,15 @@ pub struct Action {
     pub ts: Option<String>,
 }
 
+#[derive(Debug, Clone, Default, Serialize, PartialEq, Eq)]
+pub struct CommitSignal {
+    pub candidate: bool,
+    pub edited: bool,
+    pub validated: bool,
+    pub dirty_checked: bool,
+    pub commit_seen: bool,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct Snapshot {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -76,6 +85,8 @@ pub struct Snapshot {
     pub current_tool: Option<Action>,
     pub token_count: u64,
     pub recent_actions: Vec<Action>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub commit_signal: Option<CommitSignal>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -164,6 +175,7 @@ pub fn extract(
             current_tool: parsed.current_tool,
             token_count: parsed.token_count,
             recent_actions: parsed.recent_actions,
+            commit_signal: parsed.commit_signal,
         },
         stats: Stats {
             events_seen: parsed.events_seen,

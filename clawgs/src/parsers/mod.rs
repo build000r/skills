@@ -7,13 +7,14 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use serde_json::Value;
 
-use crate::{Action, ExtractOptions};
+use crate::{Action, CommitSignal, ExtractOptions};
 
 pub(crate) struct ParseSnapshot {
     pub user_task: Option<String>,
     pub recent_actions: Vec<Action>,
     pub current_tool: Option<Action>,
     pub token_count: u64,
+    pub commit_signal: Option<CommitSignal>,
     pub events_seen: u64,
     pub malformed_lines_skipped: u64,
     pub bytes_read: u64,

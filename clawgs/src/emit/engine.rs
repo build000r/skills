@@ -751,8 +751,8 @@ fn thought_update(
 ) -> ThoughtUpdate {
     ThoughtUpdate {
         session_id: session.session_id.clone(),
-        stream_instance_id: stream_instance_id.to_string(),
-        emission_seq: state.next_emission_seq(),
+        stream_instance_id: Some(stream_instance_id.to_string()),
+        emission_seq: Some(state.next_emission_seq()),
         thought,
         token_count,
         context_limit,
@@ -1412,9 +1412,9 @@ mod tests {
         );
         assert_eq!(
             result.updates[0].stream_instance_id,
-            result.stream_instance_id
+            Some(result.stream_instance_id.clone())
         );
-        assert_eq!(result.updates[0].emission_seq, 1);
+        assert_eq!(result.updates[0].emission_seq, Some(1));
     }
 
     #[test]
@@ -1485,7 +1485,7 @@ mod tests {
         assert_eq!(result.updates.len(), 1);
         assert_eq!(result.updates[0].thought.as_deref(), Some("Sleeping."));
         assert_eq!(result.updates[0].thought_state, ThoughtState::Sleeping);
-        assert_eq!(result.updates[0].emission_seq, 1);
+        assert_eq!(result.updates[0].emission_seq, Some(1));
     }
 
     #[test]
@@ -1659,7 +1659,7 @@ mod tests {
             sessions: vec![sleeping.clone()],
         });
         assert_eq!(first.updates.len(), 1);
-        assert_eq!(first.updates[0].emission_seq, 1);
+        assert_eq!(first.updates[0].emission_seq, Some(1));
 
         let second = engine.sync(&SyncRequest {
             id: "req-2".to_string(),
@@ -1678,8 +1678,8 @@ mod tests {
         });
         assert_eq!(third.updates.len(), 2);
         assert_eq!(third.updates[0].thought, None);
-        assert_eq!(third.updates[0].emission_seq, 2);
-        assert_eq!(third.updates[1].emission_seq, 3);
+        assert_eq!(third.updates[0].emission_seq, Some(2));
+        assert_eq!(third.updates[1].emission_seq, Some(3));
     }
 
     #[test]
@@ -1787,7 +1787,7 @@ mod tests {
         });
 
         assert_eq!(second.updates.len(), 1);
-        assert_eq!(second.updates[0].emission_seq, 1);
+        assert_eq!(second.updates[0].emission_seq, Some(1));
         assert_eq!(
             second.updates[0].thought.as_deref(),
             Some("isolating auth regression")

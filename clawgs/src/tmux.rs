@@ -132,6 +132,7 @@ fn build_session_snapshot(
         context_limit: 0,
         last_activity_at: now,
         rest_state: RestState::Active,
+        commit_candidate: false,
     }
 }
 

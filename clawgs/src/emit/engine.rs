@@ -36,6 +36,7 @@ struct SessionRuntimeState {
     thought_state: ThoughtState,
     thought_source: ThoughtSource,
     rest_state: RestState,
+    commit_candidate: bool,
     objective_fingerprint: Option<String>,
     objective_stable_since: DateTime<Utc>,
     claimed_jsonl_path: Option<PathBuf>,
@@ -60,6 +61,7 @@ impl SessionRuntimeState {
             thought_state: session.thought_state,
             thought_source: session.thought_source,
             rest_state: session.rest_state,
+            commit_candidate: session.commit_candidate,
             objective_fingerprint: session.objective_fingerprint.clone(),
             objective_stable_since: thought_updated_at,
             claimed_jsonl_path: None,
@@ -105,6 +107,7 @@ impl SessionRuntimeState {
 struct PreparedSessionContext {
     context_snapshot: Option<Snapshot>,
     next_rest_state: RestState,
+    next_commit_candidate: bool,
     objective_fingerprint: String,
     objective_changed: bool,
 }
@@ -200,7 +203,9 @@ impl EmitEngine {
             let needs_clear = state.last_emitted_thought.is_some()
                 || session.thought.is_some()
                 || state.thought_state != ThoughtState::Holding
-                || state.rest_state != next_rest_state;
+                || state.rest_state != next_rest_state
+                || state.commit_candidate
+                || session.commit_candidate;
 
             if needs_clear {
                 updates.push(clear_thought_update(
@@ -209,11 +214,13 @@ impl EmitEngine {
                     session,
                     request.now,
                     next_rest_state,
+                    false,
                 ));
                 state.last_emitted_thought = None;
                 state.thought_state = ThoughtState::Holding;
                 state.thought_source = ThoughtSource::CarryForward;
                 state.rest_state = next_rest_state;
+                state.commit_candidate = false;
                 state.sleeping_emitted = false;
                 state.last_call_at = Some(request.now);
             } else {
@@ -244,6 +251,13 @@ fn process_session(
         .entry(session.session_id.clone())
         .or_insert_with(|| SessionRuntimeState::initialize_from_session(session, request.now));
     let next_rest_state = rest_state_for_session(session, request.now);
+    let (context_snapshot, resolved_path) = context_snapshot_for_session_with_claim(
+        session,
+        state.claimed_jsonl_path.as_deref(),
+        transcript_group_is_ambiguous(session, transcript_group_counts),
+    );
+    state.claimed_jsonl_path = resolved_path;
+    let next_commit_candidate = commit_candidate_for_context(context_snapshot.as_ref());
 
     if handle_sleeping_session(
         stream_instance_id,
@@ -251,6 +265,7 @@ fn process_session(
         session,
         request.now,
         next_rest_state,
+        next_commit_candidate,
         updates,
         metrics,
     ) {
@@ -263,6 +278,7 @@ fn process_session(
         session,
         request.now,
         next_rest_state,
+        next_commit_candidate,
         updates,
     );
 
@@ -270,8 +286,9 @@ fn process_session(
         state,
         session,
         request.now,
-        transcript_group_counts,
+        context_snapshot,
         next_rest_state,
+        next_commit_candidate,
         metrics,
     ) else {
         return;
@@ -285,6 +302,7 @@ fn process_session(
         &request.config,
         prepared.objective_changed,
         prepared.next_rest_state,
+        prepared.next_commit_candidate,
         request.now,
         updates,
         metrics,
@@ -310,6 +328,7 @@ fn wake_from_sleep_if_needed(
     session: &SessionSnapshot,
     now: DateTime<Utc>,
     next_rest_state: RestState,
+    next_commit_candidate: bool,
     updates: &mut Vec<ThoughtUpdate>,
 ) {
     if state.thought_state != ThoughtState::Sleeping {
@@ -322,10 +341,12 @@ fn wake_from_sleep_if_needed(
         session,
         now,
         next_rest_state,
+        next_commit_candidate,
     ));
     state.thought_state = ThoughtState::Holding;
     state.thought_source = ThoughtSource::CarryForward;
     state.rest_state = next_rest_state;
+    state.commit_candidate = next_commit_candidate;
     state.sleeping_emitted = false;
     state.last_emitted_thought = None;
     state.last_call_at = Some(now);
@@ -335,17 +356,11 @@ fn prepare_session_context(
     state: &mut SessionRuntimeState,
     session: &SessionSnapshot,
     now: DateTime<Utc>,
-    transcript_group_counts: &HashMap<String, usize>,
+    context_snapshot: Option<Snapshot>,
     next_rest_state: RestState,
+    next_commit_candidate: bool,
     metrics: &mut SyncMetrics,
 ) -> Option<PreparedSessionContext> {
-    let (context_snapshot, resolved_path) = context_snapshot_for_session_with_claim(
-        session,
-        state.claimed_jsonl_path.as_deref(),
-        transcript_group_is_ambiguous(session, transcript_group_counts),
-    );
-    state.claimed_jsonl_path = resolved_path;
-
     if suppress_for_initial_context(state, session, context_snapshot.as_ref(), metrics) {
         return None;
     }
@@ -357,6 +372,7 @@ fn prepare_session_context(
     Some(PreparedSessionContext {
         context_snapshot,
         next_rest_state,
+        next_commit_candidate,
         objective_fingerprint,
         objective_changed,
     })
@@ -412,6 +428,7 @@ fn emit_session_thought(
         state,
         session,
         prepared.next_rest_state,
+        prepared.next_commit_candidate,
         request.now,
         metrics,
     ) {
@@ -480,6 +497,7 @@ fn handle_duplicate_generated_thought(
     state: &mut SessionRuntimeState,
     session: &SessionSnapshot,
     next_rest_state: RestState,
+    next_commit_candidate: bool,
     now: DateTime<Utc>,
     metrics: &mut SyncMetrics,
 ) -> bool {
@@ -487,12 +505,13 @@ fn handle_duplicate_generated_thought(
         return false;
     }
 
-    if emit_rest_state_change_if_needed(
+    if emit_passive_state_change_if_needed(
         updates,
         stream_instance_id,
         state,
         session,
         next_rest_state,
+        next_commit_candidate,
         now,
     ) {
         return true;
@@ -526,6 +545,7 @@ fn publish_generated_thought(
         now,
         Some(prepared.objective_fingerprint.clone()),
         prepared.next_rest_state,
+        prepared.next_commit_candidate,
     ));
 
     state.last_emitted_thought = Some(thought.to_string());
@@ -537,6 +557,7 @@ fn publish_generated_thought(
     state.thought_state = next_state;
     state.thought_source = ThoughtSource::Llm;
     state.rest_state = prepared.next_rest_state;
+    state.commit_candidate = prepared.next_commit_candidate;
     state.sleeping_emitted = false;
     state.last_terminal_context = Some(trim_terminal_context(&session.replay_text));
     metrics.llm_calls += 1;
@@ -562,6 +583,7 @@ fn handle_sleeping_session(
     session: &SessionSnapshot,
     now: DateTime<Utc>,
     next_rest_state: RestState,
+    next_commit_candidate: bool,
     updates: &mut Vec<ThoughtUpdate>,
     metrics: &mut SyncMetrics,
 ) -> bool {
@@ -572,7 +594,8 @@ fn handle_sleeping_session(
     let should_emit_sleeping = state.thought_state != ThoughtState::Sleeping
         || !state.sleeping_emitted
         || !is_sleeping_text(state.last_emitted_thought.as_deref())
-        || state.rest_state != next_rest_state;
+        || state.rest_state != next_rest_state
+        || state.commit_candidate != next_commit_candidate;
 
     if should_emit_sleeping {
         updates.push(thought_update(
@@ -588,6 +611,7 @@ fn handle_sleeping_session(
             now,
             Some("sleeping".to_string()),
             next_rest_state,
+            next_commit_candidate,
         ));
     } else {
         metrics.suppressed += 1;
@@ -597,6 +621,7 @@ fn handle_sleeping_session(
     state.thought_state = ThoughtState::Sleeping;
     state.thought_source = ThoughtSource::StaticSleeping;
     state.rest_state = next_rest_state;
+    state.commit_candidate = next_commit_candidate;
     state.last_emitted_thought = Some(STATIC_SLEEPING_THOUGHT.to_string());
     state.last_call_at = Some(now);
     state.last_terminal_context = Some(trim_terminal_context(&session.replay_text));
@@ -641,29 +666,32 @@ fn suppress_for_cadence_or_terminal_delta(
     config: &ThoughtConfig,
     objective_changed: bool,
     next_rest_state: RestState,
+    next_commit_candidate: bool,
     now: DateTime<Utc>,
     updates: &mut Vec<ThoughtUpdate>,
     metrics: &mut SyncMetrics,
 ) -> bool {
     if should_suppress_for_cadence(state, config, objective_changed, now) {
-        return suppress_with_rest_state_change(
+        return suppress_with_passive_state_change(
             updates,
             stream_instance_id,
             state,
             session,
             next_rest_state,
+            next_commit_candidate,
             now,
             metrics,
         );
     }
 
     if should_suppress_for_terminal_delta(session, state, context_snapshot, objective_changed) {
-        return suppress_with_rest_state_change(
+        return suppress_with_passive_state_change(
             updates,
             stream_instance_id,
             state,
             session,
             next_rest_state,
+            next_commit_candidate,
             now,
             metrics,
         );
@@ -678,6 +706,7 @@ fn clear_thought_update(
     session: &SessionSnapshot,
     now: DateTime<Utc>,
     rest_state: RestState,
+    commit_candidate: bool,
 ) -> ThoughtUpdate {
     thought_update(
         stream_instance_id,
@@ -692,18 +721,20 @@ fn clear_thought_update(
         now,
         None,
         rest_state,
+        commit_candidate,
     )
 }
 
-fn emit_rest_state_change_if_needed(
+fn emit_passive_state_change_if_needed(
     updates: &mut Vec<ThoughtUpdate>,
     stream_instance_id: &str,
     state: &mut SessionRuntimeState,
     session: &SessionSnapshot,
     next_rest_state: RestState,
+    next_commit_candidate: bool,
     now: DateTime<Utc>,
 ) -> bool {
-    if state.rest_state == next_rest_state {
+    if state.rest_state == next_rest_state && state.commit_candidate == next_commit_candidate {
         return false;
     }
 
@@ -720,8 +751,10 @@ fn emit_rest_state_change_if_needed(
         now,
         state.objective_fingerprint.clone(),
         next_rest_state,
+        next_commit_candidate,
     ));
     state.rest_state = next_rest_state;
+    state.commit_candidate = next_commit_candidate;
     true
 }
 
@@ -748,6 +781,7 @@ fn thought_update(
     at: DateTime<Utc>,
     objective_fingerprint: Option<String>,
     rest_state: RestState,
+    commit_candidate: bool,
 ) -> ThoughtUpdate {
     ThoughtUpdate {
         session_id: session.session_id.clone(),
@@ -763,6 +797,7 @@ fn thought_update(
         at,
         objective_fingerprint,
         rest_state,
+        commit_candidate,
     }
 }
 
@@ -799,21 +834,23 @@ fn should_suppress_for_terminal_delta(
         )
 }
 
-fn suppress_with_rest_state_change(
+fn suppress_with_passive_state_change(
     updates: &mut Vec<ThoughtUpdate>,
     stream_instance_id: &str,
     state: &mut SessionRuntimeState,
     session: &SessionSnapshot,
     next_rest_state: RestState,
+    next_commit_candidate: bool,
     now: DateTime<Utc>,
     metrics: &mut SyncMetrics,
 ) -> bool {
-    if emit_rest_state_change_if_needed(
+    if emit_passive_state_change_if_needed(
         updates,
         stream_instance_id,
         state,
         session,
         next_rest_state,
+        next_commit_candidate,
         now,
     ) {
         true
@@ -821,6 +858,13 @@ fn suppress_with_rest_state_change(
         metrics.suppressed += 1;
         true
     }
+}
+
+fn commit_candidate_for_context(context_snapshot: Option<&Snapshot>) -> bool {
+    context_snapshot
+        .and_then(|snapshot| snapshot.commit_signal.as_ref())
+        .map(|signal| signal.candidate)
+        .unwrap_or(false)
 }
 
 fn idle_rest_state(idle_ms: i64) -> RestState {
@@ -1385,6 +1429,7 @@ mod tests {
             context_limit: 192_000,
             last_activity_at: now,
             rest_state: RestState::Active,
+            commit_candidate: false,
         }
     }
 
@@ -1511,6 +1556,7 @@ mod tests {
         assert_eq!(result.updates[0].thought.as_deref(), Some("Sleeping."));
         assert_eq!(result.updates[0].thought_state, ThoughtState::Sleeping);
         assert_eq!(result.updates[0].rest_state, RestState::Sleeping);
+        assert!(!result.updates[0].commit_candidate);
     }
 
     #[test]
@@ -1566,6 +1612,66 @@ mod tests {
         assert_eq!(result.updates.len(), 1);
         assert!(result.updates[0].thought.is_none());
         assert_eq!(result.updates[0].thought_state, ThoughtState::Holding);
+        assert!(!result.updates[0].commit_candidate);
+    }
+
+    #[test]
+    fn duplicate_thought_still_emits_commit_candidate_change() {
+        let cwd = PathBuf::from("/tmp/project");
+        let temp = tempdir().expect("tempdir");
+        let transcript = temp.path().join("candidate.jsonl");
+
+        let now = Utc::now();
+        let mut engine = EmitEngine::new(Box::new(MockModelClient {
+            response: "stabilizing preview widget behavior".to_string(),
+        }));
+        let mut session = sample_session(now);
+
+        let first = engine.sync(&SyncRequest {
+            id: "req-1".to_string(),
+            now,
+            config: ThoughtConfig::default(),
+            sessions: vec![session.clone()],
+        });
+        assert_eq!(first.updates.len(), 1);
+        assert!(!first.updates[0].commit_candidate);
+
+        engine
+            .per_session
+            .get_mut("sess-1")
+            .expect("state should exist")
+            .claimed_jsonl_path = Some(transcript.clone());
+
+        fs::write(
+            &transcript,
+            concat!(
+                "{\"type\":\"session_meta\",\"payload\":{\"cwd\":\"/tmp/project\"}}\n",
+                "{\"type\":\"event_msg\",\"payload\":{\"type\":\"user_message\",\"message\":\"Ship preview-first widget fix\"}}\n",
+                "{\"type\":\"response_item\",\"payload\":{\"type\":\"function_call\",\"name\":\"exec_command\",\"arguments\":\"{\\\"cmd\\\":\\\"git status --short\\\"}\",\"call_id\":\"call_status\"}}\n",
+                "{\"type\":\"response_item\",\"payload\":{\"type\":\"custom_tool_call\",\"status\":\"completed\",\"name\":\"apply_patch\",\"call_id\":\"call_patch\",\"input\":\"*** Begin Patch\\n*** Update File: /tmp/project/src/widget.tsx\\n@@\\n-old\\n+new\\n*** End Patch\\n\"}}\n",
+                "{\"type\":\"response_item\",\"payload\":{\"type\":\"function_call\",\"name\":\"exec_command\",\"arguments\":\"{\\\"cmd\\\":\\\"cargo test --manifest-path clawgs/Cargo.toml codex -- --nocapture\\\"}\",\"call_id\":\"call_validate\"}}\n",
+                "{\"type\":\"response_item\",\"payload\":{\"type\":\"function_call_output\",\"call_id\":\"call_validate\",\"output\":\"Chunk ID: abc123\\nWall time: 0.0100 seconds\\nProcess exited with code 0\\nOriginal token count: 12\\nOutput:\\n\\nvalidation passed\\n\"}}\n"
+            ),
+        )
+        .expect("rewrite transcript");
+
+        session.tool = Some("codex".to_string());
+        session.cwd = cwd.display().to_string();
+        session.replay_text = "cargo test --manifest-path clawgs/Cargo.toml".to_string();
+
+        let second = engine.sync(&SyncRequest {
+            id: "req-2".to_string(),
+            now: now + Duration::seconds(60),
+            config: ThoughtConfig::default(),
+            sessions: vec![session],
+        });
+        assert_eq!(second.updates.len(), 1);
+        assert_eq!(
+            second.updates[0].thought.as_deref(),
+            Some("stabilizing preview widget behavior")
+        );
+        assert!(second.updates[0].commit_candidate);
+        assert_eq!(second.updates[0].emission_seq, Some(2));
     }
 
     #[test]

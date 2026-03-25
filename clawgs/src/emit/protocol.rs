@@ -223,6 +223,8 @@ pub struct SessionSnapshot {
     pub last_activity_at: DateTime<Utc>,
     #[serde(default)]
     pub rest_state: RestState,
+    #[serde(default)]
+    pub commit_candidate: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -376,6 +378,8 @@ pub struct SyncUpdate {
     pub objective_fingerprint: Option<String>,
     #[serde(default)]
     pub rest_state: RestState,
+    #[serde(default)]
+    pub commit_candidate: bool,
 }
 
 pub type ThoughtUpdate = SyncUpdate;
@@ -609,6 +613,7 @@ mod tests {
             token_count: 12,
             context_limit: 100,
             last_activity_at: now,
+            commit_candidate: false,
         }
     }
 

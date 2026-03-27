@@ -8,6 +8,18 @@ license: Complete terms in LICENSE.txt
 
 Create effective skills for AI coding agents: modular packages that extend agents with specialized workflows, domain expertise, and reusable tools.
 
+## Use This For
+
+- Creating, updating, packaging, or reviewing reusable agent skills
+- Transcript-driven skill reliability work based on real invocation history
+- Working on SKILL.md files, bundled scripts/references/assets, or skill packaging
+
+## Do Not Use This For
+
+- One-off prompts or workflows that are not meant to become reusable skills
+- Generic repo maintenance with no skill artifact involved
+- Pure prompt review when the target is the user rather than the skill contract
+
 ## Modes
 
 Modes customize skill creation for specific organizations or projects — naming conventions, required sections, publishing targets, testing workflows, and review processes. Stored in `modes/` (gitignored, never committed).

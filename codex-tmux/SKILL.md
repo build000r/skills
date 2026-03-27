@@ -1,13 +1,7 @@
 ---
 name: codex-tmux
 type: utility
-description: >
-  Run Codex in a persistent tmux session with signal-based completion.
-  Two-path model: if the calling conversation is alive, a background
-  `tmux wait-for` unblocks and returns the result. If the conversation
-  died, a macOS notification fires and the result file persists on disk.
-  Use when a task may take 5+ minutes, must survive session death, or
-  needs a fresh context without orchestrator bias.
+description: Run Codex in a persistent tmux session with signal-based completion so long tasks survive conversation death. Use when work may take 5+ minutes, needs background execution, or must remain retrievable after the calling session ends.
 license: MIT
 ---
 

@@ -1,14 +1,6 @@
 ---
 name: divide-and-conquer
-description: >
-  Decompose complex tasks into independent, parallel sub-agents with no overlapping
-  concerns, race conditions, or inter-agent dependencies. Autonomous execution: plans
-  the split, launches immediately, then runs a Codex review agent to verify, fix, and
-  commit. Use BEFORE spawning Task agents when the work involves multiple files,
-  domains, or concerns that could be parallelized. Triggers on: planning multi-agent
-  work, "split this into agents", "parallelize this", "divide and conquer", or when
-  about to launch 2+ Task agents for a complex task. Also use when a task feels too
-  large for a single agent but the right decomposition isn't obvious.
+description: Decompose complex work into independent parallel sub-agents with no write overlap, then run a review pass to verify and clean up. Use before spawning multiple agents for multi-file, multi-domain, or naturally parallel tasks.
 license: MIT
 ---
 

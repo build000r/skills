@@ -1,28 +1,24 @@
 ---
 name: domain-planner
-description: |
-  Guide the 6-phase human-in-the-loop planning process for new domain slices
-  spanning multiple repositories. Also orchestrates implementation when a plan is ready.
-
-  Use when:
-  - User says "let's plan the X slice" or "plan the X feature"
-  - User wants to create a new feature spanning frontend and backend
-  - User needs API contracts before implementation
-  - User says "implement the X slice" or "build X" (orchestration mode)
-  - User says "check plan quality for X" or "assess the X plan" (quality assessment mode)
-  - User asks about planning a multi-repo feature
-
-  **Planning mode:** Produces plan.md, shared.md, backend.md, frontend.md, flows.md, schema.mmd.
-  **Quality assessment mode:** Runs assess-fix-reassess against the rubric before sign-off.
-  **Orchestration mode:** Launches parallel agents per repo for scaffolding, audit, and fix loops.
-
-  NOT for: bug fixes, small changes, refactoring, single-repo work.
+description: Plan new multi-repo domain slices, assess plan quality, or orchestrate implementation from an accepted slice plan. Use for "plan the X slice", multi-repo feature planning, API contract design, "implement the X slice", or slice-quality review; not for bug fixes, small refactors, or single-repo work.
 license: MIT
 ---
 
 # Domain Planner
 
 Three modes: **Planning** (create specs), **Quality Assessment** (validate/fix specs), and **Orchestration** (implement specs via agents).
+
+## Use This For
+
+- New multi-repo or cross-stack slice planning
+- Quality review for an existing slice plan
+- Implementation orchestration after a slice plan is accepted
+
+## Do Not Use This For
+
+- Bug fixes, small changes, or single-repo refactors
+- Direct scaffolding without a settled slice contract
+- Routine implementation-detail debates that belong in scaffolder skills or code review
 
 **Skill root:** `~/.claude/skills/domain-planner/` — all relative paths below resolve from here.
 

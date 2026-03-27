@@ -1,14 +1,6 @@
 ---
 name: research-paper
-description: >
-  Generate dense, academic research paper-style pages on any topic, plus a
-  companion X article draft and companion LinkedIn drafts that keep the
-  paper's thesis but package it for fast scanning and direct paste into their
-  target surfaces.
-  Use when: "research paper", "write a paper on", "research page", "/research-paper",
-  "internal paper on", "write up on [topic]".
-  Supports project-specific modes (styling, data sources, routing) via local `modes/` directory.
-  Takes a topic argument (e.g. "teeth", "longevity", "AI agents", "SaaS pricing").
+description: Generate dense research-paper-style pages on any topic plus companion X and LinkedIn drafts that keep the same thesis. Use for "research paper", "write a paper on", "research page", "/research-paper", or internal write-ups on a topic, with optional project-specific modes for styling, data sources, and routing.
 license: Complete terms in LICENSE
 ---
 

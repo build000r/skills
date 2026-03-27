@@ -1,11 +1,6 @@
 ---
 name: openclaw-docs-audit
-description: >-
-  Audit openclaw-client-bootstrap config and skill against the latest upstream
-  OpenClaw releases. Fetches GitHub releases, diffs config schema, and produces
-  a ranked drift report (breaking, recommended, nice-to-have). Use when:
-  "audit openclaw", "check openclaw docs", "openclaw drift", "config freshness",
-  "what changed in openclaw", "sync with upstream", "/openclaw-docs-audit".
+description: Audit openclaw-client-bootstrap config and skill guidance against the latest upstream OpenClaw releases, then report ranked drift. Use for "audit openclaw", "check openclaw docs", "openclaw drift", "config freshness", "what changed in openclaw", or "/openclaw-docs-audit".
 ---
 
 # OpenClaw Docs Audit

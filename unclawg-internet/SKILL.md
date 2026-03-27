@@ -1,11 +1,6 @@
 ---
 name: unclawg-internet
-description: >
-  Self-service OpenClaw onboarding with soul interview. Uses CLI device flow for browser auth,
-  creates the user's agent machine key, conducts an ask-cascade soul interview to define voice/personas/target market,
-  writes the soul draft and discovery mode file, and outputs the env block.
-  Use when: "/unclawg-internet", "set me up", "connect to openclaw",
-  "get started", "onboard me", "sign up for openclaw", "I want approval gates"
+description: Run self-service OpenClaw onboarding with browser device auth, agent machine-key provisioning, a soul interview, and discovery-mode setup. Use for "/unclawg-internet", "set me up", "connect to openclaw", "onboard me", "sign up for openclaw", or approval-gated setup.
 metadata:
   openclaw:
     emoji: "🛂"

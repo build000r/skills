@@ -1,13 +1,6 @@
 ---
 name: unclawg-discover
-description: >
-  Multi-platform customer discovery for any domain. Searches Reddit, Hacker News,
-  Twitter/X (Apify), and LinkedIn (Apify), filters noise, and outputs a ranked
-  engagement feed with normalized candidate records for downstream workflows.
-  Use when: "/unclawg-discover", "find customers", "find leads",
-  "find outreach candidates", "find posts to reply to", "build engagement queue",
-  "find unclawg customers", "find agent builder leads",
-  "workflow tool leads".
+description: Run multi-platform customer discovery across Reddit, Hacker News, Twitter/X, and LinkedIn, then output a ranked engagement feed for downstream workflows. Use for "/unclawg-discover", "find customers", "find leads", "find posts to reply to", "build engagement queue", or agent-builder prospecting.
 metadata:
   openclaw:
     emoji: "🔎"

@@ -8,6 +8,18 @@ license: MIT
 
 Three modes: **Audit** (autonomous loop), **Retire** (post-completion), and **Retire-Session** (session plan consolidation).
 
+## Use This For
+
+- Auditing an implementation against an existing slice plan
+- Retiring a completed slice into lean completion docs
+- Consolidating DONE session plans into domain-level completion artifacts
+
+## Do Not Use This For
+
+- Initial slice planning or API-contract discovery
+- Direct scaffolding of backend or frontend code from a plan
+- Generic repo review with no plan artifact to compare against
+
 **Skill root:** `~/.claude/skills/domain-reviewer/` — all relative paths below resolve from here.
 
 ## Auth Service Requirements (All Modes)

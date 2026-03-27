@@ -1,13 +1,6 @@
 ---
 name: domain-scaffolder-frontend
-description: |
-  Scaffold frontend code from an existing plan. REQUIRES loading project-specific
-  UI patterns before generating components. Use when: "scaffold the frontend",
-  "implement the frontend for {slice}", after domain-scaffolder-backend completes.
-  Reads shared.md, frontend.md, and flows.md to generate types, services,
-  hooks, components, and page/widget wrappers.
-  NOT for: backend code, general frontend work outside domain slices.
-  Supports multiple frontend frameworks via modes/ directory.
+description: Scaffold frontend code from an existing plan after loading project-specific UI patterns. Use for "scaffold the frontend" or "implement the frontend for {slice}" after backend scaffolding, and not for backend work or general frontend changes outside domain slices.
 license: MIT
 ---
 

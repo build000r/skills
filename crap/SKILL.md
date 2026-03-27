@@ -1,17 +1,6 @@
 ---
 name: crap
-description: >
-  Compute CRAP-style hotspot scores across Rust, Python, and TypeScript, print
-  a ranked risk report, end the analysis block with a single FINAL_SCORE line,
-  and suggest divide-and-conquer /describe follow-ons behind a launch-or-adjust
-  ask-cascade gate. Also bootstrap machine-readable coverage Makefile targets
-  when a repo lacks them, hand stable hotspots off to sibling `mutate` runs,
-  and optionally run a one-shot remediation loop with divide-and-conquer,
-  commits, and reruns until the scoped score is below a threshold. Optional
-  threshold input defaults to 30. Use when: "/crap", "CRAP score",
-  "risk score", "complexity and coverage", "hotspots by coverage",
-  "why is this N/A", "take it under 30", "fix the hotspots", or
-  "what should we /describe next".
+description: Compute CRAP-style hotspot scores across Rust, Python, and TypeScript, print a ranked risk report, end with a FINAL_SCORE line, and suggest hardening follow-ons. Use for "/crap", CRAP score, risk score, hotspot ranking, weak coverage, or taking a scoped score under a threshold.
 license: MIT
 ---
 

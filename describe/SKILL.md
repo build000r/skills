@@ -1,17 +1,6 @@
 ---
 name: describe
-description: >
-  Distill a conversation into discrete, well-defined test cases before
-  patching, review existing `# Describe:` packets from fresh context,
-  implement from accepted specs, and optionally commit validated
-  describe-scoped changes. Lightweight alternative to domain-planner for bug
-  fixes, small features, and refactors. Uses ask-cascade for hierarchical
-  coverage when review reveals a real decision. Use when: "describe",
-  "/describe", "what are the test cases", "define done",
-  "what should we test", "spec this out", "review this describe",
-  "second opinion on this spec", "implement from this describe",
-  "accepted describe spec", "before we patch", "test coverage for this", or
-  when about to implement a fix without clearly defined pass/fail criteria.
+description: Turn a conversation into discrete pass/fail test cases before patching, review existing Describe packets, or implement from accepted specs. Use for bug fixes, small features, refactors, "define done", "what should we test", "spec this out", or pre-patch work without clear pass/fail criteria.
 ---
 
 # Describe

@@ -1,10 +1,6 @@
 ---
 name: unclawg-respond
-description: >
-  Poll pending revision requests, analyze user feedback patterns, generate
-  revised outputs, and fulfill them via the OpenClaw API. Use when:
-  "/unclawg-respond", "/respond-feedback", "respond to feedback", "handle
-  revisions", "fulfill pending revisions", "process revision requests"
+description: Poll pending revision requests, analyze feedback patterns, generate revised outputs, and fulfill them through the OpenClaw API. Use for "/unclawg-respond", "/respond-feedback", "respond to feedback", "handle revisions", or processing pending revision requests.
 metadata:
   openclaw:
     emoji: "🔁"

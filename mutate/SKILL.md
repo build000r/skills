@@ -1,12 +1,6 @@
 ---
 name: mutate
-description: >
-  Run scoped mutation testing with the right language adapter, keep the
-  baseline test path green, triage surviving mutants, and feed the results back
-  into a CRAP/mutate hardening loop. Use when: "/mutate", "mutation test",
-  "mutate this file", "surviving mutants", "weak tests", "harden these tests",
-  "run mutmut", "run cargo-mutants", "run stryker", or after `/crap`
-  identifies a hotspot below 30.
+description: Run scoped mutation testing with the right adapter, keep the baseline test path green, triage surviving mutants, and feed the results into a hardening loop. Use for "/mutate", mutation tests, surviving mutants, weak tests, or post-CRAP hotspot hardening.
 license: MIT
 ---
 

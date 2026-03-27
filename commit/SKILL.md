@@ -1,11 +1,7 @@
 ---
 name: commit
 type: utility
-description: >
-  Batch-commit working changes with clean, high-level messages. Use when:
-  "commit", "commit my changes", "commit what you did", "save progress",
-  "/commit", or at the end of a work session. Handles multi-repo dirty state,
-  groups files into logical batches, and writes concise commit messages.
+description: Batch-commit claimed working changes with clean, high-level messages. Use for "commit", "commit my changes", "commit what you did", "save progress", "/commit", or end-of-session repo cleanup across one or more repos.
 ---
 
 # Commit

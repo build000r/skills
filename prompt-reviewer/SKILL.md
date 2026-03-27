@@ -7,6 +7,18 @@ description: Review and score your AI prompting quality. Analyzes Claude Code an
 
 Evaluate user prompting quality across AI coding tools. Supports Claude Code, Codex, AMP, OpenCode, and any other tool.
 
+## Use This For
+
+- Scoring prompt quality for the current conversation or extracted session history
+- Reviewing trends, progress, backfills, and prompt-improvement opportunities
+- Answering "how am I doing as a prompter?" with a structured rubric
+
+## Do Not Use This For
+
+- Code review, product review, or skill-workflow review
+- Generic conversation critique without wanting prompt-quality scoring
+- Historical extraction work when the user only wants a quick current-session read
+
 ## Modes
 
 Modes customize scoring and review behavior for specific teams or projects — axis weights, review cadence, output format preferences, and team context that affects expectations. Stored in `modes/` (gitignored, never committed).

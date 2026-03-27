@@ -1,13 +1,6 @@
 ---
 name: domain-scaffolder-backend
-description: |
-  Scaffold backend domain code from an existing plan using TDD-first workflow.
-  Writes tests BEFORE implementation. Use when: "scaffold the backend",
-  "implement the backend for {slice}", after domain-planner completes a plan.
-  Reads shared.md, backend.md, and schema.mmd to generate: tests first,
-  then models, schemas, repository, service, router, migration.
-  NOT for: frontend code, general backend work outside domain slices.
-  Supports multiple backend frameworks via modes/ directory.
+description: Scaffold backend domain code from an existing plan with a TDD-first workflow that writes tests before implementation. Use for "scaffold the backend" or "implement the backend for {slice}" after domain-planner finishes a slice plan; not for frontend work or general backend tasks outside domain slices.
 license: MIT
 ---
 

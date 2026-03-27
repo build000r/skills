@@ -1,22 +1,23 @@
 ---
 name: trend-to-content
-description: |
-  Transform social media trends into SEO pages, videos, and copy at scale.
-  Use when: "what's trending", "content ideas", "viral content", "PSEO",
-  "programmatic SEO", "video content ideas", "trend research",
-  "content from trends", "what should I create", "content calendar".
-
-  Three modes:
-  1. **Research** - Find trending topics via API or web search
-  2. **PSEO** - Generate SEO pages at scale from trends
-  3. **Video** - Create video content scripts/compositions from hooks
-
-  Works for any niche. Pluggable trend sources (Virlo API, Google Trends, WebSearch).
+description: Transform social and search trends into research, PSEO pages, videos, and copy. Use for "what's trending", "content ideas", "viral content", PSEO, trend research, video content ideas, or planning what to create next, with Research, PSEO, and Video modes.
 ---
 
 # Trend to Content
 
 Transform trending topics into content at scale: PSEO pages, videos, and copy.
+
+## Use This For
+
+- Trend research for a niche, audience, or content pipeline
+- PSEO page generation from trend-backed keyword patterns
+- Video or social concepts derived from fresh trend hooks
+
+## Do Not Use This For
+
+- Deep standalone brand strategy without a trend input
+- Final publishing/deploy work unless the active mode explicitly defines it
+- One-off copy edits that do not require trend research or packaging logic
 
 ## Modes
 

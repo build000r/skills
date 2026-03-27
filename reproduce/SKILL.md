@@ -1,13 +1,6 @@
 ---
 name: reproduce
-description: >
-  Command-first verification workflow that forces agents to test changes before
-  asking the user to test, and treats browser DevTools as a last resort. Use
-  when: "reproduce", "/reproduce", "reproduce this bug", "test this", "verify
-  this fix", "can you test it", "debug this", "how should we test this",
-  "manual QA", "browser bug", "devtools", or when an agent is about to hand
-  testing back to the user without first trying test-suite, API, CLI, log, or
-  DB verification.
+description: Use a command-first verification workflow that tests changes before asking the user to test and treats browser DevTools as a last resort. Use for "/reproduce", "reproduce this bug", "verify this fix", manual QA, browser bugs, or when an agent is about to hand testing back without trying automation, APIs, logs, or DB checks first.
 ---
 
 # Reproduce

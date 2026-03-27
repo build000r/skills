@@ -1,10 +1,6 @@
 ---
 name: openclaw-client-bootstrap
-description: >
-  Build a production-ready OpenClaw client setup for DigitalOcean + Tailscale + Telegram + SPAPS
-  using a reusable hardened template with read-only defaults and human approval through the Unclawg portal.
-  Use when asked to "set up OpenClaw on a droplet", "create a first claw kit", "bootstrap client box",
-  "DigitalOcean + Tailscale + Telegram OpenClaw", "read-only OpenClaw config", or "approval-gated OpenClaw setup".
+description: Build a production-ready OpenClaw client setup for DigitalOcean, Tailscale, Telegram, and SPAPS using a reusable hardened template with read-only defaults and human approval. Use for "set up OpenClaw on a droplet", "create a first claw kit", "bootstrap client box", or approval-gated OpenClaw deployment work.
 ---
 
 # OpenClaw Client Bootstrap
@@ -17,6 +13,18 @@ Create and apply a reusable client kit for OpenClaw with strict governance:
 - SPAPS approval backend with Unclawg portal for human review
 - read-only credentials in OpenClaw
 - explicit write-gateway contract for all external mutations
+
+## Use This For
+
+- New OpenClaw client box bootstraps on a fresh droplet
+- Co-located OpenClaw container setups on an existing box
+- Recovery, rotation, or governed re-bootstrap of an existing client kit
+
+## Do Not Use This For
+
+- Day-to-day waitlist or portal admin actions
+- Discovery, feed, or revision-processing runtime flows
+- Upstream OpenClaw docs drift audits without deployment work
 
 ## AI Runtime-First Skill Split
 

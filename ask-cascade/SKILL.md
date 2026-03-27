@@ -1,20 +1,7 @@
 ---
 name: ask-cascade
 type: utility
-description: |
-  Enforce hierarchical, dependency-aware question ordering when using AskUserQuestion or any user-facing clarification step.
-  High-level decisions first, detail questions only after strategic choices are settled.
-
-  When the user would benefit from a framed decision tree instead of a naked abstract question, present numbered options with a clear recommendation, a short happy-path preview, and an explicit way to reset the starting branch.
-
-  **Proactive triggers** - activate when:
-  - About to call AskUserQuestion with 2+ questions
-  - Gathering requirements, preferences, or implementation decisions from the user
-  - Planning work that requires multiple user inputs
-  - The user is likely to correct your framing unless you surface the main branches first
-  - Using EnterPlanMode or AskUserQuestion during any skill/workflow
-
-  **Explicit triggers** - "ask cascade", "question order", "ask strategy"
+description: Enforce hierarchical, dependency-aware question ordering for AskUserQuestion and other user-facing clarification steps. Use for gathering requirements, asking 2+ dependent questions, framing decision trees, or surfacing strategic branches before detail questions.
 ---
 
 # Ask Cascade

@@ -1,12 +1,6 @@
 ---
 name: unclawg-feed
-description: >
-  Feed social listening candidates into the OpenClaw approval portal. Takes found
-  posts (from unclawg-discover, manual paste, or any source), pulls the agent's
-  current soul/instructions from the policy API, generates proposed replies using
-  that voice, and POSTs them as approval requests. Use when:
-  "/unclawg-feed", "/feed-approvals", "feed the portal", "create approval cards",
-  "submit posts for approval", "load posts into openclaw", "feed-me"
+description: Feed social-listening candidates into the OpenClaw approval portal by pulling the agent soul, generating replies in that voice, and creating approval requests. Use for "/unclawg-feed", "/feed-approvals", "feed the portal", "create approval cards", or submitting posts for approval.
 metadata:
   openclaw:
     emoji: "📬"

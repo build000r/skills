@@ -72,7 +72,7 @@ The shared auth/payments/identity service (`{auth_packages_root}` from mode conf
 
    **If plan does NOT exist:**
    - Run `python3 ~/.claude/skills/domain-planner/scripts/init_slice.py {slice_name} --config {mode_file}` to scaffold files
-   - Begin Phase 0 landscape (Planning Mode)
+   - Begin Phase 0 landscape, then Phase 0.5 Core Value Gate (Planning Mode)
 
    **If plan exists, ask the user:**
 
@@ -118,6 +118,7 @@ The shared auth/payments/identity service (`{auth_packages_root}` from mode conf
 9. **Performance envelopes are binding** — When a mode defines performance constraints, convert each target into explicit acceptance criteria and test scenarios across plan files.
 10. **Default delivery strategy is big-bang** — Plan the target-state contract directly. Do not add dual routes, backward-compatibility shims, deprecation windows, or legacy endpoint support unless the user explicitly asks.
 11. **Separate DB transition planning from API planning** — Only add a DB transition section when production data is at risk. Keep it operationally focused: backup, transactional/idempotent raw SQL execution, verification, and rollback.
+12. **Core Value Gate is binding** — Before Phase 1 Discovery, define the primary actor, single user-visible outcome, minimum winning slice, explicit non-goals, and debt avoided by deferring them. If a story does not materially improve that outcome, defer it unless it is required for safety/risk containment or the user explicitly widens scope.
 
 ## Questioning Strategy
 
@@ -137,10 +138,11 @@ If 95% confident, don't ask — just do it. Only ask when there's genuine ambigu
 **Every question MUST have a recommended option.** Put it first with "(Recommended)".
 
 **Ask high-level questions first** — they cascade down:
-1. User story scope → determines endpoints needed
-2. Endpoint design → determines table structure
-3. Table design → determines access control policies
-4. Access control → determines frontend data access patterns
+1. Core user-visible outcome → determines the minimum winning slice
+2. User story scope → determines endpoints needed
+3. Endpoint design → determines table structure
+4. Table design → determines access control policies
+5. Access control → determines frontend data access patterns
 
 **When to batch** (single question set): Independent questions about the same topic.
 **When to ask sequentially**: When answer to Q1 changes what Q2 should ask.
@@ -149,13 +151,14 @@ See [references/phase-questions.md](~/.claude/skills/domain-planner/references/p
 
 ## Planning Mode
 
-Use Phases 0-6 below for spec creation. Planning outputs must explicitly map auth/payments/identity scope to existing auth service packages and capture missing functionality as auth-scope proposals instead of inventing local auth layers.
+Use Phases 0-6 below for spec creation, including the binding Phase 0.5 Core Value Gate. Planning outputs must explicitly map auth/payments/identity scope to existing auth service packages and capture missing functionality as auth-scope proposals instead of inventing local auth layers.
 
-## 7-Phase Process
+## 8-Phase Process
 
 | Phase | Goal | Output | Key Action |
 |-------|------|--------|------------|
 | 0. Landscape | Understand neighbors | Relationship summary | Read INDEX.md + sibling shared.md |
+| 0.5 Core Value Gate | Trim to the minimum winning slice | Core value summary | Cut expensive low-value scope before discovery |
 | 1. Discovery | User stories | Draft stories | Binary "A or B?" refinement |
 | 2. Contract | **LOCK shared.md** | Endpoints, errors | Confirm JSON shapes |
 | 3. Backend | Business rules & permissions | backend.md + schema.mmd | Read mode's backend conventions |
@@ -198,22 +201,59 @@ Use Phases 0-6 below for spec creation. Planning outputs must explicitly map aut
 
 ---
 
+### Phase 0.5: Core Value Gate
+
+**Goal:** Prevent planning debt by trimming the slice to the smallest user-visible win before discovery expands it.
+
+**Steps:**
+
+1. **Name the primary actor** — the role whose visible win anchors this slice.
+2. **Name the single user-visible outcome** — one sentence describing what that actor can newly do or newly avoid.
+3. **Define the minimum winning slice** — the smallest set of actions, states, and contract surface needed to deliver that outcome.
+4. **List explicit non-goals** — name tempting additions to cut now:
+   - admin/config surfaces
+   - broad role matrices
+   - reporting/export/history unless core to the win
+   - abstractions for hypothetical reuse
+   - edge-case completeness beyond the top safety failures
+5. **State the debt avoided** — for each major cut, note the maintenance, coordination, or model-shift cost avoided by deferring it.
+6. **Apply the binding rule** — if a proposed story does not materially improve the primary actor's visible win, defer it unless it is required for safety/risk containment or the user explicitly expands scope.
+7. **Escalate placement questions out of band** — if the real uncertainty is adopt-vs-build, repo placement, or extraction, stop and use the `build-vs-clone` skill before continuing. Do not turn the slice plan into a repo-decision document.
+
+**Output format:**
+
+```markdown
+## Core Value Gate
+
+- Primary actor: ...
+- User-visible outcome: ...
+- Minimum winning slice: ...
+- Explicit non-goals: ...
+- Debt avoided by deferring them: ...
+```
+
+Carry this summary into `plan.md` and use it to reject scope creep in Phases 1-5. Do not proceed to Phase 1 until this gate is explicit.
+
+---
+
 ### Phase 1: Discovery
 
 **Goal:** Unambiguous user stories with test scenarios.
 
 1. **Check standard stories** — Read `~/.claude/skills/domain-planner/references/standard-stories/` for applicable patterns. If the slice touches auth/RBAC, load `rbac.md` as a starting menu.
-2. Identify user types via multi-select question (can be multiple roles)
-3. Extract stories: "As a [role], I need to [action], so that [outcome]"
-4. **Refine with structured questions** — Probe vague terms ("all", "manage") with specific options
-5. Add test scenarios per acceptance criterion
-6. **Cross-reference siblings** — For each story, check: does a sibling slice already handle part of this? Flag overlaps.
+2. Start from the Core Value Gate — only keep stories that directly deliver the minimum winning slice or cover its top failure/safety cases.
+3. Identify user types via multi-select question (can be multiple roles)
+4. Extract stories: "As a [role], I need to [action], so that [outcome]"
+5. **Refine with structured questions** — Probe vague terms ("all", "manage") with specific options
+6. Add test scenarios per acceptance criterion
+7. **Cross-reference siblings** — For each story, check: does a sibling slice already handle part of this? Flag overlaps.
 
 **Red flags requiring refinement:**
 - "All" or "everything" → narrow scope
 - Vague verbs ("manage", "handle") → specific actions
 - Missing edge cases → probe failure scenarios
 - **Story overlaps a sibling's scope** → clarify boundary
+- **Story adds admin polish, configurability, or abstraction without improving the primary actor's visible win** → defer it
 
 ---
 
@@ -225,6 +265,7 @@ Use Phases 0-6 below for spec creation. Planning outputs must explicitly map aut
 - Reuse existing entity IDs as foreign keys (don't reinvent `user_id`, `owner_id`, `enrollment_id`)
 - Follow sibling endpoint naming conventions (e.g., if siblings use `/v1/{resource}`, don't use `/api/{resource}`)
 - Reference sibling error code patterns (e.g., `{SLICE}_NOT_FOUND` convention)
+- Do not add endpoints solely for deferred non-goals from the Core Value Gate
 
 For each endpoint confirm: path, method, request/response shapes, error codes. Ask about specific uncertainties (not blanket approval).
 

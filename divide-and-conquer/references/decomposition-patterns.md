@@ -51,6 +51,22 @@ Agent C (Explore, gpt-5.4/medium): Check if the bug is in the frontend state man
 
 All three launch in a single message. Results reviewed by orchestrator to determine root cause.
 
+### 5. Workgraph Frontier Split
+When `WORKGRAPH.md` exists, split only the current ready frontier instead of
+re-deriving the entire plan from scratch.
+
+```
+WG-001 backend API       writes: backend/domain/**         status: ready
+WG-002 migration         writes: backend/migrations/**     status: ready
+WG-003 frontend widget   writes: frontend/widgets/**       status: blocked on WG-001
+```
+
+Safe parallel wave:
+- Agent A: WG-001 backend API
+- Agent B: WG-002 migration
+
+Do not launch WG-003 until WG-001 is done and validated.
+
 ## Unsafe Patterns (Do NOT Split)
 
 ### Same-File Edits

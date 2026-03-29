@@ -95,6 +95,7 @@ The shared auth/payments/identity service (`{auth_packages_root}` from mode conf
 {plan_root}/
 ├── {slice}/
 │   ├── plan.md, shared.md, backend.md, frontend.md, flows.md, schema.mmd
+│   └── WORKGRAPH.md
 └── ...
 
 {plan_draft}/
@@ -119,6 +120,7 @@ The shared auth/payments/identity service (`{auth_packages_root}` from mode conf
 10. **Default delivery strategy is big-bang** — Plan the target-state contract directly. Do not add dual routes, backward-compatibility shims, deprecation windows, or legacy endpoint support unless the user explicitly asks.
 11. **Separate DB transition planning from API planning** — Only add a DB transition section when production data is at risk. Keep it operationally focused: backup, transactional/idempotent raw SQL execution, verification, and rollback.
 12. **Core Value Gate is binding** — Before Phase 1 Discovery, define the primary actor, single user-visible outcome, minimum winning slice, explicit non-goals, and debt avoided by deferring them. If a story does not materially improve that outcome, defer it unless it is required for safety/risk containment or the user explicitly widens scope.
+13. **`WORKGRAPH.md` is post-plan only** — It is an execution handoff artifact created after the 6 plan files are accepted. It may include `writes`, dependency edges, validation commands, and risk gates. Do not mix those execution details back into the plan files.
 
 ## Questioning Strategy
 
@@ -360,7 +362,26 @@ After the loop, report the final score before proceeding.
 
 Ask: "Save to released/ (locked) or planned/ (draft)?"
 
-#### 6d. Handoff
+#### 6d. Synthesize `WORKGRAPH.md`
+
+After the 6 plan files are accepted and saved, populate `WORKGRAPH.md` as the
+execution handoff for downstream orchestration. This file is intentionally
+outside the plan-quality rubric: it exists to bridge accepted specs into
+parallel implementation waves.
+
+Rules:
+- One node per executable concern, not one node per tiny file edit
+- Keep nodes concern-scoped: backend API, migration, frontend widget, test hardening
+- Use explicit dependency IDs in `depends_on`
+- Include `writes` globs or paths so parallel waves can avoid overlap
+- Include `done_when` as binary completion criteria
+- Include `validate_cmds` for the concrete commands the execution wave should run
+- Use `status` values from: `todo`, `in_progress`, `done`, `blocked`, `skipped`
+
+`WORKGRAPH.md` must stay lightweight. It is not a second plan document and it
+is not a changelog.
+
+#### 6e. Handoff
 
 Handoff: "Ready to implement? Run the domain-planner skill and select 'Implement it'"
 

@@ -130,6 +130,101 @@ contain `SKILL.md`. You can install one skill, a lane, or the full catalog.
 | [`reproduce`](./reproduce/) | Uses a command-first QA ladder before handing testing back |
 | [`skill-issue`](./skill-issue/) | Creates, validates, improves, and packages skills |
 
+### Domain Slice Loop
+
+The `domain-*` family works best as a two-layer system:
+
+- **Planning layer**: [`domain-planner`](./domain-planner/) defines the slice, locks the contract, and settles the Core Value Gate.
+- **Execution layer**: `WORKGRAPH.md`, [`divide-and-conquer`](./divide-and-conquer/), [`describe`](./describe/), [`codex-tmux`](./codex-tmux/), [`commit`](./commit/), and [`domain-reviewer`](./domain-reviewer/) walk that accepted slice to done.
+
+The important boundary is this: once the plan is accepted, execution should stop re-litigating the 80/20 slice. Core value discipline belongs in planning. Execution should focus on sequencing, implementation, validation, and audit.
+
+#### Who Owns What
+
+| Tool | Job in the loop |
+| --- | --- |
+| [`domain-planner`](./domain-planner/) | Creates the 6 plan files, runs the plan quality loop, then emits `WORKGRAPH.md` as the post-sign-off execution handoff |
+| `WORKGRAPH.md` | Holds executable nodes with `depends_on`, `writes`, `done_when`, `validate_cmds`, and `status` |
+| [`divide-and-conquer`](./divide-and-conquer/) | Reads the current ready frontier from `WORKGRAPH.md` and launches only safe parallel waves |
+| [`describe`](./describe/) | Tightens one fuzzy node when its completion rule or validation path is still ambiguous |
+| [`codex-tmux`](./codex-tmux/) | Runs the fresh-context review/validation gate for a wave |
+| [`commit`](./commit/) | Leaves a clean checkpoint after the reviewed wave |
+| [`domain-reviewer`](./domain-reviewer/) | Audits the implemented slice against the accepted plan and writes `AUDIT_REPORT.md` |
+
+#### Flow
+
+```text
+[H] user request / slice intent
+              |
+              v
+        [A] domain-planner
+              |
+              |  6 plan files + Core Value Gate + quality loop
+              v
+      [H] accept plan / save location
+              |
+              v
+    [A] domain-planner -> WORKGRAPH.md
+              |
+              v
+      [A] ready frontier only
+              |
+              v
+      [A] divide-and-conquer
+              |
+              +---- fuzzy node? ---- yes ---> [H] describe that node
+              |                                 |
+              |                                 v
+              |<--------------------------------+
+              |
+              v
+         [A] execution wave
+              |
+              v
+      [A] codex-tmux review
+              |
+              v
+            [A] commit
+              |
+              v
+      [A] update WORKGRAPH.md
+              |
+      more ready nodes?
+         |           |
+        yes          no
+         |           |
+         v           v
+   loop next wave   [A] domain-reviewer
+                          |
+                          v
+                    AUDIT_REPORT.md
+                          |
+                 findings / blocked risk?
+                          |
+                   yes -> [H] triage / answer
+                          |
+                          v
+                   add remediation nodes
+                          |
+                          +----> back to ready frontier
+```
+
+#### Human-In-The-Loop Touchpoints
+
+- **Slice intent**: only when the requested slice or business value is unclear.
+- **Planning ambiguity**: real scope or contract decisions during `domain-planner`.
+- **Plan acceptance**: `planned/` vs `released/`, after which the planning contract is considered settled.
+- **Node-level ambiguity**: use [`describe`](./describe/) only when one workgraph node still has fuzzy `done_when` or `validate_cmds`.
+- **Audit or risk escalation**: re-enter only when [`domain-reviewer`](./domain-reviewer/) finds a real blocker, risk gate, or unresolved tradeoff.
+
+#### Short Mental Model
+
+```text
+human decides the slice
+agents execute the accepted slice
+human re-enters only for ambiguity, risk, or escalation
+```
+
 ### Ops, Recon, And Operator Tools
 
 | Skill | What it does |
@@ -203,9 +298,7 @@ do
 done
 ```
 
-Legacy wrapper aliases `domain-scaffolder-backend` and
-`domain-scaffolder-frontend` remain installable for compatibility, but new
-setups should install only `domain-scaffolder`.
+Install only `domain-scaffolder`.
 
 Tooling:
 

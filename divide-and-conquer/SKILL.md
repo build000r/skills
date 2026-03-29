@@ -63,16 +63,35 @@ Read the conversation to understand:
 - What files/areas of the codebase are involved
 - What the dependencies between subtasks are
 
-### 2. Identify Split Boundaries
+### 2. Check for `WORKGRAPH.md`
+
+Before inventing a split, check whether the repo or plan directory already has a
+`WORKGRAPH.md` execution artifact.
+
+If `WORKGRAPH.md` exists:
+- Run `python3 ~/.claude/skills/divide-and-conquer/scripts/workgraph_ready.py --file <path-to-WORKGRAPH.md>`
+- Treat the reported `ready_nodes` and `waves` as the default split proposal
+- Launch work only from the current ready frontier
+- Do **not** pull blocked or dependency-pending nodes into the same batch
+- Respect `writes` ownership from the workgraph even if the user asked broadly
+
+If `WORKGRAPH.md` does not exist, fall back to the generic decomposition process
+below.
+
+### 3. Identify Split Boundaries
 
 Find natural seams where work can be divided. Good boundaries:
 - **Domain boundaries**: Frontend vs backend vs database vs tests
 - **Concern boundaries**: Research vs implementation, different features
 - **Goal boundaries**: Different outcomes that don't interact
 
-Scope agents by **concern**, not by file list. "Handle authentication changes" is better than "Modify src/auth.ts". The agent discovers which files are relevant; you verify no overlap in the conflict check.
+Scope agents by **concern**, not by file list. "Handle authentication changes"
+is better than "Modify src/auth.ts". The agent discovers which files are
+relevant; you verify no overlap in the conflict check. When `WORKGRAPH.md`
+exists, the node's `concern` and `writes` fields become the starting point for
+that split.
 
-### 3. Verify Independence
+### 4. Verify Independence
 
 For each proposed agent pair, confirm:
 - No two agents write to the same file
@@ -84,7 +103,7 @@ If any check fails, merge those agents or restructure the split.
 
 See `references/decomposition-patterns.md` for safe/unsafe patterns and the full checklist.
 
-### 4. Plan, Launch, and Report (Single Flow)
+### 5. Plan, Launch, and Report (Single Flow)
 
 This is autonomous — **do NOT ask for approval** between planning and launching. Output the plan for transparency, then launch immediately in the same response.
 
@@ -127,7 +146,7 @@ Once all agents complete, read each agent's output. Do NOT manually review, fix,
 
 **Save the original task description** — the reviewer needs it.
 
-### 5. Codex Review (via codex-tmux)
+### 6. Codex Review (via codex-tmux)
 
 After all agents return, launch a Codex review via the `codex-tmux` utility skill. See `~/.claude/skills/codex-tmux/SKILL.md` for the full tmux protocol details.
 
@@ -224,7 +243,7 @@ python3 ~/.claude/skills/codex-tmux/scripts/run.py result \
     --session <session-name>
 ```
 
-### 6. Report to User
+### 7. Report to User
 
 When the result is available (via background task or manual check):
 
@@ -262,6 +281,7 @@ Inspect: tmux a -t <session-name>
 
 - **2-5 agents** is the sweet spot. More than 5 signals over-decomposition.
 - **Scope by concern, not files**. "Handle auth changes" > "Modify src/auth.ts". Agent discovers files; you verify no overlap.
+- **If `WORKGRAPH.md` exists, start from its ready frontier**. Do not freelance a broader split unless the workgraph is obviously stale or wrong.
 - **Never split same-concern work** across agents. One domain = one owner.
 - **Use Explore for research agents** — physically cannot write, so file conflicts are impossible.
 - **Use general-purpose for write agents** — they see conversation history, so prompts can be concise.

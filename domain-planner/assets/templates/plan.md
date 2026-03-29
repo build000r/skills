@@ -109,3 +109,4 @@
 - [shared.md](./shared.md) - API contract
 - [backend.md](./backend.md) - Backend spec
 - [frontend.md](./frontend.md) - Frontend spec
+- [WORKGRAPH.md](./WORKGRAPH.md) - Post-sign-off execution handoff (created after plan acceptance)

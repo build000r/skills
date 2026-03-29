@@ -11,6 +11,7 @@ struct ToolCallObservation {
     action: Action,
     call_id: Option<String>,
     command: Option<String>,
+    session_id: Option<String>,
     marks_edit: bool,
 }
 
@@ -22,6 +23,7 @@ pub(crate) fn parse(path: &Path, options: &ExtractOptions) -> Result<ParseSnapsh
     let mut current_tool: Option<Action> = None;
     let mut token_count = 0u64;
     let mut pending_validation_commands: HashMap<String, String> = HashMap::new();
+    let mut pending_validation_sessions: HashMap<String, String> = HashMap::new();
     let mut commit_signal = CommitSignal::default();
 
     for entry in &parsed.entries {
@@ -33,6 +35,7 @@ pub(crate) fn parse(path: &Path, options: &ExtractOptions) -> Result<ParseSnapsh
             observe_tool_call(
                 &observation,
                 &mut pending_validation_commands,
+                &mut pending_validation_sessions,
                 &mut commit_signal,
             );
             record_action(
@@ -47,6 +50,7 @@ pub(crate) fn parse(path: &Path, options: &ExtractOptions) -> Result<ParseSnapsh
             observe_tool_call(
                 &observation,
                 &mut pending_validation_commands,
+                &mut pending_validation_sessions,
                 &mut commit_signal,
             );
             record_action(
@@ -57,7 +61,12 @@ pub(crate) fn parse(path: &Path, options: &ExtractOptions) -> Result<ParseSnapsh
             );
         }
 
-        update_validation_signal(entry, &mut pending_validation_commands, &mut commit_signal);
+        update_validation_signal(
+            entry,
+            &mut pending_validation_commands,
+            &mut pending_validation_sessions,
+            &mut commit_signal,
+        );
 
         if let Some(action) = reasoning_event_action(entry, options, &ts) {
             record_action(
@@ -200,6 +209,7 @@ fn function_call_observation(
                 .and_then(Value::as_str)
                 .map(ToString::to_string),
             command: parsed_arguments.as_ref().and_then(command_from_arguments),
+            session_id: parsed_arguments.as_ref().and_then(session_id_from_arguments),
             marks_edit: false,
         }
     })
@@ -234,6 +244,7 @@ fn custom_tool_call_observation(
                 .and_then(Value::as_str)
                 .map(ToString::to_string),
             command: None,
+            session_id: None,
             marks_edit: tool_name == "apply_patch"
                 && payload.get("status").and_then(Value::as_str) == Some("completed"),
         }
@@ -339,10 +350,25 @@ fn extract_user_input_text(payload: &Value) -> Option<String> {
 fn observe_tool_call(
     observation: &ToolCallObservation,
     pending_validation_commands: &mut HashMap<String, String>,
+    pending_validation_sessions: &mut HashMap<String, String>,
     commit_signal: &mut CommitSignal,
 ) {
     if observation.marks_edit {
         commit_signal.edited = true;
+    }
+
+    if observation.action.tool == "write_stdin" {
+        let Some(call_id) = observation.call_id.as_deref() else {
+            return;
+        };
+        let Some(session_id) = observation.session_id.as_deref() else {
+            return;
+        };
+        let Some(command) = pending_validation_sessions.get(session_id) else {
+            return;
+        };
+        pending_validation_commands.insert(call_id.to_string(), command.clone());
+        return;
     }
 
     if observation.action.tool != "exec_command" {
@@ -371,6 +397,7 @@ fn observe_tool_call(
 fn update_validation_signal(
     entry: &Value,
     pending_validation_commands: &mut HashMap<String, String>,
+    pending_validation_sessions: &mut HashMap<String, String>,
     commit_signal: &mut CommitSignal,
 ) {
     let Some(payload) = response_item_payload(entry, "function_call_output") else {
@@ -388,6 +415,8 @@ fn update_validation_signal(
         .unwrap_or_default();
     if validation_command(&command) && successful_command_output(output) {
         commit_signal.validated = true;
+    } else if let Some(session_id) = running_session_id_from_output(output) {
+        pending_validation_sessions.insert(session_id, command);
     }
 }
 
@@ -418,6 +447,14 @@ fn command_from_arguments(arguments: &Value) -> Option<String> {
         .or_else(|| arguments.get("command"))
         .and_then(Value::as_str)
         .map(ToString::to_string)
+}
+
+fn session_id_from_arguments(arguments: &Value) -> Option<String> {
+    arguments.get("session_id").and_then(|value| match value {
+        Value::String(session_id) => Some(session_id.clone()),
+        Value::Number(session_id) => Some(session_id.to_string()),
+        _ => None,
+    })
 }
 
 fn custom_tool_call_detail(
@@ -464,6 +501,7 @@ fn validation_command(command: &str) -> bool {
     let normalized = command.trim().to_lowercase();
     [
         "cargo test",
+        "cargo build",
         "cargo nextest",
         "cargo clippy",
         "pytest",
@@ -471,18 +509,23 @@ fn validation_command(command: &str) -> bool {
         "jest",
         "go test",
         "npm test",
+        "npm run build",
         "npm run test",
         "npm run lint",
         "npm run type-check",
         "npm run typecheck",
+        "pnpm build",
         "pnpm test",
         "pnpm lint",
         "pnpm type-check",
         "pnpm typecheck",
+        "yarn build",
         "yarn test",
         "yarn lint",
         "yarn type-check",
         "yarn typecheck",
+        "swift test",
+        "swift build",
         "tsc --noemit",
         "eslint",
         "biome check",
@@ -492,10 +535,45 @@ fn validation_command(command: &str) -> bool {
     ]
     .iter()
     .any(|prefix| normalized.starts_with(prefix))
+        || make_validation_command(&normalized)
+        || xcodebuild_validation_command(&normalized)
+}
+
+fn make_validation_command(normalized: &str) -> bool {
+    normalized
+        .strip_prefix("make ")
+        .map(|target| {
+            [
+                "test",
+                "check",
+                "build",
+                "build-",
+                "lint",
+                "verify",
+                "typecheck",
+                "type-check",
+            ]
+            .iter()
+            .any(|prefix| target.starts_with(prefix))
+        })
+        .unwrap_or(false)
+}
+
+fn xcodebuild_validation_command(normalized: &str) -> bool {
+    normalized.starts_with("xcodebuild")
+        && (normalized.contains(" test") || normalized.contains(" build"))
 }
 
 fn successful_command_output(output: &str) -> bool {
     output.contains("Process exited with code 0")
+}
+
+fn running_session_id_from_output(output: &str) -> Option<String> {
+    output.lines().find_map(|line| {
+        line.trim()
+            .strip_prefix("Process running with session ID ")
+            .map(ToString::to_string)
+    })
 }
 
 #[cfg(test)]
@@ -714,6 +792,78 @@ mod tests {
             snapshot.recent_actions[1].detail.as_deref(),
             Some("widget.tsx")
         );
+        assert_eq!(
+            snapshot.commit_signal,
+            Some(CommitSignal {
+                candidate: true,
+                edited: true,
+                validated: true,
+                dirty_checked: true,
+                commit_seen: false,
+            })
+        );
+    }
+
+    #[test]
+    fn validation_command_recognizes_make_swift_and_xcodebuild_flows() {
+        assert!(validation_command("make test"));
+        assert!(validation_command("make build-agent"));
+        assert!(validation_command("swift test"));
+        assert!(validation_command("swift build"));
+        assert!(validation_command("xcodebuild -scheme Etcha test"));
+        assert!(validation_command("xcodebuild -scheme Etcha build"));
+        assert!(!validation_command("make docs"));
+        assert!(!validation_command("xcodebuild -list"));
+    }
+
+    #[test]
+    fn parse_codex_make_test_marks_commit_candidate_after_success() {
+        let file = NamedTempFile::new().expect("temp file");
+        fs::write(
+            file.path(),
+            concat!(
+                "{\"type\":\"event_msg\",\"payload\":{\"type\":\"user_message\",\"message\":\"Finish the tape save flow\"}}\n",
+                "{\"type\":\"response_item\",\"payload\":{\"type\":\"function_call\",\"name\":\"exec_command\",\"arguments\":\"{\\\"cmd\\\":\\\"git status --short\\\"}\",\"call_id\":\"call_status\"}}\n",
+                "{\"type\":\"response_item\",\"payload\":{\"type\":\"custom_tool_call\",\"status\":\"completed\",\"name\":\"apply_patch\",\"call_id\":\"call_patch\",\"input\":\"*** Begin Patch\\n*** Update File: /tmp/project/Sources/App.swift\\n@@\\n-old\\n+new\\n*** End Patch\\n\"}}\n",
+                "{\"type\":\"response_item\",\"payload\":{\"type\":\"function_call\",\"name\":\"exec_command\",\"arguments\":\"{\\\"cmd\\\":\\\"make test\\\"}\",\"call_id\":\"call_validate\"}}\n",
+                "{\"type\":\"response_item\",\"payload\":{\"type\":\"function_call_output\",\"call_id\":\"call_validate\",\"output\":\"Chunk ID: abc123\\nWall time: 0.0100 seconds\\nProcess exited with code 0\\nOriginal token count: 12\\nOutput:\\n\\nvalidation passed\\n\"}}\n"
+            ),
+        )
+        .expect("write fixture");
+
+        let snapshot = parse(file.path(), &ExtractOptions::default()).expect("parse");
+
+        assert_eq!(
+            snapshot.commit_signal,
+            Some(CommitSignal {
+                candidate: true,
+                edited: true,
+                validated: true,
+                dirty_checked: true,
+                commit_seen: false,
+            })
+        );
+    }
+
+    #[test]
+    fn parse_codex_write_stdin_validation_marks_commit_candidate() {
+        let file = NamedTempFile::new().expect("temp file");
+        fs::write(
+            file.path(),
+            concat!(
+                "{\"type\":\"event_msg\",\"payload\":{\"type\":\"user_message\",\"message\":\"Finish the tape save flow\"}}\n",
+                "{\"type\":\"response_item\",\"payload\":{\"type\":\"function_call\",\"name\":\"exec_command\",\"arguments\":\"{\\\"cmd\\\":\\\"git status --short\\\"}\",\"call_id\":\"call_status\"}}\n",
+                "{\"type\":\"response_item\",\"payload\":{\"type\":\"custom_tool_call\",\"status\":\"completed\",\"name\":\"apply_patch\",\"call_id\":\"call_patch\",\"input\":\"*** Begin Patch\\n*** Update File: /tmp/project/Sources/App.swift\\n@@\\n-old\\n+new\\n*** End Patch\\n\"}}\n",
+                "{\"type\":\"response_item\",\"payload\":{\"type\":\"function_call\",\"name\":\"exec_command\",\"arguments\":\"{\\\"cmd\\\":\\\"make test\\\"}\",\"call_id\":\"call_validate\"}}\n",
+                "{\"type\":\"response_item\",\"payload\":{\"type\":\"function_call_output\",\"call_id\":\"call_validate\",\"output\":\"Chunk ID: abc123\\nWall time: 0.0100 seconds\\nProcess running with session ID 23259\\nOriginal token count: 12\\nOutput:\\n\"}}\n",
+                "{\"type\":\"response_item\",\"payload\":{\"type\":\"function_call\",\"name\":\"write_stdin\",\"arguments\":\"{\\\"session_id\\\":23259,\\\"chars\\\":\\\"\\\",\\\"yield_time_ms\\\":1000}\",\"call_id\":\"call_poll\"}}\n",
+                "{\"type\":\"response_item\",\"payload\":{\"type\":\"function_call_output\",\"call_id\":\"call_poll\",\"output\":\"Chunk ID: def456\\nWall time: 0.0100 seconds\\nProcess exited with code 0\\nOriginal token count: 12\\nOutput:\\n\\nvalidation passed\\n\"}}\n"
+            ),
+        )
+        .expect("write fixture");
+
+        let snapshot = parse(file.path(), &ExtractOptions::default()).expect("parse");
+
         assert_eq!(
             snapshot.commit_signal,
             Some(CommitSignal {

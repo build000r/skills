@@ -937,18 +937,17 @@ fn resolved_claim_snapshot(
         })
 }
 
-fn unique_context_snapshot(
+fn preferred_context_snapshot(
     selection: ToolSelection,
     cwd: &Path,
 ) -> (Option<Snapshot>, Option<PathBuf>) {
     let Some(agent_tool) = selection_agent_tool(selection) else {
         return (None, None);
     };
-    let candidates = transcript_candidates(agent_tool, cwd);
-    match candidates.as_slice() {
-        [path] => (extract_snapshot(agent_tool, path, cwd), Some(path.clone())),
-        _ => (None, None),
-    }
+    let Some(path) = transcript_candidates(agent_tool, cwd).into_iter().next() else {
+        return (None, None);
+    };
+    (extract_snapshot(agent_tool, &path, cwd), Some(path))
 }
 
 fn selection_agent_tool(selection: ToolSelection) -> Option<AgentTool> {
@@ -990,7 +989,7 @@ fn context_snapshot_for_session_with_claim(
         return (None, None);
     }
 
-    unique_context_snapshot(selection, cwd)
+    preferred_context_snapshot(selection, cwd)
 }
 
 fn is_initial_thought_candidate(state: &SessionRuntimeState, session: &SessionSnapshot) -> bool {
@@ -1789,7 +1788,7 @@ mod tests {
     }
 
     #[test]
-    fn ambiguous_transcript_binding_falls_back_to_terminal_only() {
+    fn multiple_historical_transcripts_bind_newest_candidate() {
         let _lock = HOME_LOCK.lock().expect("home lock");
         let home = tempdir().expect("tempdir");
         std::env::set_var("HOME", home.path());
@@ -1803,16 +1802,30 @@ mod tests {
             .join("03")
             .join("08");
         fs::create_dir_all(&codex_day).expect("create codex dir");
-        for name in ["rollout-a.jsonl", "rollout-b.jsonl"] {
-            fs::write(
-                codex_day.join(name),
-                format!(
+        fs::write(
+            codex_day.join("rollout-a.jsonl"),
+            format!(
+                concat!(
                     "{{\"type\":\"session_meta\",\"payload\":{{\"cwd\":\"{}\"}}}}\n",
-                    cwd.display()
+                    "{{\"type\":\"event_msg\",\"payload\":{{\"type\":\"user_message\",\"message\":\"old rollout\"}}}}\n",
+                    "{{\"type\":\"response\",\"payload\":{{\"usage\":{{\"input_tokens\":111}}}}}}\n"
                 ),
-            )
-            .expect("write codex transcript");
-        }
+                cwd.display()
+            ),
+        )
+        .expect("write older codex transcript");
+        fs::write(
+            codex_day.join("rollout-b.jsonl"),
+            format!(
+                concat!(
+                    "{{\"type\":\"session_meta\",\"payload\":{{\"cwd\":\"{}\"}}}}\n",
+                    "{{\"type\":\"event_msg\",\"payload\":{{\"type\":\"user_message\",\"message\":\"new rollout\"}}}}\n",
+                    "{{\"type\":\"response\",\"payload\":{{\"usage\":{{\"input_tokens\":222}}}}}}\n"
+                ),
+                cwd.display()
+            ),
+        )
+        .expect("write newer codex transcript");
 
         let now = Utc::now();
         let mut engine = EmitEngine::new(Box::new(MockModelClient {
@@ -1831,13 +1844,86 @@ mod tests {
             sessions: vec![session],
         });
 
-        assert!(result.updates.is_empty());
-        assert!(result.metrics.suppressed > 0);
+        assert_eq!(result.updates.len(), 1);
+        assert_eq!(result.updates[0].token_count, 222);
         let state = engine
             .per_session
             .get("tmux:work:1.0:%1")
             .expect("pane state should exist");
-        assert!(state.claimed_jsonl_path.is_none());
+        assert_eq!(
+            state.claimed_jsonl_path
+                .as_ref()
+                .and_then(|path| path.file_name())
+                .and_then(|name| name.to_str()),
+            Some("rollout-b.jsonl")
+        );
+    }
+
+    #[test]
+    fn multiple_live_sessions_same_cwd_fall_back_to_terminal_only() {
+        let _lock = HOME_LOCK.lock().expect("home lock");
+        let home = tempdir().expect("tempdir");
+        std::env::set_var("HOME", home.path());
+
+        let cwd = PathBuf::from("/tmp/shared");
+        let codex_day = home
+            .path()
+            .join(".codex")
+            .join("sessions")
+            .join("2026")
+            .join("03")
+            .join("08");
+        fs::create_dir_all(&codex_day).expect("create codex dir");
+        fs::write(
+            codex_day.join("rollout-a.jsonl"),
+            format!(
+                concat!(
+                    "{{\"type\":\"session_meta\",\"payload\":{{\"cwd\":\"{}\"}}}}\n",
+                    "{{\"type\":\"event_msg\",\"payload\":{{\"type\":\"user_message\",\"message\":\"shared rollout\"}}}}\n"
+                ),
+                cwd.display()
+            ),
+        )
+        .expect("write codex transcript");
+
+        let now = Utc::now();
+        let mut engine = EmitEngine::new(Box::new(MockModelClient {
+            response: "watching logs".to_string(),
+        }));
+        let mut first = sample_session(now);
+        first.session_id = "tmux:work:1.0:%1".to_string();
+        first.tool = Some("codex".to_string());
+        first.cwd = cwd.display().to_string();
+        first.replay_text = "$ ".to_string();
+
+        let mut second = first.clone();
+        second.session_id = "tmux:work:1.0:%2".to_string();
+
+        let result = engine.sync(&SyncRequest {
+            id: "req-1".to_string(),
+            now,
+            config: ThoughtConfig::default(),
+            sessions: vec![first, second],
+        });
+
+        assert!(result.updates.is_empty());
+        assert!(result.metrics.suppressed > 0);
+        assert!(
+            engine
+                .per_session
+                .get("tmux:work:1.0:%1")
+                .expect("first pane state should exist")
+                .claimed_jsonl_path
+                .is_none()
+        );
+        assert!(
+            engine
+                .per_session
+                .get("tmux:work:1.0:%2")
+                .expect("second pane state should exist")
+                .claimed_jsonl_path
+                .is_none()
+        );
     }
 
     #[test]

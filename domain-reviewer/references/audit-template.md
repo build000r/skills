@@ -33,6 +33,7 @@ Use this template for AUDIT_REPORT.md output.
 - Documentation: **{XX}%** {brief note}
 - Auth service Auth/Payments/Identity Compliance: **{XX}%** {brief note}
 - Delivery Strategy Discipline (Big-Bang): **{XX}%** {brief note}
+- Highest and Best Use / Scope Discipline: **{XX}%** {brief note}
 - Performance Envelope: **{XX}%** {brief note}
 
 ---
@@ -52,6 +53,7 @@ Use this template for AUDIT_REPORT.md output.
 | **Shared - Error Codes** | {requirement} | {status} | {Yes/No/Partial} | {XX}% |
 | **Auth service Integration** | Existing Auth service package reuse + gap proposal + local-link to published/live validation | {status} | {Yes/No/Partial} | {XX}% |
 | **Delivery Strategy** | Target-state big-bang implementation; no unrequested legacy compatibility; DB transition section if production data impacted | {status} | {Yes/No/Partial} | {XX}% |
+| **Highest and Best Use / Scope Discipline** | Implementation preserves the Core Value Gate, minimum winning slice, and explicit non-goals from plan.md | {status} | {Yes/No/Partial} | {XX}% |
 | **Performance Envelope** | {mode/plan performance constraints} | {status} | {Yes/No/Partial} | {XX}% |
 
 ---
@@ -150,6 +152,15 @@ Use this template for AUDIT_REPORT.md output.
 |---------|----------|-------|-----------|
 | Big-bang target-state contract | No unrequested legacy endpoint compatibility layers | {count} violations | {Yes/No} |
 | DB transition runbook (if data-impacting) | Backup + raw `psql` + transaction/idempotency + rollback | {status} | {Yes/No} |
+
+### Highest and Best Use / Scope Discipline
+
+| Pattern | Required | Found | Compliant |
+|---------|----------|-------|-----------|
+| Core Value Gate preservation | Implementation stays centered on the primary actor + single visible win from `plan.md` | {status} | {Yes/No} |
+| Minimum winning slice | No unrequested admin/reporting/analytics/settings/abstraction surface | {count} violations | {Yes/No} |
+| Explicit non-goals respected | Deferred items remain deferred unless user re-scoped or safety required | {count} violations | {Yes/No} |
+| Effort concentration | Engineering effort is applied to the 80/20 win, not side features | {status} | {Yes/No} |
 
 ---
 

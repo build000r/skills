@@ -148,8 +148,9 @@ In audit mode, **you are the orchestrator**. Use worker phases for heavy work (d
 5. Dispatch fix worker phase(s) when score < 94%
 6. Enforce auth service compliance in auth/payments/identity scope: no local replacement layer, gaps captured as auth-scope proposals, local-link flow finalized on published/live packages
 7. Enforce delivery strategy compliance: no unrequested legacy compatibility code; DB-transition runbook required when production data is impacted
-8. On convergence (>= 94%): transition to retirement — **you do this yourself** (you have context budget)
-9. On max iterations (5): escalate to user with current score + remaining issues
+8. Enforce highest-and-best-use compliance: implementation must preserve the Core Value Gate, minimum winning slice, and explicit non-goals from `plan.md` rather than spending effort on side surfaces
+9. On convergence (>= 94%): transition to retirement — **you do this yourself** (you have context budget)
+10. On max iterations (5): escalate to user with current score + remaining issues
 
 ## Concurrency Contract
 

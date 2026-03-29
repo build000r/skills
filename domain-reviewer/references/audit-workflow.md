@@ -47,6 +47,7 @@ Extract from each file:
 | Backend conventions | Mode's backend convention files | TDD, domain structure, access control, error handling |
 | Auth service standards (if configured) | Mode's auth service settings + `{auth_packages_root}` | Auth/payments/identity package reuse, gap proposals, local-link and published/live validation flow |
 | Delivery strategy standards | plan.md + backend.md | Big-bang target-state scope; no unrequested legacy compatibility mechanics; DB transition section only when data-impacting |
+| Highest-and-best-use standards | plan.md Core Value Gate + out-of-scope sections + user stories | Minimum winning slice preserved; no "while we're here" expansion; implementation effort concentrated on the primary user-visible win |
 | Performance envelope (if present) | Mode file + plan.md/backend.md/frontend.md | Latency/throughput SLOs, queue/buffer bounds, backpressure behavior |
 
 ### Step 3: Audit Backend (if backend.md exists)
@@ -93,6 +94,12 @@ Extract from each file:
    - Backend implementation matches big-bang target-state contract from plan
    - No unrequested legacy endpoint compatibility, adapter layers, or dual-write/read code
    - If production data is impacted, DB transition runbook is present (backup, raw `psql`, transaction/idempotency, verification, rollback)
+
+9. **Highest and Best Use / Scope Discipline**:
+   - Implementation preserves the plan's Core Value Gate and minimum winning slice
+   - Work is concentrated on the primary actor's user-visible outcome, not ancillary nice-to-haves
+   - No "while we're here" additions unless required for safety/risk containment or explicitly re-scoped by the user
+   - Deferred/non-goal items remain deferred instead of leaking into the implementation
 
 ### Step 4: Audit Frontend (if frontend.md exists)
 
@@ -144,6 +151,11 @@ Extract from each file:
    - Frontend follows target-state contract only
    - No unrequested legacy API compatibility toggles/adapters/dual client paths
 
+10. **Highest and Best Use / Scope Discipline**:
+   - Frontend behavior is centered on the minimum winning slice from plan.md
+   - No speculative settings, analytics, admin, reporting, or abstraction surfaces unless explicitly in scope
+   - UI complexity added beyond the visible win is treated as non-compliant scope expansion
+
 ### Step 5: Check Plan Compliance
 
 For EACH item in shared.md/backend.md/frontend.md/flows.md:
@@ -157,6 +169,8 @@ For EACH item in shared.md/backend.md/frontend.md/flows.md:
 | Permission: cross-user denied | Missing | No access control test |
 | Auth service usage | Deviation | Local implementation bypasses existing auth service package |
 | Legacy compatibility code | Deviation | Added old endpoint adapter not required by plan |
+| Minimum winning slice preserved | Implemented | Stayed on the primary user-visible outcome |
+| "While we're here" expansion | Deviation | Added admin/reporting surface outside plan non-goals |
 | Tests for service | Missing | 0% coverage |
 
 **Compliance scoring:**
@@ -164,6 +178,8 @@ For EACH item in shared.md/backend.md/frontend.md/flows.md:
 - 90-99%: Minor deviations with good reason
 - 70-89%: Significant deviations or incomplete
 - <70%: Major gaps or missing functionality
+
+Score highest-and-best-use explicitly, not implicitly. If implementation drifts away from the Core Value Gate, minimum winning slice, or explicit non-goals in `plan.md`, deduct in the scorecard and call out the wasted complexity or displaced effort.
 
 ### Step 6: Identify Unfinished Work
 

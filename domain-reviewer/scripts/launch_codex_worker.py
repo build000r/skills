@@ -220,10 +220,9 @@ def build_prompt(args: argparse.Namespace, mode: ModeContext, skill_root: Path) 
             "1. Follow `references/audit-workflow.md` end-to-end.\n"
             f"2. Write/update `{_expand(args.plan_root)}/{args.slice}/AUDIT_REPORT.md`.\n"
             f"3. Update `{_expand(args.plan_index)}` status based on verdict.\n"
-            "4. Score highest-and-best-use explicitly: check whether implementation preserved the Core Value Gate, minimum winning slice, and explicit non-goals from `plan.md`.\n"
-            "5. Include parseable score line: `### Overall Compliance Score: **XX/100**`.\n"
-            "6. Include `## Agent Handoffs` blocks for remaining issues.\n"
-            f"7. Commit with: `audit({args.slice}): {{verdict}} - score {{XX}}/100`."
+            "4. Include parseable score line: `### Overall Compliance Score: **XX/100**`.\n"
+            "5. Include `## Agent Handoffs` blocks for remaining issues.\n"
+            f"6. Commit with: `audit({args.slice}): {{verdict}} - score {{XX}}/100`."
         )
 
     if args.worker == "re-review":

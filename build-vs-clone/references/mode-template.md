@@ -13,6 +13,8 @@ cwd_match: ~/repos
 ```
 
 Use the broadest stable prefix that should activate this portfolio map.
+If you need repo-specific overrides, create a second mode with a more specific
+`cwd_match`; the most specific matching mode should win.
 
 ## Scan Roots
 

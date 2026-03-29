@@ -66,9 +66,11 @@ Repo-aware placement should use a local gitignored mode file when available.
 
 1. List `modes/*.md` in this skill directory.
 2. Match `cwd` against `cwd_match` path prefixes.
-3. If exactly one mode matches, use it automatically.
-4. If none match, inspect local repos directly and state the uncertainty.
-5. Keep personal or company repo maps in `modes/`, not in tracked files.
+3. If multiple modes match, prefer the most specific `cwd_match` (the longest
+   normalized path prefix).
+4. If one best match remains, use it automatically.
+5. If none match, inspect local repos directly and state the uncertainty.
+6. Keep personal or company repo maps in `modes/`, not in tracked files.
 
 See [references/mode-template.md](references/mode-template.md) for the
 recommended structure.

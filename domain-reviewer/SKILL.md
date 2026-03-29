@@ -22,6 +22,11 @@ Three modes: **Audit** (autonomous loop), **Retire** (post-completion), and **Re
 
 **Skill root:** `~/.claude/skills/domain-reviewer/` — all relative paths below resolve from here.
 
+**Shared orchestration rules:** Use
+[references/orchestration-contract.md](~/.claude/skills/domain-reviewer/references/orchestration-contract.md)
+for the cross-skill contract on worker ownership, background-task handling,
+public retirement naming, and the domain suite's `100/100` convergence rule.
+
 ## Auth Service Requirements (All Modes)
 
 The shared auth/payments/identity service (`{auth_packages_root}` from mode config) is the canonical authentication, payments, and identity layer.
@@ -36,7 +41,7 @@ The shared auth/payments/identity service (`{auth_packages_root}` from mode conf
 2. Flag unrequested compatibility mechanics (legacy endpoints, dual routing, adapter layers, shadow write/read paths) as scope violations.
 3. If production data is affected, require a dedicated DB transition section with backup, raw `psql` execution plan, transactional/idempotent safety, verification, and rollback.
 
-- **Audit:** Autonomous audit→fix→retire loop — runs worker phases (subagents if available, inline fallback), converges to 94%, then retires
+- **Audit:** Autonomous audit→fix→retire loop — runs worker phases (subagents if available, inline fallback), converges to 100/100, then retires
 - **Retire:** Investigate completed slices, categorize user stories, clean up bloat
 - **Retire-Session:** Roll DONE session plans into domain COMPLETED.md files, archive originals
 
@@ -112,7 +117,7 @@ See [references/mode-template.md](~/.claude/skills/domain-reviewer/references/mo
 |-----------|------|------|
 | "review", "audit" | Audit | [references/orchestration-workflow.md](~/.claude/skills/domain-reviewer/references/orchestration-workflow.md) |
 | "retire", "close out", "consolidate", "clean up", "finalize" + slice name | Retire | [references/retire-workflow.md](~/.claude/skills/domain-reviewer/references/retire-workflow.md) |
-| "retire session plans", "consolidate session plans", "clean up session plans" | Retire-Session | [references/retire-session-workflow.md](~/.claude/skills/domain-reviewer/references/retire-session-workflow.md) |
+| "`retire-claude-plans`", "retire session plans", "consolidate session plans", "clean up session plans" | Retire-Session | [references/retire-session-workflow.md](~/.claude/skills/domain-reviewer/references/retire-session-workflow.md) |
 
 **After detecting mode, read the corresponding workflow reference file and follow it.**
 
@@ -145,10 +150,10 @@ In audit mode, **you are the orchestrator**. Use worker phases for heavy work (d
 2. Enter the autonomous loop (see orchestration-workflow.md)
 3. Run audit/re-review worker phase with full instructions and clean inputs
 4. Parse scores from AUDIT_REPORT.md after each cycle
-5. Dispatch fix worker phase(s) when score < 94%
+5. Dispatch fix worker phase(s) when score < 100
 6. Enforce auth service compliance in auth/payments/identity scope: no local replacement layer, gaps captured as auth-scope proposals, local-link flow finalized on published/live packages
 7. Enforce delivery strategy compliance: no unrequested legacy compatibility code; DB-transition runbook required when production data is impacted
-8. On convergence (>= 94%): transition to retirement — **you do this yourself** (you have context budget)
+8. On convergence (= 100/100): transition to retirement — **you do this yourself** (you have context budget)
 9. On max iterations (5): escalate to user with current score + remaining issues
 
 ## Concurrency Contract

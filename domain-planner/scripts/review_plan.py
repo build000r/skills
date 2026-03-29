@@ -144,7 +144,7 @@ def build_prompt(
         - Dimension 6 (Spec/Implementation Boundary): Component names with behavioral descriptions (states, interactions, layout) ARE spec — they communicate design intent. Deduct only for actual implementation code (TypeScript/Python/JSX, import statements, hook implementations, file path trees). A component described as "CallStatusBadge — shows booked time or Book call prompt, with onBook/onReschedule actions" is spec. A component with `export function CallStatusBadge({{ props }}: Props) {{...}}` is implementation.
         - Dimension 9 (Scope Discipline): Explicitly grade highest-best-use / 80-20 slicing. Deduct when the plan is not anchored to the Phase 0.5 Core Value Gate, when admin/config/reporting/abstraction work is specified ahead of the primary actor's visible win, or when the slice bundles multiple adjacent wins that should be split.
         - Sibling conflicts are informational context, NOT automatic score deductions. Report them in the Sibling Conflicts section. Only deduct if the conflict would cause THIS plan's implementation to fail (e.g., this plan references an endpoint that doesn't exist in the sibling).
-        - A plan that clearly communicates all business rules, user stories, API contracts, flows, and component behavior should score 80-90+ even if some operational details (rate limits, pagination bounds, per-endpoint error matrices) are deferred.
+        - A plan that clearly communicates all business rules, user stories, API contracts, flows, and component behavior should score 85-95 on a first pass even if some operational details (rate limits, pagination bounds, per-endpoint error matrices) are deferred. The final sign-off target is still 100/100.
 
         ## Output
 
@@ -192,13 +192,13 @@ def build_prompt(
         they would cause THIS plan's implementation to fail).
 
         ## Verdict Rationale
-        Why COMPLIANT (85+) / NEEDS REVISION (60-84) / MAJOR CONCERNS (<60).
+        Why COMPLIANT (100) / NEEDS REVISION (85-99) / MAJOR CONCERNS (<85).
         ```
 
         Verdict thresholds:
-        - **COMPLIANT** (85+): Ready for implementation. Minor issues only.
-        - **NEEDS REVISION** (60-84): Good foundation but has gaps that could cause scaffolder confusion.
-        - **MAJOR CONCERNS** (<60): Significant issues that would cause wrong implementations.
+        - **COMPLIANT** (100): Ready for implementation. No blocking ambiguity remains.
+        - **NEEDS REVISION** (85-99): Good foundation but still has gaps that must be fixed before sign-off.
+        - **MAJOR CONCERNS** (<85): Significant issues that would cause wrong or unstable implementations.
 
         Guardrails:
         - Do NOT modify any plan files. This is read-only review.

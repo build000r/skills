@@ -2,6 +2,10 @@
 
 Automated assess→fix→re-assess loop for plan files before sign-off. Runs after all 6 plan files are written (Phase 6b) and converges to 100/100 against the [plan-quality-rubric.md](plan-quality-rubric.md).
 
+Shared cross-skill rules live in
+`~/.claude/skills/_shared/references/orchestration-contract.md`. This file only
+covers planner-specific plan-quality behavior.
+
 This mirrors the domain-reviewer's audit→fix→re-audit loop but targets **plan quality** instead of implementation compliance.
 
 ## Table of Contents

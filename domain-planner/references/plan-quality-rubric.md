@@ -29,7 +29,7 @@ These rules prevent systematic over-penalization:
 
 4. **Component names with behavioral descriptions ARE spec.** "CallStatusBadge — shows booked time or Book call prompt, states: booked/not-booked/loading, interactions: onBook/onReschedule/onCancel" is behavioral spec that communicates design intent. Deduct only for actual implementation code: TypeScript/Python/JSX bodies, import statements, hook implementation code, or prescribed file path trees.
 
-5. **A well-communicated plan scores 85+.** A plan that clearly defines business rules, user stories with acceptance criteria, API contracts with request/response shapes, sequence flows, and component behavior should score 85-95 even with minor gaps in operational details. 100/100 means zero ambiguity — extremely rare and not the expected bar.
+5. **A well-communicated plan scores 85+ on the first assessment.** A plan that clearly defines business rules, user stories with acceptance criteria, API contracts with request/response shapes, sequence flows, and component behavior should score 85-95 even with minor gaps in operational details. The quality loop still targets `100/100` before sign-off, so first-pass strength does not replace the final pass requirement.
 
 6. **Big-bang is the default.** Deduct for unrequested legacy compatibility plans (dual endpoints, adapter layers, deprecation windows, shadow writes/reads) unless the user explicitly asked for compatibility support.
 

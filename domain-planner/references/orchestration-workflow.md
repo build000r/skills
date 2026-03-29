@@ -2,6 +2,10 @@
 
 Detailed agent coordination for implementing a planned domain slice. This is the expanded version of the Orchestration Mode section in SKILL.md.
 
+Shared cross-skill rules live in
+`~/.claude/skills/_shared/references/orchestration-contract.md`. This file only
+covers planner-specific orchestration steps.
+
 ## Table of Contents
 
 - [Step 1: Analyze Plan Scope](#step-1-analyze-plan-scope)
@@ -191,16 +195,15 @@ Read the latest AUDIT_REPORT.md and classify every open finding:
 |----------|----------|-------------|
 | **ACTIONABLE** | New issue, or fix hasn't been attempted yet | Retarget fix agent with sharper, more specific instructions |
 | **REGRESSING** | Was fixed in a prior iteration, broke again | Retry once with combined context (both the fix and what broke); if fails again → escalate |
-| **STALE** | Fix attempted ≥2 times with no progress | Accept if Low severity; escalate if Medium+ |
+| **STALE** | Fix attempted ≥2 times with no progress | Escalate with a specific recommendation; do not mark DONE below 100/100 |
 | **EXTERNAL** | Requires out-of-scope dependency (auth service gap, upstream API, missing package) | Document as blocker, escalate with specific proposal |
 
-### 9b. Auto-Proceed Rules
+### 9b. Triage Outcomes
 
 Based on the triage:
 
-- **All remaining are Low-severity STALE** → accept, document in AUDIT_REPORT.md as "Accepted — cosmetic/low-impact", proceed to Step 10
 - **ACTIONABLE items exist** → retarget fix agents with more specific instructions (include the failure context from prior attempts), loop back to Step 7
-- **Only EXTERNAL or Medium+ REGRESSING remain** → escalate to user (see 9c)
+- **Only STALE / EXTERNAL / Medium+ REGRESSING remain** → escalate to user (see 9c)
 
 ### 9c. Contextual Escalation
 
@@ -215,11 +218,11 @@ When escalation is required, present a **specific, actionable** stall report —
 |-------|----------|----------|----------------|
 | {description} | {sev} | {category} | {what to do} |
 
-**Recommended path:** {e.g., "Accept the 2 Low items, escalate the auth service gap as an auth-scope proposal."}
-Proceeding with that unless you redirect.
+**Recommended path:** {e.g., "Escalate the auth service gap as an auth-scope proposal and keep the slice IN_PROGRESS until the dependency is resolved."}
 ```
 
-The orchestrator **proceeds with its recommendation after presenting it**. The user only needs to intervene if they disagree. This keeps momentum — no blocking on approval for obvious next steps.
+The orchestrator pauses here for user direction. Below `100/100`, it must not
+retire the slice or mark it `DONE` without an explicit override.
 
 ### 9d. Scope Discipline
 
@@ -235,7 +238,7 @@ If remaining issues genuinely require plan revision, the escalation says so expl
 
 ## Step 10: Completion
 
-When score = 100, or stall triage accepted remaining Low items:
+When score = 100:
 
 1. **Auto-retire** — transition directly to retirement by following the domain-reviewer retire workflow. The orchestrator does this itself (not delegated) because it has full journey context and plenty of context budget remaining.
 
@@ -252,8 +255,6 @@ When score = 100, or stall triage accepted remaining Low items:
 
    **Score:** {final}/100 (trajectory: {list})
    **Iterations:** {N}
-   **Accepted items:** {list any Low items accepted during triage, or "None"}
-
    **Retirement:** {stories complete/deferred summary}
    ```
 

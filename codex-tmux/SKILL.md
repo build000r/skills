@@ -11,6 +11,10 @@ Run Codex non-interactively in a detached tmux session. The calling skill
 launches it, starts a background waiter, and continues — or dies. Either
 way the work completes and the result is retrievable.
 
+Shared cross-skill rules live in
+[references/orchestration-contract.md](references/orchestration-contract.md).
+Use that file for detached review and background-result collection semantics.
+
 ## When to Use
 
 | Use Claude Code subagents when | Use codex-tmux when |
@@ -34,7 +38,7 @@ Calling skill (e.g. divide-and-conquer)
 
 Path A (conversation alive):
    Codex finishes → signals channel → background Bash unblocks
-   → TaskOutput returns result.json → calling skill reports to user
+   → runtime task/session handle returns result.json → calling skill reports to user
 
 Path B (conversation died):
    Codex finishes → signals channel (no listener, fine)
@@ -107,7 +111,8 @@ Codex running in: codex-20260220-143022
 
 ### Step 5: Collect result
 
-If the conversation is still alive, check the background task via `TaskOutput`:
+If the conversation is still alive, check the runtime's background-task handle
+or use the session `status` / `result` commands:
 
 - First check after ~60 seconds
 - Subsequent checks every ~30 seconds

@@ -22,6 +22,11 @@ Three modes: **Planning** (create specs), **Quality Assessment** (validate/fix s
 
 **Skill root:** `~/.claude/skills/domain-planner/` — all relative paths below resolve from here.
 
+**Shared orchestration rules:** Use
+[references/orchestration-contract.md](~/.claude/skills/domain-planner/references/orchestration-contract.md)
+for the cross-skill contract on worker ownership, background-task handling, and
+the domain suite's `100/100` convergence rule.
+
 ## Plan Storage (Mode-Defined)
 
 Plan storage is defined by the active mode file (`~/.claude/skills/domain-planner/modes/{mode}.md`):
@@ -78,7 +83,7 @@ The shared auth/payments/identity service (`{auth_packages_root}` from mode conf
 
    **Question:** "Plan exists for {slice}. What do you want to do?"
    **Options:**
-   - Implement it (Recommended) — Orchestrate scaffolding + audit until COMPLIANT
+   - Implement it (Recommended) — Orchestrate scaffolding + audit until 100/100 COMPLIANT
    - Continue planning — Edit existing plan files
    - Check plan quality — Assess and fix plan files against the quality rubric
    - Check status — Show what's implemented vs planned
@@ -446,10 +451,10 @@ See [references/orchestration-workflow.md](~/.claude/skills/domain-planner/refer
 4. **After scaffolding completes, launch an audit agent** using the domain-reviewer skill in audit mode.
 
 5. **Handle audit results:**
-   - COMPLIANT (score ≥90%) → mark done, update INDEX.md
+   - COMPLIANT (score = 100/100) → mark done, update INDEX.md
    - Issues found → extract handoffs from AUDIT_REPORT.md, launch fix agents only for repos with issues
 
-6. **Re-audit loop** — Max 3 attempts, then ask the user how to proceed.
+6. **Re-audit loop** — Max 5 attempts with stall triage, then escalate with a specific blocker report.
 
 7. **Completion** — Update INDEX.md status to DONE, report results to user.
 

@@ -2,9 +2,17 @@
 
 For DONE session plans: roll stories into domain COMPLETED.md files, archive originals.
 
+Public command name:
+`/domain-reviewer retire-claude-plans`
+
+Legacy phrasing such as `retire session plans` and legacy command spellings may
+still be accepted as compatibility triggers, but the documented command name is
+`retire-claude-plans`.
+
 ## When to Use Retire-Session Mode
 
 - User says "retire session plans", "consolidate session plans", "clean up session plans"
+- User runs `/domain-reviewer retire-claude-plans`
 - Periodic cleanup of accumulated DONE session plans
 - Goal: reduce session plan index bloat while preserving story credit in domain plans
 

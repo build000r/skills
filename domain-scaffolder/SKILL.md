@@ -17,9 +17,13 @@ Bundled canonical references live here:
 - `references/mode-template.md`
 - `references/test-templates.md`
 - `references/example-patterns.md`
+- `references/orchestration-contract.md`
 
 Those references now absorb the reusable legacy backend/frontend wrapper
 material. Treat this skill as the source of truth.
+
+Cross-skill worker, handoff, and shared-file ownership rules come from
+`references/orchestration-contract.md`.
 
 ## Surfaces
 

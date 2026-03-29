@@ -1,5 +1,9 @@
 # Audit Workflow
 
+Shared cross-skill rules live in
+`~/.claude/skills/_shared/references/orchestration-contract.md`. This file only
+covers reviewer-specific audit procedure and report format.
+
 > **Execution context:** These steps are executed by an audit worker phase coordinated by the orchestrator.
 > The orchestrator constructs the worker prompt using these steps with mode-specific paths substituted.
 > See `references/orchestration-workflow.md` for the orchestration loop.
@@ -161,7 +165,7 @@ For EACH item in shared.md/backend.md/frontend.md/flows.md:
 
 **Compliance scoring:**
 - 100%: Exact match to plan
-- 90-99%: Minor deviations with good reason
+- 90-99%: Close to plan, but still open because some work remains
 - 70-89%: Significant deviations or incomplete
 - <70%: Major gaps or missing functionality
 
@@ -198,9 +202,9 @@ Based on the audit verdict, update the slice's status in the mode's `plan_index`
 
 | Audit Verdict | INDEX.md Status | When |
 |---------------|-----------------|------|
-| COMPLIANT | `DONE` | Score >=90%, no critical issues |
-| MOSTLY COMPLIANT | `IN_PROGRESS` | Score 70-89%, minor issues remain |
-| NEEDS WORK | `IN_PROGRESS` | Score <70%, significant gaps |
+| COMPLIANT | `DONE` | Score =100, no critical issues |
+| MOSTLY COMPLIANT | `IN_PROGRESS` | Score 90-99%, minor issues remain |
+| NEEDS WORK | `IN_PROGRESS` | Score 70-89%, significant gaps remain |
 | CRITICAL ISSUES | `DEVIATED` | Blocking issues, security holes, or major deviation from plan |
 
 **INDEX.md row format:**
@@ -236,7 +240,7 @@ After (COMPLIANT verdict):
 | 2026-01-11 | [chatroom](./chatroom/) | DONE | | Real-time user messaging |
 ```
 
-**Note:** On re-review, if all issues are resolved and score improves to >=90%, update status to `DONE`.
+**Note:** On re-review, update status to `DONE` only when the score reaches `100/100`.
 
 ### Step 9: Commit Baseline
 

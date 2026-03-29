@@ -9,6 +9,11 @@ license: MIT
 Decompose a task into sub-agents that run fully in parallel with zero conflicts.
 Autonomous: plan → launch → Codex review → commit → report. No approval gates.
 
+Shared cross-skill rules live in
+[references/orchestration-contract.md](references/orchestration-contract.md).
+Use that file for worker ownership, background-task collection, and detached
+review handoff semantics.
+
 ## Modes
 
 Modes customize decomposition for specific projects — split boundaries, agent preferences, repo structure, naming conventions, and validation commands. Stored in `modes/` (gitignored, never committed).
@@ -232,7 +237,8 @@ The conversation can continue normally or end here — the background waiter han
 
 #### 5e. Collect Result
 
-If the conversation is still alive, periodically check the background task via `TaskOutput`:
+If the conversation is still alive, periodically check the runtime's background
+task handle or the detached review session result:
 
 - First check after ~60 seconds
 - Subsequent checks every ~30 seconds

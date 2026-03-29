@@ -2,6 +2,10 @@
 
 Autonomous audit→fix→retire loop. The orchestrator stays thin and runs worker phases for heavy work, then transitions to retirement on convergence.
 
+Shared cross-skill rules live in
+`~/.claude/skills/_shared/references/orchestration-contract.md`. This file only
+covers reviewer-specific audit-loop behavior.
+
 Worker execution is runtime-dependent:
 
 - **Subagent-capable runtime:** delegate each worker phase to a fresh worker/subagent.
@@ -22,7 +26,7 @@ Parallel execution contract (same repository, no extra worktrees required):
 | Stall detection | Score improved < 2 pts between iterations, or same issues reappear |
 | Max iterations | 5 (hard ceiling) |
 | On 100% | Orchestrator runs retirement itself |
-| On stall | Triage remaining issues, auto-proceed or escalate (see Stall Triage) |
+| On stall | Triage remaining issues, retarget workers or escalate (see Stall Triage) |
 | On max iterations | Force stall triage regardless |
 
 ## Prerequisites
@@ -288,16 +292,15 @@ Read the latest AUDIT_REPORT.md and classify every open finding:
 |----------|----------|-------------|
 | **ACTIONABLE** | New issue, or fix hasn't been attempted yet | Retarget fix worker with sharper, more specific instructions |
 | **REGRESSING** | Was fixed in a prior iteration, broke again | Retry once with combined context (both the fix and what broke); if fails again → escalate |
-| **STALE** | Fix attempted ≥2 times with no progress | Accept if Low severity; escalate if Medium+ |
+| **STALE** | Fix attempted ≥2 times with no progress | Escalate with a specific recommendation; do not retire below 100/100 |
 | **EXTERNAL** | Requires out-of-scope dependency (Auth service gap, upstream API, missing package) | Document as blocker, escalate with specific proposal |
 
-### Auto-Proceed Rules
+### Triage Outcomes
 
 Based on the triage:
 
-- **All remaining are Low-severity STALE** → accept, document in AUDIT_REPORT.md as "Accepted — cosmetic/low-impact", transition to Retirement
 - **ACTIONABLE items exist** → retarget fix workers with more specific instructions (include failure context from prior attempts), resume the loop
-- **Only EXTERNAL or Medium+ REGRESSING remain** → contextual escalation (see below)
+- **Only STALE / EXTERNAL / Medium+ REGRESSING remain** → contextual escalation (see below)
 
 ### Contextual Escalation
 
@@ -312,11 +315,11 @@ When escalation is required, present a **specific, actionable** stall report —
 |-------|----------|----------|----------------|
 | {description} | {sev} | {category} | {what to do} |
 
-**Recommended path:** {e.g., "Accept the 2 Low items, escalate the Auth service gap as an auth-scope proposal."}
-Proceeding with that unless you redirect.
+**Recommended path:** {e.g., "Escalate the Auth service gap as an auth-scope proposal and keep the slice IN_PROGRESS until the dependency is resolved."}
 ```
 
-The orchestrator **proceeds with its recommendation after presenting it**. The user only needs to intervene if they disagree.
+The orchestrator pauses here for user direction. Below `100/100`, it must not
+retire the slice or mark it `DONE` without an explicit override.
 
 ### Scope Discipline
 

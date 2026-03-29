@@ -3,9 +3,9 @@ use std::time::Duration;
 const CODEX_TIMEOUT: Duration = Duration::from_secs(15);
 const DEFAULT_THOUGHT_MODEL: &str = "openrouter/aurora-alpha";
 const MODEL_ENV_KEYS: [&str; 3] = [
-    "THRONGTERM_THOUGHT_MODEL",
-    "THRONGTERM_THOUGHT_MODEL_2",
-    "THRONGTERM_THOUGHT_MODEL_3",
+    "SWIMMERS_THOUGHT_MODEL",
+    "SWIMMERS_THOUGHT_MODEL_2",
+    "SWIMMERS_THOUGHT_MODEL_3",
 ];
 
 pub trait ModelClient: Send + Sync {
@@ -152,9 +152,9 @@ mod tests {
     #[test]
     fn thought_models_collects_nonempty_env_overrides_in_order() {
         let _lock = ENV_LOCK.lock().expect("env lock");
-        std::env::set_var("THRONGTERM_THOUGHT_MODEL", "openrouter/one");
-        std::env::set_var("THRONGTERM_THOUGHT_MODEL_2", "   ");
-        std::env::set_var("THRONGTERM_THOUGHT_MODEL_3", "openrouter/three");
+        std::env::set_var("SWIMMERS_THOUGHT_MODEL", "openrouter/one");
+        std::env::set_var("SWIMMERS_THOUGHT_MODEL_2", "   ");
+        std::env::set_var("SWIMMERS_THOUGHT_MODEL_3", "openrouter/three");
 
         let models = thought_models(None);
 
@@ -163,17 +163,17 @@ mod tests {
             vec!["openrouter/one".to_string(), "openrouter/three".to_string()]
         );
 
-        std::env::remove_var("THRONGTERM_THOUGHT_MODEL");
-        std::env::remove_var("THRONGTERM_THOUGHT_MODEL_2");
-        std::env::remove_var("THRONGTERM_THOUGHT_MODEL_3");
+        std::env::remove_var("SWIMMERS_THOUGHT_MODEL");
+        std::env::remove_var("SWIMMERS_THOUGHT_MODEL_2");
+        std::env::remove_var("SWIMMERS_THOUGHT_MODEL_3");
     }
 
     #[test]
     fn thought_models_falls_back_to_default_model() {
         let _lock = ENV_LOCK.lock().expect("env lock");
-        std::env::remove_var("THRONGTERM_THOUGHT_MODEL");
-        std::env::remove_var("THRONGTERM_THOUGHT_MODEL_2");
-        std::env::remove_var("THRONGTERM_THOUGHT_MODEL_3");
+        std::env::remove_var("SWIMMERS_THOUGHT_MODEL");
+        std::env::remove_var("SWIMMERS_THOUGHT_MODEL_2");
+        std::env::remove_var("SWIMMERS_THOUGHT_MODEL_3");
 
         let models = thought_models(None);
 

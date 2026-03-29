@@ -209,7 +209,9 @@ fn function_call_observation(
                 .and_then(Value::as_str)
                 .map(ToString::to_string),
             command: parsed_arguments.as_ref().and_then(command_from_arguments),
-            session_id: parsed_arguments.as_ref().and_then(session_id_from_arguments),
+            session_id: parsed_arguments
+                .as_ref()
+                .and_then(session_id_from_arguments),
             marks_edit: false,
         }
     })

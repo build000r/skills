@@ -244,16 +244,13 @@ fn sync_response_for_request(
         )
     })?;
 
-    request
-        .config
-        .validate()
-        .map_err(|error| {
-            ErrorMessage::new(
-                Some(request.id.clone()),
-                "invalid_config",
-                error.to_string(),
-            )
-        })?;
+    request.config.validate().map_err(|error| {
+        ErrorMessage::new(
+            Some(request.id.clone()),
+            "invalid_config",
+            error.to_string(),
+        )
+    })?;
     Ok(engine.sync(&request))
 }
 

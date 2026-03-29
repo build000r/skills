@@ -1,6 +1,6 @@
 ---
-name: throngterm-sprite
-description: Generate thronglet state-variant SVG packs from a master pixel-art SVG or logo asset for per-repo throngterm overrides. Use for "generate sprites", "thronglet sprites", "throngterm-sprite", "/sprite-gen", custom thronglet work, or setting up .throngterm in a repo.
+name: swimmers-sprite
+description: Generate thronglet state-variant SVG packs from a master pixel-art SVG or logo asset for per-repo swimmers overrides. Use for "generate sprites", "thronglet sprites", "swimmers-sprite", "/sprite-gen", custom thronglet work, or setting up .throngterm in a repo.
 ---
 
 # Sprite Gen
@@ -113,7 +113,7 @@ This writes:
 - `sleeping.svg`
 - `deep_sleep.svg`
 
-with the same naming/state contract expected by throngterm.
+with the same naming/state contract expected by swimmers.
 
 ## Master SVG Format
 
@@ -140,7 +140,7 @@ Use the standard hex values above. Unmapped colors default to black.
 Generated/committed sprite SVGs must be self-contained.
 
 Do not rely on external `<image href="/logo.png">` paths inside sprite SVGs,
-because throngterm injects SVG inline from another app context and those URLs
+because swimmers injects SVG inline from another app context and those URLs
 can resolve to the wrong origin, rendering blank sprites.
 
 Validation checks:
@@ -168,7 +168,7 @@ palette. All fields are optional — only override what you need:
 }
 ```
 
-Colors are baked into the generated SVGs as CSS `var()` fallbacks. Throngterm
+Colors are baked into the generated SVGs as CSS `var()` fallbacks. Swimmers
 can still override them at runtime via CSS custom properties (`--thr-body`,
 `--thr-outline`, `--thr-accent`, `--thr-shirt`).
 
@@ -176,9 +176,9 @@ To brand a repo: copy the standard master SVG, create `colors.json` with your
 palette, and run the generator. The thronglet keeps its character shape but
 wears your brand.
 
-## How Throngterm Uses These
+## How Swimmers Uses These
 
-When throngterm's backend detects a `.throngterm/sprites/` directory in a
+When Swimmers backend detects a `.throngterm/sprites/` directory in a
 session's working directory (or any ancestor), it reads the 4 SVGs and serves
 them inline via the bootstrap API. The frontend renders them instead of the
 built-in defaults, preserving the idle-depth progression

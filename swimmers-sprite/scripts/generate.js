@@ -46,8 +46,8 @@ if (!fs.existsSync(srcPath)) {
 }
 
 // Output dir is always .throngterm/sprites/ relative to where the master SVG lives
-const throngtermDir = path.dirname(srcPath);
-const outDir = path.join(throngtermDir, "sprites");
+const swimmersDir = path.dirname(srcPath);
+const outDir = path.join(swimmersDir, "sprites");
 fs.mkdirSync(outDir, { recursive: true });
 
 console.log(`Master SVG: ${srcPath}`);
@@ -78,7 +78,7 @@ const DEFAULTS = {
   shirt: "#7AAFC8",
 };
 
-const colorsPath = path.join(throngtermDir, "colors.json");
+const colorsPath = path.join(swimmersDir, "colors.json");
 let colors = { ...DEFAULTS };
 if (fs.existsSync(colorsPath)) {
   try {

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Generate 4 thronglet SVG states from any logo/image (png/svg/webp/jpg).
-// Output filenames match throngterm sprite contract.
+// Output filenames match swimmers sprite contract.
 
 const fs = require('fs');
 const os = require('os');

@@ -1851,7 +1851,8 @@ mod tests {
             .get("tmux:work:1.0:%1")
             .expect("pane state should exist");
         assert_eq!(
-            state.claimed_jsonl_path
+            state
+                .claimed_jsonl_path
                 .as_ref()
                 .and_then(|path| path.file_name())
                 .and_then(|name| name.to_str()),
@@ -1908,22 +1909,18 @@ mod tests {
 
         assert!(result.updates.is_empty());
         assert!(result.metrics.suppressed > 0);
-        assert!(
-            engine
-                .per_session
-                .get("tmux:work:1.0:%1")
-                .expect("first pane state should exist")
-                .claimed_jsonl_path
-                .is_none()
-        );
-        assert!(
-            engine
-                .per_session
-                .get("tmux:work:1.0:%2")
-                .expect("second pane state should exist")
-                .claimed_jsonl_path
-                .is_none()
-        );
+        assert!(engine
+            .per_session
+            .get("tmux:work:1.0:%1")
+            .expect("first pane state should exist")
+            .claimed_jsonl_path
+            .is_none());
+        assert!(engine
+            .per_session
+            .get("tmux:work:1.0:%2")
+            .expect("second pane state should exist")
+            .claimed_jsonl_path
+            .is_none());
     }
 
     #[test]

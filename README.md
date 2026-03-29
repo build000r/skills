@@ -243,7 +243,7 @@ human re-enters only for ambiguity, risk, or escalation
 | [`remotion`](./remotion/) | Encodes practical Remotion guidance for React video work |
 | [`research-paper`](./research-paper/) | Produces dense research pages plus social companions |
 | [`session-to-tweet`](./session-to-tweet/) | Converts technical work sessions into high-signal X posts |
-| [`throngterm-sprite`](./throngterm-sprite/) | Generates thronglet sprite packs from master pixel assets |
+| [`swimmers-sprite`](./swimmers-sprite/) | Generates thronglet sprite packs from master pixel assets |
 | [`trend-to-content`](./trend-to-content/) | Turns search and social trends into research, PSEO, and video ideas |
 
 ### OpenClaw And Unclawg

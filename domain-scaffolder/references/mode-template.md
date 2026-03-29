@@ -1,5 +1,10 @@
 # {Project Name} Domain Scaffolder Mode
 
+Use this canonical template for greenfield repos. Prefer repo-local template
+names such as `domain-scaffolder.md`, `domain-scaffolder.backend.md`, or
+`domain-scaffolder.frontend.md`. Treat `domain-scaffolder-backend.md` and
+`domain-scaffolder-frontend.md` as deprecated compatibility inputs only.
+
 ## Detection
 cwd_match: ~/repos/{repo}
 surface: backend | frontend | both

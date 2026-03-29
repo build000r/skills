@@ -1,12 +1,15 @@
 ---
 name: domain-scaffolder-backend
-description: Scaffold backend domain code from an existing plan with a TDD-first workflow that writes tests before implementation. Use for "scaffold the backend" or "implement the backend for {slice}" after domain-planner finishes a slice plan; not for frontend work or general backend tasks outside domain slices.
+description: Deprecated compatibility alias for `domain-scaffolder` with `surface=backend`. Use only when preserving older prompts, plans, or installed mode-template flows that still reference this legacy name.
 license: MIT
 ---
 
 # Domain Scaffolder - Backend
 
-Compatibility wrapper for the canonical `domain-scaffolder` skill.
+Deprecated compatibility wrapper for the canonical `domain-scaffolder` skill.
+
+Greenfield work should invoke `domain-scaffolder` directly with
+`surface=backend`.
 
 ## Surface Lock
 
@@ -59,4 +62,4 @@ fixed for all filtering.
 
 Return the canonical completion contract with `surface=backend`, then hand off to
 `domain-reviewer`. If the slice also includes frontend work, direct the user to
-`domain-scaffolder-frontend` next.
+`domain-scaffolder` with `surface=frontend` next.

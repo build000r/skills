@@ -252,7 +252,7 @@ Use these copy-paste blocks to hand off issues to implementor agents.
 ```
 Fix the backend issues found in the {slice} slice audit.
 
-FIRST: Load the domain-scaffolder-backend skill for {slice} to get backend patterns and standards.
+FIRST: Load the domain-scaffolder skill with `surface=backend` for {slice} to get backend patterns and standards.
 
 READ: {plan_root}/{slice}/AUDIT_REPORT.md
 
@@ -274,7 +274,7 @@ Auth service rule: reuse existing `{auth_packages_root}` auth/payments/identity 
 ```
 Fix the frontend issues found in the {slice} slice audit.
 
-FIRST: Load the domain-scaffolder-frontend skill for {slice} to get frontend patterns.
+FIRST: Load the domain-scaffolder skill with `surface=frontend` for {slice} to get frontend patterns.
 
 READ: {plan_root}/{slice}/AUDIT_REPORT.md
 

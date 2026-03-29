@@ -25,10 +25,10 @@ Parse repo tags from the plan index entry (e.g., `[backend, frontend, auth]`) to
 
 | Repo Role | Agent Type | Skill to Use |
 |-----------|------------|--------------|
-| Backend repo | general-purpose | domain-scaffolder-backend |
-| Frontend repo | general-purpose | domain-scaffolder-frontend |
-| Auth repo (if separate) | general-purpose | domain-scaffolder-backend |
-| Additional backend repos | general-purpose | domain-scaffolder-backend |
+| Backend repo | general-purpose | `domain-scaffolder` with `surface=backend` |
+| Frontend repo | general-purpose | `domain-scaffolder` with `surface=frontend` |
+| Auth repo (if separate) | general-purpose | `domain-scaffolder` with `surface=backend` |
+| Additional backend repos | general-purpose | `domain-scaffolder` with `surface=backend` |
 
 **Each repo gets its own agent** — they have different test setups, patterns, and conventions.
 
@@ -67,7 +67,7 @@ For each backend repo, launch a general-purpose agent with instructions:
 ```
 Implement the {repo} portion of the {slice} slice.
 
-FIRST: Use the domain-scaffolder-backend skill for {slice}
+FIRST: Use the domain-scaffolder skill with `surface=backend` for {slice}
 
 Working directory: {repo_path}
 Follow the repo's AGENTS.md patterns. Write tests first (TDD).
@@ -81,7 +81,7 @@ For each frontend repo, launch a general-purpose agent with instructions:
 ```
 Implement the {repo} frontend portion of the {slice} slice.
 
-FIRST: Use the domain-scaffolder-frontend skill for {slice}
+FIRST: Use the domain-scaffolder skill with `surface=frontend` for {slice}
 
 Working directory: {repo_path}
 Follow the project's frontend patterns. Handle all async states.
@@ -143,7 +143,7 @@ Launch fix agents **only for repos that have issues**. One agent per repo with i
 ```
 Fix the {repo} issues found in the {slice} audit.
 
-FIRST: Use the domain-scaffolder-{backend|frontend} skill for {slice}
+FIRST: Use the domain-scaffolder skill with `surface={backend|frontend}` for {slice}
 
 READ: {plan_root}/{slice}/AUDIT_REPORT.md
 

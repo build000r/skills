@@ -112,7 +112,7 @@ The shared auth/payments/identity service (`{auth_packages_root}` from mode conf
 3. **Test cases inline** — Each acceptance criterion includes test scenarios (happy path + error cases).
 4. **schema.mmd is MANDATORY** — Other files reference it for entity relationships.
 5. **Just-in-time reading** — Read the mode's convention files before each phase.
-6. **Explicit handoffs** — Reference domain-scaffolder-backend, domain-scaffolder-frontend, domain-reviewer by name.
+6. **Explicit handoffs** — Reference `domain-scaffolder` with explicit `surface=backend` or `surface=frontend`, plus `domain-reviewer` by name. Mention the legacy wrapper names only when explaining compatibility with older artifacts.
 7. **Standard stories first** — Before Phase 1 Discovery, check `~/.claude/skills/domain-planner/references/standard-stories/` for reusable patterns (RBAC, feature flags, onboarding). Start from templates, don't rediscover.
 8. **Mode-specific templates** — Use `~/.claude/skills/domain-planner/assets/templates/frontend-{mode}.md` when available (e.g., `frontend-{mode}.md` for mode-specific slices). Fall back to generic `frontend.md`.
 9. **Performance envelopes are binding** — When a mode defines performance constraints, convert each target into explicit acceptance criteria and test scenarios across plan files.
@@ -415,8 +415,8 @@ See [references/orchestration-workflow.md](~/.claude/skills/domain-planner/refer
 2. **Initialize progress checklist** — One item per repo + audit + completion.
 
 3. **Launch parallel agents, one per repo involved:**
-   - Backend repos → each agent uses the domain-scaffolder-backend skill
-   - Frontend repos → each agent uses the domain-scaffolder-frontend skill
+   - Backend repos → each agent uses the `domain-scaffolder` skill with `surface=backend`
+   - Frontend repos → each agent uses the `domain-scaffolder` skill with `surface=frontend`
    - Each agent works in its own repo with its own conventions
    - Use the divide-and-conquer pattern: scope by concern, not files
 
@@ -438,7 +438,6 @@ See `~/.claude/skills/domain-planner/assets/templates/` — copied automatically
 
 ## Related Skills
 
-- **domain-scaffolder-backend** — Generate TDD-first backend code from plan
-- **domain-scaffolder-frontend** — Generate pattern-adherent frontend code from plan
+- **domain-scaffolder** — Generate backend or frontend code from plan using the explicit surface selection
 - **domain-reviewer** — Audit implementation against plan, retire completed slices
 - **divide-and-conquer** — Decompose multi-agent work into independent parallel concerns

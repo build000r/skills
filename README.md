@@ -124,9 +124,7 @@ contain `SKILL.md`. You can install one skill, a lane, or the full catalog.
 | [`divide-and-conquer`](./divide-and-conquer/) | Splits complex work into parallel, non-overlapping sub-agents |
 | [`domain-planner`](./domain-planner/) | Plans multi-repo domain slices and implementation contracts |
 | [`domain-reviewer`](./domain-reviewer/) | Audits live work against a plan and retires completed slices |
-| [`domain-scaffolder`](./domain-scaffolder/) | Scaffolds domain code from accepted slice plans |
-| [`domain-scaffolder-backend`](./domain-scaffolder-backend/) | Tests-first backend slice scaffolding |
-| [`domain-scaffolder-frontend`](./domain-scaffolder-frontend/) | Frontend slice scaffolding that follows existing UI patterns |
+| [`domain-scaffolder`](./domain-scaffolder/) | Scaffolds backend or frontend domain code from accepted slice plans |
 | [`mutate`](./mutate/) | Runs mutation testing and triages surviving mutants |
 | [`prompt-reviewer`](./prompt-reviewer/) | Scores prompting quality from Claude/Codex session history |
 | [`reproduce`](./reproduce/) | Uses a command-first QA ladder before handing testing back |
@@ -198,14 +196,16 @@ for skill in \
   domain-planner \
   domain-reviewer \
   domain-scaffolder \
-  domain-scaffolder-backend \
-  domain-scaffolder-frontend \
   reproduce \
   skill-issue
 do
   npx skills add build000r/skills -s "$skill"
 done
 ```
+
+Legacy wrapper aliases `domain-scaffolder-backend` and
+`domain-scaffolder-frontend` remain installable for compatibility, but new
+setups should install only `domain-scaffolder`.
 
 Tooling:
 

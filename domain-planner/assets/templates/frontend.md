@@ -69,4 +69,4 @@
 
 ## Implementation Notes
 
-**Use the domain-scaffolder-frontend skill to generate code from this spec.**
+**Use the domain-scaffolder skill with `surface=frontend` to generate code from this spec.**

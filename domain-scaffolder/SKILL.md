@@ -1,6 +1,6 @@
 ---
 name: domain-scaffolder
-description: Scaffold backend or frontend domain code from an existing slice plan using a shared stack-aware workflow. Use for "scaffold a domain slice", "implement the backend for {slice}", "implement the frontend for {slice}", or "scaffold {slice}" after domain-planner finishes a slice plan. The legacy wrapper skills `domain-scaffolder-backend` and `domain-scaffolder-frontend` remain supported.
+description: Scaffold backend or frontend domain code from an existing slice plan using a shared stack-aware workflow. Use for "scaffold a domain slice", "implement the backend for {slice}", "implement the frontend for {slice}", or "scaffold {slice}" after domain-planner finishes a slice plan. This is the canonical greenfield entrypoint; the legacy wrapper skills `domain-scaffolder-backend` and `domain-scaffolder-frontend` remain supported only for compatibility.
 license: MIT
 ---
 
@@ -9,6 +9,11 @@ license: MIT
 Canonical shared scaffolder for domain slices. This skill owns the shared contract,
 mode system, validation shape, and audit handoff. The legacy backend/frontend
 skills are compatibility wrappers over this canonical flow.
+
+Greenfield plans, templates, and prompts should reference `domain-scaffolder`
+directly and set the surface explicitly when the request is already scoped.
+Only mention the wrapper names when you are preserving compatibility with older
+plans, prompts, or mode-template installers.
 
 ## Surfaces
 
@@ -48,6 +53,15 @@ names are preserved for continuity, even when the canonical store had to rename
 colliding files with `.backend.md` / `.frontend.md` suffixes.
 
 See `references/mode-template.md` for the canonical schema.
+
+Greenfield mode-template files should target the canonical skill naming:
+
+- `domain-scaffolder.md` when one mode file can cover the repo cleanly
+- `domain-scaffolder.backend.md` and/or `domain-scaffolder.frontend.md` when you
+  need separate source templates per surface
+
+Do not create new `domain-scaffolder-backend.md` or
+`domain-scaffolder-frontend.md` template files for greenfield repos.
 
 ## Mode Selection
 
@@ -223,6 +237,7 @@ The following wrapper skills remain valid:
 
 They exist to preserve old triggers, stable names, and wrapper-local mode file
 names. The shared workflow and canonical private modes now live in this skill.
+Do not generate new wrapper references in greenfield docs or templates.
 
 ## Related Skills
 

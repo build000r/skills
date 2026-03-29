@@ -1,12 +1,15 @@
 ---
 name: domain-scaffolder-frontend
-description: Scaffold frontend code from an existing plan after loading project-specific UI patterns. Use for "scaffold the frontend" or "implement the frontend for {slice}" after backend scaffolding, and not for backend work or general frontend changes outside domain slices.
+description: Deprecated compatibility alias for `domain-scaffolder` with `surface=frontend`. Use only when preserving older prompts, plans, or installed mode-template flows that still reference this legacy name.
 license: MIT
 ---
 
 # Domain Scaffolder - Frontend
 
-Compatibility wrapper for the canonical `domain-scaffolder` skill.
+Deprecated compatibility wrapper for the canonical `domain-scaffolder` skill.
+
+Greenfield work should invoke `domain-scaffolder` directly with
+`surface=frontend`.
 
 ## Surface Lock
 

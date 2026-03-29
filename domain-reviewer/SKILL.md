@@ -192,7 +192,11 @@ The orchestrator:
 3. Runs worker phase(s) with the constructed prompts (delegated or inline)
 4. Backend and frontend fix workers run in parallel when both have issues and scopes are disjoint
 
-The handoff blocks in AUDIT_REPORT.md still reference companion skills by name for documentation, but the orchestrator constructs the actual worker prompts with all necessary context included.
+The handoff blocks in AUDIT_REPORT.md should reference the canonical
+`domain-scaffolder` skill with explicit surface selection for greenfield work.
+Older audit artifacts may still mention the legacy wrapper names, but the
+orchestrator should normalize them back to the canonical scaffolder when
+constructing worker prompts.
 
 | Issue Type | Worker Gets | Key Context |
 |------------|---------------|-------------|
@@ -202,6 +206,5 @@ The handoff blocks in AUDIT_REPORT.md still reference companion skills by name f
 ## Related Skills
 
 - **domain-planner** -- Creates the plans this skill audits
-- **domain-scaffolder-backend** -- Generates backend code from plan (TDD-first)
-- **domain-scaffolder-frontend** -- Generates frontend code from plan (pattern-adherent)
+- **domain-scaffolder** -- Generates backend or frontend code from plan using explicit surface selection
 - **divide-and-conquer** -- Decompose multi-agent work into independent parallel concerns

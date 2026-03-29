@@ -117,4 +117,4 @@
 
 ## Implementation Notes
 
-**Use the domain-scaffolder-backend skill to generate code from this spec.**
+**Use the domain-scaffolder skill with `surface=backend` to generate code from this spec.**

@@ -1,15 +1,69 @@
-use std::time::Duration;
+use std::ffi::OsString;
+use std::fs::{self, File};
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+use std::thread;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-const CODEX_TIMEOUT: Duration = Duration::from_secs(15);
-const DEFAULT_THOUGHT_MODEL: &str = "openrouter/aurora-alpha";
+const OPENROUTER_TIMEOUT: Duration = Duration::from_secs(15);
+const CODEX_EXEC_TIMEOUT: Duration = Duration::from_secs(30);
+const DEFAULT_CODEX_CLI_MODEL: &str = "gpt-5.1-codex-mini";
+const DEFAULT_CODEX_CLI_REASONING: &str = "low";
+const DEFAULT_CODEX_CLI_VERBOSITY: &str = "low";
+const MODEL_BACKEND_ENV: &str = "CLAWGS_MODEL_BACKEND";
+const CODEX_BIN_ENV: &str = "CLAWGS_CODEX_BIN";
+const CODEX_REASONING_ENV: &str = "CLAWGS_CODEX_REASONING_EFFORT";
+const CODEX_VERBOSITY_ENV: &str = "CLAWGS_CODEX_VERBOSITY";
+const CODEX_WORKDIR_ENV: &str = "CLAWGS_CODEX_WORKDIR";
+const CODEX_RUNTIME_DIR: &str = "clawgs-codex-exec";
 const MODEL_ENV_KEYS: [&str; 3] = [
     "SWIMMERS_THOUGHT_MODEL",
     "SWIMMERS_THOUGHT_MODEL_2",
     "SWIMMERS_THOUGHT_MODEL_3",
 ];
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ModelBackend {
+    OpenRouter,
+    CodexCli,
+}
+
+impl ModelBackend {
+    fn from_env_value(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "openrouter" => Some(Self::OpenRouter),
+            "codex" | "codex_cli" | "codex-cli" => Some(Self::CodexCli),
+            _ => None,
+        }
+    }
+}
+
 pub trait ModelClient: Send + Sync {
     fn complete(&self, prompt: &str, model_override: Option<&str>) -> Result<String, String>;
+}
+
+pub fn build_model_client() -> Result<Box<dyn ModelClient>, String> {
+    match resolve_model_backend() {
+        ModelBackend::OpenRouter => {
+            OpenRouterModelClient::new().map(|client| Box::new(client) as Box<dyn ModelClient>)
+        }
+        ModelBackend::CodexCli => Ok(Box::new(CodexCliModelClient::new())),
+    }
+}
+
+pub fn resolve_model_backend() -> ModelBackend {
+    nonempty_env_var(MODEL_BACKEND_ENV)
+        .and_then(|value| ModelBackend::from_env_value(&value))
+        .unwrap_or_else(auto_detect_model_backend)
+}
+
+pub fn default_model_for_backend(backend: ModelBackend) -> String {
+    thought_models(None, backend).into_iter().next().unwrap_or_default()
+}
+
+pub fn thought_models(model_override: Option<&str>, backend: ModelBackend) -> Vec<String> {
+    candidate_models(model_override, backend)
 }
 
 pub struct OpenRouterModelClient {
@@ -19,7 +73,7 @@ pub struct OpenRouterModelClient {
 impl OpenRouterModelClient {
     pub fn new() -> Result<Self, String> {
         let client = reqwest::blocking::Client::builder()
-            .timeout(CODEX_TIMEOUT)
+            .timeout(OPENROUTER_TIMEOUT)
             .build()
             .map_err(|error| format!("failed to build HTTP client: {error}"))?;
         Ok(Self { client })
@@ -30,16 +84,212 @@ impl ModelClient for OpenRouterModelClient {
     fn complete(&self, prompt: &str, model_override: Option<&str>) -> Result<String, String> {
         let api_key = std::env::var("OPENROUTER_API_KEY")
             .map_err(|_| "OPENROUTER_API_KEY not set".to_string())?;
-        complete_with_models(&thought_models(model_override), |model| {
+        complete_with_models(&candidate_models(model_override, ModelBackend::OpenRouter), |model| {
             nonempty_openrouter_response(&self.client, prompt, model, &api_key)
         })
     }
 }
 
-pub fn thought_models(model_override: Option<&str>) -> Vec<String> {
+pub struct CodexCliModelClient {
+    bin: String,
+    runtime_dir: PathBuf,
+    workdir: PathBuf,
+    reasoning_effort: String,
+    verbosity: String,
+}
+
+impl CodexCliModelClient {
+    pub fn new() -> Self {
+        Self {
+            bin: codex_bin(),
+            runtime_dir: std::env::temp_dir().join(CODEX_RUNTIME_DIR),
+            workdir: nonempty_env_var(CODEX_WORKDIR_ENV)
+                .map(PathBuf::from)
+                .unwrap_or_else(std::env::temp_dir),
+            reasoning_effort: nonempty_env_var(CODEX_REASONING_ENV)
+                .unwrap_or_else(|| DEFAULT_CODEX_CLI_REASONING.to_string()),
+            verbosity: nonempty_env_var(CODEX_VERBOSITY_ENV)
+                .unwrap_or_else(|| DEFAULT_CODEX_CLI_VERBOSITY.to_string()),
+        }
+    }
+}
+
+impl ModelClient for CodexCliModelClient {
+    fn complete(&self, prompt: &str, model_override: Option<&str>) -> Result<String, String> {
+        let model = candidate_models(model_override, ModelBackend::CodexCli)
+            .into_iter()
+            .next()
+            .ok_or_else(|| "no models configured".to_string())?;
+
+        fs::create_dir_all(&self.runtime_dir)
+            .map_err(|error| format!("failed to create {}: {error}", self.runtime_dir.display()))?;
+
+        let stamp = format!(
+            "{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        );
+        let output_path = self.runtime_dir.join(format!("{stamp}.last.txt"));
+        let stdout_path = self.runtime_dir.join(format!("{stamp}.stdout.log"));
+        let stderr_path = self.runtime_dir.join(format!("{stamp}.stderr.log"));
+
+        let stdout_file = File::create(&stdout_path)
+            .map_err(|error| format!("failed to create {}: {error}", stdout_path.display()))?;
+        let stderr_file = File::create(&stderr_path)
+            .map_err(|error| format!("failed to create {}: {error}", stderr_path.display()))?;
+
+        let mut command = Command::new(&self.bin);
+        command.args(build_codex_exec_args(
+            &model,
+            &output_path,
+            &self.workdir,
+            &self.reasoning_effort,
+            &self.verbosity,
+        ));
+        command.stdin(Stdio::piped());
+        command.stdout(Stdio::from(stdout_file));
+        command.stderr(Stdio::from(stderr_file));
+
+        let mut child = command
+            .spawn()
+            .map_err(|error| format!("failed to spawn codex exec: {error}"))?;
+
+        {
+            let Some(stdin) = child.stdin.as_mut() else {
+                return Err("codex exec missing stdin pipe".to_string());
+            };
+            stdin
+                .write_all(prompt.as_bytes())
+                .map_err(|error| format!("failed to write codex exec prompt: {error}"))?;
+        }
+        drop(child.stdin.take());
+
+        let started = Instant::now();
+        let status = loop {
+            match child.try_wait() {
+                Ok(Some(status)) => break status,
+                Ok(None) if started.elapsed() < CODEX_EXEC_TIMEOUT => {
+                    thread::sleep(Duration::from_millis(50));
+                }
+                Ok(None) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(format!(
+                        "codex exec timed out after {}s",
+                        CODEX_EXEC_TIMEOUT.as_secs()
+                    ));
+                }
+                Err(error) => {
+                    return Err(format!("failed to wait for codex exec: {error}"));
+                }
+            }
+        };
+
+        let stdout = fs::read_to_string(&stdout_path).unwrap_or_default();
+        let stderr = fs::read_to_string(&stderr_path).unwrap_or_default();
+        if !status.success() {
+            return Err(format!(
+                "codex exec failed: {}",
+                failure_preview(&stderr, &stdout)
+            ));
+        }
+
+        let content = fs::read_to_string(&output_path).map_err(|error| {
+            format!(
+                "codex exec succeeded but {} was missing: {error}",
+                output_path.display()
+            )
+        })?;
+        let trimmed = content.trim();
+        if trimmed.is_empty() {
+            return Err("codex exec returned an empty final message".to_string());
+        }
+        Ok(trimmed.to_string())
+    }
+}
+
+fn auto_detect_model_backend() -> ModelBackend {
+    if codex_command_available() {
+        ModelBackend::CodexCli
+    } else {
+        ModelBackend::OpenRouter
+    }
+}
+
+fn codex_command_available() -> bool {
+    Command::new(codex_bin())
+        .arg("--version")
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false)
+}
+
+fn codex_bin() -> String {
+    nonempty_env_var(CODEX_BIN_ENV).unwrap_or_else(|| "codex".to_string())
+}
+
+fn candidate_models(model_override: Option<&str>, backend: ModelBackend) -> Vec<String> {
     model_override
         .map(|model| vec![model.to_string()])
-        .unwrap_or_else(default_thought_models)
+        .unwrap_or_else(|| configured_models(backend))
+}
+
+fn configured_models(backend: ModelBackend) -> Vec<String> {
+    let configured: Vec<String> = MODEL_ENV_KEYS.iter().filter_map(|key| nonempty_env_var(key)).collect();
+    if !configured.is_empty() {
+        configured
+    } else {
+        backend_default_model(backend)
+            .map(|model| vec![model.to_string()])
+            .unwrap_or_default()
+    }
+}
+
+fn backend_default_model(backend: ModelBackend) -> Option<&'static str> {
+    match backend {
+        ModelBackend::OpenRouter => None,
+        ModelBackend::CodexCli => Some(DEFAULT_CODEX_CLI_MODEL),
+    }
+}
+
+fn build_codex_exec_args(
+    model: &str,
+    output_path: &Path,
+    workdir: &Path,
+    reasoning_effort: &str,
+    verbosity: &str,
+) -> Vec<OsString> {
+    vec![
+        OsString::from("exec"),
+        OsString::from("-m"),
+        OsString::from(model),
+        OsString::from("-C"),
+        workdir.as_os_str().to_os_string(),
+        OsString::from("--skip-git-repo-check"),
+        OsString::from("--ephemeral"),
+        OsString::from("--output-last-message"),
+        output_path.as_os_str().to_os_string(),
+        OsString::from("-c"),
+        OsString::from(format!("model_reasoning_effort={reasoning_effort:?}")),
+        OsString::from("-c"),
+        OsString::from(format!("model_verbosity={verbosity:?}")),
+        OsString::from("-c"),
+        OsString::from("model_reasoning_summary=\"none\""),
+        OsString::from("-"),
+    ]
+}
+
+fn failure_preview(stderr: &str, stdout: &str) -> String {
+    let merged = if stderr.trim().is_empty() { stdout } else { stderr };
+    let trimmed = merged.trim();
+    if trimmed.is_empty() {
+        "process exited without output".to_string()
+    } else {
+        trimmed.chars().take(500).collect()
+    }
 }
 
 fn call_openrouter(
@@ -85,16 +335,7 @@ fn call_openrouter(
         .to_string())
 }
 
-fn default_thought_models() -> Vec<String> {
-    let models: Vec<String> = MODEL_ENV_KEYS.iter().filter_map(nonempty_env_var).collect();
-    if models.is_empty() {
-        vec![DEFAULT_THOUGHT_MODEL.to_string()]
-    } else {
-        models
-    }
-}
-
-fn nonempty_env_var(key: &&str) -> Option<String> {
+fn nonempty_env_var(key: &str) -> Option<String> {
     std::env::var(key)
         .ok()
         .map(|value| value.trim().to_string())
@@ -137,15 +378,16 @@ fn nonempty_openrouter_response(
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
     use std::sync::Mutex;
 
-    use super::thought_models;
+    use super::{build_codex_exec_args, default_model_for_backend, thought_models, ModelBackend};
 
     static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn thought_models_prefers_override() {
-        let models = thought_models(Some("custom/model"));
+        let models = thought_models(Some("custom/model"), ModelBackend::CodexCli);
         assert_eq!(models, vec!["custom/model".to_string()]);
     }
 
@@ -156,7 +398,7 @@ mod tests {
         std::env::set_var("SWIMMERS_THOUGHT_MODEL_2", "   ");
         std::env::set_var("SWIMMERS_THOUGHT_MODEL_3", "openrouter/three");
 
-        let models = thought_models(None);
+        let models = thought_models(None, ModelBackend::OpenRouter);
 
         assert_eq!(
             models,
@@ -169,15 +411,15 @@ mod tests {
     }
 
     #[test]
-    fn thought_models_falls_back_to_default_model() {
+    fn codex_backend_falls_back_to_headless_codex_default_model() {
         let _lock = ENV_LOCK.lock().expect("env lock");
         std::env::remove_var("SWIMMERS_THOUGHT_MODEL");
         std::env::remove_var("SWIMMERS_THOUGHT_MODEL_2");
         std::env::remove_var("SWIMMERS_THOUGHT_MODEL_3");
 
-        let models = thought_models(None);
+        let model = default_model_for_backend(ModelBackend::CodexCli);
 
-        assert_eq!(models, vec!["openrouter/aurora-alpha".to_string()]);
+        assert_eq!(model, "gpt-5.1-codex-mini");
     }
 
     #[test]
@@ -201,5 +443,27 @@ mod tests {
             .expect_err("expected failure");
 
         assert!(error.contains("beta: beta failed"));
+    }
+
+    #[test]
+    fn build_codex_exec_args_pins_low_reasoning_and_low_verbosity() {
+        let args = build_codex_exec_args(
+            "gpt-5.1-codex-mini",
+            Path::new("/tmp/last.txt"),
+            Path::new("/tmp"),
+            "low",
+            "low",
+        );
+        let args: Vec<String> = args
+            .into_iter()
+            .map(|value| value.to_string_lossy().into_owned())
+            .collect();
+
+        assert!(args.contains(&"exec".to_string()));
+        assert!(args.contains(&"gpt-5.1-codex-mini".to_string()));
+        assert!(args.contains(&"model_reasoning_effort=\"low\"".to_string()));
+        assert!(args.contains(&"model_verbosity=\"low\"".to_string()));
+        assert!(args.contains(&"model_reasoning_summary=\"none\"".to_string()));
+        assert!(args.contains(&"--ephemeral".to_string()));
     }
 }

@@ -9,7 +9,9 @@ use serde::Serialize;
 use serde_json::Value;
 
 use clawgs::emit::engine::{EmitEngine, DEFAULT_AGENT_PREAMBLE, DEFAULT_TERMINAL_PREAMBLE};
-use clawgs::emit::model_client::{thought_models, OpenRouterModelClient};
+use clawgs::emit::model_client::{
+    build_model_client, default_model_for_backend, resolve_model_backend,
+};
 use clawgs::emit::protocol::{ErrorMessage, HelloMessage, SyncRequest, SyncResultMessage};
 use clawgs::tmux::scan_sessions;
 use clawgs::{extract, resolve_input, ExtractOptions, ToolSelection};
@@ -171,9 +173,9 @@ fn run_extract(args: ExtractArgs) -> Result<()> {
 
 fn run_emit(args: EmitArgs) -> Result<()> {
     ensure_emit_stdio(&args)?;
-    let model_client = OpenRouterModelClient::new()
+    let model_client = build_model_client()
         .map_err(|error| anyhow::anyhow!("failed to initialize model client: {error}"))?;
-    let mut engine = EmitEngine::new(Box::new(model_client));
+    let mut engine = EmitEngine::new(model_client);
 
     let stdin = io::stdin();
     let mut stdout = io::stdout().lock();
@@ -283,8 +285,7 @@ impl EmitLineResult {
 }
 
 fn run_defaults() -> Result<()> {
-    let models = thought_models(None);
-    let model = models.first().cloned().unwrap_or_default();
+    let model = default_model_for_backend(resolve_model_backend());
 
     #[derive(Serialize)]
     struct Defaults {
@@ -304,9 +305,9 @@ fn run_defaults() -> Result<()> {
 }
 
 fn run_tmux_emit(args: TmuxEmitArgs) -> Result<()> {
-    let model_client = OpenRouterModelClient::new()
+    let model_client = build_model_client()
         .map_err(|error| anyhow::anyhow!("failed to initialize model client: {error}"))?;
-    let mut engine = EmitEngine::new(Box::new(model_client));
+    let mut engine = EmitEngine::new(model_client);
     let mut stdout = io::stdout().lock();
     let mut seq = 0u64;
     let tmux_config = tmux_emit_config(&args)?;

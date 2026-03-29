@@ -19,7 +19,8 @@ This wrapper always runs the canonical scaffolder with:
 surface=backend
 ```
 
-Use this wrapper when the request is explicitly backend-only:
+Use this wrapper only when an existing prompt, plan, or installer already names
+`domain-scaffolder-backend` for backend-only work:
 
 - "scaffold the backend"
 - "implement the backend for {slice}"

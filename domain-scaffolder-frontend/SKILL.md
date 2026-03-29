@@ -19,7 +19,8 @@ This wrapper always runs the canonical scaffolder with:
 surface=frontend
 ```
 
-Use this wrapper when the request is explicitly frontend-only:
+Use this wrapper only when an existing prompt, plan, or installer already names
+`domain-scaffolder-frontend` for frontend-only work:
 
 - "scaffold the frontend"
 - "implement the frontend for {slice}"

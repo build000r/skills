@@ -1,19 +1,25 @@
 ---
 name: domain-scaffolder
-description: Scaffold backend or frontend domain code from an existing slice plan using a shared stack-aware workflow. Use for "scaffold a domain slice", "implement the backend for {slice}", "implement the frontend for {slice}", or "scaffold {slice}" after domain-planner finishes a slice plan. This is the canonical greenfield entrypoint; the legacy wrapper skills `domain-scaffolder-backend` and `domain-scaffolder-frontend` remain supported only for compatibility.
+description: Scaffold backend or frontend domain code from an existing slice plan using a shared stack-aware workflow. Use for "scaffold a domain slice", "implement the backend for {slice}", "implement the frontend for {slice}", or "scaffold {slice}" after domain-planner finishes a slice plan. This is the only supported domain scaffolder skill.
 license: MIT
 ---
 
 # Domain Scaffolder
 
 Canonical shared scaffolder for domain slices. This skill owns the shared contract,
-mode system, validation shape, and audit handoff. The legacy backend/frontend
-skills are compatibility wrappers over this canonical flow.
+mode system, validation shape, and audit handoff.
 
-Greenfield plans, templates, and prompts should reference `domain-scaffolder`
-directly and set the surface explicitly when the request is already scoped.
-Only mention the wrapper names when you are preserving compatibility with older
-plans, prompts, or mode-template installers.
+Plans, templates, and prompts should reference `domain-scaffolder` directly and
+set the surface explicitly when the request is already scoped.
+
+Bundled canonical references live here:
+
+- `references/mode-template.md`
+- `references/test-templates.md`
+- `references/example-patterns.md`
+
+Those references now absorb the reusable legacy backend/frontend wrapper
+material. Treat this skill as the source of truth.
 
 ## Surfaces
 
@@ -24,13 +30,19 @@ This skill supports two surfaces:
 
 Surface selection rules:
 
-1. `domain-scaffolder-backend` wrapper => `backend`
-2. `domain-scaffolder-frontend` wrapper => `frontend`
-3. Direct `domain-scaffolder` invocation => infer from the request
-4. If direct invocation is ambiguous, ask the user which surface to scaffold
+1. Explicit backend wording => `backend`
+2. Explicit frontend wording => `frontend`
+3. Otherwise infer from the request
+4. If still ambiguous, ask the user which surface to scaffold
 
 Use the backend surface for server/domain/migration/router work.
 Use the frontend surface for types/API/hooks/components/widget work.
+
+Greenfield direct-invocation examples:
+
+- "scaffold the backend for reporting"
+- "implement the frontend for report-request"
+- "scaffold report-request" -> ask only if backend vs frontend is ambiguous
 
 ## Unified Private Mode Store
 
@@ -47,21 +59,16 @@ cwd_match: <path prefix>
 surface: backend | frontend | both
 ```
 
-Legacy wrapper-local `modes/` paths remain valid through compatibility symlinks.
-Edit the canonical files in this skill root when possible. The wrapper-local file
-names are preserved for continuity, even when the canonical store had to rename
-colliding files with `.backend.md` / `.frontend.md` suffixes.
+Use `.backend.md` / `.frontend.md` suffixes when a repo needs separate canonical
+mode files per surface.
 
 See `references/mode-template.md` for the canonical schema.
 
-Greenfield mode-template files should target the canonical skill naming:
+Mode-template files should target the canonical skill naming:
 
 - `domain-scaffolder.md` when one mode file can cover the repo cleanly
 - `domain-scaffolder.backend.md` and/or `domain-scaffolder.frontend.md` when you
   need separate source templates per surface
-
-Do not create new `domain-scaffolder-backend.md` or
-`domain-scaffolder-frontend.md` template files for greenfield repos.
 
 ## Mode Selection
 
@@ -100,7 +107,20 @@ If the plan is missing, stop and tell the user to use `domain-planner` first.
 
 ### Auth Service Reuse
 
-The mode's `auth_packages_root` is the canonical auth/payments/identity source.
+The mode's auth-service block is the canonical auth/payments/identity source.
+Prefer the generic keys:
+
+- `auth_packages_root`
+- `auth_python_packages`
+- `auth_npm_packages`
+
+Legacy SPAPS-shaped keys remain valid in existing modes and mean the same thing:
+
+- `spaps_root`
+- `spaps_python_packages`
+- `spaps_npm_packages`
+
+If both generic and legacy keys appear, prefer the generic `auth_*` values.
 
 1. Reuse existing auth packages first
 2. Do not scaffold parallel local auth/payments/identity systems
@@ -139,8 +159,16 @@ Read from the active mode:
 - backend repo path
 - backend module/domain structure
 - test paths
+- test framework and validation commands
 - migration tool and naming
 - convention files
+- access-control and error-handling patterns
+- router-registration requirements
+- auth-service package configuration
+- any inline model/schema/auth snippets supplied by the mode
+
+If the mode does not include stronger project-specific test guidance, use
+`references/test-templates.md` as the canonical fallback starter.
 
 ### Generation Order
 
@@ -160,9 +188,12 @@ Read from the active mode:
 ### Backend Rules
 
 - Tests are written before implementation
+- Read the mode's backend convention files before writing code
 - Error codes must match `shared.md`
 - Migration SQL must reflect permissions and DB transition rules from `backend.md`
 - Route handlers must delegate auth/payments/identity behavior to auth-service-backed packages
+- Register the router before closeout
+- Use the mode's inline model/schema/auth examples when present instead of inventing fresh patterns
 
 ### Backend Validation
 
@@ -174,6 +205,7 @@ Before marking complete:
 - standard backend domain files exist
 - migration exists and follows the mode's access-control pattern
 - router registration is complete
+- backend validation commands from the active mode were run
 
 ## Frontend Surface
 
@@ -187,13 +219,19 @@ Read from the active mode:
 - file structure
 - validation commands
 - component library
+- key component primitives
 - data-fetching pattern
-- `patterns_reference`
+- state-management and auth patterns
+- `patterns_reference`, if the mode points at a separate file or skill
+- in-mode frontend reference sections when the mode inlines them directly
+
+If the mode does not provide a project-specific patterns reference yet, use
+`references/example-patterns.md` as the canonical fallback for shaping one.
 
 ### Generation Order
 
 ```text
-1. load patterns_reference
+1. load frontend reference context (`patterns_reference` or the mode's inlined equivalent)
 2. types
 3. API/service layer
 4. data hooks
@@ -204,10 +242,14 @@ Read from the active mode:
 
 ### Frontend Rules
 
-- Loading `patterns_reference` is mandatory before generating any components
+- Loading `patterns_reference` or the mode's equivalent frontend reference
+  context is mandatory before generating any components
 - Use the mode's library primitives instead of re-implementing shells/buttons/states inline
 - Query/cache keys must follow the mode's convention
 - Reuse auth-service-backed packages for auth/payments/identity behavior
+- Extend existing components/widgets before creating new siblings when the mode
+  or patterns reference indicates an established surface
+- Respect the mode's design tokens, icon package, and component-size limits when provided
 
 ### Frontend Validation
 
@@ -219,25 +261,7 @@ Before marking complete:
 - loading/error/empty states are handled
 - component size limits from the mode are respected
 - data-fetching and mutation patterns follow the mode
-
-## Direct Invocation Examples
-
-```text
-"scaffold the backend for reporting"
-"implement the frontend for report-request"
-"scaffold report-request"   # ask only if backend vs frontend is ambiguous
-```
-
-## Wrapper Compatibility
-
-The following wrapper skills remain valid:
-
-- `domain-scaffolder-backend`
-- `domain-scaffolder-frontend`
-
-They exist to preserve old triggers, stable names, and wrapper-local mode file
-names. The shared workflow and canonical private modes now live in this skill.
-Do not generate new wrapper references in greenfield docs or templates.
+- existing component/library patterns were reused instead of reimplemented
 
 ## Related Skills
 

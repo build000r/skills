@@ -372,6 +372,8 @@ Handoff: "Ready to implement? Run the domain-planner skill and select 'Implement
 
 When user selects "Check plan quality", run the Phase 6b quality loop as a standalone mode using [references/quality-loop-workflow.md](~/.claude/skills/domain-planner/references/quality-loop-workflow.md).
 
+In this mode, `Scope Discipline` is not just generic anti-creep checking: it must explicitly grade whether the plan preserves the Phase 0.5 Core Value Gate and represents the highest-best-use 80/20 slice for the primary actor's visible win.
+
 Auth service checks are mandatory in quality assessment mode for auth/payments/identity slices:
 1. Confirm plan files use existing auth service packages from `{auth_packages_root}`.
 2. Confirm any missing package capability is documented as an auth-scope proposal.

@@ -33,6 +33,8 @@ These rules prevent systematic over-penalization:
 
 6. **Big-bang is the default.** Deduct for unrequested legacy compatibility plans (dual endpoints, adapter layers, deprecation windows, shadow writes/reads) unless the user explicitly asked for compatibility support.
 
+7. **Highest-best-use / 80-20 cuts are mandatory.** Deduct when the plan does not preserve the minimum winning slice from the Core Value Gate, or when it spends disproportionate spec surface on admin polish, configurability, abstraction, or secondary actors before fully nailing the primary actor's visible win.
+
 ---
 
 ## Dimension 1: File Completeness (10 pts)
@@ -203,12 +205,17 @@ These rules prevent systematic over-penalization:
 ## Dimension 9: Scope Discipline (10 pts)
 
 **What it checks:**
+- The plan stays anchored to the Phase 0.5 Core Value Gate (primary actor, single visible outcome, minimum winning slice)
+- The slice represents the highest-leverage / highest-best-use 80-20 cut rather than a broad "while we're here" bundle
 - No out-of-scope features sneaking into the spec (features not in the original user stories)
 - "Future" / "Out of Scope" section is terse pointers, not detailed specs
 - No feature creep: ancillary features (analytics, notifications, export) are listed as future unless explicitly scoped
 - Plan doesn't duplicate functionality owned by a sibling slice
 
 **Common failures:**
+- The primary actor's visible win is diluted by equal or greater detail for admin tooling, reporting, configurability, or secondary roles
+- The minimum winning slice is undefined or contradicted by later sections that expand the contract surface without user approval
+- The plan bundles multiple adjacent wins into one slice when one smaller cut would deliver the main outcome faster and with less coordination cost
 - backend.md includes detailed analytics event tracking not in any user story
 - "Future Considerations" section is 200+ lines with full endpoint specs
 - Plan defines a notification system that overlaps with the `notifications` slice
@@ -218,6 +225,7 @@ These rules prevent systematic over-penalization:
 **How to fix:**
 - Remove anything not traceable to a user story. Trim "Future" to one-line pointers: `- Analytics: track content views (future slice)`. Check sibling INDEX.md for scope overlaps.
 - Remove unrequested compatibility layers and keep the spec on the target-state contract. If production data changes are required, put that in a separate DB transition section only.
+- Re-anchor the slice to the Core Value Gate: name the primary actor, single visible outcome, and minimum winning slice, then cut or defer any story, endpoint, screen, or schema surface that does not materially improve that outcome or protect it from a top safety/risk failure.
 
 ---
 

@@ -73,6 +73,7 @@ Rules:
 - Every deduction must cite a specific file and location
 - Every deduction must include an actionable fix instruction
 - Do NOT suggest improvements — only deduct for rubric violations
+- Enforce Phase 0.5 Core Value Gate discipline: deduct when the slice is not the highest-leverage minimum winning cut, or when admin/config/reporting/abstraction scope outweighs the primary actor's visible win
 - For auth/payments/identity scope, enforce auth service package usage and auth-scope gap-proposal requirements
 - Enforce big-bang default: deduct unrequested legacy compatibility/transition plans; require separate DB transition section only when production data is affected
 ```

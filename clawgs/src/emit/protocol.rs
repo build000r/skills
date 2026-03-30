@@ -83,6 +83,21 @@ impl Default for BubblePrecedence {
     }
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CadenceTier {
+    Hot,
+    Warm,
+    Cold,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ContextSource {
+    Transcript,
+    Terminal,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ThoughtConfig {
     #[serde(default = "default_enabled")]
@@ -380,9 +395,30 @@ pub struct SyncUpdate {
     pub rest_state: RestState,
     #[serde(default)]
     pub commit_candidate: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timing: Option<TimingInfo>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cues: Option<CueInfo>,
 }
 
 pub type ThoughtUpdate = SyncUpdate;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TimingInfo {
+    pub run_started_at: DateTime<Utc>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_finished_at: Option<DateTime<Utc>>,
+    pub run_elapsed_ms: u64,
+    pub idle_elapsed_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CueInfo {
+    pub cadence_tier: CadenceTier,
+    pub cadence_ms: u64,
+    pub next_llm_eligible_at: DateTime<Utc>,
+    pub context_source: ContextSource,
+}
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SyncMetrics {
@@ -720,6 +756,44 @@ mod tests {
         assert_eq!(request.id, "req-1");
         assert!(request.config.agent_prompt.is_none());
         assert!(request.config.terminal_prompt.is_none());
+    }
+
+    #[test]
+    fn sync_update_serializes_timing_and_cues() {
+        let now = Utc::now();
+        let update = SyncUpdate {
+            session_id: "sess-1".to_string(),
+            stream_instance_id: Some("stream-1".to_string()),
+            emission_seq: Some(3),
+            thought: Some("Reviewing auth fallback".to_string()),
+            token_count: 12,
+            context_limit: 100,
+            thought_state: ThoughtState::Holding,
+            thought_source: ThoughtSource::Llm,
+            objective_changed: false,
+            bubble_precedence: BubblePrecedence::ThoughtFirst,
+            at: now,
+            objective_fingerprint: Some("obj-1".to_string()),
+            rest_state: RestState::Active,
+            commit_candidate: false,
+            timing: Some(TimingInfo {
+                run_started_at: now,
+                run_finished_at: None,
+                run_elapsed_ms: 0,
+                idle_elapsed_ms: 0,
+            }),
+            cues: Some(CueInfo {
+                cadence_tier: CadenceTier::Hot,
+                cadence_ms: 15_000,
+                next_llm_eligible_at: now,
+                context_source: ContextSource::Transcript,
+            }),
+        };
+
+        let json = serde_json::to_value(&update).expect("update should serialize");
+        assert_eq!(json["timing"]["run_elapsed_ms"], 0);
+        assert_eq!(json["cues"]["cadence_tier"], "hot");
+        assert_eq!(json["cues"]["context_source"], "transcript");
     }
 
     #[test]

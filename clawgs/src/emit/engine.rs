@@ -2,7 +2,7 @@ use std::collections::{hash_map::DefaultHasher, HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration as ChronoDuration, Utc};
 
 use crate::{
     discover_claude_paths, discover_codex_paths, extract, resolve_input, Action, AgentTool,
@@ -11,8 +11,9 @@ use crate::{
 
 use super::model_client::ModelClient;
 use super::protocol::{
-    BubblePrecedence, RestState, SessionSnapshot, SessionState, SyncMetrics, SyncRequest,
-    SyncResultMessage, ThoughtConfig, ThoughtSource, ThoughtState, ThoughtUpdate,
+    BubblePrecedence, CadenceTier, ContextSource, CueInfo, RestState, SessionSnapshot,
+    SessionState, SyncMetrics, SyncRequest, SyncResultMessage, ThoughtConfig, ThoughtSource,
+    ThoughtState, ThoughtUpdate, TimingInfo,
 };
 
 const SUMMARY_HISTORY_CAP: usize = 10;
@@ -31,6 +32,8 @@ struct SessionRuntimeState {
     summary_history: Vec<String>,
     last_terminal_context: Option<String>,
     last_call_at: Option<DateTime<Utc>>,
+    run_started_at: DateTime<Utc>,
+    run_finished_at: Option<DateTime<Utc>>,
     last_emitted_thought: Option<String>,
     sleeping_emitted: bool,
     thought_state: ThoughtState,
@@ -51,11 +54,14 @@ impl SessionRuntimeState {
         }
 
         let thought_updated_at = session.thought_updated_at.unwrap_or(now);
+        let run_started_at = initial_run_started_at(session, now);
 
         Self {
             summary_history,
             last_terminal_context: Some(trim_terminal_context(&session.replay_text)),
             last_call_at: session.thought_updated_at,
+            run_started_at,
+            run_finished_at: initial_run_finished_at(session, now),
             last_emitted_thought: session.thought.clone(),
             sleeping_emitted: is_sleeping_text(session.thought.as_deref()),
             thought_state: session.thought_state,
@@ -74,22 +80,22 @@ impl SessionRuntimeState {
         self.emission_seq
     }
 
-    fn cadence_tier_label(&self, config: &ThoughtConfig, now: DateTime<Utc>) -> &'static str {
+    fn cadence_tier(&self, config: &ThoughtConfig, now: DateTime<Utc>) -> CadenceTier {
         let objective_age_ms = (now - self.objective_stable_since).num_milliseconds();
         if objective_age_ms >= config.cadence_cold_ms as i64 {
-            "cold"
+            CadenceTier::Cold
         } else if objective_age_ms >= config.cadence_warm_ms as i64 {
-            "warm"
+            CadenceTier::Warm
         } else {
-            "hot"
+            CadenceTier::Hot
         }
     }
 
     fn cadence_for_state(&self, config: &ThoughtConfig, now: DateTime<Utc>) -> u64 {
-        match self.cadence_tier_label(config, now) {
-            "cold" => config.cadence_cold_ms,
-            "warm" => config.cadence_warm_ms,
-            _ => config.cadence_hot_ms,
+        match self.cadence_tier(config, now) {
+            CadenceTier::Cold => config.cadence_cold_ms,
+            CadenceTier::Warm => config.cadence_warm_ms,
+            CadenceTier::Hot => config.cadence_hot_ms,
         }
     }
 
@@ -106,6 +112,7 @@ impl SessionRuntimeState {
 
 struct PreparedSessionContext {
     context_snapshot: Option<Snapshot>,
+    context_source: ContextSource,
     next_rest_state: RestState,
     next_commit_candidate: bool,
     objective_fingerprint: String,
@@ -212,6 +219,8 @@ impl EmitEngine {
                     &self.stream_instance_id,
                     state,
                     session,
+                    &request.config,
+                    ContextSource::Terminal,
                     request.now,
                     next_rest_state,
                     false,
@@ -222,7 +231,6 @@ impl EmitEngine {
                 state.rest_state = next_rest_state;
                 state.commit_candidate = false;
                 state.sleeping_emitted = false;
-                state.last_call_at = Some(request.now);
             } else {
                 metrics.suppressed += 1;
             }
@@ -256,6 +264,7 @@ fn process_session(
         state.claimed_jsonl_path.as_deref(),
         transcript_group_is_ambiguous(session, transcript_group_counts),
     );
+    let context_source = context_source_for_snapshot(context_snapshot.as_ref());
     state.claimed_jsonl_path = resolved_path;
     let next_commit_candidate = commit_candidate_for_context(context_snapshot.as_ref());
 
@@ -263,6 +272,8 @@ fn process_session(
         stream_instance_id,
         state,
         session,
+        &request.config,
+        context_source,
         request.now,
         next_rest_state,
         next_commit_candidate,
@@ -272,10 +283,12 @@ fn process_session(
         return;
     }
 
-    wake_from_sleep_if_needed(
+    let woke_from_sleep = wake_from_sleep_if_needed(
         stream_instance_id,
         state,
         session,
+        &request.config,
+        context_source,
         request.now,
         next_rest_state,
         next_commit_candidate,
@@ -287,6 +300,7 @@ fn process_session(
         session,
         request.now,
         context_snapshot,
+        context_source,
         next_rest_state,
         next_commit_candidate,
         metrics,
@@ -300,7 +314,9 @@ fn process_session(
         session,
         prepared.context_snapshot.as_ref(),
         &request.config,
+        prepared.context_source,
         prepared.objective_changed,
+        woke_from_sleep,
         prepared.next_rest_state,
         prepared.next_commit_candidate,
         request.now,
@@ -326,19 +342,26 @@ fn wake_from_sleep_if_needed(
     stream_instance_id: &str,
     state: &mut SessionRuntimeState,
     session: &SessionSnapshot,
+    config: &ThoughtConfig,
+    context_source: ContextSource,
     now: DateTime<Utc>,
     next_rest_state: RestState,
     next_commit_candidate: bool,
     updates: &mut Vec<ThoughtUpdate>,
-) {
+) -> bool {
     if state.thought_state != ThoughtState::Sleeping {
-        return;
+        return false;
     }
 
+    restart_run(state, now);
+    state.objective_stable_since = now;
+    state.last_call_at = None;
     updates.push(clear_thought_update(
         stream_instance_id,
         state,
         session,
+        config,
+        context_source,
         now,
         next_rest_state,
         next_commit_candidate,
@@ -349,7 +372,7 @@ fn wake_from_sleep_if_needed(
     state.commit_candidate = next_commit_candidate;
     state.sleeping_emitted = false;
     state.last_emitted_thought = None;
-    state.last_call_at = Some(now);
+    true
 }
 
 fn prepare_session_context(
@@ -357,6 +380,7 @@ fn prepare_session_context(
     session: &SessionSnapshot,
     now: DateTime<Utc>,
     context_snapshot: Option<Snapshot>,
+    context_source: ContextSource,
     next_rest_state: RestState,
     next_commit_candidate: bool,
     metrics: &mut SyncMetrics,
@@ -371,6 +395,7 @@ fn prepare_session_context(
 
     Some(PreparedSessionContext {
         context_snapshot,
+        context_source,
         next_rest_state,
         next_commit_candidate,
         objective_fingerprint,
@@ -427,6 +452,8 @@ fn emit_session_thought(
         stream_instance_id,
         state,
         session,
+        &request.config,
+        prepared.context_source,
         prepared.next_rest_state,
         prepared.next_commit_candidate,
         request.now,
@@ -439,6 +466,7 @@ fn emit_session_thought(
         stream_instance_id,
         state,
         session,
+        &request.config,
         &thought,
         prepared,
         request.now,
@@ -496,6 +524,8 @@ fn handle_duplicate_generated_thought(
     stream_instance_id: &str,
     state: &mut SessionRuntimeState,
     session: &SessionSnapshot,
+    config: &ThoughtConfig,
+    context_source: ContextSource,
     next_rest_state: RestState,
     next_commit_candidate: bool,
     now: DateTime<Utc>,
@@ -510,6 +540,8 @@ fn handle_duplicate_generated_thought(
         stream_instance_id,
         state,
         session,
+        config,
+        context_source,
         next_rest_state,
         next_commit_candidate,
         now,
@@ -524,6 +556,7 @@ fn publish_generated_thought(
     stream_instance_id: &str,
     state: &mut SessionRuntimeState,
     session: &SessionSnapshot,
+    config: &ThoughtConfig,
     thought: &str,
     prepared: &PreparedSessionContext,
     now: DateTime<Utc>,
@@ -546,6 +579,8 @@ fn publish_generated_thought(
         Some(prepared.objective_fingerprint.clone()),
         prepared.next_rest_state,
         prepared.next_commit_candidate,
+        config,
+        prepared.context_source,
     ));
 
     state.last_emitted_thought = Some(thought.to_string());
@@ -581,6 +616,8 @@ fn handle_sleeping_session(
     stream_instance_id: &str,
     state: &mut SessionRuntimeState,
     session: &SessionSnapshot,
+    config: &ThoughtConfig,
+    context_source: ContextSource,
     now: DateTime<Utc>,
     next_rest_state: RestState,
     next_commit_candidate: bool,
@@ -597,6 +634,7 @@ fn handle_sleeping_session(
         || state.rest_state != next_rest_state
         || state.commit_candidate != next_commit_candidate;
 
+    freeze_run(state, now);
     if should_emit_sleeping {
         updates.push(thought_update(
             stream_instance_id,
@@ -612,6 +650,8 @@ fn handle_sleeping_session(
             Some("sleeping".to_string()),
             next_rest_state,
             next_commit_candidate,
+            config,
+            context_source,
         ));
     } else {
         metrics.suppressed += 1;
@@ -623,7 +663,6 @@ fn handle_sleeping_session(
     state.rest_state = next_rest_state;
     state.commit_candidate = next_commit_candidate;
     state.last_emitted_thought = Some(STATIC_SLEEPING_THOUGHT.to_string());
-    state.last_call_at = Some(now);
     state.last_terminal_context = Some(trim_terminal_context(&session.replay_text));
     true
 }
@@ -653,6 +692,9 @@ fn update_objective_fingerprint(
     let objective_changed = state.objective_fingerprint.as_deref() != Some(objective_fingerprint);
     if objective_changed {
         state.objective_stable_since = now;
+        if state.objective_fingerprint.is_some() {
+            restart_run(state, now);
+        }
         state.objective_fingerprint = Some(objective_fingerprint.to_string());
     }
     objective_changed
@@ -664,19 +706,23 @@ fn suppress_for_cadence_or_terminal_delta(
     session: &SessionSnapshot,
     context_snapshot: Option<&Snapshot>,
     config: &ThoughtConfig,
+    context_source: ContextSource,
     objective_changed: bool,
+    woke_from_sleep: bool,
     next_rest_state: RestState,
     next_commit_candidate: bool,
     now: DateTime<Utc>,
     updates: &mut Vec<ThoughtUpdate>,
     metrics: &mut SyncMetrics,
 ) -> bool {
-    if should_suppress_for_cadence(state, config, objective_changed, now) {
+    if should_suppress_for_cadence(state, config, objective_changed, woke_from_sleep, now) {
         return suppress_with_passive_state_change(
             updates,
             stream_instance_id,
             state,
             session,
+            config,
+            context_source,
             next_rest_state,
             next_commit_candidate,
             now,
@@ -684,12 +730,20 @@ fn suppress_for_cadence_or_terminal_delta(
         );
     }
 
-    if should_suppress_for_terminal_delta(session, state, context_snapshot, objective_changed) {
+    if should_suppress_for_terminal_delta(
+        session,
+        state,
+        context_snapshot,
+        objective_changed,
+        woke_from_sleep,
+    ) {
         return suppress_with_passive_state_change(
             updates,
             stream_instance_id,
             state,
             session,
+            config,
+            context_source,
             next_rest_state,
             next_commit_candidate,
             now,
@@ -704,6 +758,8 @@ fn clear_thought_update(
     stream_instance_id: &str,
     state: &mut SessionRuntimeState,
     session: &SessionSnapshot,
+    config: &ThoughtConfig,
+    context_source: ContextSource,
     now: DateTime<Utc>,
     rest_state: RestState,
     commit_candidate: bool,
@@ -722,6 +778,8 @@ fn clear_thought_update(
         None,
         rest_state,
         commit_candidate,
+        config,
+        context_source,
     )
 }
 
@@ -730,6 +788,8 @@ fn emit_passive_state_change_if_needed(
     stream_instance_id: &str,
     state: &mut SessionRuntimeState,
     session: &SessionSnapshot,
+    config: &ThoughtConfig,
+    context_source: ContextSource,
     next_rest_state: RestState,
     next_commit_candidate: bool,
     now: DateTime<Utc>,
@@ -752,6 +812,8 @@ fn emit_passive_state_change_if_needed(
         state.objective_fingerprint.clone(),
         next_rest_state,
         next_commit_candidate,
+        config,
+        context_source,
     ));
     state.rest_state = next_rest_state;
     state.commit_candidate = next_commit_candidate;
@@ -782,6 +844,8 @@ fn thought_update(
     objective_fingerprint: Option<String>,
     rest_state: RestState,
     commit_candidate: bool,
+    config: &ThoughtConfig,
+    context_source: ContextSource,
 ) -> ThoughtUpdate {
     ThoughtUpdate {
         session_id: session.session_id.clone(),
@@ -798,6 +862,8 @@ fn thought_update(
         objective_fingerprint,
         rest_state,
         commit_candidate,
+        timing: Some(timing_info_for_update(state, session, at)),
+        cues: Some(cue_info_for_update(state, config, at, context_source)),
     }
 }
 
@@ -815,9 +881,10 @@ fn should_suppress_for_cadence(
     state: &SessionRuntimeState,
     config: &ThoughtConfig,
     objective_changed: bool,
+    woke_from_sleep: bool,
     now: DateTime<Utc>,
 ) -> bool {
-    !objective_changed && !state.should_call_for_cadence(config, now)
+    !objective_changed && !woke_from_sleep && !state.should_call_for_cadence(config, now)
 }
 
 fn should_suppress_for_terminal_delta(
@@ -825,9 +892,11 @@ fn should_suppress_for_terminal_delta(
     state: &SessionRuntimeState,
     context_snapshot: Option<&Snapshot>,
     objective_changed: bool,
+    woke_from_sleep: bool,
 ) -> bool {
     context_snapshot.is_none()
         && !objective_changed
+        && !woke_from_sleep
         && !has_meaningful_terminal_delta(
             &session.replay_text,
             state.last_terminal_context.as_deref(),
@@ -839,6 +908,8 @@ fn suppress_with_passive_state_change(
     stream_instance_id: &str,
     state: &mut SessionRuntimeState,
     session: &SessionSnapshot,
+    config: &ThoughtConfig,
+    context_source: ContextSource,
     next_rest_state: RestState,
     next_commit_candidate: bool,
     now: DateTime<Utc>,
@@ -849,6 +920,8 @@ fn suppress_with_passive_state_change(
         stream_instance_id,
         state,
         session,
+        config,
+        context_source,
         next_rest_state,
         next_commit_candidate,
         now,
@@ -881,6 +954,80 @@ fn idle_rest_state(idle_ms: i64) -> RestState {
 
 fn is_sleeping_rest_state(rest_state: RestState) -> bool {
     matches!(rest_state, RestState::Sleeping | RestState::DeepSleep)
+}
+
+fn context_source_for_snapshot(context_snapshot: Option<&Snapshot>) -> ContextSource {
+    if context_snapshot.is_some() {
+        ContextSource::Transcript
+    } else {
+        ContextSource::Terminal
+    }
+}
+
+fn initial_run_started_at(session: &SessionSnapshot, now: DateTime<Utc>) -> DateTime<Utc> {
+    clamp_to_now(session.thought_updated_at.unwrap_or(session.last_activity_at), now)
+}
+
+fn initial_run_finished_at(
+    session: &SessionSnapshot,
+    now: DateTime<Utc>,
+) -> Option<DateTime<Utc>> {
+    if session.exited || is_sleeping_rest_state(session.rest_state) {
+        Some(clamp_to_now(session.thought_updated_at.unwrap_or(now), now))
+    } else {
+        None
+    }
+}
+
+fn clamp_to_now(value: DateTime<Utc>, now: DateTime<Utc>) -> DateTime<Utc> {
+    if value > now { now } else { value }
+}
+
+fn restart_run(state: &mut SessionRuntimeState, now: DateTime<Utc>) {
+    state.run_started_at = now;
+    state.run_finished_at = None;
+}
+
+fn freeze_run(state: &mut SessionRuntimeState, now: DateTime<Utc>) {
+    if state.run_finished_at.is_none() {
+        state.run_finished_at = Some(now);
+    }
+}
+
+fn timing_info_for_update(
+    state: &SessionRuntimeState,
+    session: &SessionSnapshot,
+    now: DateTime<Utc>,
+) -> TimingInfo {
+    let run_end = state.run_finished_at.unwrap_or(now);
+    TimingInfo {
+        run_started_at: state.run_started_at,
+        run_finished_at: state.run_finished_at,
+        run_elapsed_ms: saturating_elapsed_ms(state.run_started_at, run_end),
+        idle_elapsed_ms: (now - session.last_activity_at).num_milliseconds().max(0) as u64,
+    }
+}
+
+fn cue_info_for_update(
+    state: &SessionRuntimeState,
+    config: &ThoughtConfig,
+    now: DateTime<Utc>,
+    context_source: ContextSource,
+) -> CueInfo {
+    let cadence_ms = state.cadence_for_state(config, now);
+    CueInfo {
+        cadence_tier: state.cadence_tier(config, now),
+        cadence_ms,
+        next_llm_eligible_at: state
+            .last_call_at
+            .map(|last_call| last_call + ChronoDuration::milliseconds(cadence_ms as i64))
+            .unwrap_or(now),
+        context_source,
+    }
+}
+
+fn saturating_elapsed_ms(start: DateTime<Utc>, end: DateTime<Utc>) -> u64 {
+    (end - start).num_milliseconds().max(0) as u64
 }
 
 fn is_sleeping_text(thought: Option<&str>) -> bool {
@@ -1459,6 +1606,17 @@ mod tests {
             Some(result.stream_instance_id.clone())
         );
         assert_eq!(result.updates[0].emission_seq, Some(1));
+        let timing = result.updates[0].timing.as_ref().expect("timing");
+        assert_eq!(timing.run_started_at, now);
+        assert!(timing.run_finished_at.is_none());
+        assert_eq!(timing.run_elapsed_ms, 0);
+        assert_eq!(timing.idle_elapsed_ms, 0);
+
+        let cues = result.updates[0].cues.as_ref().expect("cues");
+        assert_eq!(cues.cadence_tier, CadenceTier::Hot);
+        assert_eq!(cues.cadence_ms, 15_000);
+        assert_eq!(cues.next_llm_eligible_at, now + Duration::milliseconds(15_000));
+        assert_eq!(cues.context_source, ContextSource::Terminal);
     }
 
     #[test]
@@ -1556,6 +1714,41 @@ mod tests {
         assert_eq!(result.updates[0].thought_state, ThoughtState::Sleeping);
         assert_eq!(result.updates[0].rest_state, RestState::Sleeping);
         assert!(!result.updates[0].commit_candidate);
+    }
+
+    #[test]
+    fn sleeping_transition_freezes_elapsed_time() {
+        let now = Utc::now();
+        let mut engine = EmitEngine::new(Box::new(MockModelClient {
+            response: "unused".to_string(),
+        }));
+
+        let mut session = sample_session(now);
+        session.state = SessionState::Attention;
+        session.last_activity_at = now - Duration::milliseconds(31_000);
+
+        let first = engine.sync(&SyncRequest {
+            id: "req-1".to_string(),
+            now,
+            config: ThoughtConfig::default(),
+            sessions: vec![session.clone()],
+        });
+        let first_timing = first.updates[0].timing.as_ref().expect("first timing");
+        let first_elapsed = first_timing.run_elapsed_ms;
+        let first_finished_at = first_timing.run_finished_at.expect("first finished at");
+
+        let second = engine.sync(&SyncRequest {
+            id: "req-2".to_string(),
+            now: now + Duration::seconds(40),
+            config: ThoughtConfig::default(),
+            sessions: vec![session],
+        });
+
+        assert_eq!(second.updates.len(), 1);
+        assert_eq!(second.updates[0].rest_state, RestState::DeepSleep);
+        let second_timing = second.updates[0].timing.as_ref().expect("second timing");
+        assert_eq!(second_timing.run_finished_at, Some(first_finished_at));
+        assert_eq!(second_timing.run_elapsed_ms, first_elapsed);
     }
 
     #[test]
@@ -1785,6 +1978,64 @@ mod tests {
         assert_eq!(third.updates[0].thought, None);
         assert_eq!(third.updates[0].emission_seq, Some(2));
         assert_eq!(third.updates[1].emission_seq, Some(3));
+    }
+
+    #[test]
+    fn wake_restarts_run_timer_and_bypasses_cadence() {
+        let now = Utc::now();
+        let mut engine = EmitEngine::new(Box::new(MockModelClient {
+            response: "working through auth fallback".to_string(),
+        }));
+
+        let active = engine.sync(&SyncRequest {
+            id: "req-1".to_string(),
+            now,
+            config: ThoughtConfig::default(),
+            sessions: vec![sample_session(now)],
+        });
+        assert_eq!(active.updates.len(), 1);
+
+        let mut sleeping = sample_session(now + Duration::seconds(31));
+        sleeping.state = SessionState::Attention;
+        sleeping.last_activity_at = now;
+        let sleeping_result = engine.sync(&SyncRequest {
+            id: "req-2".to_string(),
+            now: now + Duration::seconds(31),
+            config: ThoughtConfig::default(),
+            sessions: vec![sleeping],
+        });
+        assert_eq!(sleeping_result.updates.len(), 1);
+        assert_eq!(sleeping_result.updates[0].thought.as_deref(), Some("Sleeping."));
+
+        let waking_now = now + Duration::seconds(32);
+        let waking = sample_session(waking_now);
+        let waking_result = engine.sync(&SyncRequest {
+            id: "req-3".to_string(),
+            now: waking_now,
+            config: ThoughtConfig::default(),
+            sessions: vec![waking],
+        });
+
+        assert_eq!(waking_result.updates.len(), 2);
+        let clear_timing = waking_result.updates[0].timing.as_ref().expect("clear timing");
+        assert_eq!(clear_timing.run_started_at, waking_now);
+        assert!(clear_timing.run_finished_at.is_none());
+        assert_eq!(clear_timing.run_elapsed_ms, 0);
+
+        let clear_cues = waking_result.updates[0].cues.as_ref().expect("clear cues");
+        assert_eq!(clear_cues.cadence_tier, CadenceTier::Hot);
+        assert_eq!(clear_cues.next_llm_eligible_at, waking_now);
+
+        let thought_timing = waking_result.updates[1].timing.as_ref().expect("thought timing");
+        assert_eq!(thought_timing.run_started_at, waking_now);
+        assert!(thought_timing.run_finished_at.is_none());
+
+        let thought_cues = waking_result.updates[1].cues.as_ref().expect("thought cues");
+        assert_eq!(thought_cues.cadence_tier, CadenceTier::Hot);
+        assert_eq!(
+            thought_cues.next_llm_eligible_at,
+            waking_now + Duration::milliseconds(15_000)
+        );
     }
 
     #[test]

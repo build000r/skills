@@ -5,7 +5,6 @@ __pycache__/
 .DS_Store
 dist/
 __DOT_SWIMMERS__/
-dev-sanity/
 dropbox-ocr/
 openclaw-client-bootstrap/references/deployed-instances.md
 openclaw-client-bootstrap/references/deployed-instances.local.md
@@ -25,11 +24,8 @@ domain-planner/assets/templates/frontend-*.md
 !domain-planner/assets/templates/frontend.md
 
 # local/private incubating skill directories
-deploy*/
 find-customers*/
 session-to-tweet/
-ssh-info/
-audit-plans/
 video/
 video-assets/
 video-script.md

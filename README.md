@@ -1,7 +1,7 @@
 # build000r/skills
 
 <p align="center">
-  <img alt="Catalog" src="https://img.shields.io/badge/catalog-26_skills-111111?style=for-the-badge" />
+  <img alt="Catalog" src="https://img.shields.io/badge/catalog-30_skills-111111?style=for-the-badge" />
   <img alt="Works with Claude Code, Codex, and Cursor" src="https://img.shields.io/badge/agents-Claude_Code%20%7C%20Codex%20%7C%20Cursor-2f6feb?style=for-the-badge" />
   <img alt="Licensing is skill-specific" src="https://img.shields.io/badge/license-skill--specific-6b7280?style=for-the-badge" />
 </p>
@@ -114,11 +114,13 @@ contain `SKILL.md`. You can install one skill, a lane, or the full catalog.
 | Skill | What it does |
 | --- | --- |
 | [`ask-cascade`](./ask-cascade/) | Orders user-facing questions from high-level dependencies down to details |
+| [`audit-plans`](./audit-plans/) | Audits plans, order, focus, and backlog state |
 | [`build-vs-clone`](./build-vs-clone/) | Decides whether work belongs in an existing repo, shared home, or new build |
 | [`codex-tmux`](./codex-tmux/) | Runs Codex in persistent tmux sessions for long jobs |
 | [`commit`](./commit/) | Batches working changes into clean, high-level commits |
 | [`crap`](./crap/) | Ranks risky hotspots with CRAP-style scoring |
 | [`describe`](./describe/) | Turns bugs or features into pass/fail test cases before patching |
+| [`dev-sanity`](./dev-sanity/) | Checks local dev ecosystem health across services and logs |
 | [`divide-and-conquer`](./divide-and-conquer/) | Splits complex work into parallel, non-overlapping sub-agents |
 | [`domain-planner`](./domain-planner/) | Plans multi-repo domain slices and implementation contracts |
 | [`domain-reviewer`](./domain-reviewer/) | Audits live work against a plan and retires completed slices |
@@ -223,6 +225,13 @@ human decides the slice
 agents execute the accepted slice
 human re-enters only for ambiguity, risk, or escalation
 ```
+
+### Ops And Operator Tools
+
+| Skill | What it does |
+| --- | --- |
+| [`deploy`](./deploy/) | Deploys, debugs, and operates multi-service infrastructure with mode-driven safety rails |
+| [`ssh-info`](./ssh-info/) | Provides mode-driven server connection references and targeted live status checks |
 
 ### Tooling, Docs, And Creative Systems
 
@@ -406,11 +415,15 @@ cwd_match: ~/repos
 Skills that commonly rely on mode templates include:
 
 - [`build-vs-clone`](./build-vs-clone/)
+- [`deploy`](./deploy/)
+- [`dev-sanity`](./dev-sanity/)
+- [`audit-plans`](./audit-plans/)
 - [`domain-planner`](./domain-planner/)
 - [`domain-reviewer`](./domain-reviewer/)
 - [`domain-scaffolder`](./domain-scaffolder/)
 - [`prompt-reviewer`](./prompt-reviewer/)
 - [`research-paper`](./research-paper/)
+- [`ssh-info`](./ssh-info/)
 - [`trend-to-content`](./trend-to-content/)
 - [`unclawg-discover`](./unclawg-discover/)
 
@@ -422,7 +435,7 @@ Skills that commonly rely on mode templates include:
                                v
         +--------------------------------------------------+
         | top-level skill directories with SKILL.md        |
-        | ask-cascade/  describe/  commit/  clawgs/  ...   |
+        | ask-cascade/  describe/  deploy/  clawgs/  ...   |
         +--------------------------------------------------+
              |                |                 |
              |                |                 |

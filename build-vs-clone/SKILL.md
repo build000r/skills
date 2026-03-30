@@ -57,6 +57,12 @@ This skill has three branches:
 - extraction review: inspect the current repo plus sibling repos to decide
   whether a capability should stay put or move to a more shared home
 
+For skill, workflow, or agent-tooling asks, add one more sweep before external
+OSS search: inspect trusted upstream local skill directories as second-class
+priority inputs. They are trusted and worth checking before GitHub/package
+search, but they are not the canonical first-choice home unless the evidence
+still says they should be.
+
 If the ask is only "where should this go?" and the decision can be made from
 local repo evidence, local inspection is enough.
 
@@ -71,6 +77,10 @@ Repo-aware placement should use a local gitignored mode file when available.
 4. If one best match remains, use it automatically.
 5. If none match, inspect local repos directly and state the uncertainty.
 6. Keep personal or company repo maps in `modes/`, not in tracked files.
+
+Modes may also define trusted upstream skill roots for non-canonical but highly
+trusted local skill corpora. Use those roots before external OSS search when
+the ask is about skills, reusable workflows, or agent tooling.
 
 See [references/mode-template.md](references/mode-template.md) for the
 recommended structure.
@@ -97,13 +107,17 @@ For extraction review, also use
    padding the answer with weak options.
 8. If recommending placement in an existing repo, inspect local repo evidence
    first: `CLAUDE.md`, `.claude/`, manifests, and relevant top-level docs.
-9. Do not recommend a new repo just because the current repos are messy; only
+9. For skill/workflow/tooling asks, inspect configured trusted upstream local
+   skill roots before widening to external OSS. If no mode is available, probe
+   nearby workspace roots such as `../../projects/*/skills/*` only when they
+   actually exist from the current working repo.
+10. Do not recommend a new repo just because the current repos are messy; only
    recommend `NEW REPO` when ownership would stay unclear after reasonable
    cleanup.
-10. Do not recommend extraction just because two code paths look similar. Look
+11. Do not recommend extraction just because two code paths look similar. Look
     for durable shared concepts, repeated maintenance pain, or repeated product
     use across repos.
-11. Prefer extracting upward to the nearest existing shared boundary before
+12. Prefer extracting upward to the nearest existing shared boundary before
     inventing a brand-new repo.
 
 See [references/repo-diligence.md](references/repo-diligence.md) for the trust
@@ -141,6 +155,9 @@ portfolio:
   - `.claude/`
   - primary manifests
   - top-level docs that define scope
+- if the problem smells like reusable workflow/tooling, inspect
+  `opensource/skills` plus any configured trusted upstream skill roots before
+  assuming the current skills repo is the only local prior art
 - shortlist 2-4 plausible destinations plus `NEW REPO` if none fit
 - write down each candidate's ownership boundary:
   - what it owns
@@ -179,7 +196,25 @@ its current home:
 
 Prefer the nearest stable shared boundary. Do not jump straight to a new repo.
 
-### 4. Search broadly, then narrow fast
+### 4. Check trusted upstreams first, then broaden fast
+
+If the ask is about skills, reusable workflows, or agent tooling:
+
+- inspect mode-configured trusted upstream skill roots before external OSS
+  search
+- treat them as second-class priority: trusted local prior art, not the
+  default canonical destination
+- if no mode provides roots, probe nearby workspace roots such as
+  `../../projects/*/skills/*` only when they exist from the current working
+  repo
+- shortlist the strongest local upstream candidates by reading:
+  - `SKILL.md`
+  - relevant `references/`
+  - bundled `scripts/` or `assets/` when they materially affect reuse
+- decide whether each upstream candidate is something to:
+  - adopt into the current portfolio
+  - borrow from while keeping the canonical skill in `opensource/skills`
+  - leave upstream because it is trusted but still too specialized or noisy
 
 Use web search plus primary-source discovery on the likely repo host and
 package ecosystem.
@@ -332,6 +367,9 @@ Recommendation
 Local Candidates Reviewed
 - <repo or new repo option>: ownership summary, fit summary, blockers, exact local evidence inspected
 
+Trusted Upstream Candidates Reviewed
+- <skill dir>: fit summary, trust summary, blockers, exact local evidence inspected
+
 Extraction Candidates Reviewed
 - <candidate target>: reuse summary, extraction fit, blockers, exact local evidence inspected
 
@@ -365,6 +403,8 @@ the recommendation.
   abstract popularity.
 - If all strong candidates are close but not right, recommend `BORROW` instead
   of forcing `ADOPT`.
+- For skill/workflow/tooling asks, inspect trusted upstream local skill
+  directories before treating external OSS as the next option.
 - Prefer extending an existing repo over creating a new repo when the bounded
   context is already there.
 - Prefer a skills/tooling repo for reusable agent workflows, not product repos.

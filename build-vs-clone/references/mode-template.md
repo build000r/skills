@@ -23,6 +23,18 @@ If you need repo-specific overrides, create a second mode with a more specific
 List the roots that matter when checking whether work belongs in an existing
 repo or needs a new one.
 
+## Trusted Upstream Skill Roots
+
+Use this only for skill/workflow/tooling asks.
+
+These are second-class priority inputs: local skill corpora you trust and want
+checked before external OSS search, but which are not yet the canonical skills
+home for the portfolio.
+
+- `~/projects/some-skill-archive/skills`
+
+List only roots that are worth treating as credible local prior art.
+
 ## Repo Ownership
 
 - `repo-name`
@@ -88,6 +100,8 @@ Include anything private or organization-specific here instead of tracked
 skill files:
 
 - private skill roots
+- trusted upstream skill corpora that are not yet integrated into the main
+  skills repo
 - internal naming conventions
 - repo pairs that commonly ship together
 - anti-goals such as "never put payments logic in the website repo"

@@ -4,10 +4,10 @@ Quick validation script for skills - validates structure and content
 """
 
 import sys
-import os
 import re
 import yaml
 from pathlib import Path
+from lib.skill_bundle_filter import iter_included_skill_files
 
 def validate_skill(skill_path, strict=False):
     """
@@ -20,7 +20,7 @@ def validate_skill(skill_path, strict=False):
     Returns:
         (valid, message) tuple
     """
-    skill_path = Path(skill_path)
+    skill_path = Path(skill_path).resolve()
     warnings = []
 
     # Check SKILL.md exists
@@ -110,29 +110,10 @@ def validate_skill(skill_path, strict=False):
         (r'(?:api[_-]?key|token|password|secret)\s*[=:]\s*["\'][^"\']{8,}', "Possible secret/credential"),
         (r'\?fpr=|\?ref=|\?affiliate=', "Referral/affiliate link"),
     ]
-    gitignore_path = skill_path / '.gitignore'
-    gitignore_patterns = set()
-    if gitignore_path.exists():
-        for line in gitignore_path.read_text().splitlines():
-            line = line.strip()
-            if line and not line.startswith('#'):
-                gitignore_patterns.add(line.rstrip('/'))
-
-    def _is_gitignored(rel: str) -> bool:
-        parts = Path(rel).parts
-        for pat in gitignore_patterns:
-            if pat in parts or rel.startswith(pat):
-                return True
-        return False
-
-    for file_path in skill_path.rglob('*'):
-        if not file_path.is_file():
-            continue
+    for file_path in iter_included_skill_files(skill_path):
         rel = str(file_path.relative_to(skill_path))
         # Avoid self-referential false positives from validator regex definitions.
         if rel == 'scripts/quick_validate.py':
-            continue
-        if _is_gitignored(rel) or rel.startswith('.git'):
             continue
         try:
             text = file_path.read_text(encoding='utf-8', errors='ignore')

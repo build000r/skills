@@ -3,7 +3,8 @@
 Review how a skill has actually been used in Claude/Codex transcripts.
 
 Usage:
-  review_skill_usage.py --skill skill-issue [--source both] [--since month] [--limit 50]
+  review_skill_usage.py --skill skill-issue [--source both] [--limit 50]
+  review_skill_usage.py --skill skill-issue [--source both] [--since marker|month|2026-03-01] [--limit 50]
 
 Outputs JSON with:
   - matched invocations from Claude/Codex session logs
@@ -19,7 +20,26 @@ import json
 from datetime import datetime, timezone
 
 from lib.skill_evidence import generate_evidence_report
-from lib.skill_review import parse_date, scan_skill_invocations, write_marker
+from lib.skill_review import load_marker, parse_date, parse_timestamp, scan_skill_invocations, write_marker
+
+
+def resolve_since(skill: str, since_arg: str | None) -> tuple[datetime, str]:
+    """Resolve the review start timestamp from an explicit arg or the last marker."""
+    month_fallback = parse_date("month")
+    marker = load_marker(skill)
+
+    if since_arg and since_arg != "marker":
+        return parse_date(since_arg), "explicit"
+
+    if marker:
+        marker_timestamp = marker.get("reviewed_until") or marker.get("updated_at")
+        if marker_timestamp:
+            return parse_timestamp(marker_timestamp, month_fallback), "marker"
+
+    if since_arg == "marker":
+        return month_fallback, "marker-fallback-month"
+
+    return month_fallback, "default-month"
 
 
 def main() -> None:
@@ -33,8 +53,8 @@ def main() -> None:
     )
     parser.add_argument(
         "--since",
-        default="month",
-        help="Start date (YYYY-MM-DD or today/yesterday/week/month)",
+        default=None,
+        help="Start date (marker|YYYY-MM-DD|today|yesterday|week|month). Defaults to the last review marker for this skill, or month on first run.",
     )
     parser.add_argument(
         "--until",
@@ -49,7 +69,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    since = parse_date(args.since)
+    since, since_source = resolve_since(args.skill, args.since)
     until = parse_date(args.until) if args.until else datetime.now(timezone.utc)
 
     report = scan_skill_invocations(
@@ -59,6 +79,7 @@ def main() -> None:
         until=until,
         limit=args.limit,
     )
+    report["since_source"] = since_source
     report["evidence_packets"] = generate_evidence_report(report)
 
     if args.no_marker:

@@ -89,10 +89,12 @@ Treat real user-triggered skill invocations as the experiment corpus. Do not fab
 1. Scan transcript history for a target skill:
 
 ```bash
-scripts/review_skill_usage.py --skill skill-issue --source both --since month --limit 50 > /tmp/skill-issue-review.json
+scripts/review_skill_usage.py --skill skill-issue --source both --limit 50 > /tmp/skill-issue-review.json
 ```
 
-This writes `~/.claude/skill-markers/<skill>.json` by default with the latest detected invocation date. Use `--no-marker` only when you explicitly need read-only behavior.
+By default, this resumes from `~/.claude/skill-markers/<skill>.json` using the previous review's `reviewed_until` timestamp. On the first run for a skill, it falls back to `--since month`. Pass an explicit `--since ...` to override, or `--since marker` to force marker-resume behavior.
+
+This writes `~/.claude/skill-markers/<skill>.json` by default with the latest detected invocation date plus the review window cursor. Use `--no-marker` only when you explicitly need read-only behavior.
 
 Optional, when you need deterministic raw tool tallies for evals, count the underlying tool calls directly:
 
@@ -467,6 +469,7 @@ scripts/package_skill.py <path/to/skill-folder> [output-directory]
 ```
 
 Packaging validates automatically, then creates a `.skill` file (zip with .skill extension). Fix any validation errors and re-run.
+When the skill lives in a Git worktree, packaging also excludes any paths ignored by Git (repo root or skill-local), so private `modes/` overlays and other gitignored artifacts stay out of the bundle.
 
 For ops/deploy skills, do an additional manual quality pass:
 - Run every documented preflight command at least once.

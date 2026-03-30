@@ -94,6 +94,17 @@ def parse_date(date_str: str | None) -> datetime:
     return datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
 
 
+def load_marker(skill: str) -> dict[str, Any] | None:
+    """Load the last review marker for a skill when present."""
+    marker_path = MARKERS_DIR / f"{skill}.json"
+    if not marker_path.exists():
+        return None
+    try:
+        return json.loads(marker_path.read_text())
+    except json.JSONDecodeError:
+        return None
+
+
 def iso_week(dt: datetime) -> str:
     """Return ISO week string like 2026-W11."""
     y, w, _ = dt.isocalendar()
@@ -910,6 +921,9 @@ def write_marker(report: dict[str, Any]) -> Path:
         "skill": report["skill"],
         "updated_at": datetime.now(timezone.utc).isoformat(),
         "last_invoked_at": report.get("last_invoked_at"),
+        "reviewed_since": report.get("since"),
+        "reviewed_until": report.get("until"),
+        "since_source": report.get("since_source"),
         "invocations_found": report.get("invocations_found", 0),
         "providers": report.get("summary", {}).get("providers", {}),
         "history_file": str(REVIEW_HISTORY_FILE),

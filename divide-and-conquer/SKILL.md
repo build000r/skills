@@ -1,18 +1,29 @@
 ---
 name: divide-and-conquer
-description: Decompose complex work into independent parallel sub-agents with no write overlap, then run a review pass to verify and clean up. Use before spawning multiple agents for multi-file, multi-domain, or naturally parallel tasks.
+description: Decompose complex work into independent parallel sub-agents with no write overlap, synthesize or consume a `WORKGRAPH.md` execution artifact, and launch describe-style worker briefs before review. Use before spawning multiple agents for multi-file, multi-domain, or naturally parallel tasks.
 license: MIT
 ---
 
 # Divide and Conquer
 
 Decompose a task into sub-agents that run fully in parallel with zero conflicts.
-Autonomous: plan → launch → Codex review → commit → report. No approval gates.
+Autonomous: analyze → load or synthesize `WORKGRAPH.md` → launch
+describe-style node briefs → Codex review → commit → report. No approval
+gates.
+
+## Default Marker
+
+Start with a stable first progress message such as:
+
+`Using \`divide-and-conquer\` to map the ready frontier, write a temp \`WORKGRAPH.md\` when needed, and launch conflict-free workers.`
 
 Shared cross-skill rules live in
 [references/orchestration-contract.md](references/orchestration-contract.md).
 Use that file for worker ownership, background-task collection, and detached
 review handoff semantics.
+
+Temp workgraph synthesis and describe-style worker briefs live in
+[references/workgraph-synthesis.md](references/workgraph-synthesis.md).
 
 ## Modes
 
@@ -68,22 +79,45 @@ Read the conversation to understand:
 - What files/areas of the codebase are involved
 - What the dependencies between subtasks are
 
-### 2. Check for `WORKGRAPH.md`
+### 2. Decide Whether a Workgraph Is Relevant
+
+Use a workgraph when any of these are true:
+- The task has 2+ plausible concern-owned sub-agents
+- Dependency edges matter to the launch order
+- The user explicitly wants an orchestrated or parallel split
+- You need a durable artifact to explain and reuse the split across workers
+
+If the work collapses to one concern or a strict dependency chain, do **not**
+force a graph just to satisfy the ritual.
+
+If the split itself is unclear, use `ask-cascade` on the first blocking
+strategic fork before inventing nodes or launching agents.
+
+### 3. Load or Synthesize `WORKGRAPH.md`
 
 Before inventing a split, check whether the repo or plan directory already has a
-`WORKGRAPH.md` execution artifact.
+durable `WORKGRAPH.md` execution artifact.
 
-If `WORKGRAPH.md` exists:
+If a durable `WORKGRAPH.md` exists:
 - Run `python3 ~/.claude/skills/divide-and-conquer/scripts/workgraph_ready.py --file <path-to-WORKGRAPH.md>`
 - Treat the reported `ready_nodes` and `waves` as the default split proposal
 - Launch work only from the current ready frontier
 - Do **not** pull blocked or dependency-pending nodes into the same batch
 - Respect `writes` ownership from the workgraph even if the user asked broadly
 
-If `WORKGRAPH.md` does not exist, fall back to the generic decomposition process
-below.
+If no durable `WORKGRAPH.md` exists and parallelism is still relevant:
+- Create a temp directory, for example `mktemp -d "${TMPDIR:-/tmp}/dac-workgraph-XXXXXX"`
+- Write `WORKGRAPH.md` inside that directory using the canonical node contract
+  from [references/workgraph-synthesis.md](references/workgraph-synthesis.md)
+- Keep the temp graph focused on this execution slice only, usually 2-8 nodes
+- Do **not** commit the temp graph unless the user explicitly asks to preserve
+  it
+- Immediately run `workgraph_ready.py` against the temp file and treat the
+  resulting ready frontier as the launch plan
 
-### 3. Identify Split Boundaries
+The temp graph is a scratch execution artifact, not a second plan document.
+
+### 4. Identify Node Boundaries
 
 Find natural seams where work can be divided. Good boundaries:
 - **Domain boundaries**: Frontend vs backend vs database vs tests
@@ -96,34 +130,83 @@ relevant; you verify no overlap in the conflict check. When `WORKGRAPH.md`
 exists, the node's `concern` and `writes` fields become the starting point for
 that split.
 
-### 4. Verify Independence
+If you cannot express a node with concrete `done_when` and `validate_cmds`, the
+node is not ready to launch. Tighten it first instead of delegating vague work.
+
+### 5. Verify Independence
 
 For each proposed agent pair, confirm:
 - No two agents write to the same file
 - No agent needs another agent's output to start
 - No shared mutable state between agents
+- Dependency edges are represented in `depends_on`, not hidden in prompt prose
 - Each agent's instructions are self-contained (or uses general-purpose type which sees conversation)
 
 If any check fails, merge those agents or restructure the split.
 
 See `references/decomposition-patterns.md` for safe/unsafe patterns and the full checklist.
 
-### 5. Plan, Launch, and Report (Single Flow)
+### 6. Plan, Brief, Launch, and Report (Single Flow)
 
-This is autonomous — **do NOT ask for approval** between planning and launching. Output the plan for transparency, then launch immediately in the same response.
+This is autonomous — **do NOT ask for approval** between planning and launching.
+Output the plan for transparency, then launch immediately in the same response.
 
-#### 4a. Output the Decomposition (Transparent, Not a Gate)
+#### 6a. Resolve Fuzzy Nodes with `describe` Rules
+
+Use `describe` only when a node is still fuzzy, not as mandatory ceremony for
+every worker.
+
+When a ready node still has fuzzy `done_when`, `validate_cmds`, or non-goals:
+- Do **not** launch a write agent yet
+- Run a node-local `describe` pass or fresh review to tighten the node contract
+- If the review exposes a real strategic decision, route that single blocking
+  question through `ask-cascade`
+- Rewrite the node in `WORKGRAPH.md`
+- Re-run `workgraph_ready.py` before launching workers
+
+#### 6b. Build a Describe-Style Worker Brief
+
+Every launched worker, especially write agents, gets the workgraph path and the
+specific node it owns. Use a compact describe-style brief:
+
+```text
+Workgraph: <path-to-WORKGRAPH.md> (durable | temp)
+Node: <WG-001> - <title>
+Concern: <concern>
+Depends on: <ids already satisfied, or None>
+Writes: <expected paths/globs, or None>
+Underlying ask: <plain-language user outcome for this node>
+Done when:
+- <binary completion check>
+Validate:
+- <command>
+Risk gate:
+- none | <what must be confirmed first>
+Non-goals:
+- <explicitly out of scope items>
+
+If anything above is ambiguous enough that you would guess, stop and return the
+single smallest ask-cascade question or a proposed WORKGRAPH edit instead of
+coding past it.
+```
+
+This is the default launch contract even when you do **not** run the full
+`describe` skill for that node.
+
+#### 6c. Output the Decomposition (Transparent, Not a Gate)
 
 Print the decomposition as a numbered list. For each agent:
 
 ```
 ## Agent [N]: [Short Label]
 
+**Workgraph**: <path> (`durable` | `temp`)
+**Node**: <WG-00N> | None
 **Type**: Explore | general-purpose | Bash
 **Model**: `gpt-5.4` + `medium|high|xhigh` (`high` default; round up when unsure)
 **Background**: true if non-blocking, false if results needed before next step
 **Concern**: [Domain/goal this agent owns — scope by concern, not file list]
-**Task**: [Goal-focused instructions. For general-purpose, can reference conversation context concisely.]
+**Task**: [Goal-focused instructions. Include the describe-style node brief in the launch prompt.]
 **Writes**: [Expected files — verified for no overlap, but agent discovers actual files needed. "None" for Explore/Bash types.]
 ```
 
@@ -133,29 +216,32 @@ Then the **Conflict Check**:
 ## Conflict Check
 - Write overlap: None | [list conflicts]
 - Data dependencies: None | [list dependencies]
+- Workgraph frontier: [ready nodes / waves used for this launch]
 - Type safety: [Confirm write-agents are general-purpose, research-agents are Explore]
 - Verdict: Ready to launch | Needs restructuring
 ```
 
 If verdict is "Needs restructuring", fix the split before continuing. Otherwise, proceed immediately.
 
-#### 4b. Launch (Same Message — No Approval Gate)
+#### 6d. Launch (Same Message — No Approval Gate)
 
 All parallel agents MUST be launched in the **same message** as the plan output above. Do not wait for user confirmation. The conflict check IS the safety gate.
 
-Agents that depend on prior results must be launched sequentially in a follow-up message.
+All worker prompts must reference the same `WORKGRAPH.md` path plus the
+specific node ID they own. Agents that depend on prior results must be launched
+sequentially in a follow-up message.
 
-#### 4c. Collect Agent Results
+#### 6e. Collect Agent Results
 
-Once all agents complete, read each agent's output. Do NOT manually review, fix, or verify — that's the Codex reviewer's job (Step 5).
+Once all agents complete, read each agent's output. Do NOT manually review, fix, or verify — that's the Codex reviewer's job (Step 7).
 
-**Save the original task description** — the reviewer needs it.
+**Save the original task description and workgraph path** — the reviewer needs both.
 
-### 6. Codex Review (via codex-tmux)
+### 7. Codex Review (via codex-tmux)
 
 After all agents return, launch a Codex review via the `codex-tmux` utility skill. See `~/.claude/skills/codex-tmux/SKILL.md` for the full tmux protocol details.
 
-#### 5a. Build the Review Prompt
+#### 7a. Build the Review Prompt
 
 ```
 You are the REVIEW AGENT for a divide-and-conquer parallel execution.
@@ -163,8 +249,10 @@ Multiple sub-agents just completed work in this repository. Your job:
 
 1. Understand what was requested:
    Task: <original task description>
+   Workgraph: <path-to-WORKGRAPH.md or null>
 
 2. Review what was done:
+   - If a workgraph exists, read it first to understand node intent and ownership
    - Run `git status` and `git diff` to see all changes
    - Read modified files to understand the changes
    - Assess whether the changes correctly and completely address the task
@@ -204,18 +292,18 @@ Guardrails:
 - Keep fixes minimal and targeted
 ```
 
-#### 5b. Launch the Reviewer
+#### 7b. Launch the Reviewer
 
 ```bash
 python3 ~/.claude/skills/codex-tmux/scripts/run.py launch \
-    --task "<review prompt from 5a>" \
+    --task "<review prompt from 7a>" \
     --cd "<repo working directory>" \
     --model gpt-5.4 \
     --reasoning-effort xhigh \
     --prefix dac-review
 ```
 
-#### 5c. Start Background Waiter
+#### 7c. Start Background Waiter
 
 Parse the `wait_command` from the launch output:
 
@@ -224,7 +312,7 @@ Parse the `wait_command` from the launch output:
 tmux wait-for <signal_channel> && cat <result_file>
 ```
 
-#### 5d. Tell User the Session Name
+#### 7d. Tell User the Session Name
 
 ```
 Agents completed. Codex review running in: dac-review-20260220-143022
@@ -235,7 +323,7 @@ Agents completed. Codex review running in: dac-review-20260220-143022
 
 The conversation can continue normally or end here — the background waiter handles both.
 
-#### 5e. Collect Result
+#### 7e. Collect Result
 
 If the conversation is still alive, periodically check the runtime's background
 task handle or the detached review session result:
@@ -249,7 +337,7 @@ python3 ~/.claude/skills/codex-tmux/scripts/run.py result \
     --session <session-name>
 ```
 
-### 7. Report to User
+### 8. Report to User
 
 When the result is available (via background task or manual check):
 
@@ -288,9 +376,14 @@ Inspect: tmux a -t <session-name>
 - **2-5 agents** is the sweet spot. More than 5 signals over-decomposition.
 - **Scope by concern, not files**. "Handle auth changes" > "Modify src/auth.ts". Agent discovers files; you verify no overlap.
 - **If `WORKGRAPH.md` exists, start from its ready frontier**. Do not freelance a broader split unless the workgraph is obviously stale or wrong.
+- **If no durable `WORKGRAPH.md` exists and parallelism is relevant, synthesize a temp one first**. Use the same node contract and parser flow.
 - **Never split same-concern work** across agents. One domain = one owner.
 - **Use Explore for research agents** — physically cannot write, so file conflicts are impossible.
 - **Use general-purpose for write agents** — they see conversation history, so prompts can be concise.
+- **Every launched agent gets the workgraph path and node ID**. Do not send workers into the repo with an unanchored task.
+- **Use describe-style briefs for worker prompts**. Do not hand off vague work when you can state `done_when`, `validate_cmds`, and non-goals explicitly.
+- **Use `describe` only for fuzzy nodes**. If the node contract is already concrete, launch directly.
+- **Use `ask-cascade` only for the first blocking strategic ambiguity**. Do not spray the user with tactical questions before the branch is set.
 - **Use `gpt-5.4` whenever you set a model explicitly** — do not drop back to older model families or provider-specific tiers inside this skill.
 - **Default reasoning to `high`** — use `medium` only for clearly bounded work and `xhigh` for reviews/ambiguity; when in doubt, choose the next higher tier.
 - **Use `run_in_background: true`** for agents whose results aren't needed before the next step.

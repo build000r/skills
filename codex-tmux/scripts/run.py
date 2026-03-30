@@ -16,6 +16,9 @@ Usage:
         --task "Review and fix all uncommitted changes" \
         --cd ~/repos/myapp
 
+    # Wait for completion and print result JSON
+    python3 scripts/run.py wait --session codex-20260220-143022
+
     # Check status
     python3 scripts/run.py status --session codex-20260220-143022
 
@@ -48,6 +51,10 @@ ALLOWED_MODELS = [
 DEFAULT_REASONING_EFFORT = "high"
 DEFAULT_RESULT_DIR = Path("/tmp/codex-tmux")
 DEFAULT_PREFIX = "codex"
+
+
+def _script_path() -> Path:
+    return Path(__file__).resolve()
 
 
 def _session_name(prefix: str) -> str:
@@ -257,13 +264,23 @@ def cmd_launch(args: argparse.Namespace) -> int:
         "model": args.model,
         "reasoning_effort": args.reasoning_effort,
         "prefix": args.prefix,
-        "wait_command": f"tmux wait-for {signal_channel} && cat {result_file}",
+        "wait_command": (
+            f"python3 {shlex.quote(str(_script_path()))} "
+            f"wait --session {shlex.quote(session)} --result-dir {shlex.quote(str(result_dir))}"
+        ),
+        "legacy_wait_command": f"tmux wait-for {signal_channel} && cat {result_file}",
     }
     print(json.dumps(output, indent=2))
 
     # Human-friendly summary to stderr
     print(f"\n  Codex launched: {session}", file=sys.stderr)
     print(f"  Watch live: tmux a -t {session}", file=sys.stderr)
+    print(
+        "  Wait:       "
+        f"python3 {shlex.quote(str(_script_path()))} "
+        f"wait --session {shlex.quote(session)} --result-dir {shlex.quote(str(result_dir))}",
+        file=sys.stderr,
+    )
     print(f"  Result:     {result_file}", file=sys.stderr)
     print(f"  Signal:     tmux wait-for {signal_channel}", file=sys.stderr)
     print(f"  Kill:       tmux kill-session -t {session}\n", file=sys.stderr)
@@ -343,6 +360,39 @@ def cmd_result(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_wait(args: argparse.Namespace) -> int:
+    result_dir = Path(args.result_dir) if args.result_dir else DEFAULT_RESULT_DIR
+    result_file = result_dir / f"{args.session}.json"
+
+    if result_file.exists():
+        data = json.loads(result_file.read_text())
+        print(json.dumps(data, indent=2))
+        return 0
+
+    wait_result = subprocess.run(
+        ["tmux", "wait-for", _signal_channel(args.session)],
+        capture_output=True,
+        text=True,
+    )
+    if wait_result.returncode != 0:
+        print(json.dumps({
+            "error": wait_result.stderr.strip() or "Failed while waiting for tmux signal",
+            "session": args.session,
+        }))
+        return wait_result.returncode
+
+    if not result_file.exists():
+        print(json.dumps({
+            "error": f"Session signaled completion but no result file found at {result_file}",
+            "session": args.session,
+        }))
+        return 1
+
+    data = json.loads(result_file.read_text())
+    print(json.dumps(data, indent=2))
+    return 0
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Run Codex in a persistent tmux session with signal-based completion."
@@ -373,6 +423,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     p_status.add_argument("--result-dir", default=None,
                           help=f"Result directory (default: {DEFAULT_RESULT_DIR})")
 
+    # wait
+    p_wait = sub.add_parser("wait", help="Block until the session finishes, then print result JSON")
+    p_wait.add_argument("--session", required=True, help="tmux session name")
+    p_wait.add_argument("--result-dir", default=None,
+                        help=f"Result directory (default: {DEFAULT_RESULT_DIR})")
+
     # result
     p_result = sub.add_parser("result", help="Read result file")
     p_result.add_argument("--session", required=True, help="tmux session name")
@@ -389,6 +445,8 @@ def main(argv: list[str]) -> int:
         return cmd_launch(args)
     elif args.command == "status":
         return cmd_status(args)
+    elif args.command == "wait":
+        return cmd_wait(args)
     elif args.command == "result":
         return cmd_result(args)
     else:

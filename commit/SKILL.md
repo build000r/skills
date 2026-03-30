@@ -1,81 +1,152 @@
 ---
 name: commit
 type: utility
-description: Batch-commit claimed working changes with clean, high-level messages. Use for "commit", "commit my changes", "commit what you did", "save progress", "/commit", or end-of-session repo cleanup across one or more repos.
+description: Commit working changes with clean, logical batches, including from a fresh repo context where no prior ownership is established. Use for "commit", "commit everything", "commit my changes", "save progress", "/commit", "initial cleanup commit", or when a dirty repo needs batching, .gitignore decisions, and OSS/privacy-aware staging.
 ---
 
 # Commit
 
-Commit the working changes across repos touched during this session.
-The working tree likely has changes from multiple sources — your work,
-other agents, manual edits. Your job: identify what YOU changed, batch
-it logically, and commit with clean messages.
+Commit the working changes in the repo or repos touched during this run.
+
+Default behavior matters:
+
+- If the user says `commit what you did`, `commit my changes`, or otherwise narrows scope to the agent's own edits, use **claimed-changes mode**.
+- If the repo is dirty, the context is fresh, no owned-file set is obvious, or the user just says `commit`, `save progress`, or `commit everything`, use **repo-steward mode**.
+- In repo-steward mode, do **not** no-op just because session ownership is unclear. Treat the job as: classify the whole dirty tree, ignore local-only artifacts, scrub privacy risks, batch the intentional changes, and commit them.
+
+Start with a stable acknowledgement in commentary:
+
+```text
+Using commit: surveying dirty state, deciding commit scope, and batching intentional changes.
+```
 
 ## Process
 
 1. Survey dirty state
-2. Claim your files
-3. Apply repo-specific safety rules
-4. Batch and commit
+2. Choose commit mode
+3. Classify every dirty path
+4. Update ignore files and scrub privacy risks
+5. Batch and commit
+6. Verify no unexplained leftovers
 
-### Step 1: Survey dirty state
+## Step 1: Survey dirty state
 
 For each repo you worked in during this session, run:
 
 ```bash
-git -C <repo> status --short
+git -C <repo> status --short --branch
 git -C <repo> diff --stat
+git -C <repo> ls-files --others --exclude-standard
 ```
 
-If you worked in only one repo, just check that one.
-If unsure which repos you touched, check the working directories from the session.
+If you worked in only one repo, inspect just that repo.
+If the current directory is inside `opensource/`, remember the top-level `opensource/`
+folder may not itself be a git repo; commit the actual nested repo you changed.
 
-Start the run with a stable acknowledgement in commentary:
+If `git -C <repo> rev-parse --verify HEAD` fails, treat it as a repo with no commits yet.
+The batching rules still apply.
 
-```text
-Using commit: surveying dirty repos and claiming my files first.
+## Step 2: Choose commit mode
+
+### Claimed-changes mode
+
+Use this only when the scope is clearly limited to your own edits.
+
+- Claim whole files, not hunks.
+- If a file was touched by you and also by others, read it carefully before claiming it.
+- If ownership is unclear, skip the file unless the user explicitly asked for the whole repo.
+
+### Repo-steward mode
+
+Use this when the user did not narrow scope and the repo is dirty.
+
+- Own the classification pass for **all** tracked and untracked changes in the repo.
+- Do not ask the user to decide file-by-file unless there is a real risk boundary.
+- The goal is either:
+  - a clean repo after the commit sequence, or
+  - a short explicit list of leftovers with a concrete reason such as `merge conflict`,
+    `contains credentials`, `needs legal review`, or `intentionally left uncommitted`.
+
+## Step 3: Classify every dirty path
+
+Every dirty or untracked path must end up in one of these buckets:
+
+- **Commit now**: intentional source, docs, tests, config, migrations, fixtures, or other real project files
+- **Ignore locally**: machine-specific, secret, generated, cache, log, export, or review artifact
+- **Leave out for a specific reason**: risky, conflicting, unrelated, or not safe to publish yet
+
+In repo-steward mode, do this classification for the whole dirty tree before committing.
+
+### Strong commit-now signals
+
+- Source files, tests, docs, schemas, migrations, lockfiles, CI config, reusable scripts
+- Example env templates such as `.env.example` or `.env.sample`
+- Small representative fixtures that are clearly intended for the repo
+- Existing tracked files with intentional edits
+
+### Strong ignore-locally signals
+
+- Secrets or local env files: `.env`, `.env.*`, `*.local`, `*.secret`, credential dumps
+- Editor and OS noise: `.DS_Store`, `Thumbs.db`, `.idea/`, `.vscode/`
+- Dependency caches and virtual environments: `node_modules/`, `.venv/`, `venv/`, `__pycache__/`
+- Test/build outputs: `.pytest_cache/`, `.mypy_cache/`, `.ruff_cache/`, `.next/`, `coverage/`, `.coverage*`, `dist/`, `build/`, packaged `.skill` files
+- Logs, temp reports, downloaded artifacts, browser dumps, screenshots, local review notes, DB exports
+
+### Leave-out reasons that justify stopping or excluding
+
+- Mixed unrelated product work that would make the commit misleading
+- Files containing credentials, legal/privacy risk, or internal business data
+- Large binaries or vendored content with unclear licensing
+- Ongoing conflict resolution or half-applied refactors
+
+## Step 4: Update ignore files and scrub privacy risks
+
+If untracked local-only artifacts are present and the repo does not already ignore them,
+update `.gitignore` or the repo-appropriate ignore file **before** staging the rest.
+
+Rules:
+
+- Add generic ignore rules, not workstation-specific paths.
+- Do not ignore files that are already intentionally tracked by the repo.
+- Prefer the smallest durable pattern that solves the current noise.
+- In open-source or potentially public repos, treat privacy hygiene as part of the commit, not optional cleanup.
+
+Before staging candidate files, inspect them for obvious privacy or release problems:
+
+```bash
+git -C <repo> diff --stat -- <candidate-files...>
+rg -n '/Users/|/home/|/srv/|AKIA|AIza|sk-|ghp_|xoxb-|-----BEGIN|[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}|https?://[^ ]*(internal|staging|prod|private)|([0-9]{1,3}\\.){3}[0-9]{1,3}' <candidate-files...>
 ```
 
-### Step 2: Claim your files
+When the scan hits:
 
-From the dirty files, pick only the files you actually created or modified.
-**Add whole files** — never stage partial hunks. If you touched a file, commit
-the whole file. If you didn't touch it, leave it alone.
-
-When unsure whether a file is yours: skip it. Better to under-commit than to
-commit someone else's in-progress work.
-
-### Step 3: Apply repo-specific safety rules
+- scrub secrets, workstation paths, internal hosts, personal identifiers, and private business names before committing
+- convert environment-specific values to placeholders, docs, or examples when appropriate
+- if the file should never be public, do not stage it; ignore it or leave it out with an explicit reason
 
 When the active repo is the local `opensource/skills` collection, a nested repo inside that
 collection, or another open-source repo inside the local `opensource/` workspace, switch into
 **safe-for-oss mode**.
 
-In safe-for-oss mode:
+### Safe-for-oss mode
 
-- Treat privacy and release hygiene as part of the commit contract, not optional cleanup.
-- Do **not** claim generated artifacts unless the user explicitly asked for them:
-  `.mutate/`, `mutants.out/`, `dist/`, `build/`, `.coverage*`, `coverage/`, temporary review files,
-  cached logs, packaged `.skill` files, or other run outputs.
-- Prefer committing only source files, tests, docs, references, and intentional config changes.
-- Before staging, inspect the candidate paths for project-specific or private data:
+- Treat privacy and release hygiene as mandatory.
+- Do not claim generated artifacts unless the user explicitly asked for them.
+- Prefer committing source, tests, docs, references, templates, and intentional config changes.
+- If adding `.gitignore` rules, keep them generic and publishable.
+- If a new file includes internal names, customer data, proprietary URLs, or machine-local paths, scrub or exclude it.
 
-```bash
-git -C <repo> diff --stat -- <claimed-files...>
-rg -n '/Users/|/srv/|@|AKIA|AIza|sk-|ghp_|xoxb-|https?://[^ ]*(internal|staging|prod|private)' <claimed-files...>
-```
+## Step 5: Batch and commit
 
-- If the scan finds likely secrets, personal identifiers, hardcoded workstation paths, or internal hostnames,
-  stop and scrub those values before committing.
-- If the repo contains unrelated dirty generated files, leave them unstaged and commit only the intentional source edits.
-- In the local `opensource/` workspace, remember the top-level directory may not itself be a git repo;
-  commit the actual nested repo you changed.
+Group staged files by **logical unit**, not by extension and not by directory alone.
+Use as few commits as preserve meaning. Usually `1-4` commits is right. Do not create a pile of micro-commits.
 
-### Step 4: Batch and commit
+Good batch shapes:
 
-Group your claimed files into **1–3 commits max** by logical unit.
-A logical unit is a cohesive change — e.g., "new skill", "API endpoint + tests",
-"config updates". One commit is fine. Three is the ceiling, not the target.
+- feature code + tests
+- docs + references for the same feature
+- repo hygiene such as `.gitignore`, formatting, or generated-noise cleanup
+- one independent subsystem per commit when the dirty tree clearly spans multiple unrelated changes
 
 For each batch:
 
@@ -87,6 +158,9 @@ EOF
 )"
 ```
 
+If `.gitignore` changes are purely supportive for other work, include them with the relevant batch.
+If the ignore cleanup is large and stands on its own, a separate `chore(...)` commit is acceptable.
+
 ## Commit message rules
 
 Always use conventional-commit format: `type(scope): description`
@@ -94,44 +168,52 @@ Always use conventional-commit format: `type(scope): description`
 **Types:** `feat`, `fix`, `chore`, `refactor`, `test`, `docs`
 **Scope:** the domain, module, or feature area (1-2 words)
 
-**Good messages are short and describe the change at a high level.**
+Format: **`type(scope): description`** in imperative mood, no period, under 72 characters total.
 
-Do:
-- `feat(commit): add batch-commit skill`
-- `fix(email): handle HTML response from preview endpoint`
-- `feat(telemetry): add frontend error reporting`
-- `chore(sdk): bump version to 1.5.1`
-- `fix(websocket): pg_notify reliability + cross-worker broadcast`
+Good:
 
-Don't:
-- `feat(commit): add commit skill with SKILL.md containing frontmatter and instructions for batching changes across repos` (too long)
-- `fix(reports): fix bug where timezone offset was incorrectly applied during DST transition causing dates to shift by one day in the Pacific timezone` (describing the issue, not the change)
-- `refactor(utils): update line 42 to use .get() instead of bracket access` (implementation detail)
-- `chore(auth): refactor, clean up, and improve error handling` (vague laundry list)
+- `feat(commit): batch dirty repo into safe commits`
+- `chore(repo): ignore local build artifacts`
+- `fix(auth): scrub private host references`
+- `docs(skill): clarify repo-steward commit mode`
 
-Format: **`type(scope): description` — imperative mood, no period, under 72 characters total.** One line only.
+Bad:
+
+- messages that list implementation details
+- messages that describe five unrelated areas at once
+- vague summaries like `cleanup stuff`
 
 ## Multi-repo
 
 If you worked across multiple repos, commit each repo separately.
-Same rules apply per repo. Don't try to create a unified commit across repos.
+Do not try to create one synthetic commit across repos.
 
-## After committing
+Use the same mode decision per repo:
 
-Run concrete verification before closeout:
+- claimed-changes mode for explicitly scoped repos
+- repo-steward mode for dirty repos the user asked you to cleanly commit
+
+## Step 6: Verify no unexplained leftovers
+
+Run concrete verification after each repo's commit sequence:
 
 ```bash
-git -C <repo> diff --cached --stat
+git -C <repo> log -1 --stat --oneline
 git -C <repo> status --short
+git -C <repo> diff --stat
 ```
 
-For safe-for-oss mode, also verify that no generated artifact directories or obvious private strings slipped into the staged diff:
+In safe-for-oss mode, also verify that no obvious generated or private material slipped in:
 
 ```bash
-git -C <repo> diff --cached --name-only
-git -C <repo> diff --cached -- . ':(exclude).mutate' ':(exclude)mutants.out'
+git -C <repo> show --name-only --format=oneline HEAD
+git -C <repo> show HEAD -- . ':(exclude).mutate' ':(exclude)mutants.out'
 ```
 
-Run `git status --short` in each repo to confirm clean state for your files.
-Report what you committed: which repos, how many commits, and the messages.
-Do NOT push unless explicitly asked.
+Closeout contract:
+
+- If the repo is clean, say so.
+- If files remain dirty, list them and why they were left out.
+- In repo-steward mode, unexplained leftovers are a failure. Either commit them, ignore them, or explicitly call out the risk that blocked them.
+- Report which repos were committed, how many commits were created, and the commit messages.
+- Do **not** push unless explicitly asked.

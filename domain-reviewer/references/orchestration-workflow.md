@@ -33,14 +33,20 @@ Parallel execution contract (same repository, no extra worktrees required):
 
 Before entering the loop:
 
-1. **Detect mode** from CWD (read mode file)
-2. **Get slice name** from user if not provided
-3. **Extract from mode file:**
+1. Emit a stable first progress update:
+   - `Using domain-reviewer in <mode|resolving> mode for <slice|slice-resolution>.`
+2. **Detect mode** from CWD (read mode file)
+3. **Resolve the slice before asking the user**:
+   - explicit slice name in the request
+   - explicit plan path or current `AUDIT_REPORT.md` / `COMPLETED.md` handoff artifact
+   - one clear slice implied by the active mode, cwd, or upstream handoff context
+4. Ask the user for the slice only when multiple plausible slices remain or none can be resolved safely.
+5. **Extract from mode file:**
    - `plan_root`, `plan_index` paths
    - Backend/frontend implementation locations
    - Convention/standards file paths
    - Commit conventions
-4. **Read reference files** to have on hand for constructing worker prompts:
+6. **Read reference files** to have on hand for constructing worker prompts:
    - `references/audit-workflow.md` (audit steps for worker phase)
    - `references/audit-template.md` (report template for worker phase)
    - Mode's convention files (for including in worker context)
@@ -214,6 +220,8 @@ Extract the handoff block from the `## Agent Handoffs` section of AUDIT_REPORT.m
 
 **For backend issues** — run backend fix worker phase:
 ```
+Run `domain-scaffolder` with `surface=backend` for the `{slice}` slice.
+
 {Backend handoff block from AUDIT_REPORT.md, verbatim}
 
 Additional context:
@@ -228,6 +236,8 @@ Additional context:
 
 **For frontend issues** — run frontend fix worker phase:
 ```
+Run `domain-scaffolder` with `surface=frontend` for the `{slice}` slice.
+
 {Frontend handoff block from AUDIT_REPORT.md, verbatim}
 
 Additional context:
@@ -347,3 +357,4 @@ The orchestrator MUST NOT:
 - Fix code directly when using delegated workers (that's the fix worker's job)
 - Carry audit details between iterations (each worker run should start fresh from inputs)
 - Re-read convention files between iterations (only needed for prompt construction)
+- Turn implementation handoffs into bespoke ad hoc prompts when the canonical `domain-scaffolder` surface handoff already fits

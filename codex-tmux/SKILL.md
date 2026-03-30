@@ -31,13 +31,13 @@ Use that file for detached review and background-result collection semantics.
 Calling skill (e.g. divide-and-conquer)
  ├── Builds prompt string
  ├── Calls: python3 codex-tmux/scripts/run.py launch --task "..." --cd <repo>
- ├── Starts background Bash: tmux wait-for <channel> && cat <result_file>
- │    └── BLOCKS (zero CPU) until Codex signals
- ├── Tells user the session name
+ ├── Starts background wait helper: python3 codex-tmux/scripts/run.py wait --session <name>
+ │    └── BLOCKS until Codex signals, then prints result.json
+ ├── Tells user the session name only when detached survivability matters
  └── Continues conversation (or session dies — both are fine)
 
 Path A (conversation alive):
-   Codex finishes → signals channel → background Bash unblocks
+   Codex finishes → signals channel → background wait helper unblocks
    → runtime task/session handle returns result.json → calling skill reports to user
 
 Path B (conversation died):
@@ -59,6 +59,7 @@ No recursive agents. No `claude --resume`. The signal is a dumb tmux primitive.
 ### Step 1: Build your prompt
 
 The calling skill builds the full prompt string. codex-tmux does NOT generate prompts — it's a transport layer.
+The calling skill also owns most user messaging. Treat codex-tmux as infrastructure unless the user explicitly needs the detached-session handle.
 
 ### Step 2: Launch
 
@@ -77,7 +78,7 @@ The script outputs JSON to stdout:
   "session": "codex-20260220-143022",
   "signal_channel": "codex-20260220-143022-done",
   "result_file": "/tmp/codex-tmux/codex-20260220-143022.json",
-  "wait_command": "tmux wait-for codex-20260220-143022-done && cat /tmp/codex-tmux/codex-20260220-143022.json"
+  "wait_command": "python3 ~/.claude/skills/codex-tmux/scripts/run.py wait --session codex-20260220-143022 --result-dir /tmp/codex-tmux"
 }
 ```
 
@@ -93,14 +94,22 @@ And a human-friendly summary to stderr:
 
 ### Step 3: Start background waiter
 
-Immediately after launching, start a **background Bash task** that blocks on the tmux signal channel:
+Immediately after launching, start a **background wait helper**:
 
 ```bash
 # run_in_background: true, timeout: 600000
-tmux wait-for <signal_channel> && cat <result_file>
+python3 ~/.claude/skills/codex-tmux/scripts/run.py wait --session <session-name>
 ```
 
 ### Step 4: Tell user the session name
+
+Only surface the session details when:
+
+- the task is expected to outlive the current conversation
+- the user explicitly asked for detached/background execution details
+- you are handing off a long-running quality gate the user may want to inspect manually
+
+Otherwise keep the detail minimal and continue with the calling workflow.
 
 ```
 Codex running in: codex-20260220-143022
@@ -111,8 +120,8 @@ Codex running in: codex-20260220-143022
 
 ### Step 5: Collect result
 
-If the conversation is still alive, check the runtime's background-task handle
-or use the session `status` / `result` commands:
+If the conversation is still alive, prefer the background wait helper above.
+Use the session `status` / `result` commands only for polling, timeout recovery, or manual inspection:
 
 - First check after ~60 seconds
 - Subsequent checks every ~30 seconds
@@ -144,6 +153,15 @@ python3 scripts/run.py status --session <session-name>
 ```
 
 Returns JSON with `status` (running | completed | completed_no_result), `has_result`, and optional `tail` (last 30 lines of tmux pane output if still running).
+
+### wait
+
+```
+python3 scripts/run.py wait --session <session-name>
+```
+
+Blocks on the session completion signal, then prints the same JSON as `result`.
+Use this for background-task handles instead of spelling raw `tmux wait-for ... && cat ...` in calling skills.
 
 ### result
 

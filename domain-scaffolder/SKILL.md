@@ -34,10 +34,12 @@ This skill supports two surfaces:
 
 Surface selection rules:
 
-1. Explicit backend wording => `backend`
-2. Explicit frontend wording => `frontend`
-3. Otherwise infer from the request
-4. If still ambiguous, ask the user which surface to scaffold
+1. Explicit `surface=backend|frontend` from the caller or handoff artifact wins.
+2. If exactly one matching mode supports one surface, use that surface automatically.
+3. Explicit backend wording => `backend`
+4. Explicit frontend wording => `frontend`
+5. Otherwise infer from the request and upstream artifacts.
+6. Ask the user only if the surface is still genuinely ambiguous.
 
 Use the backend surface for server/domain/migration/router work.
 Use the frontend surface for types/API/hooks/components/widget work.
@@ -47,6 +49,15 @@ Greenfield direct-invocation examples:
 - "scaffold the backend for reporting"
 - "implement the frontend for report-request"
 - "scaffold report-request" -> ask only if backend vs frontend is ambiguous
+
+## On Trigger
+
+1. Start with a stable first progress update:
+   - `Using domain-scaffolder surface=<surface|resolving> for <slice|slice-resolution> with <mode|mode-resolution>.`
+2. Resolve surface using the rules above.
+3. Resolve mode from `{skill_root}/modes/*.md`, preferring the longest matching `cwd_match`.
+4. Resolve `slice` and `plan path` from the explicit request, upstream handoff, or active plan context before asking the user.
+5. Ask only when surface, mode, or slice remain materially ambiguous after those checks.
 
 ## Unified Private Mode Store
 
@@ -149,6 +160,15 @@ Every scaffolding run ends with a structured handoff:
 - `validation commands run`
 - `validation result`
 - `audit handoff`
+
+The `audit handoff` must be ready to run without extra interpretation. It should name:
+
+- `domain-reviewer`
+- the resolved `slice`
+- the implemented `surface`
+- the exact `plan path`
+- the validation commands already run
+- any known risk areas the audit should verify first
 
 If the implementation is incomplete, say exactly which artifact is still missing.
 

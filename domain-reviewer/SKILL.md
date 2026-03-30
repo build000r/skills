@@ -137,10 +137,16 @@ The mode file specifies:
 
 ## On Trigger
 
-1. Ask for slice name if not provided: "Which slice should I review? (e.g., `protocol-actions`, `key-insights`)"
-2. **Detect mode** from user's words (see Mode Detection table above)
-3. **Read the corresponding workflow reference file**
-4. Follow that workflow's step-by-step process
+1. Start with a stable first progress update:
+   - `Using domain-reviewer in <mode|resolving> mode for <slice|slice-resolution>.`
+2. **Detect mode** from the user's words and current context (see Mode Detection table above).
+3. **Resolve the slice before asking**:
+   - explicit slice name in the request
+   - explicit plan path or current `AUDIT_REPORT.md` / `COMPLETED.md` handoff artifact
+   - one clear slice implied by the current mode, cwd, or upstream handoff context
+4. Ask the user for a slice only when there are multiple plausible slices or none can be resolved safely.
+5. **Read the corresponding workflow reference file**
+6. Follow that workflow's step-by-step process
 
 ### Audit Mode: Orchestrator Behavior
 
@@ -150,7 +156,7 @@ In audit mode, **you are the orchestrator**. Use worker phases for heavy work (d
 2. Enter the autonomous loop (see orchestration-workflow.md)
 3. Run audit/re-review worker phase with full instructions and clean inputs
 4. Parse scores from AUDIT_REPORT.md after each cycle
-5. Dispatch fix worker phase(s) when score < 100
+5. Dispatch fix worker phase(s) when score < 100, using canonical `domain-scaffolder` handoffs with explicit `surface=backend` or `surface=frontend`
 6. Enforce auth service compliance in auth/payments/identity scope: no local replacement layer, gaps captured as auth-scope proposals, local-link flow finalized on published/live packages
 7. Enforce delivery strategy compliance: no unrequested legacy compatibility code; DB-transition runbook required when production data is impacted
 8. On convergence (= 100/100): transition to retirement — **you do this yourself** (you have context budget)
@@ -193,9 +199,10 @@ In audit mode, handoffs to fix workers are **automated by the orchestrator** —
 
 The orchestrator:
 1. Reads the `## Agent Handoffs` section from AUDIT_REPORT.md
-2. Augments each handoff block with mode-specific paths and convention file references
-3. Runs worker phase(s) with the constructed prompts (delegated or inline)
-4. Backend and frontend fix workers run in parallel when both have issues and scopes are disjoint
+2. Canonicalizes each implementation handoff to `domain-scaffolder` with explicit surface, slice, plan path, and mode-specific references
+3. Augments each handoff block with mode-specific paths and convention file references
+4. Runs worker phase(s) with the constructed prompts (delegated or inline)
+5. Backend and frontend fix workers run in parallel when both have issues and scopes are disjoint
 
 The handoff blocks in AUDIT_REPORT.md should reference the canonical
 `domain-scaffolder` skill with explicit surface selection for greenfield work.
@@ -205,8 +212,8 @@ constructing worker prompts.
 
 | Issue Type | Worker Gets | Key Context |
 |------------|---------------|-------------|
-| Backend fixes | Handoff block + backend convention file paths + plan paths | TDD-first, domain structure |
-| Frontend fixes | Handoff block + frontend patterns reference path + plan paths | Component patterns, hooks |
+| Backend fixes | Canonical `domain-scaffolder surface=backend` handoff + backend convention file paths + plan paths | TDD-first, domain structure |
+| Frontend fixes | Canonical `domain-scaffolder surface=frontend` handoff + frontend patterns reference path + plan paths | Component patterns, hooks |
 
 ## Related Skills
 

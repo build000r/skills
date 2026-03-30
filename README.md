@@ -1,7 +1,7 @@
 # build000r/skills
 
 <p align="center">
-  <img alt="Catalog" src="https://img.shields.io/badge/catalog-36_skills-111111?style=for-the-badge" />
+  <img alt="Catalog" src="https://img.shields.io/badge/catalog-26_skills-111111?style=for-the-badge" />
   <img alt="Works with Claude Code, Codex, and Cursor" src="https://img.shields.io/badge/agents-Claude_Code%20%7C%20Codex%20%7C%20Cursor-2f6feb?style=for-the-badge" />
   <img alt="Licensing is skill-specific" src="https://img.shields.io/badge/license-skill--specific-6b7280?style=for-the-badge" />
 </p>
@@ -114,13 +114,11 @@ contain `SKILL.md`. You can install one skill, a lane, or the full catalog.
 | Skill | What it does |
 | --- | --- |
 | [`ask-cascade`](./ask-cascade/) | Orders user-facing questions from high-level dependencies down to details |
-| [`audit-plans`](./audit-plans/) | Audits plans, order, focus, and backlog state |
 | [`build-vs-clone`](./build-vs-clone/) | Decides whether work belongs in an existing repo, shared home, or new build |
 | [`codex-tmux`](./codex-tmux/) | Runs Codex in persistent tmux sessions for long jobs |
 | [`commit`](./commit/) | Batches working changes into clean, high-level commits |
 | [`crap`](./crap/) | Ranks risky hotspots with CRAP-style scoring |
 | [`describe`](./describe/) | Turns bugs or features into pass/fail test cases before patching |
-| [`dev-sanity`](./dev-sanity/) | Checks local dev ecosystem health across services and logs |
 | [`divide-and-conquer`](./divide-and-conquer/) | Splits complex work into parallel, non-overlapping sub-agents |
 | [`domain-planner`](./domain-planner/) | Plans multi-repo domain slices and implementation contracts |
 | [`domain-reviewer`](./domain-reviewer/) | Audits live work against a plan and retires completed slices |
@@ -226,16 +224,6 @@ agents execute the accepted slice
 human re-enters only for ambiguity, risk, or escalation
 ```
 
-### Ops, Recon, And Operator Tools
-
-| Skill | What it does |
-| --- | --- |
-| [`deploy`](./deploy/) | Handles deployment, rollback, health checks, and infra debugging |
-| [`dropbox-ocr`](./dropbox-ocr/) | OCRs invoices and receipts, then matches them to QuickBooks work |
-| [`erac-portal-api`](./erac-portal-api/) | Authenticates to the ERAC legacy portal for API recon and replay |
-| [`spaps-register`](./spaps-register/) | Registers new apps with SPAPS and wires credentials |
-| [`ssh-info`](./ssh-info/) | Returns server connection info and targeted live-status checks |
-
 ### Tooling, Docs, And Creative Systems
 
 | Skill | What it does |
@@ -243,7 +231,6 @@ human re-enters only for ambiguity, risk, or escalation
 | [`clawgs`](./clawgs/) | Extracts structured data from Claude/Codex logs and emits thought updates |
 | [`remotion`](./remotion/) | Encodes practical Remotion guidance for React video work |
 | [`research-paper`](./research-paper/) | Produces dense research pages plus social companions |
-| [`session-to-tweet`](./session-to-tweet/) | Converts technical work sessions into high-signal X posts |
 | [`swimmers-sprite`](./swimmers-sprite/) | Generates thronglet sprite packs from master pixel assets |
 | [`trend-to-content`](./trend-to-content/) | Turns search and social trends into research, PSEO, and video ideas |
 
@@ -253,7 +240,6 @@ human re-enters only for ambiguity, risk, or escalation
 | --- | --- |
 | [`openclaw-client-bootstrap`](./openclaw-client-bootstrap/) | Builds production-ready OpenClaw client kits with runtime assets |
 | [`openclaw-docs-audit`](./openclaw-docs-audit/) | Audits bootstrap docs and config against upstream OpenClaw changes |
-| [`unclawg-admin`](./unclawg-admin/) | Handles waitlist triage and account-management actions |
 | [`unclawg-internet`](./unclawg-internet/) | Runs onboarding, device auth, and setup for OpenClaw agents |
 | [`unclawg-discover`](./unclawg-discover/) | Finds leads and social-listening candidates |
 | [`unclawg-feed`](./unclawg-feed/) | Generates replies and submits approval requests |
@@ -420,7 +406,6 @@ cwd_match: ~/repos
 Skills that commonly rely on mode templates include:
 
 - [`build-vs-clone`](./build-vs-clone/)
-- [`deploy`](./deploy/)
 - [`domain-planner`](./domain-planner/)
 - [`domain-reviewer`](./domain-reviewer/)
 - [`domain-scaffolder`](./domain-scaffolder/)
@@ -437,7 +422,7 @@ Skills that commonly rely on mode templates include:
                                v
         +--------------------------------------------------+
         | top-level skill directories with SKILL.md        |
-        | ask-cascade/  describe/  deploy/  clawgs/  ...   |
+        | ask-cascade/  describe/  commit/  clawgs/  ...   |
         +--------------------------------------------------+
              |                |                 |
              |                |                 |

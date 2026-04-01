@@ -8,33 +8,48 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const OPENROUTER_TIMEOUT: Duration = Duration::from_secs(15);
 const CODEX_EXEC_TIMEOUT: Duration = Duration::from_secs(30);
+const CLAUDE_CLI_TIMEOUT: Duration = Duration::from_secs(30);
 const DEFAULT_CODEX_CLI_MODEL: &str = "gpt-5.1-codex-mini";
 const DEFAULT_CODEX_CLI_REASONING: &str = "low";
 const DEFAULT_CODEX_CLI_VERBOSITY: &str = "low";
+const DEFAULT_CLAUDE_CLI_MODEL: &str = "haiku";
+const DEFAULT_CLAUDE_CLI_MAX_BUDGET: &str = "0.02";
 const MODEL_BACKEND_ENV: &str = "CLAWGS_MODEL_BACKEND";
 const CODEX_BIN_ENV: &str = "CLAWGS_CODEX_BIN";
 const CODEX_REASONING_ENV: &str = "CLAWGS_CODEX_REASONING_EFFORT";
 const CODEX_VERBOSITY_ENV: &str = "CLAWGS_CODEX_VERBOSITY";
 const CODEX_WORKDIR_ENV: &str = "CLAWGS_CODEX_WORKDIR";
 const CODEX_RUNTIME_DIR: &str = "clawgs-codex-exec";
+const CLAUDE_BIN_ENV: &str = "CLAWGS_CLAUDE_BIN";
+const CLAUDE_MAX_BUDGET_ENV: &str = "CLAWGS_CLAUDE_MAX_BUDGET";
 const MODEL_ENV_KEYS: [&str; 3] = [
     "SWIMMERS_THOUGHT_MODEL",
     "SWIMMERS_THOUGHT_MODEL_2",
     "SWIMMERS_THOUGHT_MODEL_3",
 ];
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ModelBackend {
     OpenRouter,
     CodexCli,
+    ClaudeCli,
 }
 
 impl ModelBackend {
-    fn from_env_value(value: &str) -> Option<Self> {
+    pub fn from_env_value(value: &str) -> Option<Self> {
         match value.trim().to_ascii_lowercase().as_str() {
             "openrouter" => Some(Self::OpenRouter),
             "codex" | "codex_cli" | "codex-cli" => Some(Self::CodexCli),
+            "claude" | "claude_cli" | "claude-cli" => Some(Self::ClaudeCli),
             _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::OpenRouter => "openrouter",
+            Self::CodexCli => "codex",
+            Self::ClaudeCli => "claude",
         }
     }
 }
@@ -44,11 +59,39 @@ pub trait ModelClient: Send + Sync {
 }
 
 pub fn build_model_client() -> Result<Box<dyn ModelClient>, String> {
-    match resolve_model_backend() {
+    build_model_client_for(resolve_model_backend())
+}
+
+pub fn build_model_client_for(backend: ModelBackend) -> Result<Box<dyn ModelClient>, String> {
+    match backend {
         ModelBackend::OpenRouter => {
             OpenRouterModelClient::new().map(|client| Box::new(client) as Box<dyn ModelClient>)
         }
         ModelBackend::CodexCli => Ok(Box::new(CodexCliModelClient::new())),
+        ModelBackend::ClaudeCli => Ok(Box::new(ClaudeCliModelClient::new())),
+    }
+}
+
+pub fn validate_backend_credentials(backend: ModelBackend) -> Result<(), String> {
+    match backend {
+        ModelBackend::OpenRouter => {
+            if nonempty_env_var("OPENROUTER_API_KEY").is_none() {
+                return Err(format!("{}: OPENROUTER_API_KEY not set", backend.as_str()));
+            }
+            Ok(())
+        }
+        ModelBackend::CodexCli => {
+            if !codex_command_available() {
+                return Err(format!("{}: codex binary not found", backend.as_str()));
+            }
+            Ok(())
+        }
+        ModelBackend::ClaudeCli => {
+            if !claude_command_available() {
+                return Err(format!("{}: claude binary not found", backend.as_str()));
+            }
+            Ok(())
+        }
     }
 }
 
@@ -211,8 +254,125 @@ impl ModelClient for CodexCliModelClient {
     }
 }
 
+pub struct ClaudeCliModelClient {
+    bin: String,
+    max_budget: String,
+}
+
+impl ClaudeCliModelClient {
+    pub fn new() -> Self {
+        Self {
+            bin: claude_bin(),
+            max_budget: nonempty_env_var(CLAUDE_MAX_BUDGET_ENV)
+                .unwrap_or_else(|| DEFAULT_CLAUDE_CLI_MAX_BUDGET.to_string()),
+        }
+    }
+}
+
+impl ModelClient for ClaudeCliModelClient {
+    fn complete(&self, prompt: &str, model_override: Option<&str>) -> Result<String, String> {
+        let model = model_override
+            .map(|m| m.to_string())
+            .or_else(|| {
+                candidate_models(None, ModelBackend::ClaudeCli)
+                    .into_iter()
+                    .next()
+            })
+            .unwrap_or_else(|| DEFAULT_CLAUDE_CLI_MODEL.to_string());
+
+        let mut command = Command::new(&self.bin);
+        command.args([
+            "--print",
+            "--model",
+            &model,
+            "--bare",
+            "--output-format",
+            "text",
+            "--no-session-persistence",
+            "--max-budget-usd",
+            &self.max_budget,
+        ]);
+        command.stdin(Stdio::piped());
+        command.stdout(Stdio::piped());
+        command.stderr(Stdio::piped());
+
+        let mut child = command
+            .spawn()
+            .map_err(|error| format!("failed to spawn claude: {error}"))?;
+
+        {
+            let Some(stdin) = child.stdin.as_mut() else {
+                return Err("claude missing stdin pipe".to_string());
+            };
+            stdin
+                .write_all(prompt.as_bytes())
+                .map_err(|error| format!("failed to write claude prompt: {error}"))?;
+        }
+        drop(child.stdin.take());
+
+        let started = Instant::now();
+        let status = loop {
+            match child.try_wait() {
+                Ok(Some(status)) => break status,
+                Ok(None) if started.elapsed() < CLAUDE_CLI_TIMEOUT => {
+                    thread::sleep(Duration::from_millis(50));
+                }
+                Ok(None) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(format!(
+                        "claude exec timed out after {}s",
+                        CLAUDE_CLI_TIMEOUT.as_secs()
+                    ));
+                }
+                Err(error) => {
+                    return Err(format!("failed to wait for claude: {error}"));
+                }
+            }
+        };
+
+        let stdout = child
+            .stdout
+            .take()
+            .map(|mut out| {
+                let mut buf = String::new();
+                use std::io::Read;
+                let _ = out.read_to_string(&mut buf);
+                buf
+            })
+            .unwrap_or_default();
+        let stderr = child
+            .stderr
+            .take()
+            .map(|mut err| {
+                let mut buf = String::new();
+                use std::io::Read;
+                let _ = err.read_to_string(&mut buf);
+                buf
+            })
+            .unwrap_or_default();
+
+        if !status.success() {
+            return Err(format!(
+                "claude exec failed: {}",
+                failure_preview(&stderr, &stdout)
+            ));
+        }
+
+        let trimmed = stdout.trim();
+        if trimmed.is_empty() {
+            return Err("claude exec returned empty output".to_string());
+        }
+        Ok(trimmed.to_string())
+    }
+}
+
 fn auto_detect_model_backend() -> ModelBackend {
-    if codex_command_available() {
+    if nonempty_env_var("OPENROUTER_API_KEY").is_some() {
+        ModelBackend::OpenRouter
+    } else if claude_command_available() {
+        ModelBackend::ClaudeCli
+    } else if codex_command_available() {
         ModelBackend::CodexCli
     } else {
         ModelBackend::OpenRouter
@@ -227,8 +387,20 @@ fn codex_command_available() -> bool {
         .unwrap_or(false)
 }
 
+fn claude_command_available() -> bool {
+    Command::new(claude_bin())
+        .arg("--version")
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false)
+}
+
 fn codex_bin() -> String {
     nonempty_env_var(CODEX_BIN_ENV).unwrap_or_else(|| "codex".to_string())
+}
+
+fn claude_bin() -> String {
+    nonempty_env_var(CLAUDE_BIN_ENV).unwrap_or_else(|| "claude".to_string())
 }
 
 fn candidate_models(model_override: Option<&str>, backend: ModelBackend) -> Vec<String> {
@@ -252,6 +424,7 @@ fn backend_default_model(backend: ModelBackend) -> Option<&'static str> {
     match backend {
         ModelBackend::OpenRouter => None,
         ModelBackend::CodexCli => Some(DEFAULT_CODEX_CLI_MODEL),
+        ModelBackend::ClaudeCli => Some(DEFAULT_CLAUDE_CLI_MODEL),
     }
 }
 
@@ -381,7 +554,10 @@ mod tests {
     use std::path::Path;
     use std::sync::Mutex;
 
-    use super::{build_codex_exec_args, default_model_for_backend, thought_models, ModelBackend};
+    use super::{
+        build_codex_exec_args, default_model_for_backend, thought_models,
+        validate_backend_credentials, ModelBackend,
+    };
 
     static ENV_LOCK: Mutex<()> = Mutex::new(());
 
@@ -465,5 +641,61 @@ mod tests {
         assert!(args.contains(&"model_verbosity=\"low\"".to_string()));
         assert!(args.contains(&"model_reasoning_summary=\"none\"".to_string()));
         assert!(args.contains(&"--ephemeral".to_string()));
+    }
+
+    #[test]
+    fn claude_backend_falls_back_to_haiku_default_model() {
+        let _lock = ENV_LOCK.lock().expect("env lock");
+        std::env::remove_var("SWIMMERS_THOUGHT_MODEL");
+        std::env::remove_var("SWIMMERS_THOUGHT_MODEL_2");
+        std::env::remove_var("SWIMMERS_THOUGHT_MODEL_3");
+
+        let model = default_model_for_backend(ModelBackend::ClaudeCli);
+
+        assert_eq!(model, "haiku");
+    }
+
+    #[test]
+    fn model_backend_from_env_value_parses_claude_variants() {
+        assert_eq!(
+            ModelBackend::from_env_value("claude"),
+            Some(ModelBackend::ClaudeCli)
+        );
+        assert_eq!(
+            ModelBackend::from_env_value("claude_cli"),
+            Some(ModelBackend::ClaudeCli)
+        );
+        assert_eq!(
+            ModelBackend::from_env_value("claude-cli"),
+            Some(ModelBackend::ClaudeCli)
+        );
+        assert_eq!(
+            ModelBackend::from_env_value("CLAUDE"),
+            Some(ModelBackend::ClaudeCli)
+        );
+    }
+
+    #[test]
+    fn model_backend_from_env_value_rejects_unknown() {
+        assert_eq!(ModelBackend::from_env_value("gemini"), None);
+        assert_eq!(ModelBackend::from_env_value(""), None);
+    }
+
+    #[test]
+    fn model_backend_as_str_roundtrips() {
+        assert_eq!(ModelBackend::OpenRouter.as_str(), "openrouter");
+        assert_eq!(ModelBackend::CodexCli.as_str(), "codex");
+        assert_eq!(ModelBackend::ClaudeCli.as_str(), "claude");
+    }
+
+    #[test]
+    fn validate_backend_credentials_rejects_missing_openrouter_key() {
+        let _lock = ENV_LOCK.lock().expect("env lock");
+        std::env::remove_var("OPENROUTER_API_KEY");
+
+        let err = validate_backend_credentials(ModelBackend::OpenRouter)
+            .expect_err("should fail without API key");
+        assert!(err.starts_with("openrouter:"));
+        assert!(err.contains("OPENROUTER_API_KEY"));
     }
 }

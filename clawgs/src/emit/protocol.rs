@@ -104,6 +104,8 @@ pub struct ThoughtConfig {
     pub enabled: bool,
     #[serde(default)]
     pub model: String,
+    #[serde(default)]
+    pub backend: String,
     #[serde(default = "default_cadence_hot_ms")]
     pub cadence_hot_ms: u64,
     #[serde(default = "default_cadence_warm_ms")]
@@ -121,6 +123,7 @@ impl Default for ThoughtConfig {
         Self {
             enabled: default_enabled(),
             model: String::new(),
+            backend: String::new(),
             cadence_hot_ms: default_cadence_hot_ms(),
             cadence_warm_ms: default_cadence_warm_ms(),
             cadence_cold_ms: default_cadence_cold_ms(),
@@ -133,6 +136,7 @@ impl Default for ThoughtConfig {
 impl ThoughtConfig {
     pub fn normalize(&mut self) {
         self.model = self.model.trim().to_string();
+        self.backend = self.backend.trim().to_string();
         self.agent_prompt = normalize_optional_prompt(self.agent_prompt.take());
         self.terminal_prompt = normalize_optional_prompt(self.terminal_prompt.take());
     }
@@ -143,6 +147,19 @@ impl ThoughtConfig {
                 "model",
                 format!("must be <= {MODEL_MAX_CHARS} characters"),
             ));
+        }
+
+        if !self.backend.is_empty() {
+            use crate::emit::model_client::ModelBackend;
+            if ModelBackend::from_env_value(&self.backend).is_none() {
+                return Err(ThoughtConfigValidationError::new(
+                    "backend",
+                    format!(
+                        "unrecognized backend {:?}; expected one of: openrouter, claude, codex",
+                        self.backend
+                    ),
+                ));
+            }
         }
 
         if !(CADENCE_HOT_MIN_MS..=CADENCE_HOT_MAX_MS).contains(&self.cadence_hot_ms) {
@@ -194,6 +211,15 @@ impl ThoughtConfig {
             None
         } else {
             Some(trimmed)
+        }
+    }
+
+    pub fn backend_override(&self) -> Option<crate::emit::model_client::ModelBackend> {
+        let trimmed = self.backend.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            crate::emit::model_client::ModelBackend::from_env_value(trimmed)
         }
     }
 }
@@ -319,6 +345,8 @@ struct SyncRequestWire {
 struct SyncRequestConfigWire {
     enabled: bool,
     model: String,
+    #[serde(default)]
+    backend: String,
     cadence_hot_ms: u64,
     cadence_warm_ms: u64,
     cadence_cold_ms: u64,
@@ -333,6 +361,7 @@ impl SyncRequestConfigWire {
         let mut config = ThoughtConfig {
             enabled: self.enabled,
             model: self.model,
+            backend: self.backend,
             cadence_hot_ms: self.cadence_hot_ms,
             cadence_warm_ms: self.cadence_warm_ms,
             cadence_cold_ms: self.cadence_cold_ms,
@@ -348,6 +377,7 @@ impl SyncRequestConfigWire {
 struct SyncRequestConfigWireRef<'a> {
     enabled: bool,
     model: &'a str,
+    backend: &'a str,
     cadence_hot_ms: u64,
     cadence_warm_ms: u64,
     cadence_cold_ms: u64,
@@ -360,6 +390,7 @@ impl<'a> From<&'a ThoughtConfig> for SyncRequestConfigWireRef<'a> {
         Self {
             enabled: value.enabled,
             model: value.model.as_str(),
+            backend: value.backend.as_str(),
             cadence_hot_ms: value.cadence_hot_ms,
             cadence_warm_ms: value.cadence_warm_ms,
             cadence_cold_ms: value.cadence_cold_ms,
@@ -425,6 +456,8 @@ pub struct SyncMetrics {
     pub sessions_seen: u64,
     pub llm_calls: u64,
     pub suppressed: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_backend_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -723,6 +756,7 @@ mod tests {
         .is_ok());
         assert_eq!(json["config"]["enabled"], true);
         assert_eq!(json["config"]["model"], "");
+        assert_eq!(json["config"]["backend"], "");
         assert_eq!(json["config"]["cadence_hot_ms"], 15_000);
         assert_eq!(json["config"]["cadence_warm_ms"], 45_000);
         assert_eq!(json["config"]["cadence_cold_ms"], 120_000);
@@ -756,6 +790,51 @@ mod tests {
         assert_eq!(request.id, "req-1");
         assert!(request.config.agent_prompt.is_none());
         assert!(request.config.terminal_prompt.is_none());
+        assert!(request.config.backend.is_empty());
+    }
+
+    #[test]
+    fn sync_request_deserializes_missing_backend_to_empty() {
+        let raw = serde_json::json!({
+            "type": "sync",
+            "id": "req-2",
+            "now": "2026-02-26T21:00:00Z",
+            "config": {
+                "enabled": true,
+                "model": "",
+                "cadence_hot_ms": 15000,
+                "cadence_warm_ms": 45000,
+                "cadence_cold_ms": 120000
+            },
+            "sessions": []
+        })
+        .to_string();
+
+        let request: SyncRequest = serde_json::from_str(&raw).expect("sync request should parse");
+        assert!(request.config.backend.is_empty());
+        assert!(request.config.backend_override().is_none());
+    }
+
+    #[test]
+    fn config_validation_rejects_unknown_backend() {
+        let cfg = ThoughtConfig {
+            backend: "gemini".to_string(),
+            ..ThoughtConfig::default()
+        };
+        let err = cfg.validate().expect_err("unknown backend should fail");
+        assert_eq!(err.field, "backend");
+        assert!(err.message.contains("gemini"));
+    }
+
+    #[test]
+    fn config_validation_accepts_known_backends() {
+        for backend in ["openrouter", "claude", "codex", ""] {
+            let cfg = ThoughtConfig {
+                backend: backend.to_string(),
+                ..ThoughtConfig::default()
+            };
+            assert!(cfg.validate().is_ok(), "backend {:?} should be valid", backend);
+        }
     }
 
     #[test]

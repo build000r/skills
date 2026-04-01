@@ -9,7 +9,9 @@ use crate::{
     ExtractOptions, Snapshot, ToolSelection,
 };
 
-use super::model_client::ModelClient;
+use super::model_client::{
+    build_model_client_for, validate_backend_credentials, ModelBackend, ModelClient,
+};
 use super::protocol::{
     BubblePrecedence, CadenceTier, ContextSource, CueInfo, RestState, SessionSnapshot,
     SessionState, SyncMetrics, SyncRequest, SyncResultMessage, ThoughtConfig, ThoughtSource,
@@ -120,15 +122,23 @@ struct PreparedSessionContext {
 }
 
 pub struct EmitEngine {
-    model_client: Box<dyn ModelClient>,
+    clients: HashMap<ModelBackend, Box<dyn ModelClient>>,
+    default_backend: ModelBackend,
     per_session: HashMap<String, SessionRuntimeState>,
     stream_instance_id: String,
 }
 
 impl EmitEngine {
     pub fn new(model_client: Box<dyn ModelClient>) -> Self {
+        Self::with_backend(model_client, super::model_client::resolve_model_backend())
+    }
+
+    pub fn with_backend(model_client: Box<dyn ModelClient>, default_backend: ModelBackend) -> Self {
+        let mut clients: HashMap<ModelBackend, Box<dyn ModelClient>> = HashMap::new();
+        clients.insert(default_backend, model_client);
         Self {
-            model_client,
+            clients,
+            default_backend,
             per_session: HashMap::new(),
             stream_instance_id: format!(
                 "stream-{}-{}",
@@ -167,7 +177,54 @@ impl EmitEngine {
             }
         }
 
-        let model_client = &*self.model_client;
+        // Resolve the client for this request's backend. If credential
+        // validation fails, we skip all LLM calls and carry forward.
+        let backend = request
+            .config
+            .backend_override()
+            .unwrap_or(self.default_backend);
+
+        if !self.clients.contains_key(&backend) {
+            if let Err(err) = validate_backend_credentials(backend) {
+                metrics.last_backend_error = Some(err);
+                // Process sessions without LLM — they get carry-forward
+                for session in &request.sessions {
+                    metrics.sessions_seen += 1;
+                    metrics.suppressed += 1;
+                    let state = self
+                        .per_session
+                        .entry(session.session_id.clone())
+                        .or_insert_with(|| {
+                            SessionRuntimeState::initialize_from_session(session, request.now)
+                        });
+                    let next_rest_state = rest_state_for_session(session, request.now);
+                    state.rest_state = next_rest_state;
+                }
+                return SyncResultMessage::new(
+                    request.id.clone(),
+                    self.stream_instance_id.clone(),
+                    updates,
+                    metrics,
+                );
+            }
+            match build_model_client_for(backend) {
+                Ok(client) => {
+                    self.clients.insert(backend, client);
+                }
+                Err(err) => {
+                    metrics.last_backend_error =
+                        Some(format!("{}: {err}", backend.as_str()));
+                    return SyncResultMessage::new(
+                        request.id.clone(),
+                        self.stream_instance_id.clone(),
+                        updates,
+                        metrics,
+                    );
+                }
+            }
+        }
+
+        let model_client = &**self.clients.get(&backend).expect("client just inserted");
         let stream_instance_id = self.stream_instance_id.clone();
 
         for session in &request.sessions {
@@ -1537,7 +1594,7 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
-    use crate::emit::model_client::ModelClient;
+    use crate::emit::model_client::{ModelBackend, ModelClient};
     use crate::emit::protocol::{SessionSnapshot, SessionState, SyncRequest, ThoughtConfig};
 
     static HOME_LOCK: Mutex<()> = Mutex::new(());
@@ -1550,6 +1607,15 @@ mod tests {
         fn complete(&self, _prompt: &str, _model_override: Option<&str>) -> Result<String, String> {
             Ok(self.response.clone())
         }
+    }
+
+    fn mock_engine(response: &str) -> EmitEngine {
+        EmitEngine::with_backend(
+            Box::new(MockModelClient {
+                response: response.to_string(),
+            }),
+            ModelBackend::OpenRouter,
+        )
     }
 
     fn sample_session(now: DateTime<Utc>) -> SessionSnapshot {
@@ -1582,9 +1648,7 @@ mod tests {
     #[test]
     fn emits_update_for_active_session() {
         let now = Utc::now();
-        let mut engine = EmitEngine::new(Box::new(MockModelClient {
-            response: "investigating failing auth tests".to_string(),
-        }));
+        let mut engine = mock_engine("investigating failing auth tests");
 
         let request = SyncRequest {
             id: "req-1".to_string(),
@@ -1622,9 +1686,7 @@ mod tests {
     #[test]
     fn cadence_gate_suppresses_rapid_repeat() {
         let now = Utc::now();
-        let mut engine = EmitEngine::new(Box::new(MockModelClient {
-            response: "investigating failing auth tests".to_string(),
-        }));
+        let mut engine = mock_engine("investigating failing auth tests");
 
         let first = SyncRequest {
             id: "req-1".to_string(),
@@ -1668,9 +1730,7 @@ mod tests {
     #[test]
     fn idle_session_emits_sleeping() {
         let now = Utc::now();
-        let mut engine = EmitEngine::new(Box::new(MockModelClient {
-            response: "unused".to_string(),
-        }));
+        let mut engine = mock_engine("unused");
 
         let mut session = sample_session(now);
         session.state = SessionState::Idle;
@@ -1693,9 +1753,7 @@ mod tests {
     #[test]
     fn attention_session_emits_sleeping() {
         let now = Utc::now();
-        let mut engine = EmitEngine::new(Box::new(MockModelClient {
-            response: "unused".to_string(),
-        }));
+        let mut engine = mock_engine("unused");
 
         let mut session = sample_session(now);
         session.state = SessionState::Attention;
@@ -1719,9 +1777,7 @@ mod tests {
     #[test]
     fn sleeping_transition_freezes_elapsed_time() {
         let now = Utc::now();
-        let mut engine = EmitEngine::new(Box::new(MockModelClient {
-            response: "unused".to_string(),
-        }));
+        let mut engine = mock_engine("unused");
 
         let mut session = sample_session(now);
         session.state = SessionState::Attention;
@@ -1754,9 +1810,7 @@ mod tests {
     #[test]
     fn emitted_sleeping_update_serializes_rest_state_explicitly() {
         let now = Utc::now();
-        let mut engine = EmitEngine::new(Box::new(MockModelClient {
-            response: "unused".to_string(),
-        }));
+        let mut engine = mock_engine("unused");
 
         let mut session = sample_session(now);
         session.state = SessionState::Attention;
@@ -1782,9 +1836,7 @@ mod tests {
     #[test]
     fn disabled_config_clears_existing_thought() {
         let now = Utc::now();
-        let mut engine = EmitEngine::new(Box::new(MockModelClient {
-            response: "unused".to_string(),
-        }));
+        let mut engine = mock_engine("unused");
 
         let mut session = sample_session(now);
         session.thought = Some("existing thought".to_string());
@@ -1814,9 +1866,7 @@ mod tests {
         let transcript = temp.path().join("candidate.jsonl");
 
         let now = Utc::now();
-        let mut engine = EmitEngine::new(Box::new(MockModelClient {
-            response: "stabilizing preview widget behavior".to_string(),
-        }));
+        let mut engine = mock_engine("stabilizing preview widget behavior");
         let mut session = sample_session(now);
 
         let first = engine.sync(&SyncRequest {
@@ -1869,9 +1919,7 @@ mod tests {
     #[test]
     fn claimed_path_persists_across_sync_ticks() {
         let now = Utc::now();
-        let mut engine = EmitEngine::new(Box::new(MockModelClient {
-            response: "working on tests".to_string(),
-        }));
+        let mut engine = mock_engine("working on tests");
 
         // First sync — no tool set, so no JSONL claim, but state is created
         let request = SyncRequest {
@@ -1911,9 +1959,7 @@ mod tests {
     #[test]
     fn session_removal_drops_claim() {
         let now = Utc::now();
-        let mut engine = EmitEngine::new(Box::new(MockModelClient {
-            response: "working".to_string(),
-        }));
+        let mut engine = mock_engine("working");
 
         // First sync creates state for sess-1
         let request = SyncRequest {
@@ -1942,9 +1988,7 @@ mod tests {
     #[test]
     fn no_op_scan_does_not_advance_emission_seq() {
         let now = Utc::now();
-        let mut engine = EmitEngine::new(Box::new(MockModelClient {
-            response: "unused".to_string(),
-        }));
+        let mut engine = mock_engine("unused");
 
         let mut sleeping = sample_session(now);
         sleeping.state = SessionState::Idle;
@@ -1983,9 +2027,7 @@ mod tests {
     #[test]
     fn wake_restarts_run_timer_and_bypasses_cadence() {
         let now = Utc::now();
-        let mut engine = EmitEngine::new(Box::new(MockModelClient {
-            response: "working through auth fallback".to_string(),
-        }));
+        let mut engine = mock_engine("working through auth fallback");
 
         let active = engine.sync(&SyncRequest {
             id: "req-1".to_string(),
@@ -2079,9 +2121,7 @@ mod tests {
         .expect("write newer codex transcript");
 
         let now = Utc::now();
-        let mut engine = EmitEngine::new(Box::new(MockModelClient {
-            response: "watching logs".to_string(),
-        }));
+        let mut engine = mock_engine("watching logs");
         let mut session = sample_session(now);
         session.session_id = "tmux:work:1.0:%1".to_string();
         session.tool = Some("codex".to_string());
@@ -2139,9 +2179,7 @@ mod tests {
         .expect("write codex transcript");
 
         let now = Utc::now();
-        let mut engine = EmitEngine::new(Box::new(MockModelClient {
-            response: "watching logs".to_string(),
-        }));
+        let mut engine = mock_engine("watching logs");
         let mut first = sample_session(now);
         first.session_id = "tmux:work:1.0:%1".to_string();
         first.tool = Some("codex".to_string());
@@ -2177,9 +2215,7 @@ mod tests {
     #[test]
     fn short_bootstrap_terminal_context_suppresses_first_thought() {
         let now = Utc::now();
-        let mut engine = EmitEngine::new(Box::new(MockModelClient {
-            response: "too early".to_string(),
-        }));
+        let mut engine = mock_engine("too early");
         let mut session = sample_session(now);
         session.replay_text = "$ ".to_string();
 
@@ -2205,9 +2241,7 @@ mod tests {
     #[test]
     fn meaningful_terminal_output_unblocks_first_thought_on_later_sync() {
         let now = Utc::now();
-        let mut engine = EmitEngine::new(Box::new(MockModelClient {
-            response: "isolating auth regression".to_string(),
-        }));
+        let mut engine = mock_engine("isolating auth regression");
         let mut bootstrap = sample_session(now);
         bootstrap.replay_text = "$ ".to_string();
 
@@ -2237,9 +2271,7 @@ mod tests {
     #[test]
     fn duplicate_thought_emits_rest_state_transition() {
         let now = Utc::now();
-        let mut engine = EmitEngine::new(Box::new(MockModelClient {
-            response: "reviewing auth fallback".to_string(),
-        }));
+        let mut engine = mock_engine("reviewing auth fallback");
         let mut first_session = sample_session(now);
         first_session.state = SessionState::Attention;
 
@@ -2306,9 +2338,7 @@ mod tests {
         .expect("write codex transcript");
 
         let now = Utc::now();
-        let mut engine = EmitEngine::new(Box::new(MockModelClient {
-            response: "fixing auth regression".to_string(),
-        }));
+        let mut engine = mock_engine("fixing auth regression");
         let mut session = sample_session(now);
         session.session_id = "tmux:work:1.0:%1".to_string();
         session.tool = Some("codex".to_string());

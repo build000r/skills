@@ -285,17 +285,20 @@ impl EmitLineResult {
 }
 
 fn run_defaults() -> Result<()> {
-    let model = default_model_for_backend(resolve_model_backend());
+    let backend = resolve_model_backend();
+    let model = default_model_for_backend(backend);
 
     #[derive(Serialize)]
     struct Defaults {
         model: String,
+        backend: &'static str,
         agent_prompt: &'static str,
         terminal_prompt: &'static str,
     }
 
     let defaults = Defaults {
         model,
+        backend: backend.as_str(),
         agent_prompt: DEFAULT_AGENT_PREAMBLE,
         terminal_prompt: DEFAULT_TERMINAL_PREAMBLE,
     };

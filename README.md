@@ -45,7 +45,7 @@ re-inventing the same workflow on every run.
 | --- | --- |
 | Reusable engineering workflows | Skills for planning, review, reproduction, mutation testing, and commits |
 | Structured local context | Mode templates for skills that need private portfolio, repo, or deployment context |
-| Deterministic helpers where prompts are not enough | App-backed skills such as [`clawgs`](./clawgs/) |
+| Deterministic helpers where prompts are not enough | App-backed helpers can live beside the monorepo when they need their own runtime or release cadence |
 | Deployable asset bundles | Runtime kits and embedded child skills in [`openclaw-client-bootstrap`](./openclaw-client-bootstrap/) |
 | Pick-your-surface installs | Install one skill, a lane, the whole catalog, or symlink a local checkout |
 | Honest boundaries | Skill-specific licensing, partial packaging in `dist/`, and explicit limitations |
@@ -70,9 +70,9 @@ cd skills
 # Add a private mode overlay for skills that need local context
 cp domain-planner/references/mode-template.md modes/my-portfolio.local.md
 
-# If you want an app-backed skill, install and verify it separately
-./clawgs/scripts/install.sh
-./clawgs/scripts/check.sh
+# If you use the sibling clawgs repo locally, install and verify it separately
+../clawgs/scripts/install.sh
+../clawgs/scripts/check.sh
 ```
 
 ## Design Philosophy
@@ -237,11 +237,13 @@ human re-enters only for ambiguity, risk, or escalation
 
 | Skill | What it does |
 | --- | --- |
-| [`clawgs`](./clawgs/) | Extracts structured data from Claude/Codex logs and emits thought updates |
 | [`remotion`](./remotion/) | Encodes practical Remotion guidance for React video work |
 | [`research-paper`](./research-paper/) | Produces dense research pages plus social companions |
 | [`swimmers-sprite`](./swimmers-sprite/) | Generates thronglet sprite packs from master pixel assets |
 | [`trend-to-content`](./trend-to-content/) | Turns search and social trends into research, PSEO, and video ideas |
+
+`clawgs` now lives as a sibling repo at `../clawgs/` when you need the Rust-backed
+log extraction and thought-emission helper.
 
 ### OpenClaw And Unclawg
 
@@ -300,12 +302,18 @@ Tooling:
 
 ```bash
 for skill in \
-  clawgs \
   codex-tmux \
   prompt-reviewer 
 do
   npx skills add build000r/skills -s "$skill"
 done
+```
+
+Install `clawgs` separately from the sibling checkout when you need it locally:
+
+```bash
+../clawgs/scripts/install.sh
+../clawgs/scripts/check.sh
 ```
 
 OpenClaw loop:
@@ -366,8 +374,8 @@ Do not assume every skill has a packaged artifact. The repo is mixed-mode.
 | `npx skills add build000r/skills -s <skill>` | Installs one named skill | `npx skills add build000r/skills -s describe` |
 | `./scripts/link-skills.sh` | Symlinks top-level skills from a local checkout into Claude and Codex | `./scripts/link-skills.sh` |
 | `./scripts/link-skills.sh /path/to/skills` | Links a different checkout path explicitly | `./scripts/link-skills.sh ~/repos/skills` |
-| `./clawgs/scripts/install.sh` | Installs the `clawgs` helper app | `./clawgs/scripts/install.sh` |
-| `./clawgs/scripts/check.sh` | Verifies the `clawgs` install | `./clawgs/scripts/check.sh` |
+| `../clawgs/scripts/install.sh` | Installs the sibling `clawgs` helper app | `../clawgs/scripts/install.sh` |
+| `../clawgs/scripts/check.sh` | Verifies the sibling `clawgs` install | `../clawgs/scripts/check.sh` |
 | `ls dist/*.skill` | Shows packaged artifacts for selected skills | `ls dist/*.skill` |
 
 ## Configuration
@@ -435,7 +443,7 @@ Skills that commonly rely on mode templates include:
                                v
         +--------------------------------------------------+
         | top-level skill directories with SKILL.md        |
-        | ask-cascade/  describe/  deploy/  clawgs/  ...   |
+        | ask-cascade/  describe/  deploy/  codex-tmux/ ...|
         +--------------------------------------------------+
              |                |                 |
              |                |                 |
@@ -470,12 +478,12 @@ some-skill/
 └── assets/
 ```
 
-### App-Backed Skill
+### App-Backed Skill Repo
 
-[`clawgs`](./clawgs/) is the clearest example:
+`clawgs` now lives as a sibling repo at `../clawgs/`:
 
 ```text
-clawgs/
+../clawgs/
 ├── SKILL.md
 ├── Cargo.toml
 ├── src/
@@ -521,11 +529,11 @@ Check whether that skill ships `references/mode-template.md`. Copy it into
 ### An app-backed skill still does not work after linking
 
 Linking only exposes the skill directory to the agent. App-backed skills may
-need their own install and verification steps. For `clawgs`, run:
+need their own install and verification steps. For the sibling `clawgs` repo, run:
 
 ```bash
-./clawgs/scripts/install.sh
-./clawgs/scripts/check.sh
+../clawgs/scripts/install.sh
+../clawgs/scripts/check.sh
 ```
 
 ### I want packaged artifacts for every skill

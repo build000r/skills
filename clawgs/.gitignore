@@ -1,6 +1,0 @@
-target/
-.DS_Store
-lcov.info
-
-.mutate/
-mutants.out/

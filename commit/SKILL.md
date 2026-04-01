@@ -165,23 +165,61 @@ If the ignore cleanup is large and stands on its own, a separate `chore(...)` co
 
 Always use conventional-commit format: `type(scope): description`
 
-**Types:** `feat`, `fix`, `chore`, `refactor`, `test`, `docs`
-**Scope:** the domain, module, or feature area (1-2 words)
+**Types:**
 
-Format: **`type(scope): description`** in imperative mood, no period, under 72 characters total.
+| Type       | When to use                          |
+| ---------- | ------------------------------------ |
+| `feat`     | New feature for users                |
+| `fix`      | Bug fix                              |
+| `refactor` | Code change, no feature or fix       |
+| `perf`     | Performance improvement              |
+| `test`     | Adding or updating tests             |
+| `docs`     | Documentation only                   |
+| `style`    | Formatting, whitespace, no logic     |
+| `chore`    | Maintenance, deps, tooling           |
+| `ci`       | CI/CD pipeline changes               |
+| `build`    | Build system or dependency changes   |
 
-Good:
+Quick decision: new user-visible behavior → `feat`. Broken behavior fixed → `fix`. Faster → `perf`. Cleaner code, same behavior → `refactor`. Only tests → `test`. Only docs → `docs`. Everything else → `chore`, `ci`, or `build`.
+
+**Scope:** the domain, module, or feature area (1-2 words).
+
+### Subject line
+
+- Imperative mood: "add" not "added"
+- Lowercase first word, no period at end
+- Max 50 characters for the subject
+- Full `type(scope): subject` line under 72 characters
+
+### Body (optional, use when non-obvious)
+
+- Blank line after subject
+- Wrap at 72 characters
+- Explain WHAT changed and WHY, not HOW (the diff shows how)
+- Use bullet points for multiple changes
+
+### Footer (optional)
+
+- Issue references: `Fixes #123`, `Closes #456`, `Refs #789`
+- Breaking changes: add `!` after type (`feat(api)!: ...`) and include `BREAKING CHANGE:` footer
+- Co-authors: `Co-authored-by: Name <email>`
+
+### Good examples
 
 - `feat(commit): batch dirty repo into safe commits`
 - `chore(repo): ignore local build artifacts`
 - `fix(auth): scrub private host references`
 - `docs(skill): clarify repo-steward commit mode`
 
-Bad:
+See `references/commit-examples.md` for full examples with bodies and footers.
 
-- messages that list implementation details
-- messages that describe five unrelated areas at once
-- vague summaries like `cleanup stuff`
+### Anti-patterns
+
+- `fix bug` / `update code` / `misc changes` — too vague, no scope
+- `Fixed the login issue` — past tense, should be imperative
+- `WIP` / `temp` / `asdf` — never commit placeholder messages
+- `PR feedback` / `code review changes` — describe the actual change
+- A subject that lists five unrelated areas at once
 
 ## Multi-repo
 

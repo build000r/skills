@@ -63,6 +63,11 @@ priority inputs. They are trusted and worth checking before GitHub/package
 search, but they are not the canonical first-choice home unless the evidence
 still says they should be.
 
+If a sibling `skillbox` repo exists, treat it as part of the default local
+landscape for skill/tooling placement. It is not just another upstream skill
+corpus: inspect it when the request touches skill packaging or sync, default
+skill bundles, client overlays, box/runtime behavior, or operator tooling.
+
 If the ask is only "where should this go?" and the decision can be made from
 local repo evidence, local inspection is enough.
 
@@ -81,6 +86,10 @@ Repo-aware placement should use a local gitignored mode file when available.
 Modes may also define trusted upstream skill roots for non-canonical but highly
 trusted local skill corpora. Use those roots before external OSS search when
 the ask is about skills, reusable workflows, or agent tooling.
+
+If a matching mode names `skillbox` or another adjacent skill platform repo,
+preserve that distinction in the recommendation: canonical skill home versus
+runtime/distribution home.
 
 See [references/mode-template.md](references/mode-template.md) for the
 recommended structure.
@@ -109,7 +118,8 @@ For extraction review, also use
    first: `CLAUDE.md`, `.claude/`, manifests, and relevant top-level docs.
 9. For skill/workflow/tooling asks, inspect configured trusted upstream local
    skill roots before widening to external OSS. If no mode is available, probe
-   nearby workspace roots such as `../../projects/*/skills/*` only when they
+   nearby workspace roots such as `../../projects/*/skills/*` and sibling
+   platform repos such as `../skillbox` or `../../skillbox` only when they
    actually exist from the current working repo.
 10. Do not recommend a new repo just because the current repos are messy; only
    recommend `NEW REPO` when ownership would stay unclear after reasonable
@@ -119,6 +129,12 @@ For extraction review, also use
     use across repos.
 12. Prefer extracting upward to the nearest existing shared boundary before
     inventing a brand-new repo.
+13. When `skillbox` exists locally, inspect the relevant platform files before
+    defaulting to `opensource/skills`: `README.md`,
+    `workspace/default-skills.sources.yaml`,
+    `workspace/default-skills.manifest`, relevant
+    `workspace/clients/*/{skills.sources.yaml,skills.manifest,overlay.yaml}`,
+    `skills/*/SKILL.md`, and sync/packaging/runtime scripts.
 
 See [references/repo-diligence.md](references/repo-diligence.md) for the trust
 rubric, red flags, and search prompts.
@@ -158,6 +174,9 @@ portfolio:
 - if the problem smells like reusable workflow/tooling, inspect
   `opensource/skills` plus any configured trusted upstream skill roots before
   assuming the current skills repo is the only local prior art
+- if a sibling `skillbox` repo exists and the ask touches skill runtime,
+  installation, sync, packaging, client overlays, box behavior, or operator
+  tooling, inspect it as a separate destination candidate
 - shortlist 2-4 plausible destinations plus `NEW REPO` if none fit
 - write down each candidate's ownership boundary:
   - what it owns
@@ -167,6 +186,28 @@ portfolio:
 
 Prefer the mode's ownership map as the prior and repo-local files as
 verification.
+
+When both `opensource/skills` and `skillbox` are plausible, use this split:
+
+- `opensource/skills`: canonical skill contracts, reusable authoring/review
+  guidance, generic skill helper scripts, and portable workflow knowledge
+- `skillbox`: durable runtime behavior, skill installation/sync, default skill
+  bundle curation, client overlays, box lifecycle, and operator tooling
+- `CROSS-REPO SLICE`: the skill contract belongs in `opensource/skills`, while
+  runtime/distribution/integration behavior belongs in `skillbox`
+
+Abstract example:
+
+- a product repo owns a reporting or comms workflow
+- a sibling platform repo exposes Flywheel-backed connectors, capability
+  scoping, and runtime delivery
+- recommendation: `CROSS-REPO SLICE`
+- place domain-specific request handling, policy, and user-facing behavior in
+  the product repo
+- place Flywheel connector runtime, authz/scoping, sync, and operator plumbing
+  in the platform repo
+- extract only the generic integration seam upward; do not move the whole
+  product workflow just because it depends on Flywheel
 
 ### 3. Scan for extraction opportunities when relevant
 
@@ -180,6 +221,9 @@ its current home:
   - duplicated integration logic
   - repeated prompting/workflow steps that could become a skill
   - utility code that would become cleaner as a small helper package
+- if `skillbox` is present, inspect `workspace/*.yaml`, `default-skills/`,
+  `skills/`, and sync/runtime scripts before inventing a new helper repo; many
+  cross-skill concerns are platform concerns instead
 - classify the thing being extracted:
   - domain concept
   - shared infrastructure
@@ -202,18 +246,28 @@ If the ask is about skills, reusable workflows, or agent tooling:
 
 - inspect mode-configured trusted upstream skill roots before external OSS
   search
+- if a sibling `skillbox` repo exists, inspect it before external OSS whenever
+  the question is about installed skill artifacts, sync logic, client overlays,
+  runtime behavior, or operator workflow
 - treat them as second-class priority: trusted local prior art, not the
   default canonical destination
 - if no mode provides roots, probe nearby workspace roots such as
-  `../../projects/*/skills/*` only when they exist from the current working
-  repo
+  `../../projects/*/skills/*` and sibling platform repos such as `../skillbox`
+  or `../../skillbox` only when they exist from the current working repo
 - shortlist the strongest local upstream candidates by reading:
   - `SKILL.md`
   - relevant `references/`
   - bundled `scripts/` or `assets/` when they materially affect reuse
+- for `skillbox`, also read `README.md`,
+  `workspace/default-skills.sources.yaml`,
+  `workspace/default-skills.manifest`, relevant client overlay files, and the
+  sync/packaging/runtime scripts that define how skills actually move through
+  the box
 - decide whether each upstream candidate is something to:
   - adopt into the current portfolio
   - borrow from while keeping the canonical skill in `opensource/skills`
+  - place in `skillbox` because the real owner is runtime/distribution rather
+    than the portable skill contract
   - leave upstream because it is trusted but still too specialized or noisy
 
 Use web search plus primary-source discovery on the likely repo host and
@@ -285,8 +339,8 @@ For extraction candidates, score on:
 - API/contract clarity if extracted
 - cost of premature abstraction
 - whether the target shared home already exists
-- whether `sweet-potato`, `opensource/skills`, or another existing repo is the
-  nearest correct "upward" destination
+- whether `sweet-potato`, `opensource/skills`, `skillbox`, or another existing
+  repo is the nearest correct "upward" destination
 
 ### 7. Choose the path, destination, and extraction target
 
@@ -418,3 +472,12 @@ the recommendation.
   deployment steps, or operator workflow rather than a stable runtime library.
 - Prefer a small helper repo only when the utility is genuinely cross-project
   and does not fit a current domain owner.
+- Prefer `skillbox` over `opensource/skills` when the reusable thing is mainly
+  runtime behavior, provisioning, packaging/install/sync, default skill bundle
+  curation, client overlay behavior, or durable box/operator tooling.
+- Prefer `opensource/skills` over `skillbox` when the reusable thing is the
+  portable skill contract itself: instructions, references, review workflows,
+  or generic helper scripts for skill authors.
+- Prefer a cross-repo slice when the canonical skill should live in
+  `opensource/skills` but the behavior only becomes real through `skillbox`
+  runtime or distribution integration.

@@ -4,9 +4,10 @@ from importlib.machinery import SourceFileLoader
 from pathlib import Path
 
 
+ROOT = Path(__file__).resolve().parents[1]
 MODULE = SourceFileLoader(
     "analyze_crap",
-    "/Users/b/repos/opensource/skills/crap/scripts/analyze_crap.py",
+    str(ROOT / "scripts" / "analyze_crap.py"),
 ).load_module()
 
 
@@ -58,6 +59,20 @@ class AnalyzeCrapCoverageTests(unittest.TestCase):
             (ignored / "leak.py").write_text("def leak():\n    return 1\n", encoding="utf-8")
 
             files = MODULE.iter_supported_files(repo, ["python", "typescript"])
+
+            self.assertEqual(files, [wanted.resolve()])
+
+    def test_iter_supported_files_ignores_dot_cache(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir)
+            (repo / "src").mkdir()
+            wanted = repo / "src" / "wanted.py"
+            wanted.write_text("def wanted():\n    return 1\n", encoding="utf-8")
+            ignored = repo / ".cache"
+            ignored.mkdir()
+            (ignored / "leak.rs").write_text("fn leak() {}\n", encoding="utf-8")
+
+            files = MODULE.iter_supported_files(repo, ["python", "rust"])
 
             self.assertEqual(files, [wanted.resolve()])
 

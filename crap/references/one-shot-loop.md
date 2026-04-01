@@ -40,7 +40,10 @@ Run a bounded improvement loop:
 ### 1. Baseline
 
 - Resolve scope first: repo-wide, package-scoped, or path-scoped.
-- Bootstrap machine-readable coverage if needed.
+- Run `python3 scripts/inspect_test_stack.py {target}` if the baseline is
+  unclear, the analyzer is all `N/A`, or the scope may not have tests yet.
+- Bootstrap the smallest repo-native test path if needed.
+- Bootstrap machine-readable coverage after the baseline test path exists.
 - Run the analyzer with a concise inner-loop view:
 
 ```bash
@@ -51,13 +54,17 @@ python3 scripts/analyze_crap.py {target} --languages {languages} --top 20
   - current `FINAL_SCORE`
   - top hotspot functions
   - whether the coverage run is green or only artifact-producing
+  - whether the baseline is test-ready, coverage-ready, or still bootstrapping
 
 ### 2. Decide split strategy
 
+- If prerequisite baseline work is still missing, keep that upstream and finish
+  it before launching hotspot workers.
 - If 2 or more hotspot clusters are independent, use `divide-and-conquer`.
 - If the runtime cannot launch sub-agents, use the same decomposition as a
   single-agent concern-separated plan.
 - Good split boundaries:
+  - baseline bootstrap vs coverage bootstrap
   - domain service vs middleware vs startup/bootstrap
   - direct-coverage gap vs failing-test stabilization
   - fixture-harness work vs business-logic branch coverage
@@ -70,6 +77,8 @@ For each slice:
 2. Change production code only if the tests reveal a real gap.
 3. Reuse existing test helpers before creating new harness layers.
 4. Prefer small deterministic branch-coverage wins before broad rewrites.
+5. When bootstrapping a missing harness, stop at the smallest viable baseline
+   that makes CRAP measurement trustworthy.
 
 ### 4. Re-measure after every slice
 
@@ -80,6 +89,9 @@ make pytest
 make pytest-cov-xml
 python3 scripts/analyze_crap.py {target} --languages {languages} --top 20
 ```
+
+If the scope uses a different canonical baseline, substitute the repo-native
+equivalent. Keep the same order: baseline test path, coverage path, analyzer.
 
 Record:
 

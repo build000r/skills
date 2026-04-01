@@ -3,11 +3,17 @@
 Use these examples when `/crap` needs machine-readable coverage artifacts and
 the repo does not already export them.
 
+If the scope does not have a usable baseline test path yet, start with
+[testing-bootstrap.md](testing-bootstrap.md) first. Coverage flags do not
+replace a missing harness.
+
 ## Selection Rules
 
 - Prefer additive targets such as `pytest-cov-xml` over mutating canonical
   fast-path targets like `test` or `pytest`.
 - If a repo already uses `make`, put the coverage export behind a Make target.
+- If the repo has no tests yet, bootstrap the smallest baseline first, then add
+  the coverage target as a sibling entrypoint.
 - Keep artifact names explicit:
   - Python -> `coverage.xml`
   - TypeScript -> `lcov.info`

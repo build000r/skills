@@ -35,6 +35,11 @@ home for the portfolio.
 
 List only roots that are worth treating as credible local prior art.
 
+If you have a repo like `skillbox` that is both a platform and a source of
+bundled skills, do not model it only as an upstream skill root. Also list it
+under `Repo Ownership` or `Extraction Targets` so placement decisions can
+distinguish the portable skill contract from runtime/distribution concerns.
+
 ## Repo Ownership
 
 - `repo-name`
@@ -59,6 +64,9 @@ List only roots that are worth treating as credible local prior art.
 - Prefer a new repo only when no current repo has a clean ownership fit.
 - Prefer the skills/tooling repo for reusable agent workflows or shared
   developer tooling.
+- If a platform repo such as `skillbox` exists, prefer it for skill runtime,
+  packaging/sync, client overlay behavior, or box/operator concerns rather than
+  for the portable skill contract itself.
 
 ## Extraction Targets
 
@@ -72,6 +80,11 @@ for reuse:
 - `skills-repo`
   - path: `~/repos/opensource/skills`
   - use_for: reusable agent workflows, operator playbooks, investigation logic
+
+- `skill-platform`
+  - path: `~/repos/skillbox`
+  - use_for: skill runtime/distribution, default bundles, client overlays, box
+    lifecycle, and operator tooling
 
 - `helper-repo`
   - path: `~/repos/{helper-repo}`
@@ -102,6 +115,7 @@ skill files:
 - private skill roots
 - trusted upstream skill corpora that are not yet integrated into the main
   skills repo
+- adjacent platform repos that also bundle skills, such as `skillbox`
 - internal naming conventions
 - repo pairs that commonly ship together
 - anti-goals such as "never put payments logic in the website repo"

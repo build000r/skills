@@ -45,12 +45,17 @@ languages.
 Resolve and run `scripts/analyze_crap.py` relative to this `SKILL.md`.
 Use [references/coverage-targets.md](references/coverage-targets.md) when the
 repo needs coverage artifact targets. Use
+[references/testing-bootstrap.md](references/testing-bootstrap.md) when the
+repo lacks a trustworthy test or coverage baseline. Use
 [references/one-shot-loop.md](references/one-shot-loop.md) for autonomous
 reduction loops.
 
 Examples:
 
 ```bash
+python3 scripts/inspect_test_stack.py
+python3 scripts/inspect_test_stack.py /path/to/repo
+python3 scripts/inspect_test_stack.py /path/to/repo --json
 python3 scripts/analyze_crap.py
 python3 scripts/analyze_crap.py /path/to/repo
 python3 scripts/analyze_crap.py /path/to/repo --languages rust,python
@@ -119,16 +124,39 @@ formatting.
 7. `FINAL_SCORE` is the maximum numeric CRAP value in the run. If there are no
    numeric CRAP values, emit `FINAL_SCORE: 0.00`.
 
+## Prerequisite Bootstrap
+
+If the scope does not have a trustworthy baseline test path yet, fix that
+before doing hotspot remediation.
+
+1. Run `python3 scripts/inspect_test_stack.py {target}` before improvising
+   shell discovery when any of these are true:
+   - the analyzer is all `N/A`
+   - the repo has tests but no machine-readable coverage artifact
+   - the repo does not appear to have tests at all
+2. Interpret the inspector result strictly:
+   - `ready`: reuse the existing baseline and coverage artifact
+   - `add-coverage-target`: keep the fast path intact and add an additive
+     coverage target
+   - `bootstrap-tests`: add the smallest repo-native harness that makes CRAP
+     measurement trustworthy
+3. Prefer narrow characterization tests around the hottest scope instead of
+   broad suite architecture when bootstrapping.
+4. In mixed or monorepo scopes, narrow to the package or crate that owns the
+   hotspot if root automation is too thin to provide a trustworthy baseline.
+5. Do not claim a repo-wide numeric result after narrowing to one package.
+6. Do not use `divide-and-conquer` for hotspot slices until the baseline test
+   path and coverage lane are real. Treat bootstrap work as an upstream node.
+
 ## Coverage Bootstrap
 
 When the analyzer returns `FINAL_SCORE: 0.00` because every finding is
 `coverage N/A` / `CRAP N/A`, treat that as a coverage-artifact gap first.
 
 1. Inspect repo automation before answering:
-   - `Makefile`
-   - `package.json`
-   - `pyproject.toml`
-   - `Cargo.toml`
+   - start with `python3 scripts/inspect_test_stack.py {target}`
+   - then inspect `Makefile`, `package.json`, `pyproject.toml`, or `Cargo.toml`
+     only as needed to implement the chosen bootstrap lane
 2. If a machine-readable coverage target already exists, point to that exact
    target or script.
 3. If coverage exists only as a terminal report, prefer adding an **additive**
@@ -147,6 +175,9 @@ When the analyzer returns `FINAL_SCORE: 0.00` because every finding is
 7. If you only bootstrap coverage for a subset of the original target, label
    the rerun explicitly as **package-scoped** or **path-scoped** and name that
    path.
+8. If the inspector reports `bootstrap-tests`, establish the smallest viable
+   test lane first, then add the coverage target. Do not skip straight to
+   coverage flags on an otherwise nonexistent test harness.
 
 Guardrails:
 
@@ -160,6 +191,8 @@ Guardrails:
 - If the user invoked `/crap` from repo root, do not silently redefine the
   result as repo-wide after narrowing to one package or one language. Either
   produce a true repo-wide rerun or state that the numeric result is partial.
+- If the repo has no tests, do not stop at "coverage missing." Bootstrap the
+  smallest repo-native harness needed for a trustworthy score.
 
 ## Scope Discipline
 
@@ -183,8 +216,10 @@ Run the script and show its report.
 ### Phase 1.5: Bootstrap coverage targets when scores are all N/A
 
 If the report is all `N/A` and the user asks how to get a real score, inspect
-automation files and add the missing coverage target instead of only suggesting
-an ad hoc raw command. Use
+the current scope with `scripts/inspect_test_stack.py`, then add the missing
+test and coverage prerequisites instead of only suggesting an ad hoc raw
+command. Use [references/testing-bootstrap.md](references/testing-bootstrap.md)
+for harness bootstrap and use
 [references/coverage-targets.md](references/coverage-targets.md) for examples.
 
 ### Phase 1.6: Preserve scope in the close-out
@@ -239,8 +274,11 @@ Requirements:
 1. Set a threshold first using the resolution order above. Default to
    `FINAL_SCORE < 30`.
 2. Establish a trustworthy baseline before choosing slices.
+   - run `scripts/inspect_test_stack.py` when the baseline is unclear
+   - bootstrap tests before coverage when the scope lacks both
 3. Use `divide-and-conquer` when hotspot groups are independent and the runtime
-   supports it. Otherwise use the same concern split in a single-agent loop.
+   supports it **after** measurement prerequisites are ready. Otherwise use the
+   same concern split in a single-agent loop.
 4. Implement tests first for each slice.
 5. After each slice, rerun the canonical test path, the coverage target, and
    the analyzer.

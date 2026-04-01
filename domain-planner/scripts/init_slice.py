@@ -130,8 +130,67 @@ def _normalize_config(raw: dict) -> dict:
     return config
 
 
+def _try_overlay_context() -> dict | None:
+    """Try loading config from skillbox client context.yaml."""
+    shared_scripts = Path(__file__).resolve().parent.parent.parent / "_shared" / "scripts"
+    if not shared_scripts.exists():
+        return None
+    import sys as _sys
+    _sys.path.insert(0, str(shared_scripts))
+    try:
+        from resolve_context import resolve  # type: ignore[import-untyped]
+    except ImportError:
+        return None
+    finally:
+        _sys.path.pop(0)
+
+    cwd = os.path.realpath(os.getcwd())
+    plans = resolve(cwd, section="plans")
+    if plans is None:
+        return None
+
+    # Build config dict from overlay sections
+    config: dict = {}
+    for key in ("plan_root", "plan_draft", "plan_index", "session_plans"):
+        if key in plans:
+            config[key] = plans[key]
+
+    backend = resolve(cwd, section="backend")
+    frontend = resolve(cwd, section="frontend")
+    auth = resolve(cwd, section="auth")
+
+    if backend or frontend:
+        contexts: dict = {"default": {}}
+        if backend:
+            for k, v in backend.items():
+                if k == "repo":
+                    contexts["default"]["backend_repo"] = v
+                else:
+                    contexts["default"][k] = v
+        if frontend:
+            for k, v in frontend.items():
+                if k == "repo":
+                    contexts["default"]["frontend_repo"] = v
+                else:
+                    contexts["default"][k] = v
+        if auth:
+            contexts["default"]["auth_packages_root"] = auth.get("packages_root", "")
+            if auth.get("python_packages"):
+                contexts["default"]["auth_python_packages"] = auth["python_packages"]
+            if auth.get("npm_packages"):
+                contexts["default"]["auth_npm_packages"] = auth["npm_packages"]
+        config["contexts"] = contexts
+
+    return _normalize_config(config) if config else None
+
+
 def load_config(config_path: str | None) -> dict:
     """Load config from file, env vars, or fail with guidance."""
+
+    # 0. Skillbox client overlay context
+    overlay_config = _try_overlay_context()
+    if overlay_config and not config_path:
+        return overlay_config
 
     # 1. Explicit --config flag
     if config_path:

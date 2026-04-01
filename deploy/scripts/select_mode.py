@@ -75,6 +75,33 @@ def _to_shell_exports(values: dict[str, str]) -> str:
     return "\n".join(lines)
 
 
+def _try_overlay_context(cwd: str, fmt: str) -> int | None:
+    """Check for skillbox client context.yaml; return exit code or None to fall through."""
+    # Import the shared resolver if available
+    shared_scripts = Path(__file__).resolve().parent.parent.parent / "_shared" / "scripts"
+    if not shared_scripts.exists():
+        return None
+    sys.path.insert(0, str(shared_scripts))
+    try:
+        from resolve_context import resolve  # type: ignore[import-untyped]
+    except ImportError:
+        return None
+    finally:
+        sys.path.pop(0)
+
+    data = resolve(cwd, section="deploy")
+    if data is None:
+        return None
+
+    flattened = _flatten("MODE", data)
+    flattened.setdefault("MODE_NAME", "overlay")
+    if fmt == "json":
+        print(json.dumps(flattened, indent=2, sort_keys=True))
+    else:
+        print(_to_shell_exports(flattened))
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("cwd", nargs="?", default=os.getcwd())
@@ -83,6 +110,13 @@ def main() -> int:
     args = parser.parse_args()
 
     cwd = _normalize_path(args.cwd)
+
+    # Try skillbox overlay context first
+    overlay_result = _try_overlay_context(cwd, args.format)
+    if overlay_result is not None:
+        return overlay_result
+
+    # Fall back to legacy modes/ directory
     script_dir = Path(__file__).resolve().parent
     skill_dir = Path(args.skill_dir).resolve() if args.skill_dir else script_dir.parent
     modes_dir = skill_dir / "modes"

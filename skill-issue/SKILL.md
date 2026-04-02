@@ -64,6 +64,18 @@ Every skill has a required `SKILL.md` (YAML frontmatter + markdown body) and opt
 
 For directory structure details, resource types, progressive disclosure patterns, and what NOT to include, see [references/skill-structure.md](references/skill-structure.md).
 
+### Cross-Skill Contract Drift
+
+When a platform or package contract changes, do not stop at the first `SKILL.md` you touch. Check for sibling skills that encode the old contract in:
+
+- scanner scripts
+- rubrics
+- output templates
+- examples and canned commands
+- reference files that summarize package behavior
+
+If the changed skill is part of a larger ecosystem, update the dependent skills in the same batch or call out the drift explicitly. Treat those files as one artifact, not separate chores.
+
 ## Skill Creation Process
 
 1. Understand the skill with concrete examples

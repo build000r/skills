@@ -1,12 +1,12 @@
 ---
 name: research-paper
-description: Generate dense research-paper-style pages on any topic plus companion X and LinkedIn drafts that keep the same thesis. Use for "research paper", "write a paper on", "research page", "/research-paper", or internal write-ups on a topic, with optional project-specific modes for styling, data sources, and routing.
+description: Generate dense research-paper-style pages on any topic plus companion X and LinkedIn drafts that keep the same thesis. Use for "research paper", "write a paper on", "research page", "/research-paper", or internal write-ups on a topic, with optional client overlays for styling, data sources, and routing.
 license: Complete terms in LICENSE
 ---
 
 # Research Paper Generator
 
-Generate dense, academic research paper-style pages on any topic. Adapts to project context via optional mode files. Pages are noindex, unlinked, for internal reference unless the active mode says otherwise.
+Generate dense, academic research paper-style pages on any topic. Adapts to project context via optional client overlays. Pages are noindex, unlinked, for internal reference unless the active client overlay says otherwise.
 
 Every run produces a companion bundle in this order:
 - A canonical research paper (source of truth)
@@ -20,43 +20,43 @@ Do the condensation in that order: research -> paper -> X article -> LinkedIn ar
 
 - Keep the research paper as the canonical artifact. The X article and LinkedIn outputs are derivative packaging layers, not second research workflows.
 - Use distribution principles to improve scanability, clarity, and shareability of the companion outputs, not to replace evidence with hype.
-- Do not expand the default skill into a full content-marketing system (channel calendars, paid plans, multi-platform asset packs) unless the active mode explicitly requires it.
+- Do not expand the default skill into a full content-marketing system (channel calendars, paid plans, multi-platform asset packs) unless the active client overlay explicitly requires it.
 
-## Modes
+## Client Overlays
 
-Modes customize the skill for specific projects — styling, data sources, routing, paper structure, audience. Stored in `modes/` (gitignored, never committed).
+Client overlays customize the skill for specific projects — styling, data sources, routing, paper structure, audience. Configuration lives in `skillbox-config/clients/{client}/overlay.yaml`, which is auto-generated into `context.yaml` by the skillbox toolchain.
 
-### How Modes Work
+### How Client Overlays Work
 
-Each mode is a markdown file: `modes/{project-name}.md`. The mode file contains everything project-specific: where to write files, how to route them, what data sources to query, what the paper sections look like, and who the audience is.
+Each client overlay is defined in `skillbox-config/clients/{client}/overlay.yaml`. The overlay contains everything project-specific: where to write files, how to route them, what data sources to query, what the paper sections look like, and who the audience is. The skillbox toolchain merges the overlay with skill defaults and produces a `context.yaml` that the skill reads at runtime.
 
-A mode can also have a subdirectory for project-specific references and assets:
+A client can also have a subdirectory for project-specific references and assets:
 
 ```
-modes/
-├── my-saas.md                    # Mode instructions
+skillbox-config/clients/
 ├── my-saas/
-│   ├── page-template.tsx         # Project-specific component template
-│   └── reference-data.md         # Project-specific reference data
-├── my-social-app.md
+│   ├── overlay.yaml                # Client overlay config
+│   ├── page-template.tsx           # Project-specific component template
+│   └── reference-data.md           # Project-specific reference data
 └── my-social-app/
+    ├── overlay.yaml
     └── db-queries.md
 ```
 
-### Mode Selection (Step 1)
+### Client Overlay Selection (Step 1)
 
-1. List `.md` files in `modes/` (if directory exists)
-2. Each mode file should have a `cwd_match` field near the top — a path prefix to match against cwd
-3. If cwd matches exactly one mode → use it automatically
-4. If cwd matches multiple or none → ask the user which mode (or generic)
-5. If `modes/` doesn't exist → generic mode (web research only)
+1. Check for a `context.yaml` (auto-generated from the active client overlay)
+2. If `context.yaml` exists and contains a `cwd_match` field, match it against cwd
+3. If cwd matches → use the overlay automatically
+4. If no match or no `context.yaml` → ask the user which client (or generic)
+5. If no client overlays are configured → generic mode (web research only)
 
-### Creating a Mode
+### Creating a Client Overlay
 
-When a user runs the skill with no matching mode, offer to create one. Walk through these questions:
+When a user runs the skill with no matching client overlay, offer to create one. Walk through these questions:
 
-1. **Project name**: kebab-case identifier (becomes filename)
-2. **Cwd match**: Path prefix that triggers this mode (e.g. `~/repos/my-app`)
+1. **Client name**: kebab-case identifier (becomes directory name under `skillbox-config/clients/`)
+2. **Cwd match**: Path prefix that triggers this overlay (e.g. `~/repos/my-app`)
 3. **Output path**: Where to write the page file (e.g. `src/pages/research/{Name}Page.tsx`)
 4. **Routing**: How to add the route — file-based (Next.js/Remix), manual (add to routes file), or none
 5. **Framework**: React, Next.js, Vue, Svelte, plain HTML, etc.
@@ -68,23 +68,23 @@ When a user runs the skill with no matching mode, offer to create one. Walk thro
 11. **Companion X article**: Output path/format/paste contract for the X article draft
 12. **Companion LinkedIn outputs**: Output path/format/paste contract for the LinkedIn article and LinkedIn post drafts
 
-Write the mode file to `modes/{project-name}.md` using `references/mode-template.md` as the structure. If the user has project-specific reference data or a component template, create `modes/{project-name}/` and place them there.
+Write the client overlay to `skillbox-config/clients/{client-name}/overlay.yaml` using `references/mode-template.md` as a structural reference. If the user has project-specific reference data or a component template, place them in the same client directory.
 
 ## Workflow
 
 ```
-1. Detect mode (match cwd to modes/ or use generic)
+1. Detect client overlay (match cwd to context.yaml or use generic)
 2. Parse topic from arguments
-3. Gather data (mode-specific data sources + web research)
+3. Gather data (overlay-specific data sources + web research)
 4. Research the topic (WebSearch for publications, data, perspectives)
 5. Map findings to paper structure
 6. Create the companion output briefs
 7. Run title / hook passes
 8. Write the canonical paper
 9. Derive the companion outputs
-10. Add routing / registration (if mode requires it)
+10. Add routing / registration (if overlay requires it)
 11. Type-check / validate
-12. Post-creation tasks (mode-specific: homepage links, nav updates, manifests, etc.)
+12. Post-creation tasks (overlay-specific: homepage links, nav updates, manifests, etc.)
 ```
 
 ## Step 2: Parse Topic
@@ -97,11 +97,11 @@ Extract the topic from skill arguments. Derive:
 
 ## Step 3: Gather Data
 
-### With a Mode
+### With a Client Overlay
 
-Read the mode file. If it specifies data sources (DB queries, reference files, APIs), gather that data now. Read any files in `modes/{project-name}/` that are referenced.
+Read the overlay config from `context.yaml`. If it specifies data sources (DB queries, reference files, APIs), gather that data now. Read any files in `skillbox-config/clients/{client-name}/` that are referenced.
 
-### Generic (No Mode)
+### Generic (No Client Overlay)
 
 Skip — proceed directly to web research.
 
@@ -118,17 +118,17 @@ Aim for 5-10 high-quality sources.
 
 ## Step 5: Map Findings to Paper Structure
 
-### With a Mode
+### With a Client Overlay
 
-Follow the paper section structure defined in the mode file. Map gathered data and research findings to each section.
+Follow the paper section structure defined in the client overlay. Map gathered data and research findings to each section.
 
-### Generic (No Mode)
+### Generic (No Client Overlay)
 
 Use the default structure from `references/paper-structure.md`.
 
 ## Step 6: Create the Companion Output Briefs
 
-Before writing the companion outputs, define short packaging briefs. These are planning artifacts, not separate deliverables unless the mode explicitly asks for them.
+Before writing the companion outputs, define short packaging briefs. These are planning artifacts, not separate deliverables unless the client overlay explicitly asks for them.
 
 Create one brief for the X article and one brief for the LinkedIn outputs. Reuse the same thesis and evidence base, but do not assume both surfaces need identical framing.
 
@@ -145,7 +145,7 @@ For the LinkedIn brief, also define:
 - **Dwell strategy**: the structure that should keep the right reader moving (framework, teardown, checklist, case breakdown, etc.)
 - **Conversation target**: the kind of substantive comment, save, or send behavior the draft should invite without engagement bait
 
-If the mode already defines audience or companion defaults, use them. Otherwise infer the briefs from the topic and user context. The briefs shape framing and packaging only; they must not change the thesis or add claims the paper does not support.
+If the client overlay already defines audience or companion defaults, use them. Otherwise infer the briefs from the topic and user context. The briefs shape framing and packaging only; they must not change the thesis or add claims the paper does not support.
 
 ## Step 7: Title / Hook Pass
 
@@ -187,13 +187,13 @@ If two titles score similarly and user preference matters, present the top 2 and
 
 Use divide-and-conquer with parallel agents when the bundle requires multiple files (e.g. paper + X article + LinkedIn article + LinkedIn post + route update). Otherwise, single agent.
 
-### With a Mode
+### With a Client Overlay
 
-Follow the mode's output path, framework patterns, and styling. Read any template in `modes/{project-name}/page-template.*` for structural reference.
+Follow the overlay's output path, framework patterns, and styling. Read any template in `skillbox-config/clients/{client-name}/page-template.*` for structural reference.
 
 If the project exposes human-facing HTML pages that agents will also read, create or update explicit machine-readable alternates (`.md`, `.txt`, or the project's equivalent) instead of relying on user-agent sniffing. Prefer a shared registry/manifest when the project has multiple papers.
 
-### Generic (No Mode)
+### Generic (No Client Overlay)
 
 Write a standalone HTML or markdown file at the user's preferred location. Ask where to put the output bundle if unclear.
 
@@ -207,7 +207,7 @@ Write a standalone HTML or markdown file at the user's preferred location. Ask w
 - Keep the canonical paper dense and research-led. Do not flatten it into a social-first article.
 - Put most scanability and packaging optimizations into the companion outputs, not the paper.
 
-If the mode does not define companion output locations, use these defaults beside the paper file:
+If the client overlay does not define companion output locations, use these defaults beside the paper file:
 
 - **X article**: `{paper-base}.x-article.md`
 - **LinkedIn article**: `{paper-base}.linkedin-article.md`
@@ -229,11 +229,11 @@ Requirements:
 - Make headers read like conclusions and keep paragraphs short enough to scan quickly.
 - Preserve the best numbers, the sharpest contrarian point, and one useful framework/table at most.
 - End with one explicit next action or question that fits the chosen surface.
-- Write the draft so sections can be excerpted into other surfaces later, but do not generate a full multi-channel package unless the mode explicitly asks.
-- Format for direct paste into [X Articles](https://x.com/compose/articles/edit) unless the mode overrides it.
+- Write the draft so sections can be excerpted into other surfaces later, but do not generate a full multi-channel package unless the client overlay explicitly asks.
+- Format for direct paste into [X Articles](https://x.com/compose/articles/edit) unless the client overlay overrides it.
 - Prefer markdown or plain text with clear headings, short paragraphs, and minimal cleanup required before paste.
-- If the mode does not specify article routing, treat the article as a draft asset, not a live page.
-- If the mode wants a publishable site article too, the X article still has to be generated as a separate derivative unless the mode explicitly says the site article doubles as the X article source.
+- If the client overlay does not specify article routing, treat the article as a draft asset, not a live page.
+- If the client overlay wants a publishable site article too, the X article still has to be generated as a separate derivative unless the client overlay explicitly says the site article doubles as the X article source.
 
 ### Companion LinkedIn Article
 
@@ -245,34 +245,34 @@ Requirements:
 - Put proof near the top: method, named sources, dataset, case base, or lived experience.
 - Keep the tone professional and concrete. Avoid hype, vague inspiration, and generic self-help framing.
 - End with one conversation-worthy CTA that invites substantive comments, saves, or sends without engagement bait.
-- Treat this as a draft asset unless the mode explicitly routes it into a publishable destination.
+- Treat this as a draft asset unless the client overlay explicitly routes it into a publishable destination.
 
 ### Companion LinkedIn Post
 
 Requirements:
 - Distill the paper into one feed post with a clear first-screen hook, one core thesis, and one explicit CTA.
-- Default target length is concise enough to skim, but stay within LinkedIn's post limits if the mode says to optimize for direct paste.
+- Default target length is concise enough to skim, but stay within LinkedIn's post limits if the client overlay says to optimize for direct paste.
 - Make the reader fit obvious in the opening lines: role, context, or pain.
 - Front-load the payoff, then support it with one short framework, checklist, or proof block.
 - Favor simple line breaks, short paragraphs, and plain formatting over clever gimmicks.
 - Optional hashtags are allowed only when they improve discoverability or categorization. Keep them limited and place them at the end.
 - Do not use engagement bait, vague "thoughts?" prompts, or unsupported performance claims.
 
-Use the default companion output structure in `references/companion-outputs.md` unless the mode overrides it.
+Use the default companion output structure in `references/companion-outputs.md` unless the client overlay overrides it.
 
 ## Step 10: Add Routing
 
-Only if the mode specifies routing or registration steps (e.g. "add import to AppRoutes.tsx", "register the paper in a manifest", or "promote the article draft into a blog route"). Skip for file-based routing frameworks and generic mode.
+Only if the client overlay specifies routing or registration steps (e.g. "add import to AppRoutes.tsx", "register the paper in a manifest", or "promote the article draft into a blog route"). Skip for file-based routing frameworks and generic mode.
 
 ## Step 11: Validate
 
-Run the mode's validation command if specified (e.g. `npx tsc --noEmit`). For generic mode, verify the paper and all companion output files were written correctly.
+Run the client overlay's validation command if specified (e.g. `npx tsc --noEmit`). For generic mode, verify the paper and all companion output files were written correctly.
 
 ## Step 12: Post-Creation Tasks
 
-Check the mode file for a "Post-Creation" section. If present, execute every step — these are required, not optional. Common post-creation tasks include adding the paper to a homepage link array, updating a navigation component, registering the paper in a manifest, or appending the X article / LinkedIn drafts to a social/content drafts ledger. **Do not skip this step.** Also update the mode's "Existing Papers" list with the new paper.
+Check the client overlay for a "Post-Creation" section. If present, execute every step — these are required, not optional. Common post-creation tasks include adding the paper to a homepage link array, updating a navigation component, registering the paper in a manifest, or appending the X article / LinkedIn drafts to a social/content drafts ledger. **Do not skip this step.** Also update the overlay's "Existing Papers" list with the new paper.
 
-If the mode uses machine-readable paper alternates, treat registry updates and discovery surfaces (`llms.txt`, manifests, feed pages) as part of post-creation, not optional cleanup.
+If the client overlay uses machine-readable paper alternates, treat registry updates and discovery surfaces (`llms.txt`, manifests, feed pages) as part of post-creation, not optional cleanup.
 
 For generic mode, skip.
 
@@ -284,6 +284,6 @@ Report to the user:
 - Notable findings from the research
 - The inferred companion briefs (reader, surface, CTA) when they materially shaped the X or LinkedIn drafts
 - The chosen X article angle and LinkedIn angle
-- Reminder that the paper is noindex / not publicly linked unless the mode says otherwise
+- Reminder that the paper is noindex / not publicly linked unless the client overlay says otherwise
 
-Before creating, check if the topic already has a page (per mode's output path pattern). If so, ask whether to update or create a new version. All companion outputs should follow the same update/new-version decision.
+Before creating, check if the topic already has a page (per the client overlay's output path pattern). If so, ask whether to update or create a new version. All companion outputs should follow the same update/new-version decision.

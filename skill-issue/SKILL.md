@@ -20,27 +20,27 @@ Create effective skills for AI coding agents: modular packages that extend agent
 - Generic repo maintenance with no skill artifact involved
 - Pure prompt review when the target is the user rather than the skill contract
 
-## Modes
+## Client Overlays
 
-Modes customize skill creation for specific organizations or projects — naming conventions, required sections, publishing targets, testing workflows, and review processes. Stored in `modes/` (gitignored, never committed).
+Client overlays customize skill creation for specific organizations or projects — naming conventions, required sections, publishing targets, testing workflows, and review processes. Managed through the skillbox client overlay system.
 
-### How Modes Work
+### How Client Overlays Work
 
-Each mode is a markdown file: `modes/{project-name}.md`. It contains org-specific configuration: skill naming patterns, required SKILL.md sections, publishing target (marketplace, GitHub org, internal registry), validation commands, standard bundled resources, and the review/approval workflow.
+Each client overlay lives in `skillbox-config/clients/{client}/overlay.yaml`. It contains org-specific configuration: skill naming patterns, required SKILL.md sections, publishing target (marketplace, GitHub org, internal registry), validation commands, standard bundled resources, and the review/approval workflow.
 
-### Mode Selection (Step 0)
+### Overlay Selection (Step 0)
 
-1. List `.md` files in `modes/` (if directory exists)
-2. Each mode file has a `cwd_match` field — a path prefix to match against cwd
-3. If cwd matches exactly one mode, use it automatically
-4. If cwd matches multiple or none, ask the user which mode (or use generic defaults)
-5. If `modes/` doesn't exist, use generic skill creation (no org-specific standards)
+1. Check `skillbox-config/clients/` for available client overlays
+2. Each overlay has a `cwd_match` field — a path prefix to match against cwd
+3. If cwd matches exactly one overlay, use it automatically
+4. If cwd matches multiple or none, ask the user which overlay (or use generic defaults)
+5. If no client overlays exist, use generic skill creation (no org-specific standards)
 
-### Creating a Mode
+### Creating a Client Overlay
 
-Copy `references/mode-template.md` to `modes/{project-name}.md` and fill in org standards, publishing targets, and review process. When a user runs the skill with no matching mode, offer to create one.
+Use `skillbox-config/clients/{client}/overlay.yaml` to define org standards, publishing targets, and review process. When a user runs the skill with no matching overlay, offer to create one.
 
-Modes are gitignored — they contain org-specific paths and workflows that should not be committed to the skill repo.
+Client overlays are managed outside the skill repo — they contain org-specific paths and workflows that should not be committed to public skill files.
 
 ## Core Principles
 
@@ -144,7 +144,7 @@ Read [references/operator-evidence-loop.md](references/operator-evidence-loop.md
 4. Use one packet to drive the next change instead of editing from vibes:
 - Low `ack_rate` / `observability-gap`: require a stable first commentary marker so invocation discovery does not depend on path heuristics
 - Low `validation_rate` / `verification-gap`: add or tighten the required verification block in the skill
-- High `checkpoint_rate` / `checkpoint-defaults`: move repeated preferences into `modes/` or default rules so humans are only asked when information is missing or risky
+- High `checkpoint_rate` / `checkpoint-defaults`: move repeated preferences into client overlays or default rules so humans are only asked when information is missing or risky
 - High `risk_gating_rate` / `risk-gating-gap`: add explicit pause points for irreversible or high-risk branches so the skill asks first or routes to the right reviewer before proceeding
 - High `correction_rate` / `contract-clarity`: tighten trigger language, non-goals, or ask-cascade guidance
 - Repeated raw shell stems (`rg`, `sed`, `find`, etc.) / `automation-gap`: bundle scripts/references instead of relying on freehand shell work
@@ -196,7 +196,7 @@ scripts/generate_skill_portfolio_opportunities.py --source both --since month
 Use this when you want to find:
 - repeated manual workflows that should become new skills
 - requests that look like an existing skill but are not activating it reliably
-- overlapping skills that should likely collapse into one canonical skill plus `modes/` or aliases
+- overlapping skills that should likely collapse into one canonical skill plus client overlays or aliases
 
 This is a cross-skill scan. It reads all top-level skills in the current skills root and all matching
 Claude/Codex sessions in range, then ranks `skill-creation-opportunity`,
@@ -346,43 +346,41 @@ Before committing or packaging any skill for public release, scrub ALL files (SK
 - **Referral/affiliate links**: URLs with tracking parameters (`fpr=...`, `ref=...`, etc.)
 - **Business intelligence**: Customer lists, personas, targeting criteria, pricing, competitor data
 
-**Mode files are safe** — `modes/` is gitignored and never committed. Project-specific config belongs there, not in tracked files.
+**Client overlays are safe** — they live in `skillbox-config/clients/` outside the skill repo. Project-specific config belongs there, not in tracked files.
 
-**Pattern**: Use `{placeholder}` syntax for values that vary per deployment. Scripts should accept CLI args or mode config instead of hardcoded defaults. Reference files should use generic examples ("auth service", "your-project") instead of real names.
+**Pattern**: Use `{placeholder}` syntax for values that vary per deployment. Scripts should accept CLI args or client overlay config instead of hardcoded defaults. Reference files should use generic examples ("auth service", "your-project") instead of real names.
 
 **Quick check**: `grep -rE 'your-real-company|/Users/you|real-ip|@yourhandle' <skill-dir>/` before committing.
 
 #### Open-Source Skill Architecture
 
-Skills intended for public repos use a dual-layer pattern: **generic tracked files + private mode overlays**.
+Skills intended for public repos use a dual-layer pattern: **generic tracked files + private client overlays via skillbox**.
 
 ```
 my-skill/                      ← public (git tracked)
 ├── SKILL.md                   ← generic instructions, {placeholder} variables
 ├── references/                ← generic patterns, workflows
 ├── scripts/                   ← generic utilities
-├── assets/templates/          ← generic templates
-│   ├── default.md             ← tracked
-│   └── my-project.md          ← gitignored (project-specific template)
-└── modes/                     ← gitignored entirely
-    └── my-project.md          ← project-specific: paths, names, conventions
+└── assets/templates/          ← generic templates
+    ├── default.md             ← tracked
+    └── my-project.md          ← gitignored (project-specific template)
+
+skillbox-config/clients/my-project/  ← private (outside skill repo)
+└── overlay.yaml               ← project-specific: paths, names, conventions
 ```
 
-**The SKILL.md reads mode config at runtime** to fill in `{placeholder}` values:
-- `{auth_packages_root}` → mode provides `../auth-service/packages`
-- `{plan_root}` → mode provides `~/.claude/plans/my-project`
-- `{backend_repo}` → mode provides `~/repos/my-api`
+**The SKILL.md reads client overlay config at runtime** to fill in `{placeholder}` values:
+- `{auth_packages_root}` → overlay provides `../auth-service/packages`
+- `{plan_root}` → overlay provides `~/.claude/plans/my-project`
+- `{backend_repo}` → overlay provides `~/repos/my-api`
 
-Anyone cloning the public repo gets a working generic skill. You keep your project-specific overlay locally.
+Anyone cloning the public repo gets a working generic skill. You keep your project-specific overlay in skillbox.
 
 #### Repo-Level .gitignore for Skill Collections
 
 For repos containing multiple skills, the root `.gitignore` should cover:
 
 ```gitignore
-# All modes across all skills (private project config)
-modes/
-
 # Python artifacts
 __pycache__/
 *.pyc
@@ -402,19 +400,19 @@ my-skill/assets/templates/frontend-*.md
 ```
 
 **Key patterns:**
-- `modes/` at the root catches all nested `*/modes/` directories
 - Use `skillname/` entries for entire skills that must stay private
 - Use `!` exceptions to track generic templates while ignoring project-specific variants
 - Private deployment data (instance configs, deployed IPs) should have dedicated gitignore entries
+- Project-specific config lives in skillbox client overlays, not in the skill repo
 
 #### Sanitization Workflow (Existing Repo → Public)
 
 When preparing an existing skill repo for open source:
 
 1. **Audit tracked files**: `git ls-files | xargs grep -lE 'project-name|internal-domain|api-key-name'`
-2. **Extract project content → modes/**: Move project-specific references from SKILL.md body into mode files. Replace with `{placeholder}` syntax referencing mode config.
+2. **Extract project content → client overlays**: Move project-specific references from SKILL.md body into skillbox client overlays (`skillbox-config/clients/{client}/overlay.yaml`). Replace with `{placeholder}` syntax referencing overlay config.
 3. **Genericize examples**: Replace domain-specific slice names with generic ones ("task_assignments"). Replace internal service names with generic terms ("backend API"). Keep generic role names (operator, admin, user).
-4. **Verify gitignore coverage**: Ensure `modes/`, project-specific templates, and deployment data are all excluded.
+4. **Verify gitignore coverage**: Ensure project-specific templates and deployment data are excluded. Project config lives in skillbox client overlays, not in the skill repo.
 5. **Final audit**: `git ls-files | xargs grep -lE 'project|company|internal'` — zero tolerance for the real names.
 6. **Check git history**: If project names exist in past commits, consider `git filter-repo` or starting a clean history.
 
@@ -481,7 +479,7 @@ scripts/package_skill.py <path/to/skill-folder> [output-directory]
 ```
 
 Packaging validates automatically, then creates a `.skill` file (zip with .skill extension). Fix any validation errors and re-run.
-When the skill lives in a Git worktree, packaging also excludes any paths ignored by Git (repo root or skill-local), so private `modes/` overlays and other gitignored artifacts stay out of the bundle.
+When the skill lives in a Git worktree, packaging also excludes any paths ignored by Git (repo root or skill-local), so private overlays and other gitignored artifacts stay out of the bundle.
 
 For ops/deploy skills, do an additional manual quality pass:
 - Run every documented preflight command at least once.
@@ -523,9 +521,9 @@ scripts/audit_context.py --report-only                   # Print report without 
 scripts/audit_context.py --scan-root ~/repos --scan-root ~/work  # Multiple roots
 ```
 
-The audit discovers: projects with `.claude/` config, CLAUDE.md files, MCP servers, project-level hooks and skills, global skills (symlinked, packaged, local), and skill modes.
+The audit discovers: projects with `.claude/` config, CLAUDE.md files, MCP servers, project-level hooks and skills, global skills (symlinked, packaged, local), and client overlays.
 
-Issues detected: secrets in MCP configs, broken skill symlinks, stale empty `.claude/` directories, duplicate MCP definitions across projects, mode files targeting nonexistent paths, parent CLAUDE.md inheritance.
+Issues detected: secrets in MCP configs, broken skill symlinks, stale empty `.claude/` directories, duplicate MCP definitions across projects, client overlays targeting nonexistent paths, parent CLAUDE.md inheritance.
 
 Registry output goes to `~/.claude/context/` with `manifest.yaml`, `projects/*.yaml`, `mcps/*.yaml`, and `machines/*.yaml`.
 

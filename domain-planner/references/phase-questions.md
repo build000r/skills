@@ -285,7 +285,7 @@ Any additional error cases for this endpoint?"
 
 ```
 "Before backend planning, I'll read:
-- the mode's backend convention files
+- the client overlay's backend convention files
 
 [After reading] Key conventions that apply:
 - [Convention 1]
@@ -371,33 +371,33 @@ Ask about genuine uncertainties:
 
 ## Phase 4: Frontend Spec
 
-> **Mode-specific questions take priority.** Check the mode file's "Phase 4 Questions" section first.
-> If the mode defines its own Phase 4 questions (e.g., portal placement, widget layer, feature gating),
-> use those instead of the generic questions below. The generic questions are for modes without custom Phase 4 guidance.
+> **Client overlay-specific questions take priority.** Check the client overlay's "Phase 4 Questions" section first.
+> If the client overlay defines its own Phase 4 questions (e.g., portal placement, widget layer, feature gating),
+> use those instead of the generic questions below. The generic questions are for client overlays without custom Phase 4 guidance.
 
 ### Before Starting
 
 ```
 "Before frontend planning, I'll read:
-- the mode's frontend patterns reference
-- the mode-specific frontend template (if available: assets/templates/frontend-{mode}.md)
+- the client overlay's frontend patterns reference
+- the client overlay-specific frontend template (if available: assets/templates/frontend-{overlay}.md)
 
 [After reading] Key patterns that apply:
 - Widget system and primitives available
 - Data fetching patterns
 - State handling patterns
-- [Mode-specific: portal architecture, feature gating, etc.]"
+- [Client overlay-specific: portal architecture, feature gating, etc.]"
 ```
 
 ### Template Selection
 
-Check for mode-specific frontend template:
-- `assets/templates/frontend-{mode}.md` — Mode-specific architecture (if available)
+Check for client overlay-specific frontend template:
+- `assets/templates/frontend-{overlay}.md` — Client overlay-specific architecture (if available)
 - `assets/templates/frontend.md` — Generic (screens, states, role differences)
 
-Use mode-specific template when available — it includes sections the generic template lacks.
+Use client overlay-specific template when available — it includes sections the generic template lacks.
 
-### Generic Questions (when mode has no custom Phase 4)
+### Generic Questions (when client overlay has no custom Phase 4)
 
 #### Page Structure
 
@@ -454,18 +454,18 @@ Any additional states?"
 - Wait for server (Recommended) — Show loading then result - safer for creates/deletes
 - Optimistic — Update UI immediately, rollback on error - for toggles/favorites
 
-### Mode-Specific Questions
+### Client Overlay-Specific Questions
 
-Modes can define custom Phase 4 questions in their mode file under "Phase 4 Questions". Examples of mode-specific concerns:
+Client overlays can define custom Phase 4 questions in their client overlay under "Phase 4 Questions". Examples of client overlay-specific concerns:
 
 - **Portal placement** — Which portal(s) does the feature appear in?
 - **Widget layer** — Page-level vs dashboard widget vs shared control vs modal?
 - **Feature gating** — Role-based, company toggle, system flag, or no gate?
 - **Cross-portal behavior** — Single portal, shared component, or different views of same data?
 - **Inline vs separate page** — Context-dependent features may work better as inline extensions
-- **Component size limits** — Mode may enforce LOC limits per component
+- **Component size limits** — Client overlay may enforce LOC limits per component
 
-Check the active mode file for project-specific Phase 4 guidance before using generic questions.
+Check the active client overlay for project-specific Phase 4 guidance before using generic questions.
 
 ---
 
@@ -524,7 +524,7 @@ Then confirm files to create (text summary):
 - frontend.md - Frontend spec
 
 Plus migration draft:
-- the mode's migration path/{timestamp}_{slice}_initial.sql.planning
+- the client overlay's migration path/{timestamp}_{slice}_initial.sql.planning
 
 Proceed?"
 ```
@@ -538,8 +538,8 @@ Proceed?"
 Invoke `domain-scaffolder` skill to generate code from this plan.
 
 **Frontend Implementation:**
-Use the mode's frontend patterns reference for component conventions.
+Use the client overlay's frontend patterns reference for component conventions.
 
 **Migration:**
-When ready to apply, convert the .planning file per the mode's migration tool and apply."
+When ready to apply, convert the .planning file per the client overlay's migration tool and apply."
 ```

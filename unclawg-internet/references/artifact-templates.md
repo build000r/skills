@@ -1,6 +1,6 @@
 # Artifact Templates
 
-Templates for the soul draft (Step 7), discovery mode file (Step 8), smoke test (Step 9), and summary (Phase D).
+Templates for the soul draft (Step 7), client overlay config (Step 8), smoke test (Step 9), and summary (Phase D).
 
 ## The Split
 
@@ -9,7 +9,7 @@ The soul interview produces TWO artifacts with zero overlap:
 | Artifact | Contains | Does NOT contain |
 |----------|----------|-----------------|
 | **Soul draft** (`soul_md`) | Identity, voice, personas with voice calibration, reply archetypes, engagement principles, boundaries, escalation policy | Search queries, subreddit targets, ranking weights, API key requirements, regex filters |
-| **Mode file** (`modes/<agent>.local.md`) | Query packs, platform scope, ranking weights, exclusion regex, handoff schema | Tone, voice, personality, engagement principles, reply style |
+| **Client overlay** (`skillbox-config/clients/{client}/overlay.yaml` → `context.yaml`) | Query packs, platform scope, ranking weights, exclusion regex, handoff schema | Tone, voice, personality, engagement principles, reply style |
 
 ---
 
@@ -237,16 +237,16 @@ curl -s -w "\nHTTP_STATUS:%{http_code}" -X PUT \
 
 ---
 
-## Discovery Mode File Template
+## Client Overlay Template
 
 **Only for brand engagement or customer discovery goals.** Skip for operations/trading.
 
-This file is PURE TECHNICAL CONFIG. No personality, voice, or tone guidance — that lives in the soul.
+This file is PURE TECHNICAL CONFIG. No personality, voice, or tone guidance — that lives in the soul. The overlay is merged at build time into `context.yaml` which downstream skills consume.
 
 ```bash
-mkdir -p modes
-cat > modes/${AGENT_ID}.local.md << 'MODEEOF'
-# Mode: ${AGENT_ID}
+mkdir -p skillbox-config/clients/${AGENT_ID}
+cat > skillbox-config/clients/${AGENT_ID}/overlay.yaml << 'OVERLAYEOF'
+# Client overlay: ${AGENT_ID}
 
 name: ${AGENT_ID}
 cwd_match: ${PWD}
@@ -368,10 +368,10 @@ required_fields:
   - summary
   - action
   - reply_strategy
-MODEEOF
+OVERLAYEOF
 ```
 
-Tell the user: "Discovery mode saved to `modes/${AGENT_ID}.local.md` — `/unclawg-discover` will auto-load it."
+Tell the user: "Client overlay saved to `skillbox-config/clients/${AGENT_ID}/overlay.yaml` — `/unclawg-discover` will auto-load the generated `context.yaml`."
 
 ---
 
@@ -430,7 +430,7 @@ You're set up.
   Expires:    90 days from now
   Identity:   .claude/agents/${AGENT_ID}.env
   Soul:       Draft written — publish it in the portal
-  Mode:       modes/${AGENT_ID}.local.md
+  Overlay:    skillbox-config/clients/${AGENT_ID}/overlay.yaml
 
 Next steps:
   /unclawg-discover  — find people who match your personas

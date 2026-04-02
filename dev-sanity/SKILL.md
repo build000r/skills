@@ -16,26 +16,20 @@ Start with a stable first progress update such as:
 
 `Using dev-sanity to run the configured local checks and surface the first real failure.`
 
-## Private Mode Overlay
+## Client Overlay
 
-This skill expects a gitignored shell config at `modes/config.sh`.
+This skill reads project-specific config from `context.yaml`, auto-generated
+from the client overlay at `skillbox-config/clients/{client}/overlay.yaml`.
 
-The private mode defines one or more of these Bash arrays:
+The overlay defines one or more of these arrays:
 
 - repo paths to verify
 - env files that must exist
 - docker container names
 - local health endpoints
 
-Copy [references/mode-template.md](references/mode-template.md) into
-`modes/config.sh`, fill in your stack, and keep it untracked. Track only
-generic examples and placeholders in this skill.
-
-The helper also accepts `DEV_SANITY_MODE_FILE=/abs/path/to/config.sh` or
-`--mode-file /abs/path/to/config.sh` when the mode file lives elsewhere.
-
-If the mode file is missing, stop and point the operator at the template. Do
-not guess repo roots.
+If no overlay is available, stop and point the operator at the skillbox client
+overlay setup. Do not guess repo roots.
 
 ## On Trigger
 
@@ -48,15 +42,15 @@ bash scripts/sanity_check.sh
 For narrower requests, use the focused modes first:
 
 ```bash
-bash scripts/sanity_check.sh --mode-file /abs/path/to/config.sh
+bash scripts/sanity_check.sh --config /abs/path/to/context.yaml
 bash scripts/sanity_check.sh --repos-only
 bash scripts/sanity_check.sh --env-only
 bash scripts/sanity_check.sh --docker-only
 bash scripts/sanity_check.sh --health-only
 ```
 
-Any check group may be omitted from the mode file when it does not apply to the
-current stack.
+Any check group may be omitted from the client overlay when it does not apply to
+the current stack.
 
 ## What To Report
 
@@ -73,18 +67,18 @@ Do not bury the first failure under a full wall of green checks.
 
 ### Missing repo
 
-- confirm the path in `modes/config.sh`
+- confirm the path in the client overlay (`context.yaml`)
 - clone or restore the repo before continuing
 
 ### Missing env file
 
 - regenerate it from the environment manager or repo bootstrap flow
-- if the env file is intentionally optional, remove it from the mode config
+- if the env file is intentionally optional, remove it from the client overlay
 
 ### Missing container
 
 - start the relevant local stack
-- if the service is no longer containerized, remove it from the mode config
+- if the service is no longer containerized, remove it from the client overlay
 - if Docker itself is unavailable, install or start Docker before debugging the
   app layer
 

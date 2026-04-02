@@ -1,10 +1,12 @@
-# Mode Template
+# Client Overlay Template
 
-Copy this file to `modes/{project-name}.md` and fill in each section. Delete any sections that don't apply.
+> **Legacy note**: This file was originally `mode-template.md` for the `modes/` pattern. It now serves as a structural reference for creating client overlays at `skillbox-config/clients/{client-name}/overlay.yaml`. Translate the sections below into YAML keys in the overlay file.
+
+Copy the relevant sections into `skillbox-config/clients/{client-name}/overlay.yaml` and fill in each field. Omit any sections that don't apply.
 
 ---
 
-# {Project Name} Mode
+# {Project Name} Client Overlay
 
 ## Detection
 
@@ -41,7 +43,7 @@ Describe the required derivatives that every paper should generate. Keep this na
 - **Companion audience job**: "When ___, I want to ___, so I can ___"
 - **Credibility pattern**: method line / author line / source-base line / custom
 - **Default CTA**: subscribe / share / request full paper / none / custom
-- **Extra derivative scope**: none by default; describe only if this mode truly requires more outputs
+- **Extra derivative scope**: none by default; describe only if this client overlay truly requires more outputs
 
 If you omit companion output paths, the skill defaults to a sibling file beside the paper:
 
@@ -80,9 +82,9 @@ const trEven = "bg-gray-50";
 
 Describe how to gather project-specific data before writing. Examples:
 
-- **Database**: SSH/docker command to query, or path to cached data file in `modes/{project-name}/`
+- **Database**: SSH/docker command to query, or path to cached data file in `skillbox-config/clients/{client-name}/`
 - **API**: Endpoint + required env var for auth
-- **Reference files**: List files in `modes/{project-name}/` to read
+- **Reference files**: List files in `skillbox-config/clients/{client-name}/` to read
 - **None**: Skip, use web research only
 
 ## Audience
@@ -109,10 +111,10 @@ Custom section structure for this project. Replace the generic structure:
 
 ## Page Template
 
-If you have a component template, place it at `modes/{project-name}/page-template.tsx` (or `.vue`, `.svelte`, `.html`). Reference it here:
+If you have a component template, place it at `skillbox-config/clients/{client-name}/page-template.tsx` (or `.vue`, `.svelte`, `.html`). Reference it here:
 
 ```
-Read modes/{project-name}/page-template.tsx for the structural template.
+Read skillbox-config/clients/{client-name}/page-template.tsx for the structural template.
 ```
 
 ## Validation
@@ -142,7 +144,7 @@ Examples:
 - Update `llms.txt` or other discovery surfaces
 - Add homepage/nav links
 
-Keep this list limited to artifacts and registrations the project actually needs. Do not add channel-by-channel distribution tasks unless they are truly required by the mode.
+Keep this list limited to artifacts and registrations the project actually needs. Do not add channel-by-channel distribution tasks unless they are truly required by the client overlay.
 
 ## Existing Papers
 

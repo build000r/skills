@@ -23,7 +23,7 @@ These rules prevent systematic over-penalization:
 
 2. **Operational bounds are v1-optional by default.** Missing rate limits, pagination maxes, payload size limits, and timeout specs should NOT be deducted unless the plan explicitly claims to define them. These are operational hardening, not correctness requirements.
 
-   **Performance-critical override:** If the active mode or the slice plan declares a performance envelope (latency/throughput/backpressure/memory bounds), those bounds are no longer optional. Missing or untestable bounds should be deducted as Moderate or Major issues because they can produce incorrect architecture and unsafe runtime behavior.
+   **Performance-critical override:** If the active client overlay or the slice plan declares a performance envelope (latency/throughput/backpressure/memory bounds), those bounds are no longer optional. Missing or untestable bounds should be deducted as Moderate or Major issues because they can produce incorrect architecture and unsafe runtime behavior.
 
 3. **Outcome-level test scenarios are acceptable.** "Happy: user books → 201, booking confirmed, capacity decremented" is a valid test scenario worth 7-8/10. Full JSON request/response payloads are ideal (9-10/10) but not required for a passing score. Only deduct -5 if test scenarios are so vague they can't be implemented (e.g., "it should work").
 
@@ -187,7 +187,7 @@ These rules prevent systematic over-penalization:
 - Frontend screens in frontend.md reference the endpoints they consume (from shared.md)
 - User stories in plan.md map to endpoints in shared.md (coverage)
 - Error codes defined in shared.md appear in backend.md error handling rules
-- If mode declares a performance envelope, enforce cross-file alignment:
+- If client overlay declares a performance envelope, enforce cross-file alignment:
   - plan.md contains measurable SLO targets and load assumptions
   - shared.md contains runtime/backpressure contract semantics
   - backend.md contains implementation constraints + verification scenarios

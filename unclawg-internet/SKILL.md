@@ -25,7 +25,7 @@ Get set up with OpenClaw — account, agent, soul, and discovery config in one s
 1. OpenClaw account + API keys
 2. Agent identity file (`.claude/agents/<agent-id>.env`)
 3. Soul draft (`soul_md` policy document via API)
-4. Discovery mode file (`modes/<project>.local.md` for `/unclawg-discover`)
+4. Client overlay config (`skillbox-config/clients/{client}/overlay.yaml` → auto-generated `context.yaml` for `/unclawg-discover`)
 5. Browser auto-logged into the approval portal
 
 ### Existing OpenClaw Runtime (Skip Full Bootstrap)
@@ -89,7 +89,7 @@ The Unclawg proxy also backfills missing device-flow fields (`client_id`, `grant
 ## References
 
 - **[references/soul-interview.md](references/soul-interview.md)** — Full soul interview cascade (Phase B, Rounds 1-5). Read when entering the interview phase.
-- **[references/artifact-templates.md](references/artifact-templates.md)** — Soul draft templates, mode file template, smoke test, and summary output (Phase C/D). Read when writing artifacts.
+- **[references/artifact-templates.md](references/artifact-templates.md)** — Soul draft templates, client overlay template, smoke test, and summary output (Phase C/D). Read when writing artifacts.
 - **`/unclawg-admin`** — Operator waitlist triage when signup proof-of-humanity is pending.
 - **[references/default-soul.md](references/default-soul.md)** — Default soul template for users who skip the interview.
 
@@ -149,7 +149,7 @@ Interpret key-check failures before deciding next step:
 ### Check for missing pieces
 
 ```bash
-ls modes/${AGENT_ID}.local.md 2>/dev/null
+ls skillbox-config/clients/${AGENT_ID}/overlay.yaml 2>/dev/null
 ```
 
 ### Triage result
@@ -164,14 +164,14 @@ Existing setup found:
   Identity:   .claude/agents/${AGENT_ID}.env
   Key valid:  ✓ (or ✗ — expired/revoked, needs re-provisioning)
   Soul:       [written / not yet]
-  Mode file:  [found / missing]
+  Overlay:    [found / missing]
 ```
 
 Then offer to fill gaps:
 
 - **Key invalid** → need to re-authenticate and provision a new key (jump to Step 4 — device flow)
 - **Soul missing** → jump to Phase B (read `references/soul-interview.md`)
-- **Mode file missing** → jump to Phase C Step 8 (read `references/artifact-templates.md`)
+- **Client overlay missing** → jump to Phase C Step 8 (read `references/artifact-templates.md`)
 - **Everything present and valid** → "You're all set. Run `/unclawg-discover` to start finding people."
 
 Skip any phase that's already complete. Do not re-run the full onboarding.
@@ -440,7 +440,7 @@ Read **[references/soul-interview.md](references/soul-interview.md)** for the fu
 
 ## Phase C — Write Artifacts
 
-Read **[references/artifact-templates.md](references/artifact-templates.md)** for soul draft templates, mode file template, smoke test, and summary output.
+Read **[references/artifact-templates.md](references/artifact-templates.md)** for soul draft templates, client overlay template, smoke test, and summary output.
 
 ---
 

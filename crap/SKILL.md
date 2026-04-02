@@ -48,7 +48,8 @@ repo needs coverage artifact targets. Use
 [references/testing-bootstrap.md](references/testing-bootstrap.md) when the
 repo lacks a trustworthy test or coverage baseline. Use
 [references/one-shot-loop.md](references/one-shot-loop.md) for autonomous
-reduction loops.
+reduction loops. Use `scripts/delta_audit.py` to validate that score
+improvements are legitimate during remediation loops.
 
 Examples:
 
@@ -61,6 +62,9 @@ python3 scripts/analyze_crap.py /path/to/repo
 python3 scripts/analyze_crap.py /path/to/repo --languages rust,python
 python3 scripts/analyze_crap.py /path/to/repo --languages python --top 20
 python3 scripts/analyze_crap.py /path/to/repo --languages python --threshold 25 --top 20
+python3 scripts/delta_audit.py snapshot /path/to/repo -o /tmp/crap-baseline.json
+python3 scripts/delta_audit.py audit /tmp/crap-baseline.json /path/to/repo
+python3 scripts/delta_audit.py audit /tmp/crap-baseline.json /path/to/repo --json
 ```
 
 ## Threshold Resolution
@@ -207,6 +211,61 @@ Treat scope as part of correctness.
 4. Prefer adding per-language coverage targets plus an aggregate `make crap`
    wrapper when the user wants a true repo-wide score in a mixed-language repo.
 
+## Delta Integrity Audit
+
+In one-shot remediation mode, every iteration must pass a delta integrity check
+before committing. This prevents agents from gaming the score through structural
+tricks that lower the metric without improving actual code quality.
+
+### When to run
+
+Run the audit after every re-measure step in the one-shot loop (between step 4
+and step 5 in [references/one-shot-loop.md](references/one-shot-loop.md)).
+
+### How to run
+
+1. At the start of the remediation loop, capture a baseline snapshot:
+
+```bash
+python3 scripts/delta_audit.py snapshot {target} --languages {languages} -o /tmp/crap-baseline.json
+```
+
+2. After each iteration's re-measure, audit the delta:
+
+```bash
+python3 scripts/delta_audit.py audit /tmp/crap-baseline.json {target} --languages {languages}
+```
+
+3. Read the `DELTA_INTEGRITY` line:
+   - `clean`: proceed to commit.
+   - `warning`: review the flags, proceed if justified.
+   - `suspicious`: **stop the loop**. Show the flags to the user. Do not commit
+     until the user acknowledges or the suspicious changes are reverted.
+
+4. After a clean commit, take a fresh snapshot for the next iteration.
+
+### What it detects
+
+| Category | Signal | Verdict |
+|---|---|---|
+| `split-without-reduction` | Function disappeared, 2+ replacements in same file, sum(CC) >= original | suspicious |
+| `scope-escape` | File disappeared without git deletion or rename into scope | suspicious |
+| `hollow-coverage` | New test files with zero assertions | suspicious |
+| `hollow-coverage` | Existing test file assertions dropped to zero | warning |
+| `scope-narrowing` | Target path changed between snapshot and audit | suspicious |
+
+### Guardrails
+
+- Never commit with `DELTA_INTEGRITY: suspicious` unless the user explicitly
+  acknowledges the flags.
+- When a split is flagged, explain to the user whether the split genuinely
+  reduced coupling or just distributed the same complexity.
+- When scope escape is flagged, verify whether code was intentionally deleted
+  or just moved out of the analyzed target.
+- A clean delta audit does not guarantee the work is good — it guarantees the
+  score movement is honest. Test quality still needs separate validation
+  (mutation testing, code review).
+
 ## Output Flow
 
 ### Phase 1: Run the analyzer
@@ -288,13 +347,17 @@ Requirements:
    scope before the next CRAP rerun.
 7. Use `scripts/analyze_crap.py ... --top 20` for inner-loop reruns to keep
    output concise while preserving the true `FINAL_SCORE`.
-8. Use the `commit` skill after each stable logical batch. Do not wait until
-   the very end if the loop is making clean progress.
-9. Continue iterating until:
-   - the scoped score is below threshold, or
-   - a real blocker or diminishing-return stop condition from
-     [references/one-shot-loop.md](references/one-shot-loop.md) is hit.
-10. Report the score delta after each loop step:
+8. After each re-measure, run `scripts/delta_audit.py audit` against the
+   baseline snapshot. If `DELTA_INTEGRITY` is `suspicious`, stop the loop and
+   show the flags to the user before committing.
+9. Use the `commit` skill after each stable logical batch. Do not wait until
+   the very end if the loop is making clean progress. After committing, take a
+   fresh delta audit snapshot for the next iteration.
+10. Continue iterating until:
+    - the scoped score is below threshold, or
+    - a real blocker or diminishing-return stop condition from
+      [references/one-shot-loop.md](references/one-shot-loop.md) is hit.
+11. Report the score delta after each loop step:
    - baseline score
    - current score
    - top moved hotspots

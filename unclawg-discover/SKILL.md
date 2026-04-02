@@ -14,7 +14,7 @@ metadata:
 Build a high-signal customer feed from public social channels.
 
 This skill is a **generic core**. Project-specific strategy, queries, voice, and
-handoff contracts belong in local `modes/` files (gitignored).
+handoff contracts belong in the client overlay (`skillbox-config/clients/{client}/overlay.yaml` → auto-generated `context.yaml`).
 
 ## Runtime Security Profile (AI Default)
 
@@ -62,40 +62,33 @@ Recommended run cadence:
 - Primary recommendation: every 4 hours (6 runs/day).
 - Budget fallback: 2 runs/day (every 12 hours), still with 6h hard cutoff.
 
-## Mode System (Required for Project-Specific Behavior)
+## Client Overlay System (Required for Project-Specific Behavior)
 
-Local mode overlays live in `modes/*.md` and are intentionally gitignored.
-
-- Use `references/mode-template.md` to create a project mode.
-- Use `references/mode-example-checklist.md` for a complete example shape.
-- Resolve active mode with:
-
-```bash
-scripts/select_mode.sh "$(pwd)"
-```
+Project-specific configuration lives in the skillbox client overlay:
+`skillbox-config/clients/{client}/overlay.yaml` → auto-generated `context.yaml`.
 
 Resolution rules:
 
-1. If exactly one mode matches `cwd_match`, use it.
-2. If none match, run the generic flow below.
-3. If multiple match, ask user which mode file to apply.
+1. If a `context.yaml` is present in the active skillbox client directory, load it.
+2. If no client overlay is resolved, run the generic flow below.
+3. If multiple clients could apply, ask user which client overlay to use.
 
 ## Soul / Mode / Skill Separation
 
 | Layer | What it owns | Files |
 |-------|-------------|-------|
 | **Soul** (`soul_md` via API) | Voice, tone, personas (with voice calibration), reply archetypes, engagement principles, boundaries | Fetched from `/v0/integrations/claw-runtime/policies/soul_md` |
-| **Mode** (`modes/*.md`, gitignored) | Query packs, subreddit targets, ranking weights, exclusion regex, platform scope, handoff schema | Local `modes/<project>.md` |
+| **Client Overlay** (`skillbox-config/clients/{client}/overlay.yaml`) | Query packs, subreddit targets, ranking weights, exclusion regex, platform scope, handoff schema | Auto-generated `context.yaml` |
 | **Skill** (this file) | API calls, script execution, data flow, error handling | `SKILL.md` + `scripts/` |
 
-**This skill is personality-agnostic.** It searches, filters, scores, and outputs candidates. How the agent *talks* is the soul's job. What the agent *searches for* is the mode file's job.
+**This skill is personality-agnostic.** It searches, filters, scores, and outputs candidates. How the agent *talks* is the soul's job. What the agent *searches for* is the client overlay's job.
 
 If no soul is published, fall back to `references/voice-guide.md` (generic defaults).
 
 ## NEVER Do These Things
 
-- **NEVER hardcode project/company strategy in tracked core files.** Keep it in `modes/*.md`.
-- **NEVER put voice, tone, or personality guidance in mode files.** That belongs in the soul.
+- **NEVER hardcode project/company strategy in tracked core files.** Keep it in the client overlay (`skillbox-config/clients/{client}/overlay.yaml`).
+- **NEVER put voice, tone, or personality guidance in client overlays.** That belongs in the soul.
 - **NEVER submit actions directly from discovery.** Discovery outputs candidates; execution is downstream.
 - **NEVER skip source links or raw post text.** Every candidate needs provenance.
 - **NEVER skip quality gates.** Use the checklist in `references/feed-quality-checklist.md`.
@@ -149,7 +142,7 @@ Apply `references/feed-quality-checklist.md` while collecting these choices.
 
 ### Phase 2 - Load Mode or Build Temporary Plan
 
-If a mode file is resolved, use its:
+If a client overlay is resolved, use its:
 
 - query pack per platform
 - inclusion/exclusion signals
@@ -157,7 +150,7 @@ If a mode file is resolved, use its:
 - output format
 - handoff contract
 
-If no mode exists, assemble a temporary plan from `references/personas.md` and
+If no client overlay exists, assemble a temporary plan from `references/personas.md` and
 ask for explicit confirmation before running paid queries (Apify).
 
 ### Phase 3 - Run Discovery
@@ -190,14 +183,14 @@ uc_discover linkedin --query "<query>" --days 1 --limit 20 --sort-by date_posted
 
 ### Phase 3.5 - Comment Mining (Optional)
 
-If the active mode file includes `comment_mining_targets`, mine comment sections
+If the active client overlay includes `comment_mining_targets`, mine comment sections
 of curated accounts for real customer signals.
 
-1. Check mode file for `comment_mining_targets` section.
+1. Check client overlay for `comment_mining_targets` section.
 2. If present, run the appropriate scripts against listed accounts:
    - Instagram: `scripts/search_instagram_comments.sh <handle1> [handle2] ...`
    - TikTok: `scripts/search_tiktok_comments.sh <handle1> [handle2] ...`
-3. Score comments by signal density using a mode-defined or caller-provided signal regex.
+3. Score comments by signal density using an overlay-defined or caller-provided signal regex.
    The public scripts accept `--signal-regex` or `COMMENT_SIGNAL_REGEX`; tracked defaults stay generic.
 4. Merge comment-sourced candidates into the main candidate pool before Phase 4 filtering.
 5. Comment-sourced candidates use the POST/VIDEO as the engagement target (comment there to reach real customers in the thread).
@@ -206,8 +199,8 @@ of curated accounts for real customer signals.
 
 ### Phase 3.6 - Hiring-Board Extension (Optional, Non-Wrapper)
 
-Use only when runtime policy allows local script execution and the active mode
-explicitly calls for hiring-board discovery.
+Use only when runtime policy allows local script execution and the active client
+overlay explicitly calls for hiring-board discovery.
 
 ```bash
 scripts/search_linkedin_jobs.sh "<query>" 20 C
@@ -281,7 +274,7 @@ Return:
 Default mode is in-memory output only (no local writes). Save to disk only if
 runtime policy explicitly allows write tools.
 
-Route by `handoff_type` from the active mode file:
+Route by `handoff_type` from the active client overlay:
 
 - **`approval-portal`** → Invoke `/unclawg-feed` (API approval flow; no SSH required).
 - **`engagement-queue`** → Save to `briefs/` directory (future, not implemented).
@@ -294,7 +287,7 @@ For public distributions and users without infrastructure access, keep
 ### Phase 7A - Private Operator Extension (Optional)
 
 Use only when `handoff_type: db-insert` is intentionally set in a local,
-gitignored operator mode.
+gitignored client overlay.
 
 1. Present candidate table for user confirmation (user may drop rows, edit angles).
 2. On confirmation, batch INSERT via SSH to prod DB:
@@ -350,9 +343,9 @@ rate is 40-80% relevant content depending on query specificity. Very niche phras
 
 ## Notes
 
-- **Persona voice** lives in the soul, not in mode files. Mode files only map persona IDs to search queries.
-- Keep project-specific keywords and query packs in `modes/`.
+- **Persona voice** lives in the soul, not in client overlays. Client overlays only map persona IDs to search queries.
+- Keep project-specific keywords and query packs in the client overlay.
 - Keep core scripts and references reusable across domains.
-- If discovery quality degrades, tune mode-level ranking weights before touching core logic.
-- If reply quality degrades, tune the soul (voice, archetypes, persona calibration) — not the mode or skill.
-- For public packaging, use `scripts/package_public.sh` to exclude local `modes/` overlays.
+- If discovery quality degrades, tune overlay-level ranking weights before touching core logic.
+- If reply quality degrades, tune the soul (voice, archetypes, persona calibration) — not the overlay or skill.
+- For public packaging, use `scripts/package_public.sh` to exclude client overlay data.

@@ -1,8 +1,8 @@
 # Test Templates for Backend Scaffolding
 
 > These templates use `{backend_module}` as a placeholder for your project's import path.
-> Replace with the actual import path defined in your mode file (e.g., `my_server.domains`).
-> Adapt test framework syntax and fixtures to match your mode's `test_framework` setting.
+> Replace with the actual import path defined in your client overlay (e.g., `my_server.domains`).
+> Adapt test framework syntax and fixtures to match your client overlay's `test_framework` setting.
 
 ## Service Test Template
 

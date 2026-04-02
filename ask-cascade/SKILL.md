@@ -141,7 +141,7 @@ Root decision: what form this reusable workflow should take.
 1. Standalone skill (recommended)
    Why: the workflow is reusable, operator-invoked, and richer than a one-file note.
    1A. Manual trigger only
-   1B. Manual trigger now, mode file later
+   1B. Manual trigger now, client overlay config later
    Happy path if we start here:
    - confirm this is a skill
    - choose 1A or 1B

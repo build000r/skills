@@ -138,7 +138,7 @@ For 52 DONE plans:
 
 ## Step 1: Inventory DONE Plans
 
-Read the mode's `session_plan_index`:
+Read the client overlay's `session_plan_index`:
 
 ```markdown
 | Date | Plan | Status | Priority | Description |
@@ -164,7 +164,7 @@ For each DONE plan:
 
 2. **If no parent, parse tags from description:**
    - Extract `[tag]` patterns from the Description column
-   - Look up in the mode's tag-to-domain mapping
+   - Look up in the client overlay's tag-to-domain mapping
    - Suggest the mapped domain
 
 3. **Multiple tags:** Use the first domain-specific tag (ignore repo-level tags).
@@ -291,7 +291,7 @@ Location: `{plan_root}/misc-session-work/`
 
 ### Add to INDEX.md
 
-If `misc-session-work` is new, add row to the mode's `plan_index`:
+If `misc-session-work` is new, add row to the client overlay's `plan_index`:
 ```markdown
 | {date} | [misc-session-work](./misc-session-work/) | DONE | | [misc] Collector for standalone session work |
 ```

@@ -23,7 +23,7 @@ covers planner-specific orchestration steps.
 
 ## Step 1: Analyze Plan Scope
 
-Read plan.md and the mode's repo configuration to determine which repos need work.
+Read plan.md and the client overlay's repo configuration to determine which repos need work.
 
 Parse repo tags from the plan index entry (e.g., `[backend, frontend, auth]`) to determine which agents to launch:
 

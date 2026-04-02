@@ -1,6 +1,6 @@
 # Target Profile Curation (Generic)
 
-Use this when a mode file does not define account lists.
+Use this when the client overlay does not define account lists.
 
 ## Goal
 

@@ -1,7 +1,7 @@
 # Example Frontend Patterns Reference
 
-> **This is a complete example** of what a mode's `patterns_reference` should look like.
-> Copy this file, rename your primitives, adjust your paths, and drop it in your mode.
+> **This is a complete example** of what a client overlay's `patterns_reference` should look like.
+> Copy this file, rename your primitives, adjust your paths, and drop it in your client overlay.
 >
 > The scaffolder reads your patterns reference before generating ANY code.
 > The reviewer audits generated code AGAINST your patterns reference.

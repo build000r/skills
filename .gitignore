@@ -4,6 +4,7 @@ __pycache__/
 *.zip
 .DS_Store
 dist/
+.apr/
 __DOT_SWIMMERS__/
 dropbox-ocr/
 openclaw-client-bootstrap/references/deployed-instances.md

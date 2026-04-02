@@ -5,20 +5,20 @@ Shared cross-skill rules live in
 covers reviewer-specific audit procedure and report format.
 
 > **Execution context:** These steps are executed by an audit worker phase coordinated by the orchestrator.
-> The orchestrator constructs the worker prompt using these steps with mode-specific paths substituted.
+> The orchestrator constructs the worker prompt using these steps with client-overlay-specific paths substituted.
 > See `references/orchestration-workflow.md` for the orchestration loop.
 
 ## Review Scope
 
 **Plan files always at** `{plan_root}/{slice}/`. **Implementation varies by context.**
 
-Read the mode file for implementation locations. The mode defines a table of layers (backend, frontend, tests) with their path patterns and compliance standard files.
+Read the client overlay for implementation locations. The overlay defines a table of layers (backend, frontend, tests) with their path patterns and compliance standard files.
 
 | Layer | Implementation Location | Standards |
 |-------|------------------------|-----------|
-| Backend | Mode's backend path pattern | Mode's backend convention files |
-| Frontend | Mode's frontend path pattern | Mode's frontend patterns reference |
-| Tests | Mode's test path patterns | Coverage requirements |
+| Backend | Client overlay's backend path pattern | Client overlay's backend convention files |
+| Frontend | Client overlay's frontend path pattern | Client overlay's frontend patterns reference |
+| Tests | Client overlay's test path patterns | Coverage requirements |
 
 ## Step-by-Step Process
 
@@ -43,19 +43,19 @@ Extract from each file:
 
 ### Step 2: Load Reference Standards
 
-**Before auditing, read the mode's convention files:**
+**Before auditing, read the client overlay's convention files:**
 
 | Standard | Location | What to Check |
 |----------|----------|---------------|
-| Frontend patterns | Mode's frontend patterns reference | Component library, shared primitives, hooks |
-| Backend conventions | Mode's backend convention files | TDD, domain structure, access control, error handling |
-| Auth service standards (if configured) | Mode's auth service settings + `{auth_packages_root}` | Auth/payments/identity package reuse, gap proposals, local-link and published/live validation flow |
+| Frontend patterns | Client overlay's frontend patterns reference | Component library, shared primitives, hooks |
+| Backend conventions | Client overlay's backend convention files | TDD, domain structure, access control, error handling |
+| Auth service standards (if configured) | Client overlay's auth service settings + `{auth_packages_root}` | Auth/payments/identity package reuse, gap proposals, local-link and published/live validation flow |
 | Delivery strategy standards | plan.md + backend.md | Big-bang target-state scope; no unrequested legacy compatibility mechanics; DB transition section only when data-impacting |
-| Performance envelope (if present) | Mode file + plan.md/backend.md/frontend.md | Latency/throughput SLOs, queue/buffer bounds, backpressure behavior |
+| Performance envelope (if present) | Client overlay + plan.md/backend.md/frontend.md | Latency/throughput SLOs, queue/buffer bounds, backpressure behavior |
 
 ### Step 3: Audit Backend (if backend.md exists)
 
-**Check against the mode's backend convention files:**
+**Check against the client overlay's backend convention files:**
 
 1. **Domain Structure** - Files exist in correct locations:
    - Models file (ORM entities)
@@ -69,7 +69,7 @@ Extract from each file:
    - Route tests (API endpoints)
 
 3. **Access Control Policies** - Match backend.md specification:
-   - Uses correct syntax per the mode's access control pattern
+   - Uses correct syntax per the client overlay's access control pattern
    - Proper user context references
    - No incorrect role or policy patterns
 
@@ -78,10 +78,10 @@ Extract from each file:
    - HTTP status codes are correct (404 for NOT_FOUND, 400 for validation, etc.)
 
 5. **Migration** - Migration file exists and follows naming:
-   - Uses the mode's migration naming convention
+   - Uses the client overlay's migration naming convention
    - Contains correct access control policy syntax
 
-6. **Performance Envelope Compliance** (if mode or plan declares one):
+6. **Performance Envelope Compliance** (if client overlay or plan declares one):
    - Latency/throughput SLOs are represented in tests or benchmark artifacts
    - Queue/channel/buffer bounds are explicit and enforced
    - Backpressure behavior is implemented and validated under load/slow-consumer conditions
@@ -100,14 +100,14 @@ Extract from each file:
 
 ### Step 4: Audit Frontend (if frontend.md exists)
 
-**Check against the mode's frontend patterns reference:**
+**Check against the client overlay's frontend patterns reference:**
 
 1. **Component Library Usage** - No inline styling patterns:
-   - Uses the mode's shared panel/card primitives, not inline divs with class names
-   - Uses the mode's loading state component, not custom spinners
-   - Uses the mode's error state component with retry support
-   - Uses the mode's empty state component for empty lists
-   - Uses the mode's button primitives, not inline button styling
+   - Uses the client overlay's shared panel/card primitives, not inline divs with class names
+   - Uses the client overlay's loading state component, not custom spinners
+   - Uses the client overlay's error state component with retry support
+   - Uses the client overlay's empty state component for empty lists
+   - Uses the client overlay's button primitives, not inline button styling
 
 2. **Data Fetching** - Query hook patterns:
    - Uses query hooks (not manual state + effect patterns)
@@ -115,7 +115,7 @@ Extract from each file:
    - Correct query keys and cache settings
 
 3. **Storage** - Shared storage hooks:
-   - Uses the mode's storage hook pattern, not manual storage access
+   - Uses the client overlay's storage hook pattern, not manual storage access
    - No duplicate storage logic
 
 4. **Component Size** - Under limits:
@@ -133,9 +133,9 @@ Extract from each file:
    - Hook tests for custom hooks
    - Integration tests for complex flows
 
-7. **Performance Envelope Compliance** (if mode or plan declares one):
+7. **Performance Envelope Compliance** (if client overlay or plan declares one):
    - No polling-first live state when push channel is healthy
-   - High-cardinality render strategy follows mode requirements (virtualization/canvas/off-main-thread as specified)
+   - High-cardinality render strategy follows client overlay requirements (virtualization/canvas/off-main-thread as specified)
    - Streaming updates are isolated from broad rerender cascades
    - Interaction/frame-time targets are measurable and evidenced
 
@@ -196,7 +196,7 @@ Key sections:
 
 ### Step 8: Update INDEX.md Status
 
-Based on the audit verdict, update the slice's status in the mode's `plan_index`.
+Based on the audit verdict, update the slice's status in the client overlay's `plan_index`.
 
 **Status mapping:**
 

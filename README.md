@@ -34,7 +34,7 @@ no clean place for helper scripts, templates, or private local overlays.
 
 This repo is a skill monorepo. Each top-level skill packages a durable workflow
 in `SKILL.md`, with optional `references/`, `scripts/`, `assets/`, app code, and
-private local `modes/` overlays where needed.
+private skillbox client overlays where needed.
 
 Use it when you want agents to follow repeatable operating procedures instead of
 re-inventing the same workflow on every run.
@@ -44,7 +44,7 @@ re-inventing the same workflow on every run.
 | Need | What this repo gives you |
 | --- | --- |
 | Reusable engineering workflows | Skills for planning, review, reproduction, mutation testing, and commits |
-| Structured local context | Mode templates for skills that need private portfolio, repo, or deployment context |
+| Structured local context | Skillbox client overlays for skills that need private portfolio, repo, or deployment context |
 | Deterministic helpers where prompts are not enough | App-backed helpers can live beside the monorepo when they need their own runtime or release cadence |
 | Deployable asset bundles | Runtime kits and embedded child skills in [`openclaw-client-bootstrap`](./openclaw-client-bootstrap/) |
 | Pick-your-surface installs | Install one skill, a lane, the whole catalog, or symlink a local checkout |
@@ -67,8 +67,8 @@ cd skills
 # Link the local checkout into Claude + Codex
 ./scripts/link-skills.sh
 
-# Add a private mode overlay for skills that need local context
-cp domain-planner/references/mode-template.md modes/my-portfolio.local.md
+# Add a private client overlay for skills that need local context
+# Create skillbox-config/clients/my-portfolio/overlay.yaml with your project paths
 
 # If you use the sibling clawgs repo locally, install and verify it separately
 ../clawgs/scripts/install.sh
@@ -91,7 +91,7 @@ workflow.
 ### 3. Public Core, Private Overlays
 
 Tracked files stay reusable. Local portfolio paths, internal domains, server
-IPs, or customer-specific rules belong in gitignored mode files.
+IPs, or customer-specific rules belong in skillbox client overlays (`skillbox-config/clients/{client}/overlay.yaml`).
 
 ### 4. Small, Composable Units
 
@@ -105,7 +105,7 @@ contain `SKILL.md`. You can install one skill, a lane, or the full catalog.
 | Ad-hoc prompt snippets in notes | Tiny one-off tasks | Nothing is standardized, searchable, or reusable | Skills give each workflow a stable home |
 | One giant agent prompt | Opinionated personal setup | Too much context, weak discoverability, hard to maintain | Each workflow becomes independently installable |
 | Full custom app/plugin only | Deterministic heavy lifting | Overkill for mostly-instructional workflows | Skills keep the simple cases lightweight |
-| This repo | Agent workflows with optional code, templates, and private overlays | You still need local mode files for context-heavy skills | Best middle ground for reusable agent operations |
+| This repo | Agent workflows with optional code, templates, and private overlays | You still need skillbox client overlays for context-heavy skills | Best middle ground for reusable agent operations |
 
 ## Skill Lanes
 
@@ -363,7 +363,7 @@ Do not assume every skill has a packaged artifact. The repo is mixed-mode.
 1. Install one or two skills you will genuinely use.
 2. Clone the repo if you want local inspection, editing, or symlinked dev.
 3. Run [`scripts/link-skills.sh`](./scripts/link-skills.sh) to point Claude and Codex at your checkout.
-4. If a skill needs private context, copy its `references/mode-template.md` into `modes/*.local.md` and fill it in.
+4. If a skill needs private context, create a client overlay in `skillbox-config/clients/{client}/overlay.yaml` and fill it in.
 5. If a skill ships app code, run its own install and check scripts after linking.
 
 ## Command Reference
@@ -383,44 +383,37 @@ Do not assume every skill has a packaged artifact. The repo is mixed-mode.
 There is no single repo-wide config file.
 
 Most skills are usable immediately after install. The ones that need private
-local knowledge use gitignored mode overlays in `modes/`, usually created from a
-skill-specific `references/mode-template.md`.
+local knowledge use skillbox client overlays, defined in
+`skillbox-config/clients/{client}/overlay.yaml`.
 
-Example mode overlay:
+Example client overlay:
 
-```md
-# modes/my-portfolio.local.md
+```yaml
+# skillbox-config/clients/my-portfolio/overlay.yaml
 
 # Example private overlay for skills that need repo or portfolio context.
-# Start from the relevant references/mode-template.md for the skill you are using.
-
-## Detection
 
 cwd_match: ~/repos
 
-## Scan Roots
+scan_roots:
+  - ~/repos
 
-- ~/repos
+repo_ownership:
+  product-repo:
+    path: ~/repos/product-repo
+    owns: [auth, billing, admin tooling]
+    prefer_for: [API changes, schema changes]
+  marketing-repo:
+    path: ~/repos/marketing-repo
+    owns: [landing pages, website copy]
+    prefer_for: [presentation and content work]
 
-## Repo Ownership
-
-- product-repo
-  - path: ~/repos/product-repo
-  - owns: auth, billing, admin tooling
-  - prefer_for: API changes, schema changes
-
-- marketing-repo
-  - path: ~/repos/marketing-repo
-  - owns: landing pages, website copy
-  - prefer_for: presentation and content work
-
-## Shared Rules
-
-- Prefer the skills repo for reusable agent workflows and developer tooling.
-- Keep private domains, credentials, server notes, and customer context here.
+shared_rules:
+  - Prefer the skills repo for reusable agent workflows and developer tooling.
+  - Keep private domains, credentials, server notes, and customer context here.
 ```
 
-Skills that commonly rely on mode templates include:
+Skills that commonly rely on client overlays include:
 
 - [`build-vs-clone`](./build-vs-clone/)
 - [`deploy`](./deploy/)
@@ -460,7 +453,7 @@ Skills that commonly rely on mode templates include:
                   (Claude Code / Codex / Cursor)
                               |
                               v
-                 optional local overlay from modes/*.local.md
+          optional client overlay from skillbox-config/clients/
                               |
                               v
                repeatable workflow with repo-specific context
@@ -521,10 +514,11 @@ The script intentionally skips non-symlink targets in `~/.claude/skills/` or
 `~/.codex/skills/`. Rename or remove the existing directory, then run the
 script again.
 
-### A skill asks for a mode file I do not have
+### A skill asks for a client overlay I do not have
 
-Check whether that skill ships `references/mode-template.md`. Copy it into
-`modes/*.local.md`, keep it gitignored, and fill in your private context.
+Create a client overlay at `skillbox-config/clients/{client}/overlay.yaml`
+and fill in your private context. Some skills ship a `references/mode-template.md`
+that shows the expected fields.
 
 ### An app-backed skill still does not work after linking
 
@@ -545,7 +539,7 @@ rest.
 ## Limitations
 
 - This is a mixed-mode monorepo, not a polished package registry or docs site.
-- Some skills depend on private local context, so they are incomplete until you add a mode overlay.
+- Some skills depend on private local context, so they are incomplete until you add a skillbox client overlay.
 - Some skills are personal or operator-heavy by design and may not generalize cleanly outside the author's environment.
 - Not every skill has a packaged `.skill` build in `dist/`.
 - Licensing is skill-specific rather than centrally normalized.
@@ -556,7 +550,7 @@ rest.
 ### Is this a prompt library?
 
 Not really. The repo is closer to an operations catalog for agents. Many skills
-ship references, scripts, assets, mode templates, or app code next to the core
+ship references, scripts, assets, client overlay templates, or app code next to the core
 instructions.
 
 ### What is the install surface?
@@ -574,10 +568,12 @@ everything blindly.
 Clone it when you want to inspect instructions, edit a skill, symlink a local
 checkout into Claude/Codex, or work on app-backed helpers.
 
-### What are mode files for?
+### What are client overlays for?
 
 They hold private local context such as repo maps, domains, deployment notes,
 or portfolio rules that should not live in the tracked public skill files.
+Client overlays are managed through skillbox at
+`skillbox-config/clients/{client}/overlay.yaml`.
 
 ### Are these skills only for Codex?
 

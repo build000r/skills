@@ -25,21 +25,14 @@ Modes customize content generation for specific brands or projects — brand voi
 
 ### How Modes Work
 
-Each mode is a markdown file: `modes/{project-name}.md`. It contains everything brand-specific: name, voice, tone, target audience, which content pipelines to use (PSEO, video, social), SEO keywords and URL patterns, Remotion project paths, preferred trend sources, and publishing/deploy commands.
+Project-specific config (brand name, voice, tone, target audience, content pipelines, SEO keywords, Remotion paths, trend sources, publishing commands) lives in the client overlay: `skillbox-config/clients/{client}/overlay.yaml` → auto-generated `context.yaml`.
 
-### Mode Selection (Step 0)
+### Client Config Resolution (Step 0)
 
-1. List `.md` files in `modes/` (if directory exists)
-2. Each mode file has a `cwd_match` field — a path prefix to match against cwd
-3. If cwd matches exactly one mode, use it automatically
-4. If cwd matches multiple or none, ask the user which mode (or use generic defaults)
-5. If `modes/` doesn't exist, use generic mode (no brand customization)
-
-### Creating a Mode
-
-Copy `references/mode-template.md` to `modes/{project-name}.md` and fill in brand details, content types, SEO config, and publishing workflow. When a user runs the skill with no matching mode, offer to create one.
-
-Modes are gitignored — they contain brand-specific settings and API details that should not be committed to the skill repo.
+1. Look for `context.yaml` in the working tree (generated from the client overlay)
+2. If found, load brand-specific settings from it automatically
+3. If not found, ask the user which client to target (or use generic defaults)
+4. If no `skillbox-config/` exists, use generic mode (no brand customization)
 
 ## Prerequisites
 

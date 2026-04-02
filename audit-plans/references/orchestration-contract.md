@@ -33,4 +33,4 @@ Open questions:
 - ...
 ```
 
-Keep orchestration rules in tracked files generic. Put runtime-specific wrappers or commands in the local mode file.
+Keep orchestration rules in tracked files generic. Put runtime-specific wrappers or commands in the client overlay (`skillbox-config/clients/{client}/overlay.yaml`).

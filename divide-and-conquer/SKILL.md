@@ -31,21 +31,14 @@ Modes customize decomposition for specific projects — split boundaries, agent 
 
 ### How Modes Work
 
-Each mode is a markdown file: `modes/{project-name}.md`. It contains project-specific configuration: where the natural split boundaries are, what agent types to prefer, what `gpt-5.4` reasoning strategy to prefer, what commands to run for validation, and how to label agents.
+Project-specific configuration (split boundaries, agent type preferences, reasoning strategy, validation commands, agent labeling) lives in the client overlay: `skillbox-config/clients/{client}/overlay.yaml` → auto-generated `context.yaml`.
 
-### Mode Selection (Step 0)
+### Client Config Resolution (Step 0)
 
-1. List `.md` files in `modes/` (if directory exists)
-2. Each mode file has a `cwd_match` field — a path prefix to match against cwd
-3. If cwd matches exactly one mode, use it automatically
-4. If cwd matches multiple or none, ask the user which mode (or use generic defaults)
-5. If `modes/` doesn't exist, use generic decomposition (no project-specific config)
-
-### Creating a Mode
-
-Copy `references/mode-template.md` to `modes/{project-name}.md` and fill in split boundaries, agent preferences, and validation commands for your project. When a user runs the skill with no matching mode, offer to create one.
-
-Modes are gitignored — they contain project-specific paths and preferences that should not be committed to the skill repo.
+1. Look for `context.yaml` in the working tree (generated from the client overlay)
+2. If found, load project-specific settings (split boundaries, agent preferences, validation commands) from it automatically
+3. If not found, ask the user which client to target (or use generic defaults)
+4. If no `skillbox-config/` exists, use generic decomposition (no project-specific config)
 
 ## Agent Types
 

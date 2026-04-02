@@ -35,13 +35,13 @@ Before entering the loop:
 
 1. Emit a stable first progress update:
    - `Using domain-reviewer in <mode|resolving> mode for <slice|slice-resolution>.`
-2. **Detect mode** from CWD (read mode file)
+2. **Detect context** from CWD (read client overlay)
 3. **Resolve the slice before asking the user**:
    - explicit slice name in the request
    - explicit plan path or current `AUDIT_REPORT.md` / `COMPLETED.md` handoff artifact
-   - one clear slice implied by the active mode, cwd, or upstream handoff context
+   - one clear slice implied by the active client overlay, cwd, or upstream handoff context
 4. Ask the user for the slice only when multiple plausible slices remain or none can be resolved safely.
-5. **Extract from mode file:**
+5. **Extract from client overlay context.yaml:**
    - `plan_root`, `plan_index` paths
    - Backend/frontend implementation locations
    - Convention/standards file paths
@@ -49,11 +49,11 @@ Before entering the loop:
 6. **Read reference files** to have on hand for constructing worker prompts:
    - `references/audit-workflow.md` (audit steps for worker phase)
    - `references/audit-template.md` (report template for worker phase)
-   - Mode's convention files (for including in worker context)
+   - Client overlay's convention files (for including in worker context)
 
 ## Auth Service Guardrails (Required)
 
-The shared auth/payments/identity service (`{auth_packages_root}` from mode config) is the source of truth for the audit loop.
+The shared auth/payments/identity service (`{auth_packages_root}` from the client overlay) is the source of truth for the audit loop.
 
 1. Workers must treat existing auth service packages as mandatory for auth/payments/identity scope.
 2. If missing functionality is discovered, workers must request an auth-scope proposal instead of approving local replacement implementations.
@@ -121,8 +121,8 @@ while iteration < 5:
 Construct the initial audit worker prompt by combining:
 
 1. **Directive:** "Audit the `{slice}` slice implementation against its plan."
-2. **Mode context:** All paths from the mode file (plan root, implementation locations, convention file paths)
-3. **Full audit instructions:** Paste Steps 1-9 from `references/audit-workflow.md` with mode-specific paths substituted
+2. **Client context:** All paths from the client overlay (plan root, implementation locations, convention file paths)
+3. **Full audit instructions:** Paste Steps 1-9 from `references/audit-workflow.md` with client-overlay-specific paths substituted
 4. **Report template:** Paste `references/audit-template.md` so the worker knows the exact output format
 5. **Severity levels:** From SKILL.md
 6. **Auth service guardrails:** Existing package reuse, gap-proposal requirement, and local-link to published/live validation flow
@@ -173,11 +173,11 @@ Run re-review worker phase using this prompt:
 Re-review the {slice} slice after fixes were applied (re-review #{iteration}).
 
 ## Context
-{Same mode context as initial audit}
+{Same client overlay context as initial audit}
 
 ## Instructions
 1. Read the plan files at {plan_root}/{slice}/ (plan.md, shared.md, backend.md, frontend.md, flows.md)
-2. Read the convention/standards files: {list from mode}
+2. Read the convention/standards files: {list from client overlay}
 3. Read the existing AUDIT_REPORT.md at {plan_root}/{slice}/AUDIT_REPORT.md
 4. Run `git diff` in relevant repos to see changes since last audit commit
 5. For EACH issue in the previous audit/re-review:
@@ -225,8 +225,8 @@ Run `domain-scaffolder` with `surface=backend` for the `{slice}` slice.
 {Backend handoff block from AUDIT_REPORT.md, verbatim}
 
 Additional context:
-- Read these convention files before making changes: {backend convention files from mode}
-- Backend code location: {backend path from mode}
+- Read these convention files before making changes: {backend convention files from client overlay}
+- Backend code location: {backend path from client overlay}
 - Plan files: {plan_root}/{slice}/
 - Auth service: reuse existing `{auth_packages_root}` auth/payments/identity packages; if missing functionality, create a auth-scope proposal instead of local replacement logic
 - Delivery strategy: implement target-state plan only; do not add legacy compatibility mechanics unless explicitly requested
@@ -241,8 +241,8 @@ Run `domain-scaffolder` with `surface=frontend` for the `{slice}` slice.
 {Frontend handoff block from AUDIT_REPORT.md, verbatim}
 
 Additional context:
-- Read the frontend patterns reference: {patterns file from mode}
-- Frontend code location: {frontend path from mode}
+- Read the frontend patterns reference: {patterns file from client overlay}
+- Frontend code location: {frontend path from client overlay}
 - Plan files: {plan_root}/{slice}/
 - Auth service: reuse existing `{auth_packages_root}` auth/payments/identity packages; if missing functionality, create a auth-scope proposal instead of local replacement logic
 - Delivery strategy: implement target-state plan only; do not add legacy API compatibility paths unless explicitly requested

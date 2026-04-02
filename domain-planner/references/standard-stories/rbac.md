@@ -8,7 +8,7 @@ During Phase 1, check: "Does this slice involve any of these patterns?"
 - If yes, copy relevant stories and adapt role names / resource names
 - If the slice is auth-adjacent (e.g., needs feature gating), pull just that section
 - Skip stories that don't apply — these are a menu, not a mandate
-- Keep this file generic. Put project-specific role names, portals, and business examples in mode files or slice-specific planning docs.
+- Keep this file generic. Put project-specific role names, portals, and business examples in client overlays or slice-specific planning docs.
 
 ---
 

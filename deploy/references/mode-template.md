@@ -34,23 +34,24 @@ package_name: your-package-name
 package_registry: npm
 ---
 
-# Deploy Mode Template
+# Deploy Overlay Key Reference
 
-Copy this file to `modes/<name>.md` and replace placeholders with real values.
-`health_url_frontend` can be any lightweight public smoke URL for the frontend,
-not necessarily `/health`.
+Use this as a reference when creating a client overlay at
+`skillbox-config/clients/{client}/overlay.yaml`. Replace placeholders with real
+values. `health_url_frontend` can be any lightweight public smoke URL for the
+frontend, not necessarily `/health`.
 
 Guidelines:
 
-- keep all real hosts, repo names, and filesystem paths in the mode file
-- prefer one mode per deploy surface or environment
-- let `cwd_match` point at the repos or SSH-dev roots where this mode should activate
+- keep all real hosts, repo names, and filesystem paths in the client overlay
+- prefer one overlay per deploy surface or environment
+- let `cwd_match` point at the repos or SSH-dev roots where this overlay should activate
 - add extra keys freely; `scripts/select_mode.py` flattens nested YAML into `MODE_*` exports
 
 Optional keys are fine. If a project does not publish a package or does not use
-Pages, leave those placeholders out in the real local mode.
+Pages, leave those placeholders out in the real client overlay.
 
 Selection rules:
 
-- the selector chooses the mode with the longest matching `cwd_match`
+- the selector chooses the overlay with the longest matching `cwd_match`
 - if multiple modes tie, selection is ambiguous and should be resolved by the user

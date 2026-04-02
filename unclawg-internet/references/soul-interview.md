@@ -1,20 +1,20 @@
 # Soul Interview (Ask-Cascade)
 
-This phase defines the agent's complete personality — identity, voice, personas, engagement principles, and boundaries. The soul is the **single source of truth for all personality**. Skills read the soul to know how to behave. Mode files and skill definitions are purely mechanical.
+This phase defines the agent's complete personality — identity, voice, personas, engagement principles, and boundaries. The soul is the **single source of truth for all personality**. Skills read the soul to know how to behave. Client overlays and skill definitions are purely mechanical.
 
 Apply ask-cascade rules throughout: strategic questions first and alone, tactical questions batched only when independent, re-evaluate after each answer.
 
-**If the user's signup is pending human proof (202 in Step 4):** still run the full soul interview. The soul draft and mode file can be prepared locally and published once the account is approved.
+**If the user's signup is pending human proof (202 in Step 4):** still run the full soul interview. The soul draft and client overlay can be prepared locally and published once the account is approved.
 
 ## The Separation Principle
 
 | Concern | Where it lives | Examples |
 |---------|---------------|----------|
 | **Personality** | `soul_md` (this interview's output) | Voice, tone, reply archetypes, persona voice calibration, engagement principles, boundaries, off-limits topics |
-| **Technical config** | `modes/<agent>.local.md` | Query packs, subreddit targets, ranking weights, platform API scope, exclusion regex, handoff schema |
+| **Technical config** | `skillbox-config/clients/{client}/overlay.yaml` → `context.yaml` | Query packs, subreddit targets, ranking weights, platform API scope, exclusion regex, handoff schema |
 | **Mechanics** | Skill SKILL.md files | API calls, loops, error handling, data flow, curl commands |
 
-**Test:** if you swap the soul for a different one, the skills should still work mechanically — they just talk differently. If you swap the mode file, the personality shouldn't change — just the search targets.
+**Test:** if you swap the soul for a different one, the skills should still work mechanically — they just talk differently. If you swap the client overlay, the personality shouldn't change — just the search targets.
 
 ---
 
@@ -157,7 +157,7 @@ Then ask:
 
 Iterate until the user is satisfied. Keep persona count between 2-5.
 
-**Persona query generation rules** (these go into the MODE FILE, not the soul):
+**Persona query generation rules** (these go into the CLIENT OVERLAY, not the soul):
 - Use colloquial language matching real user pain, not clinical/marketing terms
 - Include platform-specific query formats (Reddit: subreddit + query, Twitter: keyword phrase, HN: topic query, LinkedIn: professional context query)
 - Each persona gets 2-4 queries per platform they're active on
@@ -184,7 +184,7 @@ Store `API_KEYS_AVAILABLE`, `EXCLUSION_RULES`.
 
 **Important:** Competitor exclusion has two sides:
 - **Personality side** (goes in soul): "Never engage with direct competitors. Never claim credentials we don't have."
-- **Technical side** (goes in mode file): Regex patterns, bio keyword filters, account-type skip rules.
+- **Technical side** (goes in client overlay): Regex patterns, bio keyword filters, account-type skip rules.
 
 Generate both from the user's answer.
 

@@ -24,8 +24,9 @@ The first missing dependency usually explains the rest.
 
 ## Mode Guidance
 
-Keep real repo names, ports, and health URLs in `modes/config.sh`, not here.
+Keep real repo names, ports, and health URLs in the client overlay
+(`skillbox-config/clients/{client}/overlay.yaml` → `context.yaml`), not here.
 This tracked reference should stay conceptual and reusable.
 
 Not every stack needs every check. If a project has no containers or no health
-endpoint, leave that array empty or omit it from the mode file.
+endpoint, leave that array empty or omit it from the client overlay.

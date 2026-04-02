@@ -50,6 +50,13 @@ Run a bounded improvement loop:
 python3 scripts/analyze_crap.py {target} --languages {languages} --top 20
 ```
 
+- Capture a delta audit baseline snapshot immediately after the first analyzer
+  run:
+
+```bash
+python3 scripts/delta_audit.py snapshot {target} --languages {languages} -o /tmp/crap-baseline.json
+```
+
 - Capture:
   - current `FINAL_SCORE`
   - top hotspot functions
@@ -115,6 +122,39 @@ language is still within CRAP's supported v1 set (`rust`, `python`,
 
 Do not present mutation results as a CRAP input. They are a separate signal
 about test strength.
+
+### 4.6 Delta integrity audit
+
+After every re-measure (step 4), run the delta audit before committing:
+
+```bash
+python3 scripts/delta_audit.py audit /tmp/crap-baseline.json {target} --languages {languages}
+```
+
+Read the `DELTA_INTEGRITY` line:
+
+- `clean`: proceed to commit.
+- `warning`: review the flags, proceed if justified.
+- `suspicious`: **stop the loop**. Show the flags to the user and do not commit
+  until the suspicious changes are acknowledged or reverted.
+
+Common flags and what they mean:
+
+- **split-without-reduction**: A function was broken into pieces but the total
+  complexity stayed the same or increased. The score dropped because individual
+  functions are smaller, not because the code got simpler.
+- **scope-escape**: Code disappeared from the analyzed target without a git
+  deletion. It was likely moved to escape scoring.
+- **hollow-coverage**: New test files contain zero assertions. They inflate
+  line coverage without verifying behavior.
+- **scope-narrowing**: The target path changed between the baseline snapshot
+  and the current run. Score comparison across scopes is misleading.
+
+After a clean commit, take a fresh snapshot for the next iteration:
+
+```bash
+python3 scripts/delta_audit.py snapshot {target} --languages {languages} -o /tmp/crap-baseline.json
+```
 
 ### 5. Commit stable progress
 

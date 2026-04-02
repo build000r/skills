@@ -1,6 +1,6 @@
 ---
 name: deploy
-description: Deploy, rollback, debug, and operate multi-service Docker or VPS stacks, plus Pages/edge frontends, using project-specific mode files for hosts, repos, domains, and paths. Use when deploying code, checking health, reviewing logs, comparing env rollout plans, validating package publishing, or working in SSH dev environments where production safety rules matter.
+description: Deploy, rollback, debug, and operate multi-service Docker or VPS stacks, plus Pages/edge frontends, using a skillbox client overlay for hosts, repos, domains, and paths. Use when deploying code, checking health, reviewing logs, comparing env rollout plans, validating package publishing, or working in SSH dev environments where production safety rules matter.
 ---
 
 # Deploy
@@ -10,7 +10,7 @@ tracked skill.
 
 Start the first progress update with:
 
-`Using deploy to load the matching mode, run preflight, and execute the smallest safe operational step.`
+`Using deploy to load the client overlay, run preflight, and execute the smallest safe operational step.`
 
 ## Use This For
 
@@ -25,13 +25,14 @@ Start the first progress update with:
 - Generic product planning or implementation design
 - Local-only debugging when no deploy, infra, or shared runtime concern is involved
 
-## Mode Contract
+## Client Overlay Contract
 
 This skill is public and generic. Real repos, domains, hosts, and paths belong
-in gitignored `modes/*.md` files selected by
-[`scripts/select_mode.py`](scripts/select_mode.py).
+in the skillbox client overlay at
+`skillbox-config/clients/{client}/overlay.yaml`, which is auto-generated into
+`context.yaml` at install time.
 
-Load the matching mode before deploy/debug work:
+Load the resolved context before deploy/debug work:
 
 ```bash
 SKILL_DIR="$HOME/.claude/skills/deploy"
@@ -39,17 +40,17 @@ SKILL_DIR="$HOME/.claude/skills/deploy"
 eval "$("$SKILL_DIR/scripts/select_mode.py" "$PWD" --format shell)"
 ```
 
-If no mode matches, stop and say so plainly. Do not guess hosts, repo paths, or
-deploy roots.
+If no client overlay matches, stop and say so plainly. Do not guess hosts, repo
+paths, or deploy roots.
 
-Create a new mode from
-[references/mode-template.md](references/mode-template.md).
+See [references/mode-template.md](references/mode-template.md) for the overlay
+key reference.
 
 ## Required Preflight
 
 Run this checklist before any irreversible step:
 
-1. Load mode values and confirm the target environment.
+1. Load overlay values and confirm the target environment.
 2. Identify the deploy surface:
    - Docker/Compose service
    - package publish
@@ -82,9 +83,9 @@ Use these defaults unless the user explicitly changes them:
 
 ## Default Flow
 
-### 1. Load mode
+### 1. Load overlay
 
-Resolve the mode first. Use mode vars instead of hardcoded literals everywhere.
+Resolve the client overlay first. Use overlay vars instead of hardcoded literals everywhere.
 
 Typical vars:
 
@@ -163,7 +164,7 @@ Typical checks:
 - current edge route or origin config
 - post-deploy health or smoke check
 
-Use mode values for project name, public origin, and worker config path.
+Use overlay values for project name, public origin, and worker config path.
 
 ## Rollback
 
@@ -205,7 +206,7 @@ Before a risky migration or restore:
 3. confirm restore command path before running the change
 4. run a minimal post-change query or health check
 
-Prefer mode variables for DB names, deploy roots, and backup locations.
+Prefer overlay variables for DB names, deploy roots, and backup locations.
 
 ## SSH Dev Environments
 
@@ -224,7 +225,7 @@ Use the exact failure signature instead of generic “unauthorized” summaries:
 | --- | --- | --- |
 | `401` + auth error code | missing or stale credential/header | compare env source and deployed secret |
 | `403` + permission code | role/scope mismatch | inspect auth config and subject role |
-| `404` on health URL | wrong route/origin/frontdoor | check mode host/path values |
+| `404` on health URL | wrong route/origin/frontdoor | check overlay host/path values |
 | `502` / `503` at proxy | upstream container down or wrong upstream port | check compose status and container-local health |
 | migration command fails | schema drift or wrong DB target | verify DB name, container, and current revision |
 
@@ -238,7 +239,7 @@ Use the exact failure signature instead of generic “unauthorized” summaries:
 ## Rules
 
 - Never hardcode real hosts, domains, repo names, or server paths in tracked files.
-- Use mode values for deployment-specific details.
+- Use overlay values for deployment-specific details.
 - Prefer the smallest safe operational step before escalations.
 - Always call out one-phase vs two-phase rollout when env, auth, or schema changes are involved.
 - Always end with one behavior check and one state check.

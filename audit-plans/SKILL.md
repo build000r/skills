@@ -7,7 +7,7 @@ description: Audit domain plans and session plans with audit, prioritize, invest
 
 Five modes: **audit** (default), **quick**, **prioritize**, **investigate**, and **focus**.
 
-This skill is intentionally generic. Tracked files describe the reusable workflow; workspace-specific paths, repo groupings, and validation commands live in a gitignored mode file.
+This skill is intentionally generic. Tracked files describe the reusable workflow; workspace-specific paths, repo groupings, and validation commands come from the client overlay (`skillbox-config/clients/{client}/overlay.yaml` → auto-generated `context.yaml`).
 
 **Companion skills:**
 - `/domain-reviewer retire {slice}` for consolidating completed domain slices
@@ -19,11 +19,8 @@ for background-task handling and worker ownership.
 
 ## Mode Contract
 
-Before reading or mutating any real plan catalog, load `modes/config.sh` if it exists.
-If it does not exist, try auto-detection (see below). Only ask the user when auto-detection fails.
-
-Create a local mode from
-[references/mode-template.sh](references/mode-template.sh). `modes/` is gitignored and must stay untracked.
+Before reading or mutating any real plan catalog, load the client overlay from `context.yaml` (auto-generated from `skillbox-config/clients/{client}/overlay.yaml`).
+If no overlay is available, try auto-detection (see below). Only ask the user when auto-detection fails.
 
 ### Required exports
 
@@ -46,16 +43,16 @@ Derivation rule: for each directory in `PLAN_DIRS`, check if `INDEX.md` exists. 
 - `MERMAID_VALIDATE_CMD`: command to validate diagrams in the catalog
 - `FOCUS_RELATED_REPOS`: newline-separated `repo=repo1,repo2` mappings for focus mode
 
-### Auto-detection (no config file)
+### Auto-detection (no overlay)
 
-When `modes/config.sh` does not exist:
+When no client overlay is available:
 
 1. Walk upward from `cwd` looking for a directory containing `released/INDEX.md` or `planned/INDEX.md`
 2. If found, set `PLAN_ROOT` to that directory and derive the rest
 3. Also check common locations relative to the repo root: `plans/`, `docs/plans/`, `src/data/db-schemas/`
 4. If multiple candidates are found, list them and ask the user to pick
 5. If none are found, ask the user for `PLAN_ROOT`
-6. After successful auto-detection, offer to save the result as `modes/config.sh` for next time
+6. After successful auto-detection, offer to save the result in the client overlay for next time
 
 ### Session plan support
 
@@ -138,7 +135,7 @@ Never hardcode repo-specific plan roots in tracked files.
 
 ## Workflow
 
-1. Load mode config, auto-detect, or ask for the missing catalog locations.
+1. Load client overlay, auto-detect, or ask for the missing catalog locations.
 2. If `MERMAID_VALIDATE_CMD` is set, launch it in the background.
 3. Read all configured indexes (released, planned, and session if it exists).
 4. Parse rows and compare them against the real plan files/folders.
@@ -191,7 +188,7 @@ Error: {error_message}
 
 ### Detecting Unindexed Domain Plans
 
-Use the mode's directory roots and index links instead of hardcoded paths.
+Use the client overlay's directory roots and index links instead of hardcoded paths.
 
 1. Enumerate plan directories under each entry in `PLAN_DIRS`.
 2. Extract linked slice names from the corresponding index.

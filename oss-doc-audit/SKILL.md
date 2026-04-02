@@ -35,15 +35,13 @@ pass.
 
 ## Modes
 
-Repo-aware audits should use a local gitignored mode file when available.
+Repo-aware audits should use the skillbox client overlay when available.
 
-1. List `modes/*.md` in this skill directory.
-2. Match `cwd` against `cwd_match` path prefixes.
+1. Check `skillbox-config/clients/{client}/overlay.yaml` → `context.yaml` for the active client.
+2. Match `cwd` against `cwd_match` path prefixes in the resolved context.
 3. If multiple modes match, prefer the longest matching prefix.
 4. If one best match remains, use it automatically.
 5. If none match, infer the active codebase from repo files before scanning.
-
-See [references/mode-template.md](references/mode-template.md).
 
 ## Workflow
 

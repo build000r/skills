@@ -1,6 +1,6 @@
 ---
 name: ssh-info
-description: Server connection reference and targeted live status checks for containerized environments. Use when asking "ssh info", "server status", "what's running", "container status", "how do I connect", "check production", "which containers", or "show me the health checks" and the answer depends on a private mode overlay with host and service details.
+description: Server connection reference and targeted live status checks for containerized environments. Use when asking "ssh info", "server status", "what's running", "container status", "how do I connect", "check production", "which containers", or "show me the health checks" and the answer depends on a skillbox client overlay with host and service details.
 ---
 
 # SSH Info
@@ -15,7 +15,7 @@ asked for one narrow check.
 
 Start with a stable first progress update such as:
 
-`Using ssh-info to resolve the right mode, then run only the requested server checks.`
+`Using ssh-info to resolve the client overlay, then run only the requested server checks.`
 
 ## Use This For
 
@@ -33,28 +33,30 @@ Start with a stable first progress update such as:
 Use `deploy` for operational changes and `dev-sanity` for local ecosystem
 health checks.
 
-## Private Mode Overlay
+## Client Overlay
 
-This skill requires a gitignored mode overlay at `modes/config.sh`.
+This skill requires a skillbox client overlay at
+`skillbox-config/clients/{client}/overlay.yaml`, which is auto-generated into
+`context.yaml` at install time.
 
-Tracked files stay generic. The private mode holds:
+Tracked files stay generic. The client overlay holds:
 
 - SSH host/user details
 - container names
 - health endpoints
 - any environment-specific aliases or labels
 
-Copy [references/mode-template.md](references/mode-template.md) into
-`modes/config.sh`, fill in your real values, and keep it untracked.
+See [references/mode-template.md](references/mode-template.md) for the overlay
+key reference.
 
-If no mode file exists, stop with a concise error and point the operator at the
-template. Do not guess a host or a production URL.
+If no client overlay exists, stop with a concise error and point the operator at
+the overlay template. Do not guess a host or a production URL.
 
 ## Execution Policy
 
 Run only what the user asked for.
 
-1. Resolve mode/config first.
+1. Resolve the client overlay first.
 2. Respect requested scope: connection info, containers, health, logs, DB, or
    full status.
 3. If the request is vague, do the smallest useful baseline:
@@ -70,8 +72,8 @@ Run only what the user asked for.
 Return:
 
 - SSH target
-- auth method notes from the mode file
-- relevant repo or deploy root hints, if the mode defines them
+- auth method notes from the client overlay
+- relevant repo or deploy root hints, if the overlay defines them
 
 ### Container Status
 
@@ -81,7 +83,7 @@ Run the bundled helper:
 bash scripts/status.sh prod
 ```
 
-This should read the private mode and either:
+This should read the client overlay and either:
 
 - run locally on the server, or
 - wrap commands in SSH when `STATUS_REMOTE_SSH` is set
@@ -138,7 +140,7 @@ explicitly asks for them.
 - No destructive SQL
 - No service restarts
 - No deploy or rollback actions
-- No guesses when the mode file is missing or incomplete
+- No guesses when the client overlay is missing or incomplete
 
 ## Validation
 
@@ -151,5 +153,5 @@ bash "$SKILLS_ROOT/ssh-info/scripts/status.sh" >/tmp/ssh-info.out 2>/tmp/ssh-inf
 head -n 2 /tmp/ssh-info.out /tmp/ssh-info.err
 ```
 
-The helper should fail cleanly with usage or a missing-mode message when no
-private mode exists.
+The helper should fail cleanly with usage or a missing-overlay message when no
+client overlay exists.

@@ -54,7 +54,7 @@ Context:
 - Frontend code: {frontend_path}
 - Backend standards: {backend_standards}
 - Frontend standards: {frontend_standards}
-- Mode file: {mode_file}
+- Client config: {context_yaml}
 
 Guardrails:
 - Stay in owned scope.

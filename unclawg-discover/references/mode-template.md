@@ -1,15 +1,17 @@
-# Mode Template
+# Client Overlay Template
 
 Copy this into a local gitignored file:
 
-- `modes/<project>.md`
+- `skillbox-config/clients/{client}/overlay.yaml`
+
+The overlay is merged at build time into `context.yaml` which downstream skills consume.
 
 Required fields:
 
 ```yaml
 name: your-project
 cwd_match: /absolute/path/prefix
-agent_id: your-agent-name          # disambiguates when multiple modes match same cwd
+agent_id: your-agent-name          # disambiguates when multiple overlays match same cwd
 objective_default: prospecting
 handoff_type: approval-portal       # public default; approval-portal | engagement-queue | db-insert (private operator mode only)
 handoff_command: /your-next-step    # null if handoff_type handles routing directly
@@ -17,7 +19,7 @@ handoff_command: /your-next-step    # null if handoff_type handles routing direc
 
 ## What Goes Here vs. What Goes in the Soul
 
-| This file (mode) | The soul (`soul_md`) |
+| This file (client overlay) | The soul (`soul_md`) |
 |-------------------|---------------------|
 | Search queries per persona per platform | Persona definitions (name, pain, voice) |
 | Subreddit/community targets | Reply archetypes and mix guidance |
@@ -26,7 +28,7 @@ handoff_command: /your-next-step    # null if handoff_type handles routing direc
 | Platform scope and API key requirements | Platform tone calibration |
 | Handoff schema | Voice and personality |
 
-**Rule:** If swapping this file changes how the agent *talks*, something is in the wrong place. This file should only change what the agent *searches for* and where.
+**Rule:** If swapping this overlay changes how the agent *talks*, something is in the wrong place. This file should only change what the agent *searches for* and where.
 
 ## Configuration
 
@@ -119,7 +121,7 @@ comment_signal_regex:
 
 Scripts: `search_instagram_comments.sh`, `search_tiktok_comments.sh`
 
-Keep account lists and signal regexes in local mode files only. When running the public scripts, pass the regex via `--signal-regex` or `COMMENT_SIGNAL_REGEX` rather than committing domain-specific patterns into tracked files.
+Keep account lists and signal regexes in client overlay files only (`skillbox-config/clients/{client}/overlay.yaml`). When running the public scripts, pass the regex via `--signal-regex` or `COMMENT_SIGNAL_REGEX` rather than committing domain-specific patterns into tracked files.
 
 ### Ask-Cascade Questions
 

@@ -13,7 +13,7 @@ The paper is the source of truth. The companion outputs are derivative compressi
 
 - Default scope is one companion X article plus one narrow LinkedIn bundle, not a full distribution campaign.
 - Use distribution principles to improve clarity, scanability, and extractability.
-- Do not automatically generate channel calendars, paid-promotion plans, newsletter packs, Reddit posts, Shorts, carousels, or other multi-platform kits unless the active mode explicitly asks for them.
+- Do not automatically generate channel calendars, paid-promotion plans, newsletter packs, Reddit posts, Shorts, carousels, or other multi-platform kits unless the active client overlay explicitly asks for them.
 
 ## Generation Order
 
@@ -34,7 +34,7 @@ Before drafting, define one brief for X and one brief for LinkedIn:
 - **Share trigger hypothesis**: practical value, surprise, identity, concern, or another reason this would travel
 - **CTA**: the one action the draft should ask for
 
-If the mode supplies defaults for any of these, use them. Otherwise infer them from the topic and project context.
+If the client overlay supplies defaults for any of these, use them. Otherwise infer them from the topic and project context.
 
 For LinkedIn, also define:
 
@@ -51,7 +51,7 @@ Turn the paper into a faster, more readable piece for the X Articles composer wh
 ### Default Format
 
 - Markdown or plain text by default
-- 1,000-2,500 words unless the mode says otherwise
+- 1,000-2,500 words unless the client overlay says otherwise
 - One title and optional subtitle/deck
 - Four to seven sections
 - Shorter paragraphs than the paper
@@ -110,7 +110,7 @@ Turn the paper into a professional, relevance-first article that reads natively 
 ### Default Format
 
 - Markdown or plain text by default
-- 1,000-2,200 words unless the mode says otherwise
+- 1,000-2,200 words unless the client overlay says otherwise
 - One title and optional deck
 - Four to seven sections
 - Strong subheads that read like conclusions

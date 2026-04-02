@@ -24,7 +24,7 @@ For DONE slices: investigate user stories, consolidate learnings, archive stale 
 
 ## Step 1: Verify Status
 
-Check the mode's `plan_index` for slice status:
+Check the client overlay's `plan_index` for slice status:
 - **DONE** -> Proceed with retire
 - **IN_PROGRESS** -> "This slice is still in progress. Run audit mode instead?"
 - **FUTURE** -> "This slice hasn't been started. Nothing to retire."
@@ -248,7 +248,7 @@ Check INDEX.md for the slice's domain tag (e.g., `[auth]`, `[comms]`):
 2. **Tag missing** -> Suggest adding based on functionality
 3. **Tag seems wrong** -> Ask user: "This slice is tagged [comms] but seems more like [auth]. Should I update?"
 
-**Domain tags are project-specific** -- see the mode file's tag-to-domain mapping for the full list.
+**Domain tags are project-specific** -- see the client overlay's tag-to-domain mapping (`skillbox-config/clients/{client}/overlay.yaml` → `context.yaml`) for the full list.
 
 ### 8b. Find Related Slices
 
@@ -275,7 +275,7 @@ Deferred: Email notifications on new messages
 
 ## Step 9: Update INDEX.md
 
-Update the mode's `plan_index`.
+Update the client overlay's `plan_index`.
 
 Keep status as DONE, update description with story counts:
 

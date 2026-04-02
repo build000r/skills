@@ -1,6 +1,6 @@
 # Mode Example with Ask-Cascade Checklist
 
-Use this as a quality blueprint when writing your local `modes/<project>.md` file.
+Use this as a quality blueprint when writing your local `skillbox-config/clients/{client}/overlay.yaml` file.
 
 ## Ask-Cascade Checklist
 

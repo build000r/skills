@@ -29,7 +29,7 @@ supports:
 - **Profile A: Subagent-capable runtimes**
   - Use a fresh-context read-only subagent for `review-spec`.
   - Reuse the reviewed packet for `implement-from-spec` when implementation is
-    handed to another agent or `codex-tmux`.
+    handed to another agent or delegated via `/codex:rescue`.
 - **Profile B: Single-agent runtimes**
   - Run the same review as an explicit second-pass inline check.
   - If the user explicitly requested a subagent, do not silently fake one;
@@ -43,7 +43,7 @@ Terminology used below:
 - **"Spawn subagent"** = delegate the fresh review if the runtime supports it;
   otherwise use the explicit inline fallback from Profile B.
 - **"Implementation handoff"** = either inline implementation or a
-  `codex-tmux` run, depending on user request and task size.
+  `/codex:rescue` delegation, depending on user request and task size.
 
 ## Modes
 
@@ -237,9 +237,9 @@ Enter this mode when any of these are true:
 Rules:
 
 1. Treat the reviewed describe spec as locked scope.
-2. If the user explicitly asked for `codex-tmux`, prefer it even for smaller
-   tasks.
-3. Also prefer `codex-tmux` when the implementation is likely to take 5+
+2. If the user explicitly asks to delegate to Codex, prefer `/codex:rescue`
+   even for smaller tasks.
+3. Also prefer `/codex:rescue` when the implementation is likely to take 5+
    minutes or benefits from fresh context.
 4. If the packet does not already include concrete validation commands, derive
    them before coding and append them to the packet.
@@ -253,11 +253,9 @@ Rules:
    [references/post-spec-prompts.md](references/post-spec-prompts.md).
 7. Use the stable commentary marker:
    - `Using describe (implement-from-spec). Locked scope from the reviewed spec; tests first, then implementation, then validation.`
-8. After launching `codex-tmux`, report:
-   - session name
-   - `watch live` command
-   - `status` command
-9. If not using `codex-tmux`, implement inline but still keep the locked-spec
+8. After launching `/codex:rescue`, report that the job is running and remind
+   the user to check with `/codex:status` and `/codex:result`.
+9. If not using `/codex:rescue`, implement inline but still keep the locked-spec
    discipline.
 10. After implementation, report:
    - what changed

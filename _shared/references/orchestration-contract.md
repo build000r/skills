@@ -15,7 +15,6 @@ Use this contract when working on:
 - `domain-scaffolder` completion handoffs
 - `audit-plans` background validation and retirement handoffs
 - `divide-and-conquer` parallel worker ownership and detached review handoffs
-- `codex-tmux` detached review transport and background waiter behavior
 
 ## Canonical Names
 
@@ -69,8 +68,10 @@ Pick the runtime profile your environment supports:
 
 - Subagent-capable runtime: delegate worker phases with fresh context
 - Single-agent runtime: execute the same phases inline with explicit re-reads
-- Detached long-running review: use `codex-tmux` instead of inventing a new
-  background protocol
+- Codex-delegated review: use `/codex:rescue` (via `codex-plugin-cc`) with
+  `--model gpt-5.4 --effort xhigh` for detached review gates. Add
+  `--background` for long-running work; check with `/codex:status` and
+  `/codex:result`
 
 Skill-local docs may name concrete tools, but should not redefine the shared
 role model or success criteria.
@@ -95,10 +96,11 @@ role model or success criteria.
 - Use background validation or detached review only when the foreground path can
   continue productively
 - Use the runtime's native background-task handle when available
-- Otherwise use a detached `codex-tmux` session for long-running review gates
-- Collect background results through the runtime handle or the detached
-  session's status/result commands; do not hard-code one platform primitive as
-  if it were universal
+- For Codex-delegated review, use `/codex:rescue --background` and collect
+  results via `/codex:result`
+- Collect background results through the runtime handle or the plugin's
+  status/result commands; do not hard-code one platform primitive as if it were
+  universal
 
 ## Scoring And Convergence
 

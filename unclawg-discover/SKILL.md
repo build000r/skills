@@ -70,7 +70,7 @@ Project-specific configuration lives in the skillbox client overlay:
 Resolution rules:
 
 1. If a `context.yaml` is present in the active skillbox client directory, load it.
-2. If no client overlay is resolved, run the generic flow below.
+2. If no client overlay is resolved, create one using the skillbox-quickstart scan + generate flow before proceeding.
 3. If multiple clients could apply, ask user which client overlay to use.
 
 ## Soul / Mode / Skill Separation

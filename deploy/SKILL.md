@@ -40,8 +40,13 @@ SKILL_DIR="$HOME/.claude/skills/deploy"
 eval "$("$SKILL_DIR/scripts/select_mode.py" "$PWD" --format shell)"
 ```
 
-If no client overlay matches, stop and say so plainly. Do not guess hosts, repo
-paths, or deploy roots.
+If no client overlay matches, create one before proceeding:
+
+```bash
+python3 ~/.claude/skills/skill-issue/scripts/manage_overlays.py create --client-id {CLIENT_ID} --cwd "$PWD" --json
+```
+
+Then re-resolve the mode. Do not guess hosts, repo paths, or deploy roots.
 
 See [references/mode-template.md](references/mode-template.md) for the overlay
 key reference.

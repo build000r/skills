@@ -58,9 +58,10 @@ The overlay defines:
 - **auth** — packages_root, python_packages, npm_packages
 
 **If no client overlay matches the current directory:**
-1. You can still read/create plans if you provide explicit `--config` paths to `init_slice.py`.
-2. For implementation (orchestration mode), ask the user which client to use.
-3. DO NOT search the filesystem. DO NOT spawn Explore agents.
+1. Tell the user no overlay matches and create one using the skillbox-quickstart scan + generate flow before proceeding.
+2. If the user declines overlay creation, you can still read/create plans with explicit `--config` paths to `init_slice.py`.
+3. For implementation (orchestration mode), an overlay is required — do not proceed without one.
+4. DO NOT search the filesystem. DO NOT spawn Explore agents.
 
 ## Auth Service Requirements (All Modes)
 
@@ -402,7 +403,7 @@ A thin Phase 5 that says "we chose X" without saying "because Y, not Z" is incom
 
 **Why this phase exists:** The Phase 6b quality loop checks rubric compliance (are all fields present? do contracts match?). This phase checks *architectural quality* — are the contracts well-designed? Are there better patterns? Did we miss failure modes? These are different concerns; rubric compliance does not imply good architecture.
 
-**Prerequisites:** `apr` CLI installed (`apr --version`). If not installed, skip this phase and note it was skipped.
+**Prerequisites:** `apr` CLI installed (`apr --version`). If not installed, fall back to `/codex:rescue` (see Codex fallback below). If neither is available, skip this phase and note it was skipped.
 
 **Steps:**
 
@@ -473,6 +474,21 @@ A thin Phase 5 that says "we chose X" without saying "because Y, not Z" is incom
 
 **What this phase is NOT:** It is not a replacement for Phase 6b's rubric-based quality loop. `apr` reviews improve the *substance* of the plan; the quality loop ensures *structural completeness*. Run both.
 
+#### Codex Fallback (when `apr` is not installed)
+
+If `apr` is unavailable but the `codex-plugin-cc` plugin is loaded, use `/codex:rescue` to get architectural review with your own prompt:
+
+```
+/codex:rescue --background --model gpt-5.4 --effort xhigh \
+  Review the {slice} plan files in {plan_root}/{slice}/ for architectural quality. \
+  Focus on: API contract design, failure modes, entity relationships, missing edge cases, \
+  and whether better patterns exist. Read all 6 plan files. \
+  Write suggestions as a numbered list with file, section, and proposed change. \
+  Do NOT modify plan files. Do NOT score against the rubric (Phase 6b handles that).
+```
+
+Check progress with `/codex:status`, retrieve output with `/codex:result`. Integrate suggestions manually, then proceed to Phase 6.
+
 ---
 
 ### Phase 6: Sign-off
@@ -540,7 +556,15 @@ The goal is independently executable briefs, not a task index that requires cros
 
 Handoff: "Ready to implement? Run the domain-planner skill and select 'Implement it'"
 
-> **External review (optional):** `python3 ~/.claude/skills/domain-planner/scripts/review_plan.py --slice {slice_name} --execute` launches a Codex-based review using the same rubric. Use this for an independent second opinion after the quality loop passes.
+> **External review (optional):** Use `/codex:rescue` to get an independent second opinion after the quality loop passes:
+> ```
+> /codex:rescue --background --model gpt-5.4 --effort xhigh \
+>   Review the {slice_name} plan in {plan_root}/{slice_name}/ against \
+>   the rubric at ~/.claude/skills/domain-planner/references/plan-quality-rubric.md. \
+>   Score all 10 dimensions (10 pts each, 100 total). \
+>   Write REVIEW.md in the plan directory. Do not modify plan files.
+> ```
+> Check with `/codex:status`, retrieve with `/codex:result`. The `review_plan.py` script remains available as a standalone fallback (`python3 ~/.claude/skills/domain-planner/scripts/review_plan.py --slice {slice_name} --execute`).
 
 ---
 
@@ -580,7 +604,8 @@ See [references/orchestration-workflow.md](~/.claude/skills/domain-planner/refer
 │  3. Wait for completion                                  │
 │  4. Launch audit agent (domain-reviewer)                 │
 │  5. If issues: launch fix agents, re-audit               │
-│  6. Loop until COMPLIANT                                 │
+│  6. Loop until COMPLIANT (100/100)                       │
+│  6b. Hardening gate: /crap → /mutate (score ≤ 30)       │
 │  7. Update INDEX.md to DONE                              │
 │                                                          │
 └─────────────────────────────────────────────────────────┘
@@ -601,12 +626,33 @@ See [references/orchestration-workflow.md](~/.claude/skills/domain-planner/refer
 4. **After scaffolding completes, launch an audit agent** using the domain-reviewer skill in audit mode.
 
 5. **Handle audit results:**
-   - COMPLIANT (score = 100/100) → mark done, update INDEX.md
+   - COMPLIANT (score = 100/100) → proceed to hardening gate (step 6b)
    - Issues found → extract handoffs from AUDIT_REPORT.md, launch fix agents only for repos with issues
 
 6. **Re-audit loop** — Max 5 attempts with stall triage, then escalate with a specific blocker report.
 
-7. **Completion** — Update INDEX.md status to DONE, report results to user.
+6b. **Hardening gate (`/crap` score check)** — After audit convergence (100/100 COMPLIANT), launch a background subagent to assess structural quality before retirement:
+
+   ```
+   Audit 100/100 → /crap hardening gate → retire
+   ```
+
+   **Subagent prompt:**
+   > Run `/crap` against the files touched by this slice across all repos involved.
+   > If FINAL_SCORE > 30, run `/mutate` on the top 3 hotspots and add tests
+   > until FINAL_SCORE drops to 30 or below.
+   > Report: pass (score ≤ 30) or fail (score > 30 after hardening) with
+   > the final score and any surviving hotspots.
+
+   **Gate rules:**
+   - **Pass (FINAL_SCORE ≤ 30):** Proceed to step 7 (completion/retirement).
+   - **Fail after hardening (FINAL_SCORE > 30):** Report surviving hotspots to the user with the score and file list. Ask whether to (a) accept current score and proceed to retirement, or (b) launch targeted fix agents for the hotspots.
+   - **Scope:** Only score files that were created or modified by this slice's scaffolding — do not score the entire repo. Use the `writes` globs from `WORKGRAPH.md` nodes to determine scope.
+   - **Skip condition:** If the user passed `--skip-hardening` or explicitly says to skip, proceed directly to step 7.
+
+   This gate catches high-complexity/low-coverage code before it gets retired and forgotten. The `/crap` + `/mutate` combination targets the riskiest code paths with mutation testing, ensuring test coverage is meaningful (not just line coverage).
+
+7. **Completion** — Update INDEX.md status to DONE, report results to user (including final CRAP score if hardening gate ran).
 
 ---
 

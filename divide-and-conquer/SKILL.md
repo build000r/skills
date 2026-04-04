@@ -37,8 +37,8 @@ Project-specific configuration (split boundaries, agent type preferences, reason
 
 1. Look for `context.yaml` in the working tree (generated from the client overlay)
 2. If found, load project-specific settings (split boundaries, agent preferences, validation commands) from it automatically
-3. If not found, ask the user which client to target (or use generic defaults)
-4. If no `skillbox-config/` exists, use generic decomposition (no project-specific config)
+3. If not found, tell the user no overlay matches and create one using the skillbox-quickstart scan + generate flow before proceeding
+4. If no `skillbox-config/` exists, create one — do not fall back to generic decomposition
 
 ## Agent Types
 
@@ -230,9 +230,9 @@ Once all agents complete, read each agent's output. Do NOT manually review, fix,
 
 **Save the original task description and workgraph path** — the reviewer needs both.
 
-### 7. Codex Review (via codex-tmux)
+### 7. Codex Review (via `/codex:rescue`)
 
-After all agents return, launch a Codex review via the `codex-tmux` utility skill. See `~/.claude/skills/codex-tmux/SKILL.md` for the full tmux protocol details.
+After all agents return, launch a Codex review via `/codex:rescue` from the `codex-plugin-cc` plugin.
 
 #### 7a. Build the Review Prompt
 
@@ -287,48 +287,21 @@ Guardrails:
 
 #### 7b. Launch the Reviewer
 
-```bash
-python3 ~/.claude/skills/codex-tmux/scripts/run.py launch \
-    --task "<review prompt from 7a>" \
-    --cd "<repo working directory>" \
-    --model gpt-5.4 \
-    --reasoning-effort xhigh \
-    --prefix dac-review
+```
+/codex:rescue --background --model gpt-5.4 --effort xhigh \
+  <review prompt from 7a>
 ```
 
-#### 7c. Start Background Waiter
-
-Parse the `wait_command` from the launch output:
-
-```bash
-# run_in_background: true, timeout: 600000
-tmux wait-for <signal_channel> && cat <result_file>
-```
-
-#### 7d. Tell User the Session Name
+#### 7c. Tell User and Collect Result
 
 ```
-Agents completed. Codex review running in: dac-review-20260220-143022
+Agents completed. Codex review launched in background.
 
-  Watch live:  tmux a -t dac-review-20260220-143022
-  Status:      python3 ~/.claude/skills/codex-tmux/scripts/run.py status --session dac-review-20260220-143022
+  Check status:  /codex:status
+  Get result:    /codex:result
 ```
 
-The conversation can continue normally or end here — the background waiter handles both.
-
-#### 7e. Collect Result
-
-If the conversation is still alive, periodically check the runtime's background
-task handle or the detached review session result:
-
-- First check after ~60 seconds
-- Subsequent checks every ~30 seconds
-- If the background task timed out (max 10 min), check the result file directly:
-
-```bash
-python3 ~/.claude/skills/codex-tmux/scripts/run.py result \
-    --session <session-name>
-```
+The conversation can continue normally. Use `/codex:status` to check progress and `/codex:result` to retrieve the final output when done.
 
 ### 8. Report to User
 

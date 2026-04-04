@@ -48,8 +48,8 @@ skillbox-config/clients/
 1. Check for a `context.yaml` (auto-generated from the active client overlay)
 2. If `context.yaml` exists and contains a `cwd_match` field, match it against cwd
 3. If cwd matches → use the overlay automatically
-4. If no match or no `context.yaml` → ask the user which client (or generic)
-5. If no client overlays are configured → generic mode (web research only)
+4. If no match or no `context.yaml` → create an overlay before proceeding (see "Creating a Client Overlay" below)
+5. If no client overlays are configured → create one first, do not fall back to generic mode
 
 ### Creating a Client Overlay
 

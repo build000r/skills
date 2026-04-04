@@ -24,11 +24,32 @@ Like domain-reviewer, this workflow is agent-platform neutral:
 
 - **Profile A: Subagent-capable runtimes** — Launch assessor as a Task subagent (`subagent_type=general-purpose`). Fresh context eliminates confirmation bias from having just written the plan. Orchestrator fixes inline (has full domain context).
 - **Profile B: Single-agent runtimes** — Run assessment inline. Simulate fresh context by explicitly re-reading all 6 plan files + rubric before scoring. Keep phase boundaries explicit: `ASSESS` → `SCORE CHECK` → `FIX` → repeat.
+- **Profile C: Codex-delegated** — Delegate assessment to Codex via `/codex:rescue`. Gives a genuinely independent model reviewing the plan with your prompt and rubric. Orchestrator still fixes inline. Use `--background` to keep working while Codex scores.
 
 | Role | Who | Why |
 |------|-----|-----|
-| Assessor | Subagent (Profile A) or inline re-read (Profile B) | Fresh eyes — no bias from having written the plan |
+| Assessor | Subagent (A), inline re-read (B), or Codex via `/codex:rescue` (C) | Fresh eyes — no bias from having written the plan |
 | Fixer | Orchestrator (this agent) | Has full domain context, codebase access, planning session history |
+
+### Profile C: Codex-Delegated Assessment
+
+When the `codex-plugin-cc` plugin is loaded, delegate the assessor prompt to Codex:
+
+```
+/codex:rescue --model gpt-5.4 --effort xhigh \
+  Assess the {slice} plan against the plan quality rubric. \
+  Read the rubric: {skill_root}/references/plan-quality-rubric.md \
+  Read all 6 plan files in {plan_dir}/. \
+  Score each of the 10 dimensions (10 points each, 100 total). \
+  Follow the rubric deduction scale and output format exactly. \
+  Return the assessment with **Score: XX/100** and the issues table. \
+  Rules: be adversarial, cite specific files, include actionable fix instructions, \
+  only deduct for rubric violations.
+```
+
+Add `--background` if you want to continue working while it runs, then `/codex:result` to retrieve the assessment. Parse the score and issues table the same as Profiles A/B (Step 2).
+
+**When to prefer Profile C:** When you want a cross-model second opinion (Codex uses GPT, not Claude) and have the plugin installed. Profile A is faster for the iterative fix loop; Profile C is best for the final external review pass.
 
 ## Auth Service Checks (Quality Assessment Mode)
 
@@ -219,4 +240,4 @@ Phase 6: Sign-off
 └── 6d. Handoff
 ```
 
-The quality loop replaces the previous `review_plan.py` call in the skill's Phase 6 flow. The `review_plan.py` script remains available for external Codex-based review (it now references the same rubric for consistent scoring).
+The quality loop replaces the previous `review_plan.py` call in the skill's Phase 6 flow. Profile C (Codex-delegated via `/codex:rescue`) is the preferred external review path when the `codex-plugin-cc` plugin is installed. The `review_plan.py` script remains available as a standalone fallback for environments without the plugin.

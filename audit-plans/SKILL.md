@@ -20,7 +20,7 @@ for background-task handling and worker ownership.
 ## Mode Contract
 
 Before reading or mutating any real plan catalog, load the client overlay from `context.yaml` (auto-generated from `skillbox-config/clients/{client}/overlay.yaml`).
-If no overlay is available, try auto-detection (see below). Only ask the user when auto-detection fails.
+If no overlay is available, try auto-detection (see below). If auto-detection succeeds, offer to save the result as a client overlay. If auto-detection fails, create an overlay using the skillbox-quickstart scan + generate flow before proceeding.
 
 ### Required exports
 

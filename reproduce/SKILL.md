@@ -119,6 +119,30 @@ Access Request
 
 Ask for the minimum needed. Prefer read-only access for verification tasks.
 
+### 5b) Test accounts from client overlay
+
+Before asking the user for login credentials or cookies, check the active client overlay for `test_accounts`:
+
+```yaml
+# in skillbox-config/clients/{client}/overlay.yaml → context.test_accounts
+test_accounts:
+  - id: app-tester
+    service: myapp
+    email: example@example.com
+    password: TestPass123
+    role: user
+    notes: Default test account
+```
+
+When browser-based or cookie-based testing is needed:
+
+1. Resolve the client overlay (same `cwd_match` logic as other skills)
+2. Look up `context.test_accounts` for entries matching the target service
+3. Use the credentials for API auth (`curl -d`), cookie acquisition, or headless login
+4. If no matching test account exists, use the Access Request protocol above
+
+This avoids interrupting the user for credentials that are already configured. Credentials live only in the client overlay (private, gitignored) — never in the skill itself.
+
 ### 6) DevTools gate (last resort)
 
 Only use DevTools if all are true:

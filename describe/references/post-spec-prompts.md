@@ -69,7 +69,7 @@ or
 ## 2) Implementation Handoff
 
 Use when a reviewed `describe` packet is ready for code, either inline or via
-`codex-tmux`.
+`/codex:rescue`.
 
 ### Inputs
 
@@ -128,11 +128,16 @@ At the end, report:
 
 ### Launch Rule
 
-- Prefer `codex-tmux` when the user explicitly asks for it.
+- Prefer `/codex:rescue` when the user explicitly asks to delegate to Codex.
 - Also prefer it when the implementation is likely to take 5+ minutes or
   benefits from fresh context.
-- After launch, report the tmux session name plus `watch live` and `status`
-  commands from the `codex-tmux` skill.
+- Use `--background` for long-running work. After launch, remind the user to
+  check with `/codex:status` and `/codex:result`.
+
+```
+/codex:rescue --background --model gpt-5.4 --effort high \
+  <implementation prompt from template above>
+```
 
 ## 3) Commit After Spec Handoff
 

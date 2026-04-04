@@ -65,18 +65,40 @@ Terminology bridge used throughout this skill:
 | "Spawn" | Delegate if runtime supports it; otherwise execute inline |
 | "Orchestrator" | The active agent/session coordinating loop decisions |
 
-### Subagent Runtime Setup (Codex MCP + Agents SDK)
+### Subagent Runtime Setup
 
-When using a subagent-capable runtime with Codex:
+When using a subagent-capable runtime:
 
-1. Start one Codex MCP server rooted at the target repo (`cwd` = repo root).
-2. Run one orchestrator worker plus scoped workers (audit, fix-backend, fix-frontend, retire).
-3. Give each worker explicit owned paths (for example `backend/**` vs `frontend/**`).
-4. Keep shared files single-owner/sequential (orchestrator-owned).
-5. No extra worktrees required; workers collaborate in the same repository.
-6. Reuse [references/codex-mcp-orchestration-template.md](~/.claude/skills/domain-reviewer/references/codex-mcp-orchestration-template.md) for standard worker prompts.
-7. For prompt generation/launch, use `python3 ~/.claude/skills/domain-reviewer/scripts/launch_codex_worker.py`.
-8. For full audit loop automation, use `python3 ~/.claude/skills/domain-reviewer/scripts/run_codex_audit_loop.py`.
+1. Run one orchestrator plus scoped workers (audit, fix-backend, fix-frontend, retire).
+2. Give each worker explicit owned paths (for example `backend/**` vs `frontend/**`).
+3. Keep shared files single-owner/sequential (orchestrator-owned).
+4. No extra worktrees required; workers collaborate in the same repository.
+5. Reuse [references/codex-mcp-orchestration-template.md](~/.claude/skills/domain-reviewer/references/codex-mcp-orchestration-template.md) for standard worker prompts.
+
+### Codex Worker Delegation (via `codex-plugin-cc`)
+
+When the `codex-plugin-cc` plugin is loaded, delegate worker phases to Codex via `/codex:rescue` instead of shelling out to Python scripts:
+
+```
+# Audit worker (xhigh for thorough review)
+/codex:rescue --model gpt-5.4 --effort xhigh \
+  Audit the {slice} slice implementation against its plan. \
+  {paste constructed worker prompt from codex-mcp-orchestration-template.md}
+
+# Fix workers (medium effort for bounded implementation)
+/codex:rescue --model gpt-5.4 --effort medium \
+  Apply backend fixes for {slice} from handoff block: \
+  {paste backend handoff block from AUDIT_REPORT.md}
+
+# Re-review worker (xhigh for thorough re-assessment)
+/codex:rescue --model gpt-5.4 --effort xhigh \
+  Re-review the {slice} slice after fixes (re-review #{iteration}). \
+  {paste constructed re-review prompt}
+```
+
+Add `--background` when running fix workers in parallel or when the orchestrator can continue productively.
+
+The `launch_codex_worker.py` and `run_codex_audit_loop.py` scripts remain available as standalone fallbacks for environments without the plugin.
 
 ## Plan Storage
 
@@ -109,10 +131,11 @@ The overlay defines:
 - **Commit conventions** — message formats for audit and retire commits
 
 **If no client overlay matches the current directory:**
-1. You can still run workflows if explicit plan paths are provided via CLI arguments.
-2. For retire mode, implementation context can be minimal, but plan storage paths are still required.
-3. For audit mode, list available client overlays and ask the user which to use when auto-detection fails.
-4. DO NOT search the filesystem. DO NOT launch extra discovery workers.
+1. Tell the user no overlay matches and create one using the skillbox-quickstart scan + generate flow before proceeding.
+2. If the user declines overlay creation, you can still run workflows with explicit plan paths via CLI arguments.
+3. For retire mode, implementation context can be minimal, but plan storage paths are still required.
+4. For audit mode, list available client overlays and ask the user which to use when auto-detection fails.
+5. DO NOT search the filesystem. DO NOT launch extra discovery workers.
 
 ## Mode Detection
 

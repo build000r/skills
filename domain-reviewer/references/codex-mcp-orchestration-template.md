@@ -121,31 +121,47 @@ Instructions:
 3. Commit with `fix({slice}): {brief description}`.
 ```
 
-## Optional Helper Script
+## Preferred: `/codex:rescue` (via `codex-plugin-cc`)
 
-Use `domain-reviewer/scripts/launch_codex_worker.py` to generate or run these prompts with mode-aware context:
+When the plugin is loaded, delegate workers directly from Claude Code:
+
+```
+# Audit worker
+/codex:rescue --model gpt-5.4 --effort xhigh \
+  Audit the agent_billing slice implementation against its plan. \
+  [paste audit worker prompt from above with paths substituted]
+
+# Fix workers (parallel when scopes are disjoint)
+/codex:rescue --background --model gpt-5.4 --effort medium \
+  Apply backend fixes for agent_billing from handoff block: \
+  [paste backend handoff block from AUDIT_REPORT.md]
+
+/codex:rescue --background --model gpt-5.4 --effort medium \
+  Apply frontend fixes for agent_billing from handoff block: \
+  [paste frontend handoff block from AUDIT_REPORT.md]
+
+# Re-review worker
+/codex:rescue --model gpt-5.4 --effort xhigh \
+  Re-review agent_billing after fixes (re-review #1). \
+  [paste re-review worker prompt from above]
+```
+
+Check background jobs with `/codex:status`, retrieve with `/codex:result`.
+
+## Fallback: Helper Scripts
+
+The Python scripts remain available for environments without the plugin:
 
 ```bash
+# Generate or run a single worker prompt
 python3 domain-reviewer/scripts/launch_codex_worker.py \
   --slice agent_billing \
   --worker audit \
   --repo ~/repos/your-project
-```
 
-Run with `--execute` to launch Codex immediately.
-
-Use `domain-reviewer/scripts/run_codex_audit_loop.py` for end-to-end orchestration:
-
-```bash
+# End-to-end orchestration loop
 python3 domain-reviewer/scripts/run_codex_audit_loop.py \
   --slice agent_billing \
   --repo ~/repos/your-project \
   --mode your-mode
 ```
-
-This runs:
-
-1. Initial audit worker
-2. Score parse from `AUDIT_REPORT.md`
-3. Backend/frontend fix workers from handoff blocks (parallel when both exist)
-4. Re-review loop until threshold or max iterations

@@ -31,8 +31,8 @@ Project-specific config (brand name, voice, tone, target audience, content pipel
 
 1. Look for `context.yaml` in the working tree (generated from the client overlay)
 2. If found, load brand-specific settings from it automatically
-3. If not found, ask the user which client to target (or use generic defaults)
-4. If no `skillbox-config/` exists, use generic mode (no brand customization)
+3. If not found, tell the user no overlay matches and create one using the skillbox-quickstart scan + generate flow before proceeding
+4. If no `skillbox-config/` exists, create one — do not fall back to generic mode
 
 ## Prerequisites
 

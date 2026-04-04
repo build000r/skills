@@ -1,6 +1,6 @@
 ---
 name: skill-issue
-description: Create, update, review, and package skills for AI coding agents. Use when asked to "create a skill", "make a skill", "new skill", "skill template", "design a skill", "build a skill", "review this skill", "improve this skill based on past runs", "when did we last use this skill", or when working with SKILL.md files, frontmatter, bundled resources (scripts/, references/, assets/), .skill packaging, or Claude/Codex transcript-driven skill reliability. Also triggers on "how do I make a skill", "skill best practices", "skill structure", "skill reliability", "operator evidence", or requests to extend an agent's capabilities with reusable workflows.
+description: Create, update, review, and package skills for AI coding agents. Also manages client overlays (create, list, validate, match, migrate). Use when asked to "create a skill", "make a skill", "new skill", "skill template", "design a skill", "build a skill", "review this skill", "improve this skill based on past runs", "when did we last use this skill", or when working with SKILL.md files, frontmatter, bundled resources (scripts/, references/, assets/), .skill packaging, or Claude/Codex transcript-driven skill reliability. Also triggers on "how do I make a skill", "skill best practices", "skill structure", "skill reliability", "operator evidence", "create an overlay", "list overlays", "check my overlays", "which overlay matches", "migrate overlays", or requests to extend an agent's capabilities with reusable workflows.
 license: Complete terms in LICENSE.txt
 ---
 
@@ -33,14 +33,128 @@ Each client overlay lives in `skillbox-config/clients/{client}/overlay.yaml`. It
 1. Check `skillbox-config/clients/` for available client overlays
 2. Each overlay has a `cwd_match` field — a path prefix to match against cwd
 3. If cwd matches exactly one overlay, use it automatically
-4. If cwd matches multiple or none, ask the user which overlay (or use generic defaults)
-5. If no client overlays exist, use generic skill creation (no org-specific standards)
+4. If cwd matches multiple, ask the user which overlay to use
+5. **If no overlay matches or none exist, create one before proceeding** — do not fall back to generic defaults
 
-### Creating a Client Overlay
+### Overlay Miss → Create Flow
 
-Use `skillbox-config/clients/{client}/overlay.yaml` to define org standards, publishing targets, and review process. When a user runs the skill with no matching overlay, offer to create one.
+When no overlay matches the current working directory:
+
+1. Tell the user: no matching client overlay found for `{cwd}`
+2. Infer a `CLIENT_ID` from the cwd (repo name, project name, or ask)
+3. Run the skillbox-quickstart scan + generate flow to create the overlay:
+
+```bash
+python3 ~/.claude/skills/skillbox-quickstart/scripts/scan_environment.py --json > /tmp/skillbox-scan.json
+cat /tmp/skillbox-scan.json | python3 ~/.claude/skills/skillbox-quickstart/scripts/generate_overlay.py \
+  --client-id {CLIENT_ID} --json > /tmp/skillbox-recommendation.json
+```
+
+4. Review the generated overlay with the user, then install it:
+
+```bash
+mkdir -p skillbox-config/clients/{CLIENT_ID}
+cp /tmp/overlay.yaml skillbox-config/clients/{CLIENT_ID}/overlay.yaml
+```
+
+5. Re-run Step 0 — the new overlay should now match
+
+This keeps every skill invocation overlay-backed. Generic/manual fallbacks mask configuration gaps that compound across sessions.
 
 Client overlays are managed outside the skill repo — they contain org-specific paths and workflows that should not be committed to public skill files.
+
+## Overlay Mode
+
+Use this mode when the user wants to manage client overlays directly: "create an overlay", "list overlays", "check my overlays", "which overlay matches", "migrate overlays", or when another skill delegates overlay creation on a miss.
+
+### Mode Detection
+
+| User Says / Context | Action |
+|---------------------|--------|
+| "create an overlay", "add a client" | `create` |
+| "list overlays", "show clients" | `list` |
+| "check overlays", "validate overlays" | `validate` |
+| "which overlay matches", "what client am I" | `match` |
+| "migrate overlays", "update overlay format" | `migrate` |
+| Another skill hits an overlay miss | `create` (auto-delegated) |
+
+### Actions
+
+#### create
+
+Create a new client overlay. Two paths depending on context:
+
+**Quick create** (minimal — when the miss is blocking another skill):
+
+```bash
+scripts/manage_overlays.py create --client-id {CLIENT_ID} --cwd {CWD} --json
+```
+
+This writes a minimal `overlay.yaml` with just the `cwd_match` set. Enough to unblock the calling skill. Enrich later.
+
+**Full create** (scan-backed — when the user explicitly asks to set up an overlay):
+
+```bash
+python3 ~/.claude/skills/skillbox-quickstart/scripts/scan_environment.py --json > /tmp/skillbox-scan.json
+cat /tmp/skillbox-scan.json | python3 ~/.claude/skills/skillbox-quickstart/scripts/generate_overlay.py \
+  --client-id {CLIENT_ID} --output /tmp/overlay-draft
+```
+
+Review the draft with the user, then install:
+
+```bash
+mkdir -p skillbox-config/clients/{CLIENT_ID}
+cp /tmp/overlay-draft/overlay.yaml skillbox-config/clients/{CLIENT_ID}/overlay.yaml
+```
+
+After either path, verify:
+
+```bash
+scripts/manage_overlays.py match --cwd {CWD} --json
+```
+
+#### list
+
+```bash
+scripts/manage_overlays.py list --json
+```
+
+Shows all overlays, their `cwd_match` patterns, repo count, and version.
+
+#### validate
+
+```bash
+scripts/manage_overlays.py validate --json
+```
+
+Checks structure, required fields, and path existence. Reports errors and warnings per overlay.
+
+#### match
+
+```bash
+scripts/manage_overlays.py match --cwd {CWD} --json
+```
+
+Returns which overlay(s) match a given working directory. Exit 0 = match found, exit 1 = no match.
+
+#### migrate
+
+```bash
+scripts/manage_overlays.py migrate --to-version {N} --json
+```
+
+Reports which overlays need migration. Does not auto-migrate — presents the list for the agent to handle per-overlay.
+
+### Sibling Skill Delegation
+
+When any skill hits an overlay miss, it should delegate to skill-issue's overlay mode rather than implementing its own creation flow. The contract:
+
+1. Skill detects no overlay matches cwd
+2. Skill tells the user: "No matching client overlay for `{cwd}`. Creating one."
+3. Skill runs the quick create path (or invokes skill-issue if available)
+4. Skill re-runs overlay selection — should now match
+
+Skills that already stop on miss (deploy, ssh-info, dev-sanity) should add the create step before stopping.
 
 ## Core Principles
 
@@ -116,6 +230,39 @@ scripts/count_tool_invocations.py --source both --since week
 ```
 
 This counts raw Codex `function_call` entries and Claude `tool_use` blocks, sorted by count then tool name.
+
+1b. **Mine cross-session patterns via cass** (complements the transcript scan above):
+
+Use the `cass` skill to search across all indexed sessions for the target skill's invocation patterns, corrections, and usage evolution. This surfaces signal the single-transcript scanner misses — especially ritual detection, cross-project usage, and prompt drift.
+
+```bash
+# Ensure cass index is fresh
+cass status --json && cass index --json
+
+# Find all sessions mentioning this skill (lexical, minimal output)
+cass search "SKILL_NAME" --json --fields minimal --limit 50
+
+# Filter to user prompts (lines 1-3) for invocation pattern analysis
+cass search "SKILL_NAME" --json --fields minimal --limit 50 \
+  | jq '[.hits[] | select(.line_number <= 3)]'
+
+# Detect rituals: prompts repeated 10+ times = working methodology
+cass search "SKILL_NAME" --json --fields minimal --limit 100 \
+  | jq '[.hits[] | select(.line_number <= 3) | .title[0:80]] | group_by(.) | map({prompt: .[0], count: length}) | sort_by(-.count) | .[0:10]'
+
+# Find correction signals near skill invocations
+cass search "SKILL_NAME" --json --fields minimal --limit 50 \
+  | jq '[.hits[] | select(.line_number > 3 and .line_number < 20)]' \
+  # Then cass view hits with corrections ("no", "not that", "stop", "wrong")
+```
+
+**What to extract from cass results:**
+- **Ritual count** (>10 = working pattern): If users repeat the same prompt shape to invoke this skill, that's the real trigger — compare it against the skill's `description` field. Mismatch = discoverability gap.
+- **Prompt drift**: If the same user rephrases their invocation across sessions, the skill's trigger conditions or docs may be unclear. Feed into `contract-clarity` evidence packets.
+- **Cross-project spread**: Use `--aggregate workspace` to see which projects use this skill. Single-project usage may indicate the skill is too specialized for its current generality level.
+- **Correction clusters**: Sessions where user prompts after invocation contain corrections feed directly into `correction_rate` and `contract-clarity` packet families.
+
+If cass index is unhealthy or unavailable, note it and proceed with transcript-only data. Do not block the review on cass availability.
 
 2. Read the generated JSON and focus on reliability signals:
 - `ack_rate`: how often the run included an explicit `Using <skill>` marker

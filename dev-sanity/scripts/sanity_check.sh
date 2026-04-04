@@ -4,30 +4,28 @@ set -euo pipefail
 
 SCRIPT_SOURCE="${BASH_SOURCE[0]:-$0}"
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_SOURCE")" && pwd)"
-MODE_FILE="${DEV_SANITY_MODE_FILE:-$SCRIPT_DIR/../modes/config.sh}"
+LEGACY_MODE_FILE="${DEV_SANITY_MODE_FILE:-$SCRIPT_DIR/../modes/config.sh}"
 CHECK_FILTER="all"
 FAILURES=0
 CHECKS_RUN=0
+TARGET_CWD="${PWD}"
 
 usage() {
   cat <<'EOF'
-Usage: sanity_check.sh [--mode-file /abs/path/to/config.sh] [--repos-only|--env-only|--docker-only|--health-only]
+Usage: sanity_check.sh [--config /abs/path/to/context.yaml] [--repos-only|--env-only|--docker-only|--health-only]
 
-Reads private configuration from modes/config.sh by default.
+Resolves configuration from skillbox client overlay (dev_sanity section).
+Falls back to legacy modes/config.sh if no overlay matches.
 
 Options:
-  --mode-file PATH  Read configuration from PATH.
-  --repos-only      Check repo paths only.
-  --env-only        Check env files only.
-  --docker-only     Check Docker containers only.
-  --health-only     Check HTTP health endpoints only.
-  -h, --help        Show this help text.
-
-Mode file arrays (all optional):
-  DEV_SANITY_REPOS=("label|/abs/path")
-  DEV_SANITY_ENV_FILES=("label|/abs/path/.env")
-  DEV_SANITY_CONTAINERS=("label|container-name")
-  DEV_SANITY_HEALTH_URLS=("label|http://localhost:8000/health")
+  --config PATH       Use a specific context.yaml file (sets SKILLBOX_CLIENT_CONTEXT).
+  --cwd PATH          Override the working directory for overlay matching.
+  --mode-file PATH    (legacy) Read configuration from a shell config file.
+  --repos-only        Check repo paths only.
+  --env-only          Check env files only.
+  --docker-only       Check Docker containers only.
+  --health-only       Check HTTP health endpoints only.
+  -h, --help          Show this help text.
 EOF
 }
 
@@ -41,13 +39,19 @@ note() { printf '  [note] %s\n' "$1"; }
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
+      --config)
+        [[ $# -ge 2 ]] || { echo "--config requires a path" >&2; usage; exit 1; }
+        export SKILLBOX_CLIENT_CONTEXT="$2"
+        shift 2
+        ;;
+      --cwd)
+        [[ $# -ge 2 ]] || { echo "--cwd requires a path" >&2; usage; exit 1; }
+        TARGET_CWD="$2"
+        shift 2
+        ;;
       --mode-file)
-        if [[ $# -lt 2 ]]; then
-          echo "--mode-file requires a path" >&2
-          usage
-          exit 1
-        fi
-        MODE_FILE="$2"
+        [[ $# -ge 2 ]] || { echo "--mode-file requires a path" >&2; usage; exit 1; }
+        LEGACY_MODE_FILE="$2"
         shift 2
         ;;
       --repos-only|--env-only|--docker-only|--health-only)
@@ -72,25 +76,40 @@ parse_args() {
   done
 }
 
-ensure_mode_file() {
-  if [[ ! -f "$MODE_FILE" ]]; then
-    echo "Missing dev-sanity mode file: $MODE_FILE" >&2
-    echo "Copy references/mode-template.md into modes/config.sh and fill in your values." >&2
-    exit 1
-  fi
-}
-
 have_command() {
   command -v "$1" >/dev/null 2>&1
 }
 
-load_mode() {
+load_config() {
+  # Initialize arrays
   declare -ag DEV_SANITY_REPOS=()
   declare -ag DEV_SANITY_ENV_FILES=()
   declare -ag DEV_SANITY_CONTAINERS=()
   declare -ag DEV_SANITY_HEALTH_URLS=()
-  # shellcheck source=/dev/null
-  source "$MODE_FILE"
+
+  # Try overlay resolver first
+  local resolver="$SCRIPT_DIR/resolve_sanity.py"
+  if [[ -f "$resolver" ]] && have_command python3; then
+    local shell_output
+    if shell_output="$(python3 "$resolver" "$TARGET_CWD" --format shell 2>/dev/null)"; then
+      eval "$shell_output"
+      return 0
+    fi
+  fi
+
+  # Fall back to legacy modes/config.sh
+  if [[ -f "$LEGACY_MODE_FILE" ]]; then
+    # shellcheck source=/dev/null
+    source "$LEGACY_MODE_FILE"
+    return 0
+  fi
+
+  echo "No dev-sanity config found." >&2
+  echo "Options:" >&2
+  echo "  1. Add a dev_sanity section to your skillbox client overlay" >&2
+  echo "  2. Create a legacy modes/config.sh file" >&2
+  echo "  3. Pass --config /path/to/context.yaml" >&2
+  exit 1
 }
 
 check_repos() {
@@ -175,8 +194,7 @@ check_health_urls() {
 }
 
 parse_args "$@"
-ensure_mode_file
-load_mode
+load_config
 
 case "$CHECK_FILTER" in
   --repos-only) check_repos ;;

@@ -4,8 +4,8 @@ set -euo pipefail
 
 SCRIPT_SOURCE="${BASH_SOURCE[0]:-$0}"
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_SOURCE")" && pwd)"
-MODES_DIR="$SCRIPT_DIR/../modes"
-MODE_FILE="${SSH_INFO_MODE_FILE:-$MODES_DIR/config.sh}"
+SKILL_DIR="$SCRIPT_DIR/.."
+SHARED_SCRIPTS="$SKILL_DIR/../_shared/scripts"
 LOCAL_HEALTH_CHECKS=()
 PROD_HEALTH_CHECKS=()
 
@@ -13,9 +13,16 @@ usage() {
   cat <<'EOF'
 Usage: status.sh local|prod
 
-Reads private configuration from modes/config.sh.
+Resolves configuration from the skillbox client overlay (via resolve_context.py)
+or falls back to modes/config.sh.
 
-Expected mode variables:
+Overlay deploy keys used:
+  droplet_ssh              SSH target for prod checks
+  services.*.compose_service   container name filter
+  services.*.health_url    public health URL for local checks
+  services.*.internal_port container-local health port
+
+Legacy mode variables (modes/config.sh):
   STATUS_REMOTE_SSH      optional SSH target for prod checks
   LOCAL_HEALTH_CHECKS    bash array of "Label|URL"
   PROD_CONTAINER_FILTER  optional egrep pattern for container summary
@@ -30,14 +37,97 @@ fi
 
 MODE="$1"
 
-if [[ ! -f "$MODE_FILE" ]]; then
-  echo "Missing ssh-info mode file: $MODE_FILE" >&2
-  echo "Copy references/mode-template.md into modes/config.sh and fill in your values." >&2
+# --- Configuration resolution ------------------------------------------------
+
+_resolved_from_overlay=false
+
+try_overlay() {
+  # Resolve from skillbox client overlay via resolve_context.py
+  if [[ ! -f "$SHARED_SCRIPTS/resolve_context.py" ]]; then
+    return 1
+  fi
+
+  local json
+  json="$(python3 "$SHARED_SCRIPTS/resolve_context.py" "$PWD" --section deploy --format json 2>/dev/null)" || return 1
+  [[ -n "$json" && "$json" != "null" ]] || return 1
+
+  _resolved_from_overlay=true
+
+  # Extract SSH target
+  STATUS_REMOTE_SSH="$(printf '%s' "$json" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('droplet_ssh',''))" 2>/dev/null)" || true
+
+  # Build container filter from service names
+  local services_filter
+  services_filter="$(printf '%s' "$json" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+svcs = d.get('services', {})
+names = ['NAMES']
+for s in svcs.values():
+    cs = s.get('compose_service', '')
+    if cs:
+        names.append(cs)
+    cw = s.get('compose_service_worker', '')
+    if cw:
+        names.append(cw)
+print('(' + '|'.join(names) + ')')
+" 2>/dev/null)" || true
+  PROD_CONTAINER_FILTER="${services_filter:-}"
+
+  # Build LOCAL_HEALTH_CHECKS from service health URLs
+  local checks
+  checks="$(printf '%s' "$json" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+for s in d.get('services', {}).values():
+    label = s.get('label', 'unknown')
+    url = s.get('health_url', '')
+    if url:
+        print(f'{label}|{url}')
+" 2>/dev/null)" || true
+  if [[ -n "$checks" ]]; then
+    while IFS= read -r line; do
+      LOCAL_HEALTH_CHECKS+=("$line")
+    done <<< "$checks"
+  fi
+
+  # Build PROD_HEALTH_CHECKS from service container + internal port
+  local prod_checks
+  prod_checks="$(printf '%s' "$json" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+for s in d.get('services', {}).values():
+    label = s.get('label', 'unknown')
+    container = s.get('compose_service', '')
+    port = s.get('internal_port', '')
+    if container and port:
+        print(f'{label}|{container}|http://localhost:{port}/health')
+" 2>/dev/null)" || true
+  if [[ -n "$prod_checks" ]]; then
+    while IFS= read -r line; do
+      PROD_HEALTH_CHECKS+=("$line")
+    done <<< "$prod_checks"
+  fi
+}
+
+try_legacy() {
+  local modes_dir="$SKILL_DIR/modes"
+  local mode_file="${SSH_INFO_MODE_FILE:-$modes_dir/config.sh}"
+  if [[ ! -f "$mode_file" ]]; then
+    return 1
+  fi
+  # shellcheck source=/dev/null
+  source "$mode_file"
+}
+
+if ! try_overlay && ! try_legacy; then
+  echo "No configuration found." >&2
+  echo "Provide a skillbox client overlay with a deploy section," >&2
+  echo "or copy references/mode-template.md into modes/config.sh." >&2
   exit 1
 fi
 
-# shellcheck source=/dev/null
-source "$MODE_FILE"
+# --- Check functions ----------------------------------------------------------
 
 run_prod() {
   if [[ -n "${STATUS_REMOTE_SSH:-}" ]]; then

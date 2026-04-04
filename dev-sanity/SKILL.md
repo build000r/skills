@@ -18,18 +18,41 @@ Start with a stable first progress update such as:
 
 ## Client Overlay
 
-This skill reads project-specific config from `context.yaml`, auto-generated
-from the client overlay at `skillbox-config/clients/{client}/overlay.yaml`.
+Config lives in the skillbox client overlay under a `dev_sanity` section:
 
-The overlay defines one or more of these arrays:
+```yaml
+# skillbox-config/clients/{client}/overlay.yaml
+dev_sanity:
+  repos:
+    - label: api
+      path: ~/repos/api
+    - label: frontend
+      path: ~/repos/frontend
+  env_files:
+    - label: api env
+      path: ~/repos/api/.env
+    - label: frontend env
+      path: ~/repos/frontend/.env.local
+  containers:
+    - label: api container
+      name: local-api-1
+    - label: postgres
+      name: local-postgres-1
+  health_urls:
+    - label: api
+      url: http://localhost:8000/health
+    - label: frontend
+      url: http://localhost:3000
+```
 
-- repo paths to verify
-- env files that must exist
-- docker container names
-- local health endpoints
+If no overlay matches the current cwd, create one before proceeding:
 
-If no overlay is available, stop and point the operator at the skillbox client
-overlay setup. Do not guess repo roots.
+```bash
+python3 ~/.claude/skills/skill-issue/scripts/manage_overlays.py create --client-id {CLIENT_ID} --cwd "$PWD" --json
+```
+
+Then add the `dev_sanity` section and re-run. Do not guess repo roots or fall
+back to generic checks.
 
 ## On Trigger
 
@@ -42,11 +65,16 @@ bash scripts/sanity_check.sh
 For narrower requests, use the focused modes first:
 
 ```bash
-bash scripts/sanity_check.sh --config /abs/path/to/context.yaml
 bash scripts/sanity_check.sh --repos-only
 bash scripts/sanity_check.sh --env-only
 bash scripts/sanity_check.sh --docker-only
 bash scripts/sanity_check.sh --health-only
+```
+
+To use a specific context.yaml directly:
+
+```bash
+bash scripts/sanity_check.sh --config /abs/path/to/context.yaml
 ```
 
 Any check group may be omitted from the client overlay when it does not apply to
@@ -67,18 +95,18 @@ Do not bury the first failure under a full wall of green checks.
 
 ### Missing repo
 
-- confirm the path in the client overlay (`context.yaml`)
+- confirm the path in the client overlay
 - clone or restore the repo before continuing
 
 ### Missing env file
 
 - regenerate it from the environment manager or repo bootstrap flow
-- if the env file is intentionally optional, remove it from the client overlay
+- if the env file is intentionally optional, remove it from the overlay
 
 ### Missing container
 
 - start the relevant local stack
-- if the service is no longer containerized, remove it from the client overlay
+- if the service is no longer containerized, remove it from the overlay
 - if Docker itself is unavailable, install or start Docker before debugging the
   app layer
 
@@ -100,5 +128,5 @@ bash "$SKILLS_ROOT/dev-sanity/scripts/sanity_check.sh" >/tmp/dev-sanity.out 2>/t
 head -n 2 /tmp/dev-sanity.out /tmp/dev-sanity.err
 ```
 
-The helper should fail cleanly with a missing-mode message when no private mode
-exists and should return non-zero when a configured check fails.
+The helper should fail cleanly with a missing-config message when no overlay
+matches and should return non-zero when a configured check fails.

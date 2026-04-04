@@ -35,22 +35,29 @@ health checks.
 
 ## Client Overlay
 
-This skill requires a skillbox client overlay at
-`skillbox-config/clients/{client}/overlay.yaml`, which is auto-generated into
-`context.yaml` at install time.
+This skill resolves configuration from the skillbox client overlay at
+`skillbox-config/clients/{client}/overlay.yaml`, falling back to a legacy
+`modes/config.sh` shell config if no overlay matches.
 
-Tracked files stay generic. The client overlay holds:
+The overlay's `deploy` section holds:
 
-- SSH host/user details
-- container names
-- health endpoints
-- any environment-specific aliases or labels
+- `droplet_ssh`: SSH target (e.g. `root@1.2.3.4`)
+- `droplet_ip`: server IP
+- `ssh_key`: path to SSH key
+- `services`: map of service entries, each with:
+  - `label`, `compose_service`, `health_url`, `internal_port`
+  - `deploy_root`, `compose_file`, `domain`, `env_file`
 
-See [references/mode-template.md](references/mode-template.md) for the overlay
+See [references/mode-template.md](references/mode-template.md) for the full
 key reference.
 
-If no client overlay exists, stop with a concise error and point the operator at
-the overlay template. Do not guess a host or a production URL.
+If no overlay or legacy config matches, create one before proceeding:
+
+```bash
+python3 ~/.claude/skills/skill-issue/scripts/manage_overlays.py create --client-id {CLIENT_ID} --cwd "$PWD" --json
+```
+
+Then re-resolve config. Do not guess a host or a production URL.
 
 ## Execution Policy
 
@@ -83,10 +90,11 @@ Run the bundled helper:
 bash scripts/status.sh prod
 ```
 
-This should read the client overlay and either:
+The script resolves config from the overlay's `deploy` section via
+`_shared/scripts/resolve_context.py`, then either:
 
-- run locally on the server, or
-- wrap commands in SSH when `STATUS_REMOTE_SSH` is set
+- runs locally on the server, or
+- wraps commands in SSH when `droplet_ssh` is set
 
 ### Local Health URLs
 

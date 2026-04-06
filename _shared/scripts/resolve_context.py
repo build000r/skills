@@ -30,6 +30,7 @@ except ModuleNotFoundError:
 
 
 WORKSPACE_CLIENTS_GLOB = "/workspace/clients/*/context.yaml"
+LOCAL_SKILLBOX_CLIENTS = Path.home() / ".claude" / "skills" / "skillbox-config" / "clients"
 FOCUS_STATE_PATHS = (
     Path("/workspace/.focus.json"),
     Path.home() / ".focus.json",
@@ -162,10 +163,69 @@ def _resolve_from_scan(cwd: str, section: str | None) -> dict[str, Any] | None:
     return data
 
 
+def _resolve_from_local_overlays(
+    cwd: str, section: str | None,
+) -> dict[str, Any] | None:
+    """Strategy 3: Scan ~/.claude/skills/skillbox-config/clients/ and walk-up from cwd."""
+    if yaml is None:
+        return None
+
+    roots: list[Path] = []
+
+    # Walk up from cwd looking for skillbox-config/clients/
+    p = Path(cwd)
+    for d in [p, *p.parents]:
+        candidate = d / "skillbox-config" / "clients"
+        if candidate.is_dir() and candidate not in roots:
+            roots.append(candidate)
+
+    # Also check the standard local install path
+    if LOCAL_SKILLBOX_CLIENTS.is_dir() and LOCAL_SKILLBOX_CLIENTS not in roots:
+        roots.append(LOCAL_SKILLBOX_CLIENTS)
+
+    if not roots:
+        return None
+
+    candidates: list[tuple[int, dict[str, Any]]] = []
+    for config_root in roots:
+        for overlay_file in config_root.glob("*/overlay.yaml"):
+            try:
+                data = _load_yaml_file(overlay_file)
+            except Exception:
+                continue
+
+            client = data.get("client", {})
+            ctx = client.get("context", {})
+            raw_match = ctx.get("cwd_match") or data.get("cwd_match")
+
+            if isinstance(raw_match, str):
+                prefixes = [raw_match]
+            elif isinstance(raw_match, list):
+                prefixes = [str(v) for v in raw_match]
+            else:
+                continue
+
+            for raw_prefix in prefixes:
+                prefix = _normalize_path(raw_prefix)
+                if _matches_prefix(cwd, prefix):
+                    # Extract section or full client block
+                    source = client if client else data
+                    payload = source.get(section) if section else source
+                    if payload is not None:
+                        candidates.append((len(prefix), payload))
+
+    if not candidates:
+        return None
+
+    max_len = max(c[0] for c in candidates)
+    top = [c for c in candidates if c[0] == max_len]
+    return top[0][1]
+
+
 def _resolve_from_modes(
     cwd: str, skill_dir: Path, section: str | None,
 ) -> dict[str, Any] | None:
-    """Strategy 3: Legacy modes/ directory scan."""
+    """Strategy 4: Legacy modes/ directory scan."""
     modes_dir = skill_dir / "modes"
     if not modes_dir.exists():
         return None
@@ -216,6 +276,10 @@ def resolve(
         return result
 
     result = _resolve_from_scan(cwd, section)
+    if result is not None:
+        return result
+
+    result = _resolve_from_local_overlays(cwd, section)
     if result is not None:
         return result
 

@@ -45,7 +45,7 @@ dev_sanity:
       url: http://localhost:3000
 ```
 
-If no overlay matches the current cwd, create one before proceeding:
+If no overlay matches the current cwd, delegate to skill-issue to create one:
 
 ```bash
 python3 ~/.claude/skills/skill-issue/scripts/manage_overlays.py create --client-id {CLIENT_ID} --cwd "$PWD" --json
@@ -56,13 +56,13 @@ back to generic checks.
 
 ## On Trigger
 
-Resolve the bundled script path, then run it immediately:
+Run the bundled script immediately:
 
 ```bash
 bash scripts/sanity_check.sh
 ```
 
-For narrower requests, use the focused modes first:
+For narrower requests, use focused flags:
 
 ```bash
 bash scripts/sanity_check.sh --repos-only
@@ -71,7 +71,7 @@ bash scripts/sanity_check.sh --docker-only
 bash scripts/sanity_check.sh --health-only
 ```
 
-To use a specific context.yaml directly:
+To override overlay resolution with a specific context file:
 
 ```bash
 bash scripts/sanity_check.sh --config /abs/path/to/context.yaml
@@ -116,6 +116,17 @@ Do not bury the first failure under a full wall of green checks.
 - verify the configured local port matches the service that is actually running
 - check env wiring before assuming the app code is broken
 - if `curl` is missing, install it or use an equivalent HTTP probe command
+
+### iOS device build fails (signing / provisioning errors)
+
+This is a project wiring problem, not a code problem. Read
+`references/ios-device-build.md` for the complete checklist. Short version:
+
+1. Add `CODE_SIGN_STYLE: Automatic` + `DEVELOPMENT_TEAM: <team-id>` to `project.yml`
+2. Regenerate: `xcodegen generate`
+3. Build with `-allowProvisioningUpdates` and `generic/platform=iOS`
+
+Reference implementation: `~/repos/dream/Makefile` (`ios-phone-build` target).
 
 ## Validation
 

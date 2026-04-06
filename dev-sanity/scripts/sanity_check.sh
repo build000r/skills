@@ -4,7 +4,6 @@ set -euo pipefail
 
 SCRIPT_SOURCE="${BASH_SOURCE[0]:-$0}"
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_SOURCE")" && pwd)"
-LEGACY_MODE_FILE="${DEV_SANITY_MODE_FILE:-$SCRIPT_DIR/../modes/config.sh}"
 CHECK_FILTER="all"
 FAILURES=0
 CHECKS_RUN=0
@@ -15,12 +14,10 @@ usage() {
 Usage: sanity_check.sh [--config /abs/path/to/context.yaml] [--repos-only|--env-only|--docker-only|--health-only]
 
 Resolves configuration from skillbox client overlay (dev_sanity section).
-Falls back to legacy modes/config.sh if no overlay matches.
 
 Options:
   --config PATH       Use a specific context.yaml file (sets SKILLBOX_CLIENT_CONTEXT).
   --cwd PATH          Override the working directory for overlay matching.
-  --mode-file PATH    (legacy) Read configuration from a shell config file.
   --repos-only        Check repo paths only.
   --env-only          Check env files only.
   --docker-only       Check Docker containers only.
@@ -47,11 +44,6 @@ parse_args() {
       --cwd)
         [[ $# -ge 2 ]] || { echo "--cwd requires a path" >&2; usage; exit 1; }
         TARGET_CWD="$2"
-        shift 2
-        ;;
-      --mode-file)
-        [[ $# -ge 2 ]] || { echo "--mode-file requires a path" >&2; usage; exit 1; }
-        LEGACY_MODE_FILE="$2"
         shift 2
         ;;
       --repos-only|--env-only|--docker-only|--health-only)
@@ -97,18 +89,10 @@ load_config() {
     fi
   fi
 
-  # Fall back to legacy modes/config.sh
-  if [[ -f "$LEGACY_MODE_FILE" ]]; then
-    # shellcheck source=/dev/null
-    source "$LEGACY_MODE_FILE"
-    return 0
-  fi
-
   echo "No dev-sanity config found." >&2
   echo "Options:" >&2
   echo "  1. Add a dev_sanity section to your skillbox client overlay" >&2
-  echo "  2. Create a legacy modes/config.sh file" >&2
-  echo "  3. Pass --config /path/to/context.yaml" >&2
+  echo "  2. Pass --config /path/to/context.yaml" >&2
   exit 1
 }
 

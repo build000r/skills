@@ -8,7 +8,11 @@ description: Audit a repository's public docs for drift against the active codeb
 Audit public docs against live code and repo policy.
 
 This is not a prose-polish skill. Factual correctness, active-stack alignment,
-and functioning guardrails come first. Style cleanup is secondary.
+and functioning guardrails come first. Style cleanup is secondary — for
+prose-level slop (emdashes, "Here's why", forced enthusiasm), hand off to the
+`docs-de-slopify` skill after factual drift is resolved. The two skills
+compose: this one decides whether a doc should exist and be accurate;
+`docs-de-slopify` decides whether the surviving prose sounds human.
 
 ## On Trigger
 
@@ -35,13 +39,32 @@ pass.
 
 ## Modes
 
-Repo-aware audits should use the skillbox client overlay when available.
+Repo-aware audits resolve an overlay + mode file before scanning. Load the
+resolved context into the environment:
 
-1. Check `skillbox-config/clients/{client}/overlay.yaml` → `context.yaml` for the active client.
-2. Match `cwd` against `cwd_match` path prefixes in the resolved context.
-3. If multiple modes match, prefer the longest matching prefix.
-4. If one best match remains, use it automatically.
-5. If none match, infer the active codebase from repo files before scanning.
+```bash
+SKILL_DIR="$HOME/.claude/skills/oss-doc-audit"
+[[ -d "$SKILL_DIR" ]] || SKILL_DIR="$HOME/.codex/skills/oss-doc-audit"
+eval "$("$SKILL_DIR/scripts/select_mode.py" "$PWD" --format shell)"
+```
+
+Resolution order (first match wins):
+
+1. `oss_doc_audit` section in a matching `skillbox-config/clients/{client}/overlay.yaml`
+2. `{skill_dir}/modes/*.md` whose YAML frontmatter `cwd_match` prefix-matches `$PWD` (longest prefix wins)
+3. If nothing matches, infer the active codebase from repo files before scanning
+
+If you need to create a missing client overlay before proceeding:
+
+```bash
+python3 ~/.claude/skills/skill-issue/scripts/manage_overlays.py create --client-id {CLIENT_ID} --cwd "$PWD" --json
+```
+
+Once resolved, prefer the loaded `MODE_*` variables
+(`MODE_ACTIVE_CODEBASE_PATH`, `MODE_DEPRECATED_PATHS`, `MODE_BASELINE_COMMANDS`,
+`MODE_DRIFT_MARKERS`, ...) over guessing. See
+[references/mode-template.md](references/mode-template.md) for the frontmatter
+key reference.
 
 ## Workflow
 
@@ -156,6 +179,54 @@ Call out the difference between:
 
 Do not inflate the repository score just because the audit found the problems.
 
+### 5b. Choose an output mode
+
+Three output modes are supported. Pick based on the user's ask and the
+doc-tree size:
+
+- **Rubric mode** (default) — single 100-point score + ranked cleanup queue.
+  Use when the repo has <40 docs or the ask is "grade OSS readiness".
+- **Per-file scorecard mode** — score every doc on five axes. Use when the
+  repo has 40+ docs and the user needs file-by-file fate decisions (keep,
+  rewrite, delete). See [references/report-template.md](references/report-template.md)
+  for the scorecard format.
+- **Tier fate mode** — classify every doc into Tier 1–7 (delete/rewrite →
+  keep). Use as a companion to scorecard mode when stakeholders need a
+  defensible "what goes, what stays" list before bulk deletion.
+
+The modes compose: run scorecard to generate per-file scores, then bucket into
+tiers, then produce one rubric score for the repo overall.
+
+#### Per-file scorecard axes
+
+Each axis is scored 1 (worst) to 5 (best). Low scores on multiple axes are
+stronger evidence for deletion than a single low score.
+
+| Axis | Meaning | 1 = | 5 = |
+|---|---|---|---|
+| **H**elpfulness | Does it answer a real question a reader will have? | Answers nothing real | Answers a frequent high-value question |
+| **A**ccuracy | Does it match the current codebase and stack? | Fabricated or targets dead stack | Verified against live code |
+| **B**revity | Is it the right length for its value? | Bloated or padded | Tight, no filler |
+| **R**edundancy | Is it the only copy? (5 = not redundant) | Third copy of the same content | Unique source of truth |
+| **N**ecessity | Would anyone miss it if deleted? | No reader needs this | Blocks onboarding or decisions |
+
+#### Tier fate taxonomy
+
+| Tier | Label | Meaning | Default action |
+|---|---|---|---|
+| 1 | Harmful / fictional | Actively misleads: fabricated claims, dead-stack refs, wrong APIs | Delete or rewrite from scratch |
+| 2 | Heavy slop | AI-generated filler with low signal, generic tutorials | Delete |
+| 3 | Deprecated but referenced | Old content still linked from live surface | Delete + sweep links |
+| 4 | Near-empty stubs | Placeholder or redirect-only pages | Delete |
+| 5 | Redundant copies | Duplicate of a canonical source | Delete, keep canonical |
+| 6 | Needs trimming | Useful core, padded with slop | Trim + hand to `docs-de-slopify` |
+| 7 | Keep | Accurate, necessary, non-redundant | Leave alone |
+
+Fabricated compliance claims, invented benchmarks, and fictional pricing are
+Tier 1 — not Tier 6. They mislead readers regardless of how they are written.
+See [references/drift-patterns.md](references/drift-patterns.md) for the
+fabrication smell catalog.
+
 ### 6. Produce a ranked cleanup queue
 
 Use [references/report-template.md](references/report-template.md).
@@ -175,6 +246,64 @@ Each queue item should name:
 - the proof file(s)
 - the expected fix
 - the likely score recovery
+
+### 6b. Post-deletion link sweep
+
+After executing any deletion from the cleanup queue, every remaining doc that
+referenced the deleted files becomes a potential broken link. Before declaring
+the cleanup done, sweep for dangling references.
+
+1. For each deleted file, grep the remaining doc tree and any manifests/indexes
+   for its basename and path:
+
+   ```bash
+   # For a deleted file like docs/guides/compliance-legal.md
+   rg -l 'compliance-legal' docs/ README.md SECURITY.md *.md
+   rg -l 'compliance-legal' docs/manifest.json deploy/reverse-proxy/static/
+   ```
+
+2. Check these common reference surfaces even if nothing obvious matches:
+   - root `README.md` and `CLAUDE.md` doc indexes
+   - `docs/manifest.json`, `docs/index.md`, or equivalent TOC files
+   - "Related Guides" / "See also" sections in surviving docs
+   - `llms.txt`, `sitemap.xml`, reverse-proxy static indexes
+   - package `README.md` files with cross-links
+   - security audit trackers and OSS readiness inventories
+
+3. Edit each broken link. Remove the list item rather than leaving a dead
+   anchor. Do not "archive" the deleted file by leaving a tombstone.
+
+4. Leave audit trackers (`OSS_HYGIENE_INVENTORY.md`, audit reports) alone —
+   they reference historical state, not live links.
+
+This step is non-optional when deleting more than a handful of files.
+Stakeholders will find broken links before they find the cleanup PR.
+
+### 6c. Volume report for stakeholder comms
+
+When the cleanup involves bulk deletion (10+ files), produce a one-paragraph
+volume summary alongside the rubric score. Stakeholders track lines-removed
+more intuitively than rubric deltas.
+
+Format:
+
+```
+Deleted N files (~M lines) across K categories. Largest categories:
+- <category>: <n> files (worst offender: <file>)
+- <category>: <n> files (worst offender: <file>)
+Edited E files to fix broken index links. Repo now has F docs, all of which
+are either verified useful or tracked in audit files.
+```
+
+Example from a real run:
+
+```
+Deleted 48 files (~16,100 lines) across 8 categories. Largest categories:
+- Supabase/Node.js-era content: 13 files (docker/README.md)
+- Fabricated compliance claims: 4 files (compliance-legal.md)
+- docs-ai/ duplicates of canonical: 7 files
+Edited 11 files to fix broken index links. Repo now has 119 docs.
+```
 
 ### 7. Improvement loop
 

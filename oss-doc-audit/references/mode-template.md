@@ -1,34 +1,50 @@
-# Local mode: <repo-name> (gitignored)
+---
+mode_name: example-repo
+cwd_match:
+  - ~/repos/your-repo
 
-cwd_match: ~/repos/<repo-name>
+active_codebase_path: path/to/active/code
 
-## Active Codebase
+deprecated_paths:
+  - path/to/deprecated/code
 
-- path: `<active codebase path>`
-- deprecated_paths:
-  - `<deprecated path>`
+public_docs_surface:
+  - README.md
+  - CONTRIBUTING.md
+  - docs/
+  - .github/
 
-## Public Docs Surface
+baseline_commands:
+  - <repo-native doc validator>
+  - <manifest or route parity command>
+  - <package docs validator>
 
-- `README.md`
-- `CONTRIBUTING.md`
-- `docs/`
-- `.github/`
+drift_markers:
+  - deprecated route roots
+  - old stack names
+  - removed workflow files
+  - wrong deploy file names
+  - license mismatches
+---
 
-## Baseline Commands
+# oss-doc-audit Mode Template
 
-- `<repo-native doc validator>`
-- `<manifest or route parity command>`
-- `<package docs validator>`
+Use this as a reference when creating a new mode file at
+`modes/<repo>.local.md`. The YAML frontmatter is parsed by
+`scripts/select_mode.py` via the shared
+`_shared/scripts/resolve_context.py` resolver.
 
-## High-Risk Drift Markers
+Selection rules:
 
-- deprecated route roots
-- old stack names
-- removed workflow files
-- wrong deploy file names
-- license mismatches
+- the selector chooses the mode with the longest matching `cwd_match` prefix
+- if multiple modes tie, selection is ambiguous and should be resolved by
+  renaming or narrowing `cwd_match`
+- `cwd_match` may be a single string or a list of paths
 
-## Notes
+Real repo-specific truths (deprecated paths, baseline doc validators,
+repo-specific drift markers) belong in the frontmatter so the audit does not
+have to infer them. Keep free-form notes below the fence.
 
-- Record any repo-specific truths the audit should prefer over generic guesses.
+Clients that want to put this data in their skillbox overlay instead can add
+an `oss_doc_audit:` section to `skillbox-config/clients/{client}/overlay.yaml`
+— it will take precedence over local mode files.

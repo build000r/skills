@@ -126,7 +126,7 @@ def cmd_validate(config_root: Path, as_json: bool) -> int:
                 # Check repo paths (expand env vars)
                 for repo in client.get("repos", []):
                     repo_path = repo.get("path", "")
-                    expanded = os.path.expandvars(repo_path)
+                    expanded = os.path.expanduser(os.path.expandvars(repo_path))
                     # Only validate paths that don't contain unexpanded vars
                     if "${" not in expanded and expanded and not Path(expanded).exists():
                         issues.append({
@@ -166,7 +166,7 @@ def cmd_validate(config_root: Path, as_json: bool) -> int:
 def cmd_match(cwd: str, config_root: Path, as_json: bool) -> int:
     """Find which overlay matches a given cwd."""
     overlays = load_overlays(config_root)
-    cwd_path = os.path.abspath(os.path.expandvars(cwd))
+    cwd_path = os.path.abspath(os.path.expanduser(os.path.expandvars(cwd)))
     matches = []
 
     for o in overlays:
@@ -175,7 +175,7 @@ def cmd_match(cwd: str, config_root: Path, as_json: bool) -> int:
         client = o["data"].get("client", {})
         ctx = client.get("context", {})
         for pattern in ctx.get("cwd_match", []):
-            expanded = os.path.expandvars(pattern)
+            expanded = os.path.expanduser(os.path.expandvars(pattern))
             if cwd_path.startswith(expanded) or expanded.startswith(cwd_path):
                 matches.append({
                     "client_id": o["client_id"],

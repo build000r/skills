@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 """
-Select a deploy mode file based on cwd prefix matching.
+Resolve deploy context from skillbox-config overlays and emit MODE_* exports.
 
 Usage:
-  python scripts/select_mode.py [cwd] [--format shell|json] [--skill-dir <path>]
+  python scripts/select_mode.py [cwd] [--format shell|json]
 
 Defaults:
   cwd: current working directory
   format: shell
-  skill-dir: parent of this script
 """
 
 from __future__ import annotations
@@ -22,8 +21,6 @@ import sys
 from pathlib import Path
 from typing import Any
 
-import yaml
-
 
 def _normalize_path(value: str) -> str:
     return os.path.realpath(os.path.expanduser(value))
@@ -33,17 +30,6 @@ def _matches_prefix(cwd: str, prefix: str) -> bool:
     if prefix == "/":
         return True
     return cwd == prefix or cwd.startswith(prefix + os.sep)
-
-
-def _extract_frontmatter(path: Path) -> dict[str, Any]:
-    text = path.read_text(encoding="utf-8")
-    match = re.match(r"^---\n(.*?)\n---(?:\n|$)", text, re.DOTALL)
-    if not match:
-        raise ValueError("missing YAML frontmatter")
-    data = yaml.safe_load(match.group(1))
-    if not isinstance(data, dict):
-        raise ValueError("frontmatter must be a YAML map")
-    return data
 
 
 def _flatten(prefix: str, data: Any) -> dict[str, str]:
@@ -70,101 +56,152 @@ def _flatten(prefix: str, data: Any) -> dict[str, str]:
 def _to_shell_exports(values: dict[str, str]) -> str:
     lines: list[str] = []
     for key in sorted(values):
-        val = values[key]
-        lines.append(f"export {key}={shlex.quote(val)}")
+        lines.append(f"export {key}={shlex.quote(values[key])}")
     return "\n".join(lines)
 
 
-def _try_overlay_context(cwd: str, fmt: str) -> int | None:
-    """Check for skillbox client context.yaml; return exit code or None to fall through."""
-    # Import the shared resolver if available
-    shared_scripts = Path(__file__).resolve().parent.parent.parent / "_shared" / "scripts"
+def _mode_exports(payload: dict[str, Any]) -> dict[str, str]:
+    flattened = _flatten("MODE", payload)
+    mode_name = flattened.pop("MODE_MODE_NAME", None)
+    if mode_name is not None:
+        flattened["MODE_NAME"] = mode_name
+    return flattened
+
+
+def _expand_strings(data: Any) -> Any:
+    if isinstance(data, dict):
+        return {key: _expand_strings(value) for key, value in data.items()}
+    if isinstance(data, list):
+        return [_expand_strings(item) for item in data]
+    if isinstance(data, str):
+        return os.path.expanduser(os.path.expandvars(data))
+    return data
+
+
+def _shared_scripts_dir() -> Path:
+    return Path(__file__).resolve().parent.parent.parent / "_shared" / "scripts"
+
+
+def _load_shared_helpers() -> tuple[Any, Any]:
+    shared_scripts = _shared_scripts_dir()
     if not shared_scripts.exists():
-        return None
+        raise RuntimeError(f"Missing shared helper directory: {shared_scripts}")
+
     sys.path.insert(0, str(shared_scripts))
     try:
+        from legacy_probe import format_legacy_transition_error  # type: ignore[import-untyped]
         from resolve_context import resolve  # type: ignore[import-untyped]
-    except ImportError:
-        return None
     finally:
         sys.path.pop(0)
 
-    data = resolve(cwd, section="deploy")
-    if data is None:
-        return None
+    return resolve, format_legacy_transition_error
 
-    flattened = _flatten("MODE", data)
-    flattened.setdefault("MODE_NAME", "overlay")
-    if fmt == "json":
-        print(json.dumps(flattened, indent=2, sort_keys=True))
-    else:
-        print(_to_shell_exports(flattened))
-    return 0
+
+def _direct_deploy_fields(deploy: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in deploy.items()
+        if key not in {"services", "packages"}
+    }
+
+
+def _target_candidates(
+    cwd: str, deploy: dict[str, Any],
+) -> list[tuple[int, str, str, dict[str, Any]]]:
+    candidates: list[tuple[int, str, str, dict[str, Any]]] = []
+
+    for collection_name, default_surface in (("services", "docker_compose"), ("packages", "package_publish")):
+        raw_collection = deploy.get(collection_name)
+        if not isinstance(raw_collection, dict):
+            continue
+
+        for target_id, raw_target in raw_collection.items():
+            if not isinstance(raw_target, dict):
+                continue
+
+            repo_root = raw_target.get("repo_root")
+            if not isinstance(repo_root, str):
+                continue
+
+            prefix = _normalize_path(repo_root)
+            if _matches_prefix(cwd, prefix):
+                target = dict(raw_target)
+                target.setdefault("surface", default_surface)
+                candidates.append((len(prefix), collection_name, str(target_id), target))
+
+    return candidates
+
+
+def _derive_mode_name(cwd: str, target_id: str, target: dict[str, Any]) -> str:
+    repo_root = target.get("repo_root")
+    if isinstance(repo_root, str):
+        repo_name = Path(_normalize_path(repo_root)).name
+        if repo_name:
+            return repo_name
+    return Path(cwd).name or target_id or "overlay"
+
+
+def _select_deploy_payload(cwd: str, deploy: dict[str, Any]) -> dict[str, Any]:
+    shared = _direct_deploy_fields(deploy)
+    candidates = _target_candidates(cwd, deploy)
+
+    if candidates:
+        max_len = max(item[0] for item in candidates)
+        top = [item for item in candidates if item[0] == max_len]
+        if len(top) > 1:
+            target_ids = ", ".join(sorted(item[2] for item in top))
+            raise ValueError(f"Ambiguous deploy target for {cwd}: {target_ids}")
+
+        _prefix_len, collection_name, target_id, target = top[0]
+        payload = dict(shared)
+        payload.update(target)
+        payload.setdefault("surface", "docker_compose" if collection_name == "services" else "package_publish")
+        payload.setdefault("mode_name", _derive_mode_name(cwd, target_id, target))
+        payload.setdefault("target_id", target_id)
+        return _expand_strings(payload)
+
+    payload = dict(shared if shared else deploy)
+    if "surface" not in payload:
+        if isinstance(deploy.get("services"), dict) and deploy["services"]:
+            payload["surface"] = "docker_compose"
+        elif isinstance(deploy.get("packages"), dict) and deploy["packages"]:
+            payload["surface"] = "package_publish"
+
+    payload.setdefault("mode_name", Path(cwd).name or "overlay")
+    return _expand_strings(payload)
+
+
+def _resolve_overlay_payload(cwd: str) -> dict[str, Any] | None:
+    resolve, _format_legacy_transition_error = _load_shared_helpers()
+    deploy = resolve(cwd, section="deploy")
+    if deploy is None:
+        return None
+    return _select_deploy_payload(cwd, deploy)
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("cwd", nargs="?", default=os.getcwd())
     parser.add_argument("--format", choices=("shell", "json"), default="shell")
-    parser.add_argument("--skill-dir", default="")
     args = parser.parse_args()
 
     cwd = _normalize_path(args.cwd)
 
-    # Try skillbox overlay context first
-    overlay_result = _try_overlay_context(cwd, args.format)
-    if overlay_result is not None:
-        return overlay_result
-
-    # Fall back to legacy modes/ directory
-    script_dir = Path(__file__).resolve().parent
-    skill_dir = Path(args.skill_dir).resolve() if args.skill_dir else script_dir.parent
-    modes_dir = skill_dir / "modes"
-
-    if not modes_dir.exists():
-        print(f"No modes directory found at: {modes_dir}", file=sys.stderr)
-        return 2
-
-    candidates: list[tuple[int, Path, str, dict[str, Any]]] = []
-    for mode_file in sorted(modes_dir.glob("*.md")):
-        try:
-            data = _extract_frontmatter(mode_file)
-        except Exception:
-            continue
-
-        raw_match = data.get("cwd_match")
-        if isinstance(raw_match, str):
-            prefixes = [raw_match]
-        elif isinstance(raw_match, list):
-            prefixes = [str(v) for v in raw_match]
-        else:
-            continue
-
-        for raw_prefix in prefixes:
-            prefix = _normalize_path(raw_prefix)
-            if _matches_prefix(cwd, prefix):
-                candidates.append((len(prefix), mode_file, prefix, data))
-
-    if not candidates:
-        print(f"No mode matched cwd: {cwd}", file=sys.stderr)
-        return 2
-
-    max_len = max(item[0] for item in candidates)
-    top = [item for item in candidates if item[0] == max_len]
-
-    if len(top) > 1:
-        print(f"Ambiguous mode match for cwd: {cwd}", file=sys.stderr)
-        for _, mode_file, prefix, _ in top:
-            print(f"  - {mode_file.name} via {prefix}", file=sys.stderr)
+    try:
+        payload = _resolve_overlay_payload(cwd)
+        _resolve, format_legacy_transition_error = _load_shared_helpers()
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
         return 3
+    except RuntimeError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
 
-    _, mode_file, matched_prefix, data = top[0]
-    mode_name = str(data.get("mode_name") or mode_file.stem)
-    flattened = _flatten("MODE", data)
-    flattened["MODE_FILE"] = str(mode_file)
-    flattened["MODE_NAME"] = mode_name
-    flattened["MODE_MATCH_PREFIX"] = matched_prefix
+    if payload is None:
+        print(format_legacy_transition_error(cwd), file=sys.stderr)
+        return 2
 
+    flattened = _mode_exports(payload)
     if args.format == "json":
         print(json.dumps(flattened, indent=2, sort_keys=True))
     else:

@@ -1,50 +1,60 @@
----
-mode_name: example-repo
-cwd_match:
-  - ~/repos/your-repo
+version: 1
+client:
+  id: example
+  label: Example
+  default_cwd: ~/repos/your-repo
+  repos: []
+  logs: []
+  context:
+    cwd_match:
+      - ~/repos/your-repo
 
-active_codebase_path: path/to/active/code
+    oss_doc_audit:
+      mode_name: your-repo
+      active_codebase_path: path/to/active/code
 
-deprecated_paths:
-  - path/to/deprecated/code
+      deprecated_paths:
+        - path/to/deprecated/code
 
-public_docs_surface:
-  - README.md
-  - CONTRIBUTING.md
-  - docs/
-  - .github/
+      public_docs_surface:
+        - README.md
+        - CONTRIBUTING.md
+        - docs/
+        - .github/
 
-baseline_commands:
-  - <repo-native doc validator>
-  - <manifest or route parity command>
-  - <package docs validator>
+      baseline_commands:
+        - <repo-native doc validator>
+        - <manifest or route parity command>
+        - <package docs validator>
 
-drift_markers:
-  - deprecated route roots
-  - old stack names
-  - removed workflow files
-  - wrong deploy file names
-  - license mismatches
----
+      drift_markers:
+        - deprecated route roots
+        - old stack names
+        - removed workflow files
+        - wrong deploy file names
+        - license mismatches
 
-# oss-doc-audit Mode Template
+  checks: []
 
-Use this as a reference when creating a new mode file at
-`modes/<repo>.local.md`. The YAML frontmatter is parsed by
-`scripts/select_mode.py` via the shared
-`_shared/scripts/resolve_context.py` resolver.
+# OSS Doc Audit Overlay Key Reference
+
+Add repo-specific audit truths to `client.context.oss_doc_audit` inside
+`skillbox-config/clients/{client}/overlay.yaml`.
+
+Guidelines:
+
+- keep `cwd_match` under `client.context`
+- keep `oss_doc_audit` under `client.context`
+- store repo-specific truths here so the audit does not have to infer them every
+  run
+- use `mode_name` for the emitted `MODE_NAME`
+- keep `active_codebase_path` repo-relative when the audit should open paths
+  under the matched repo root
 
 Selection rules:
 
-- the selector chooses the mode with the longest matching `cwd_match` prefix
-- if multiple modes tie, selection is ambiguous and should be resolved by
-  renaming or narrowing `cwd_match`
-- `cwd_match` may be a single string or a list of paths
-
-Real repo-specific truths (deprecated paths, baseline doc validators,
-repo-specific drift markers) belong in the frontmatter so the audit does not
-have to infer them. Keep free-form notes below the fence.
-
-Clients that want to put this data in their skillbox overlay instead can add
-an `oss_doc_audit:` section to `skillbox-config/clients/{client}/overlay.yaml`
-— it will take precedence over local mode files.
+- the resolver chooses the overlay with the longest matching `cwd_match` prefix
+- `scripts/select_mode.py` emits flattened `MODE_*` vars from
+  `client.context.oss_doc_audit`
+- if a matching overlay lacks `oss_doc_audit`, the selector fails with a
+  section-missing error instead of searching for local fallback files

@@ -13,20 +13,13 @@ usage() {
   cat <<'EOF'
 Usage: status.sh local|prod
 
-Resolves configuration from the skillbox client overlay (via resolve_context.py)
-or falls back to modes/config.sh.
+Resolves configuration from the skillbox client overlay (via resolve_context.py).
 
 Overlay deploy keys used:
   droplet_ssh              SSH target for prod checks
   services.*.compose_service   container name filter
   services.*.health_url    public health URL for local checks
   services.*.internal_port container-local health port
-
-Legacy mode variables (modes/config.sh):
-  STATUS_REMOTE_SSH      optional SSH target for prod checks
-  LOCAL_HEALTH_CHECKS    bash array of "Label|URL"
-  PROD_CONTAINER_FILTER  optional egrep pattern for container summary
-  PROD_HEALTH_CHECKS     bash array of "Label|Container|URL"
 EOF
 }
 
@@ -48,7 +41,7 @@ try_overlay() {
   fi
 
   local json
-  json="$(python3 "$SHARED_SCRIPTS/resolve_context.py" "$PWD" --section deploy --format json 2>/dev/null)" || return 1
+  json="$(python3 "$SHARED_SCRIPTS/resolve_context.py" "$PWD" --section deploy --format json)" || return 1
   [[ -n "$json" && "$json" != "null" ]] || return 1
 
   _resolved_from_overlay=true
@@ -110,20 +103,8 @@ for s in d.get('services', {}).values():
   fi
 }
 
-try_legacy() {
-  local modes_dir="$SKILL_DIR/modes"
-  local mode_file="${SSH_INFO_MODE_FILE:-$modes_dir/config.sh}"
-  if [[ ! -f "$mode_file" ]]; then
-    return 1
-  fi
-  # shellcheck source=/dev/null
-  source "$mode_file"
-}
-
-if ! try_overlay && ! try_legacy; then
-  echo "No configuration found." >&2
-  echo "Provide a skillbox client overlay with a deploy section," >&2
-  echo "or copy references/mode-template.md into modes/config.sh." >&2
+if ! try_overlay; then
+  echo "ssh-info requires client.context.deploy in a matching skillbox-config overlay." >&2
   exit 1
 fi
 

@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """
-Resolve skill context from skillbox client overlays or legacy mode files.
+Resolve skill context from skillbox client overlays.
 
 Fallback chain:
   1. SKILLBOX_CLIENT_CONTEXT env var → path to generated context.yaml
   2. Scan /workspace/clients/*/context.yaml using cwd_match prefix matching
-  3. Fall back to {skill_dir}/modes/*.md (legacy)
+  3. Scan local skillbox-config overlays using cwd_match prefix matching
 
 Usage:
   python resolve_context.py [cwd] [--section deploy|plans|backend|frontend|auth]
-                            [--format shell|json] [--skill-dir <path>]
+                            [--format shell|json]
 """
 
 from __future__ import annotations
@@ -22,6 +22,8 @@ import shlex
 import sys
 from pathlib import Path
 from typing import Any
+
+from legacy_probe import format_legacy_transition_error
 
 try:
     import yaml
@@ -84,20 +86,28 @@ def _load_yaml_file(path: Path) -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
-def _extract_frontmatter(path: Path) -> dict[str, Any]:
-    text = path.read_text(encoding="utf-8")
-    match = re.match(r"^---\n(.*?)\n---(?:\n|$)", text, re.DOTALL)
-    if not match:
-        raise ValueError("missing YAML frontmatter")
-    if yaml is None:
-        raise RuntimeError("PyYAML required but not installed")
-    data = yaml.safe_load(match.group(1))
-    if not isinstance(data, dict):
-        raise ValueError("frontmatter must be a YAML map")
-    return data
+def _extract_overlay_payload(data: dict[str, Any], section: str | None) -> dict[str, Any] | None:
+    client = data.get("client")
+    if not isinstance(client, dict):
+        client = {}
 
+    context = client.get("context")
+    if not isinstance(context, dict):
+        context = {}
 
-# --- Resolution strategies ---------------------------------------------------
+    if section is None:
+        return client if client else data
+
+    for source in (context, client, data):
+        if isinstance(source, dict) and section in source:
+            payload = source.get(section)
+            if isinstance(payload, dict):
+                return payload
+            if payload is None:
+                return None
+            return {"value": payload}
+
+    return None
 
 
 def _resolve_from_env(section: str | None) -> dict[str, Any] | None:
@@ -208,9 +218,7 @@ def _resolve_from_local_overlays(
             for raw_prefix in prefixes:
                 prefix = _normalize_path(raw_prefix)
                 if _matches_prefix(cwd, prefix):
-                    # Extract section or full client block
-                    source = client if client else data
-                    payload = source.get(section) if section else source
+                    payload = _extract_overlay_payload(data, section)
                     if payload is not None:
                         candidates.append((len(prefix), payload))
 
@@ -222,55 +230,11 @@ def _resolve_from_local_overlays(
     return top[0][1]
 
 
-def _resolve_from_modes(
-    cwd: str, skill_dir: Path, section: str | None,
-) -> dict[str, Any] | None:
-    """Strategy 4: Legacy modes/ directory scan."""
-    modes_dir = skill_dir / "modes"
-    if not modes_dir.exists():
-        return None
-
-    candidates: list[tuple[int, Path, str, dict[str, Any]]] = []
-    for mode_file in sorted(modes_dir.glob("*.md")):
-        try:
-            data = _extract_frontmatter(mode_file)
-        except Exception:
-            continue
-        raw_match = data.get("cwd_match")
-        if isinstance(raw_match, str):
-            prefixes = [raw_match]
-        elif isinstance(raw_match, list):
-            prefixes = [str(v) for v in raw_match]
-        else:
-            continue
-        for raw_prefix in prefixes:
-            prefix = _normalize_path(raw_prefix)
-            if _matches_prefix(cwd, prefix):
-                candidates.append((len(prefix), mode_file, prefix, data))
-
-    if not candidates:
-        return None
-
-    max_len = max(c[0] for c in candidates)
-    top = [c for c in candidates if c[0] == max_len]
-    if len(top) > 1:
-        print(f"Ambiguous mode match for cwd: {cwd}", file=sys.stderr)
-        return None
-
-    _, mode_file, _, data = top[0]
-    data["_source"] = "modes"
-    data["_mode_file"] = str(mode_file)
-    # In legacy mode, the whole file IS the section (no sub-sections)
-    return data
-
-
 # --- Main --------------------------------------------------------------------
 
 
-def resolve(
-    cwd: str, *, section: str | None = None, skill_dir: Path | None = None,
-) -> dict[str, Any] | None:
-    """Resolve context using the 3-step fallback chain."""
+def resolve(cwd: str, *, section: str | None = None) -> dict[str, Any] | None:
+    """Resolve context using the overlay-backed fallback chain."""
     result = _resolve_from_env(section)
     if result is not None:
         return result
@@ -283,11 +247,6 @@ def resolve(
     if result is not None:
         return result
 
-    if skill_dir:
-        result = _resolve_from_modes(cwd, skill_dir, section)
-        if result is not None:
-            return result
-
     return None
 
 
@@ -297,16 +256,13 @@ def main() -> int:
     parser.add_argument("--section", default=None,
                         help="Extract a specific section (deploy, plans, backend, etc.)")
     parser.add_argument("--format", choices=("shell", "json"), default="shell")
-    parser.add_argument("--skill-dir", default="",
-                        help="Skill directory for legacy modes/ fallback")
     args = parser.parse_args()
 
     cwd = _normalize_path(args.cwd)
-    skill_dir = Path(args.skill_dir).resolve() if args.skill_dir else None
 
-    data = resolve(cwd, section=args.section, skill_dir=skill_dir)
+    data = resolve(cwd, section=args.section)
     if data is None:
-        print(f"No context matched cwd: {cwd}", file=sys.stderr)
+        print(format_legacy_transition_error(cwd), file=sys.stderr)
         return 2
 
     if args.format == "json":

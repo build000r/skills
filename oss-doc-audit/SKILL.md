@@ -39,7 +39,7 @@ pass.
 
 ## Modes
 
-Repo-aware audits resolve an overlay + mode file before scanning. Load the
+Repo-aware audits resolve an overlay section before scanning. Load the
 resolved context into the environment:
 
 ```bash
@@ -48,11 +48,9 @@ SKILL_DIR="$HOME/.claude/skills/oss-doc-audit"
 eval "$("$SKILL_DIR/scripts/select_mode.py" "$PWD" --format shell)"
 ```
 
-Resolution order (first match wins):
-
-1. `oss_doc_audit` section in a matching `skillbox-config/clients/{client}/overlay.yaml`
-2. `{skill_dir}/modes/*.md` whose YAML frontmatter `cwd_match` prefix-matches `$PWD` (longest prefix wins)
-3. If nothing matches, infer the active codebase from repo files before scanning
+`scripts/select_mode.py` reads `client.context.oss_doc_audit` from the matching
+`skillbox-config/clients/{client}/overlay.yaml`. No local mode files are part
+of the supported contract.
 
 If you need to create a missing client overlay before proceeding:
 
@@ -63,8 +61,14 @@ python3 ~/.claude/skills/skill-issue/scripts/manage_overlays.py create --client-
 Once resolved, prefer the loaded `MODE_*` variables
 (`MODE_ACTIVE_CODEBASE_PATH`, `MODE_DEPRECATED_PATHS`, `MODE_BASELINE_COMMANDS`,
 `MODE_DRIFT_MARKERS`, ...) over guessing. See
-[references/mode-template.md](references/mode-template.md) for the frontmatter
-key reference.
+[references/mode-template.md](references/mode-template.md) for the overlay key
+reference.
+
+If a matching overlay exists but lacks `client.context.oss_doc_audit`,
+`scripts/select_mode.py` fails with a section-missing error. In that case:
+
+1. extend the overlay if this repo needs repeatable audits, or
+2. continue with explicit repo-native inference for a one-off audit
 
 ## Workflow
 

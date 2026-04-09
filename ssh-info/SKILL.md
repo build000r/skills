@@ -36,8 +36,8 @@ health checks.
 ## Client Overlay
 
 This skill resolves configuration from the skillbox client overlay at
-`skillbox-config/clients/{client}/overlay.yaml`, falling back to a legacy
-`modes/config.sh` shell config if no overlay matches.
+`skillbox-config/clients/{client}/overlay.yaml`. The supported contract is
+`client.context.deploy`; there is no legacy shell-config fallback.
 
 The overlay's `deploy` section holds:
 
@@ -51,7 +51,10 @@ The overlay's `deploy` section holds:
 See [references/mode-template.md](references/mode-template.md) for the full
 key reference.
 
-If no overlay or legacy config matches, create one before proceeding:
+If no overlay matches, `scripts/status.sh` surfaces the shared legacy-transition
+message from `_shared/scripts/resolve_context.py`, then exits non-zero.
+
+If you need to create a missing client overlay before proceeding:
 
 ```bash
 python3 ~/.claude/skills/skill-issue/scripts/manage_overlays.py create --client-id {CLIENT_ID} --cwd "$PWD" --json
@@ -161,5 +164,5 @@ bash "$SKILLS_ROOT/ssh-info/scripts/status.sh" >/tmp/ssh-info.out 2>/tmp/ssh-inf
 head -n 2 /tmp/ssh-info.out /tmp/ssh-info.err
 ```
 
-The helper should fail cleanly with usage or a missing-overlay message when no
-client overlay exists.
+The helper should fail cleanly with usage or the shared legacy-transition
+message when no client overlay exists.

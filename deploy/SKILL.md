@@ -29,8 +29,8 @@ Start the first progress update with:
 
 This skill is public and generic. Real repos, domains, hosts, and paths belong
 in the skillbox client overlay at
-`skillbox-config/clients/{client}/overlay.yaml`, which is auto-generated into
-`context.yaml` at install time.
+`skillbox-config/clients/{client}/overlay.yaml`. This is the only supported
+contract. Do not add or depend on any legacy private mode directory.
 
 Load the resolved context before deploy/debug work:
 
@@ -40,13 +40,33 @@ SKILL_DIR="$HOME/.claude/skills/deploy"
 eval "$("$SKILL_DIR/scripts/select_mode.py" "$PWD" --format shell)"
 ```
 
-If no client overlay matches, create one before proceeding:
+`select_mode.py` resolves the matching client overlay, then narrows the deploy
+payload to the current repo when the overlay carries a shared `deploy.services`
+or `deploy.packages` portfolio. The emitted `MODE_*` vars should describe the
+repo under the current cwd, not the entire portfolio.
+
+If no client overlay matches, the selector exits non-zero and prints a legacy
+transition message with:
+
+- read-only probe output for inferable values such as `repo_slug`, compose
+  services, and CI workflow path
+- a valid `overlay.yaml` stub you can paste into `skillbox-config/clients/{id}/overlay.yaml`
+- the bootstrap command for `manage_overlays.py create`
+
+If you need to bootstrap a new overlay directly:
 
 ```bash
 python3 ~/.claude/skills/skill-issue/scripts/manage_overlays.py create --client-id {CLIENT_ID} --cwd "$PWD" --json
 ```
 
-Then re-resolve the mode. Do not guess hosts, repo paths, or deploy roots.
+The error starts with:
+
+```text
+Legacy transition: no skillbox-config overlay matches <cwd>.
+```
+
+Then re-resolve deploy context. Do not guess hosts, repo paths, or deploy
+roots.
 
 See [references/mode-template.md](references/mode-template.md) for the overlay
 key reference.
@@ -135,7 +155,7 @@ Every deploy/debug run must end with:
 
 Examples:
 
-- Behavior: `curl "$MODE_HEALTH_URL_API"` returns `200`
+- Behavior: `curl "$MODE_HEALTH_URL"` returns `200`
 - State: running container/image tag/commit hash matches expected version
 
 ## Docker / Compose Deploy
@@ -143,18 +163,18 @@ Examples:
 Generic pattern:
 
 ```bash
-git -C "$MODE_REPO_ROOT_API" status --short
-git -C "$MODE_REPO_ROOT_API" rev-parse --short HEAD
-git -C "$MODE_REPO_ROOT_API" push origin main
-gh run watch -R "$MODE_REPO_SLUG_API"
-curl -fsS "$MODE_HEALTH_URL_API"
+git -C "$MODE_REPO_ROOT" status --short
+git -C "$MODE_REPO_ROOT" rev-parse --short HEAD
+git -C "$MODE_REPO_ROOT" push origin main
+gh run watch -R "$MODE_REPO_SLUG"
+curl -fsS "$MODE_HEALTH_URL"
 ```
 
 If deploy happens over SSH:
 
 ```bash
-ssh "$MODE_DROPLET_SSH" "cd '$MODE_DEPLOY_ROOT_API' && docker compose ps"
-ssh "$MODE_DROPLET_SSH" "cd '$MODE_DEPLOY_ROOT_API' && docker compose logs --tail=100 api"
+ssh "$MODE_DROPLET_SSH" "cd '$MODE_DEPLOY_ROOT' && docker compose ps"
+ssh "$MODE_DROPLET_SSH" "cd '$MODE_DEPLOY_ROOT' && docker compose logs --tail=100 $MODE_COMPOSE_SERVICE"
 ```
 
 ## Pages / Edge Frontends

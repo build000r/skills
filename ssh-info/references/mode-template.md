@@ -1,11 +1,20 @@
 # SSH Info Overlay Key Reference
 
-## Skillbox Client Overlay (preferred)
-
-Add a `deploy` section to your client overlay at
+Add a `deploy` section under `client.context` in
 `skillbox-config/clients/{client}/overlay.yaml`:
 
 ```yaml
+version: 1
+client:
+  id: example
+  label: Example
+  default_cwd: ~/repos/my-api
+  repos: []
+  logs: []
+  context:
+    cwd_match:
+      - ~/repos/my-api
+
     deploy:
       droplet_ssh: root@{server-ip}
       droplet_ip: {server-ip}
@@ -28,34 +37,14 @@ Add a `deploy` section to your client overlay at
           health_url: https://api.example.com/health
           env_file: /opt/envs/my-api/prod.env
           db_volume: /mnt/{volume}/my-api/pgdata  # optional
+
+  checks: []
 ```
 
-The `status.sh` script reads the `deploy` section via `resolve_context.py` and
-maps it to container filters, health checks, and SSH targets automatically.
+`scripts/status.sh` reads `client.context.deploy` through
+`_shared/scripts/resolve_context.py` and maps it to container filters, health
+checks, and SSH targets automatically.
 
-## Legacy Shell Config (fallback)
-
-If no overlay matches, `status.sh` falls back to `modes/config.sh`. Copy this
-template and fill in your values. Keep the file untracked.
-
-```bash
-# Optional: when set, prod checks are wrapped in SSH.
-STATUS_REMOTE_SSH="ssh-target-placeholder"
-
-# Regex used to filter docker ps output for the services you care about.
-PROD_CONTAINER_FILTER='(NAMES|api|worker|db|redis)'
-
-# "Label|URL" pairs for known local or public health endpoints.
-LOCAL_HEALTH_CHECKS=(
-  "Frontend|http://localhost:3000/health"
-  "Backend|http://localhost:8000/health"
-)
-
-# "Label|Container|URL" triples for container-local health checks.
-PROD_HEALTH_CHECKS=(
-  "Backend API|backend-api-1|http://localhost:8000/health"
-  "Worker|worker-1|http://localhost:8010/health"
-)
-```
-
-Use shell-safe values. If a URL or label contains spaces, quote the whole row.
+If no overlay matches, the helper surfaces the shared legacy-transition error
+with a suggested overlay stub. Do not create or rely on local shell config
+fallback files.

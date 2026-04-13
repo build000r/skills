@@ -1,0 +1,106 @@
+/*
+ * Unified Brand System — Global Base Styles
+ *
+ * Import order:
+ *   1. tokens.css   (defines all CSS variables)
+ *   2. fonts.css    (loads faces)
+ *   3. this file    (base element styles)
+ *
+ * Keep this file small. Anything that isn't a base element reset belongs
+ * in a component or a utility layer.
+ */
+
+@import "./tokens.css";
+@import "./fonts.css";
+
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  html {
+    color-scheme: light;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    scroll-behavior: smooth;
+  }
+
+  html.dark,
+  html[data-theme="dark"] {
+    color-scheme: dark;
+  }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-family: var(--font-body);
+    font-size: var(--text-base);
+    line-height: var(--leading-normal);
+    font-feature-settings: "kern" 1, "liga" 1, "calt" 1;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Tabular numerals everywhere a number is likely — override per element */
+  .tabular-nums,
+  table,
+  [data-numeric] {
+    font-variant-numeric: tabular-nums;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-display);
+    color: hsl(var(--foreground));
+    line-height: var(--leading-tight);
+    letter-spacing: -0.02em;
+    margin: 0;
+  }
+
+  h1 { font-size: var(--text-5xl); }
+  h2 { font-size: var(--text-3xl); }
+  h3 { font-size: var(--text-2xl); }
+  h4 { font-size: var(--text-xl); }
+  h5 { font-size: var(--text-lg); }
+  h6 { font-size: var(--text-base); text-transform: uppercase; letter-spacing: 0.08em; }
+
+  p, ul, ol {
+    margin: 0;
+  }
+
+  a {
+    color: inherit;
+    text-underline-offset: 0.18em;
+    text-decoration-thickness: 1px;
+  }
+
+  img, svg, video {
+    display: block;
+    max-width: 100%;
+  }
+
+  hr {
+    border: 0;
+    border-top: 1px solid hsl(var(--border));
+    margin: 0;
+  }
+
+  :focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+    border-radius: var(--radius);
+  }
+
+  ::selection {
+    background-color: hsl(var(--foreground));
+    color: hsl(var(--background));
+  }
+
+  button {
+    font-family: inherit;
+  }
+}

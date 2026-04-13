@@ -2,129 +2,139 @@
 
 ## Safe Split Patterns
 
-These patterns produce agents that are guaranteed conflict-free:
+These patterns produce workgraph nodes that are safe to execute in swarm waves:
 
 ### 1. Concern-Disjoint Split
-Each agent owns a distinct domain/concern. Agents discover which files are relevant.
 
-```
-Agent A: Handle authentication — token refresh, session management
-Agent B: Handle billing — payment processing, invoicing
-Agent C: Handle notifications — email templates, delivery logic
-```
+Each node owns a distinct domain or concern. Workers discover which files are
+relevant, but ownership is verified through `writes`.
 
-Conflict check verifies these concerns don't overlap in files, but prompts stay goal-focused.
-
-### 2. Explore + Single Writer
-Multiple Explore agents (physically read-only) gather context, one general-purpose agent writes.
-
-```
-Agent A (Explore, gpt-5.4/medium): Research how auth is implemented across the codebase
-Agent B (Explore, gpt-5.4/medium): Research how the test framework is configured
-Agent C (general-purpose, gpt-5.4/high): Implement the change (uses findings from A and B)
+```text
+WG-001: Handle authentication - token refresh, session management
+WG-002: Handle billing - payment processing, invoicing
+WG-003: Handle notifications - email templates, delivery logic
 ```
 
-Note: Agent C must run AFTER A and B complete. Use this only when A/B are
-research-only and C is the sole implementor. If C depends on A/B findings,
-they cannot all be parallel — launch A+B together, then C after they return.
-Since C is general-purpose, it sees the full conversation including A/B results.
+Conflict check verifies these concerns do not overlap in writes, but prompts
+stay goal-focused.
+
+### 2. Research + Single Writer
+
+Multiple read-only nodes gather context, one writer node executes after they
+finish.
+
+```text
+WG-001: Research how auth is implemented across the codebase      writes: []
+WG-002: Research how the test framework is configured             writes: []
+WG-003: Implement the auth change using the research findings     writes: src/auth/** tests/**
+```
+
+`WG-003` must run after `WG-001` and `WG-002`. If the writer depends on the
+research findings, they are not the same wave.
 
 ### 3. Layer-Disjoint Split
-Each agent works in a completely separate architectural layer.
 
-```
-Agent A: Implement the API endpoint for user preferences
-Agent B: Build the frontend component to display/edit preferences
-Agent C: Add the database migration for the preferences table
+Each node works in a separate architectural layer.
+
+```text
+WG-001: Implement the API endpoint for user preferences           writes: server/api/**
+WG-002: Build the frontend component to edit preferences          writes: web/components/**
+WG-003: Add the migration for the preferences table              writes: db/migrations/**
 ```
 
-Caution: Only safe if layers don't share files (e.g., shared types file). Conflict check catches this.
+Safe only if the layers do not share files. Conflict check must verify this.
 
 ### 4. Independent Investigation Split
-Each agent investigates a different hypothesis or area. All Explore type (cannot write).
 
-```
-Agent A (Explore, gpt-5.4/medium): Check if the bug is in the API layer
-Agent B (Explore, gpt-5.4/medium): Check if the bug is in the database queries
-Agent C (Explore, gpt-5.4/medium): Check if the bug is in the frontend state management
+Each node investigates a different hypothesis or area. All are read-only.
+
+```text
+WG-001: Check if the bug is in the API layer                     writes: []
+WG-002: Check if the bug is in the database queries              writes: []
+WG-003: Check if the bug is in the frontend state management     writes: []
 ```
 
-All three launch in a single message. Results reviewed by orchestrator to determine root cause.
+All three can launch in one wave. Results are collected, then the graph is
+updated before any writer is launched.
 
 ### 5. Workgraph Frontier Split
-When `WORKGRAPH.md` exists, split only the current ready frontier instead of
-re-deriving the entire plan from scratch.
 
-```
+When `WORKGRAPH.md` exists, split only the current ready frontier instead of
+re-deriving the entire plan.
+
+```text
 WG-001 backend API       writes: backend/domain/**         status: ready
 WG-002 migration         writes: backend/migrations/**     status: ready
 WG-003 frontend widget   writes: frontend/widgets/**       status: blocked on WG-001
 ```
 
-Safe parallel wave:
-- Agent A: WG-001 backend API
-- Agent B: WG-002 migration
+Safe first wave:
+- `WG-001`
+- `WG-002`
 
-Do not launch WG-003 until WG-001 is done and validated.
+Do not launch `WG-003` until `WG-001` is done and independently validated.
 
 ## Unsafe Patterns (Do NOT Split)
 
 ### Same-File Edits
-Two agents editing the same file will cause race conditions.
 
-```
+Two nodes editing the same file will race.
+
+```text
 BAD:
-Agent A: Add function to utils.ts
-Agent B: Modify existing function in utils.ts
+WG-001: Add function to utils.ts
+WG-002: Modify existing function in utils.ts
 ```
 
-### Dependent Chain
-Agent B needs Agent A's output to know what to do.
+### Dependent Chain In The Same Wave
 
-```
+Node B needs Node A's output to know what to do.
+
+```text
 BAD:
-Agent A: Figure out the correct API schema
-Agent B: Implement the API endpoint using that schema
+WG-001: Figure out the correct API schema
+WG-002: Implement the API endpoint using that schema
 ```
 
-### Shared State
-Agents modify resources that interact at runtime.
+### Shared Runtime State
 
-```
+Nodes modify resources that interact too tightly at runtime.
+
+```text
 BAD:
-Agent A: Modify the database schema
-Agent B: Modify queries that use that schema
+WG-001: Modify the database schema
+WG-002: Modify queries that use that schema
 ```
 
-### Discovery-Then-Act
-Can't parallelize when the action depends on what's discovered.
+### Discovery-Then-Act In Parallel
 
-```
+Cannot parallelize when the action depends on what is discovered.
+
+```text
 BAD:
-Agent A: Find all files that import the old module
-Agent B: Update all files that import the old module
+WG-001: Find all files that import the old module
+WG-002: Update all files that import the old module
 ```
 
 ## Decomposition Checklist
 
-Before finalizing a split, verify:
+Before finalizing a graph, verify:
 
-- [ ] Each agent is scoped by concern/goal, not by file list
-- [ ] No two agents' concerns would touch the same files (verify, don't micromanage)
-- [ ] No agent needs another agent's output to begin work
-- [ ] Each agent has all context it needs in its prompt (or is general-purpose and can reference conversation)
-- [ ] Research agents use Explore type (physically cannot write)
-- [ ] Write agents use general-purpose type
-- [ ] Command-only agents use Bash type
-- [ ] Explicit model selection uses `gpt-5.4`, with reasoning effort chosen from `medium|high|xhigh`
-- [ ] All parallel agents are launched in a single message
-- [ ] The orchestrator can review each agent's work independently
-- [ ] Recombining results requires no conflict resolution
+- [ ] Each node is scoped by concern or goal, not by micro-file edits
+- [ ] No two nodes' `writes` overlap
+- [ ] No node needs another node's output to begin unless the dependency is explicit
+- [ ] Each node has all context it needs in its prompt
+- [ ] Read-only nodes declare empty writes
+- [ ] Writer nodes own concrete write scopes
+- [ ] Explicit model selection uses `gpt-5.4`, with reasoning chosen from `medium|high|xhigh`
+- [ ] The whole ready frontier can launch in one wave without conflict
+- [ ] The orchestrator can independently validate each node after collection
+- [ ] Recombining results requires no merge arbitration
 
-## Sizing Agents
+## Sizing Nodes
 
-- **Too granular**: 10 agents each doing one tiny thing = overhead > benefit
-- **Too coarse**: 1 agent doing everything = no parallelism
-- **Sweet spot**: 2-5 agents, each with a meaningful chunk of work
-- **Research agents**: Can be more numerous since Explore type is read-only and `gpt-5.4/medium` is usually enough
-- **Implementation agents**: Fewer is better to minimize conflict risk
+- Too granular: 10 nodes each doing one tiny thing; orchestration overhead wins
+- Too coarse: 1 node doing everything; parallelism disappears
+- Sweet spot: 2-5 meaningful execution nodes, sometimes plus read-only research nodes
+- Read-only nodes: can be more numerous, but still need crisp output contracts
+- Writer nodes: fewer is better to minimize overlap and integration risk

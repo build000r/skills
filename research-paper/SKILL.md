@@ -1,6 +1,6 @@
 ---
 name: research-paper
-description: Generate dense research-paper-style pages on any topic plus companion X and LinkedIn drafts that keep the same thesis. Use for "research paper", "write a paper on", "research page", "/research-paper", or internal write-ups on a topic, with optional client overlays for styling, data sources, and routing.
+description: Generate dense research-paper-style pages on any topic plus companion X and LinkedIn drafts that keep the same thesis. Also has a discover mode that mines recent session activity (via cass) and existing paper coverage to propose accretive topics rooted in actual work. Use for "research paper", "write a paper on", "research page", "/research-paper", "discover topics", "what should I write about", or internal write-ups on a topic, with optional client overlays for styling, data sources, and routing.
 license: Complete terms in LICENSE
 ---
 
@@ -70,26 +70,122 @@ When a user runs the skill with no matching client overlay, offer to create one.
 
 Write the client overlay to `skillbox-config/clients/{client-name}/overlay.yaml` using `references/mode-template.md` as a structural reference. If the user has project-specific reference data or a component template, place them in the same client directory.
 
+## Modes
+
+The skill has two modes:
+
+- **Generate mode** (default): A topic is provided. Run the full workflow from Step 2 onward to produce a paper.
+- **Discover mode**: No topic is provided, or the user invokes with `discover`, `what should I write about`, `find a topic`, or similar. Run the discovery workflow first (see "Discover Mode" below) to propose 3-5 candidate topics rooted in recent activity and existing coverage gaps. Then, once the user picks one, flow into Generate mode at Step 2.
+
 ## Workflow
 
 ```
 1. Detect client overlay (match cwd to context.yaml or use generic)
-2. Parse topic from arguments
+   - Also check for MDX pipeline: does content/research/ + pages/research/[slug].tsx exist?
+   - If yes, output format is a unified .md file (see "MDX Pipeline" in Step 8)
+   - If no topic provided → enter Discover Mode before Step 2
+2. Parse topic from arguments (or from Discover Mode selection)
 3. Gather data (overlay-specific data sources + web research)
 4. Research the topic (WebSearch for publications, data, perspectives)
 5. Map findings to paper structure
 6. Create the companion output briefs
 7. Run title / hook passes
-8. Write the canonical paper
+8. Write the canonical paper (unified .md for MDX pipeline, or TSX per overlay)
 9. Derive the companion outputs
-10. Add routing / registration (if overlay requires it)
+10. Add routing / registration (MDX: skip — auto-routed; overlay: if required)
 11. Type-check / validate
-12. Post-creation tasks (overlay-specific: homepage links, nav updates, manifests, etc.)
+12. Post-creation tasks (MDX: update Obsidian index.md + rebuild; overlay: homepage links, nav updates, etc.)
 ```
+
+## Discover Mode
+
+Goal: propose accretive topic candidates grounded in the user's actual work — not generic industry trends. Every candidate must build on or extend existing papers AND be rooted in recent real activity.
+
+### Step D1: Inventory existing coverage
+
+For projects using the MDX pipeline:
+- Read every `content/research/*.md` file's frontmatter (title, shortTitle, keywords, publishDate)
+- Read the `## Website` section's `<ResearchAbstract>` content for each paper
+- Read the `## Related` sections to understand the existing graph of cross-references
+- Build a compact coverage map: what themes are covered, what the core thesis is for each, when it was written, which papers cite which
+
+Skip the heavy body text — the abstracts and keywords are sufficient for coverage inventory.
+
+For non-MDX projects with a known papers directory, use the same pattern with whatever file structure is in place.
+
+### Step D2: Mine recent activity with cass
+
+Use the `cass` skill/CLI to mine recent session history. Focus on the last 2-4 weeks of work in the relevant repo:
+
+```bash
+# Find recent sessions in the target repo
+cass search --repo {repo-name} --since 2w
+
+# Extract user prompts (lines 1-3 of each session often contain the best prompts)
+cass export --repo {repo-name} --since 2w --format jsonl | jq -r 'select(.type=="user") | .message.content' | head -100
+```
+
+Look for:
+- **Problems solved repeatedly** — patterns the user hit multiple times
+- **Decisions made** — especially contrarian or non-obvious ones recorded in commits, plans, or conversation
+- **Frameworks invented in conversation** — concepts that emerged from dialogue, not from research
+- **Tools built** — new skills, scripts, or infrastructure the user created
+- **Frustrations and workarounds** — real friction points with genuine stakes
+
+If the `cass` CLI is not available in the runtime, fall back to:
+- `git log --since="2 weeks ago" --pretty=format:"%s"` in the relevant repo
+- Reading `CHANGELOG.md` or recent commits for themes
+- Scanning `.claude/projects/*/memory/` files for captured lessons
+
+### Step D3: Find the delta
+
+Cross-reference D1 against D2:
+
+- What recent activity is **not covered** by any existing paper?
+- What recent activity **extends** an existing paper's thesis with new evidence?
+- What recent activity **contradicts** or complicates a prior paper's framing?
+- What patterns appear in the activity that could be generalized into a framework?
+- What did the user build that is itself the evidence for a thesis (dogfooded claim)?
+
+### Step D4: Score candidate topics
+
+Generate 5-8 candidate topics. Score each on:
+
+| Criterion | What to evaluate |
+|---|---|
+| **Groundedness** | Is this rooted in real work the user actually did, not hypothetical? |
+| **Accretivity** | Does it build on or extend existing papers rather than duplicate them? |
+| **Specificity** | Can concrete, evidence-based claims be made (with real numbers, real artifacts, real conversations)? |
+| **Contrarian edge** | Does the user have a non-obvious angle or counter-consensus take? |
+| **Evidence-to-thesis ratio** | Is there enough existing evidence to write the paper without inventing data? |
+
+Discard candidates that are generic industry commentary. The user's advantage is that they have **first-person operator evidence** from their actual work — every topic should exploit that.
+
+### Step D5: Present candidates
+
+Return 3-5 top candidates to the user in this format:
+
+```
+## Candidate Topics
+
+### 1. {Shortcut title}
+**Thesis**: {One sentence — the contrarian claim or framework}
+**Grounded in**: {What recent work this draws from — file paths, commits, conversations}
+**Builds on**: {Which existing papers it cites/extends, with [[wikilinks]]}
+**Evidence ready**: {What concrete artifacts can be cited — tables, benchmarks, case studies}
+**Why now**: {What makes this timely}
+**Score**: G:5 A:4 S:5 C:4 E:5
+
+### 2. {...}
+```
+
+Rank by total score. Include a one-sentence "why not" for any candidates you discarded.
+
+Stop after presenting. Wait for the user to pick one, then flow into Step 2 with the selected topic.
 
 ## Step 2: Parse Topic
 
-Extract the topic from skill arguments. Derive:
+Extract the topic from skill arguments or from the Discover Mode selection. Derive:
 - **slug**: kebab-case URL segment (e.g. `creator-economy`, `ai-agents`)
 - **display name**: Title case for headings (e.g. "Creator Economy", "AI Agents")
 - **component name**: PascalCase for code (e.g. `CreatorEconomyResearchPage`)
@@ -187,7 +283,86 @@ If two titles score similarly and user preference matters, present the top 2 and
 
 Use divide-and-conquer with parallel agents when the bundle requires multiple files (e.g. paper + X article + LinkedIn article + LinkedIn post + route update). Otherwise, single agent.
 
-### With a Client Overlay
+### MDX Pipeline (buildooor and projects with MDX research support)
+
+When the project has an MDX research pipeline (i.e. a `content/research/` directory with a `pages/research/[slug].tsx` dynamic route), write ONE unified `.md` file per paper that contains all four versions (website + linkedin article + linkedin post + x article).
+
+**Output path**: `content/research/{slug}.md`
+
+**File structure**: YAML frontmatter + H2 sections delimiting each version.
+
+```markdown
+---
+title: "Full Academic Title: With Subtitle"
+shortTitle: "casual homepage label"       # informal title for homepage listing
+status: "thought"                         # "thought" or "v0" (has a live version)
+description: "150-200 word abstract for SEO meta tags"
+url: "https://buildooor.com/research/{slug}"
+author: "Rob Baratta"
+publishDate: "2026-04-10"                 # ISO date
+version: "Working Paper v1.0"
+keywords:
+  - keyword one
+  - keyword two
+section: "Research"
+dateLine: "Buildooor Research Brief -- April 2026"
+versionHref: "https://example.com"        # optional: link to live product version
+---
+
+## Website
+
+<ResearchAbstract>
+  ...
+</ResearchAbstract>
+
+<ResearchSection number={1} title="...">
+  ...
+</ResearchSection>
+
+<ResearchReferences>
+  ...
+</ResearchReferences>
+
+<ResearchColophon citation="..." email="..." />
+
+## LinkedIn Article
+
+{LinkedIn article body — pure markdown, no JSX components}
+
+## LinkedIn Post
+
+{LinkedIn post body}
+
+## X Article
+
+{X article body}
+
+## Related
+
+- [[other-paper-slug]] — one line on how they relate
+- [[another-paper-slug]] — another relationship
+```
+
+**Critical constraints for the Website section:**
+
+- Use `<ResearchSection>` JSX for subsection headings — NEVER raw `## markdown` headings inside `## Website`. The renderer splits on `^## ` to extract the website section, so nested markdown H2s would break extraction.
+- Components available (no imports needed): `<ResearchAbstract>`, `<ResearchSection number={N} title="...">`, `<ResearchTable caption columns rows footnote? compact?>`, `<ResearchCallout>`, `<ResearchReferences>`, `<ResearchColophon citation email>`
+- Standard markdown (bold, italic, links, lists) works between components
+- **Escape double quotes in JSX attributes**: if a `footnote` or `caption` contains nested `"`, wrap the whole value in `{'...'}` instead of `"..."` to avoid MDX parse errors. Example: `footnote={'This has "quoted" text inside.'}`
+
+**How the renderer reads this file:**
+
+- `lib/research/mdx.ts` parses frontmatter with gray-matter
+- Extracts ONLY the `## Website` section (from `## Website` to the next `## ` heading)
+- Feeds that to `next-mdx-remote` for server-side MDX compilation
+- The LinkedIn, X, and Related sections are invisible to the website build
+- The `## Related` section exists purely for Obsidian graph view wikilinks
+
+**Companion outputs live in the same file**, not as separate siblings. There are no `.linkedin-article.md`, `.linkedin-post.md`, or `.x-article.md` files anymore.
+
+**Obsidian workflow**: Open `content/research/` as a vault. Each `.md` file opens as one note with all four versions visible. The `## Related` section powers the graph view. Use wikilinks (`[[slug-name]]`) in the Related section — not in the Website section — since wikilinks don't render on the website.
+
+### With a Client Overlay (non-MDX projects)
 
 Follow the overlay's output path, framework patterns, and styling. Read any template in `skillbox-config/clients/{client-name}/page-template.*` for structural reference.
 
@@ -201,17 +376,11 @@ Write a standalone HTML or markdown file at the user's preferred location. Ask w
 
 - Dense paragraphs. Data-driven. No fluff.
 - Liberal use of em-dashes for asides and clarifications.
-- Tables for data-heavy sections (comparison matrices, reference ranges, benchmarks).
+- Tables for data-heavy sections — use `<ResearchTable>` in MDX projects, raw HTML/Tailwind elsewhere.
 - Real numbers from research — not vague qualifiers.
 - 600-1000 lines. Prioritize density over brevity.
 - Keep the canonical paper dense and research-led. Do not flatten it into a social-first article.
 - Put most scanability and packaging optimizations into the companion outputs, not the paper.
-
-If the client overlay does not define companion output locations, use these defaults beside the paper file:
-
-- **X article**: `{paper-base}.x-article.md`
-- **LinkedIn article**: `{paper-base}.linkedin-article.md`
-- **LinkedIn post**: `{paper-base}.linkedin-post.md`
 
 For canonical paper structure, use `references/paper-structure.md`. For companion output structure, use `references/companion-outputs.md`.
 
@@ -262,7 +431,11 @@ Use the default companion output structure in `references/companion-outputs.md` 
 
 ## Step 10: Add Routing
 
-Only if the client overlay specifies routing or registration steps (e.g. "add import to AppRoutes.tsx", "register the paper in a manifest", or "promote the article draft into a blog route"). Skip for file-based routing frameworks and generic mode.
+**MDX pipeline projects**: No routing step needed. The `pages/research/[slug].tsx` dynamic route automatically picks up new `.mdx` files from `content/research/` at build time. A rebuild/redeploy is required for the page to go live.
+
+**Client overlay projects**: Only if the overlay specifies routing or registration steps (e.g. "add import to AppRoutes.tsx", "register the paper in a manifest", or "promote the article draft into a blog route"). Skip for file-based routing frameworks.
+
+**Generic**: Skip.
 
 ## Step 11: Validate
 
@@ -270,11 +443,21 @@ Run the client overlay's validation command if specified (e.g. `npx tsc --noEmit
 
 ## Step 12: Post-Creation Tasks
 
-Check the client overlay for a "Post-Creation" section. If present, execute every step — these are required, not optional. Common post-creation tasks include adding the paper to a homepage link array, updating a navigation component, registering the paper in a manifest, or appending the X article / LinkedIn drafts to a social/content drafts ledger. **Do not skip this step.** Also update the overlay's "Existing Papers" list with the new paper.
+**MDX pipeline projects**: The homepage notes list and API serializer endpoints (`.md`/`.txt`) are auto-generated from the `content/research/` directory at build time. No manual registration is needed there. But the Obsidian index IS manual — if `content/research/index.md` exists, append a row for each new paper to its `## Papers` table. The file is explicitly excluded from the website renderer (`getMdxResearchSlugs` filters out `index.md`), so it exists purely as the Obsidian graph entry point. Missing rows mean the new paper is invisible in the user's vault view even though the website renders it. Pattern:
+
+```markdown
+| 2026-04-10 | [[new-paper-slug]] | thought |
+```
+
+Append the row after the latest-dated existing row, matching the date-ascending convention. Use `thought` status unless there is a live product version (then use `v0`). Do this for every new paper in the run, not just the last one.
+
+After that, rebuild/redeploy. If the client overlay specifies additional tasks (social drafts ledger, `llms.txt` update), execute those too.
+
+**Client overlay projects**: Check the client overlay for a "Post-Creation" section. If present, execute every step — these are required, not optional. Common post-creation tasks include adding the paper to a homepage link array, updating a navigation component, registering the paper in a manifest, or appending the X article / LinkedIn drafts to a social/content drafts ledger. **Do not skip this step.** Also update the overlay's "Existing Papers" list with the new paper.
 
 If the client overlay uses machine-readable paper alternates, treat registry updates and discovery surfaces (`llms.txt`, manifests, feed pages) as part of post-creation, not optional cleanup.
 
-For generic mode, skip.
+**Generic**: Skip.
 
 ## Output
 

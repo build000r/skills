@@ -1,6 +1,7 @@
 # Mode Template
 
-Copy this file to `modes/{project-name}.md` and fill in each section. Delete any sections that don't apply.
+Copy this file to `modes/{project-name}.md` and fill in each section. Delete
+any sections that do not apply.
 
 ---
 
@@ -8,52 +9,55 @@ Copy this file to `modes/{project-name}.md` and fill in each section. Delete any
 
 ## Detection
 
-```
+```text
 cwd_match: ~/repos/{project-name}
 ```
 
-## Agent Preferences
+## Swarm Preferences
 
-- **Preferred agent types**: Explore + general-purpose | mostly general-purpose | Explore-heavy research
-- **Max agents**: 3-5 (adjust based on project complexity)
-- **Default model strategy**: use `gpt-5.4`; default to `high`, reserve `medium` for clearly bounded work, use `xhigh` for reviews/ambiguity, and round up when unsure
-- **Background by default**: true | false
+- **Preferred worker mix**: read-only heavy | balanced | write-heavy
+- **Max workers per wave**: 3-5 (adjust based on project complexity)
+- **Default model strategy**: use `gpt-5.4`; default to `high`, reserve `medium` for clearly bounded read-only work, use `xhigh` for review or ambiguity, and round up when unsure
+- **Wave naming**: `dac-{project}-wave-{nn}`
+- **Review wave**: 1 worker | 2 workers
+- **Artifact root override**: `workflow_builder.invocation_root` | `client_dir/invocations` | leave unset to use the shared default resolution
 
 ## Repo Structure
 
 Key directories and their purposes:
 
-- **Source**: `src/` — main application code
-- **Tests**: `tests/` or `src/__tests__/` — test files
-- **Config**: project root — config files (tsconfig, package.json, etc.)
+- **Source**: `src/` - main application code
+- **Tests**: `tests/` or `src/__tests__/` - test files
+- **Config**: project root - config files
 - **Build command**: `npm run build` | `cargo build` | etc.
 - **Test command**: `npm test` | `pytest` | `cargo test` | etc.
 - **Lint command**: `npm run lint` | `ruff check` | etc.
 
 ## Split Boundaries
 
-Project-specific seams where work naturally divides. List the major concern boundaries:
+Project-specific seams where work naturally divides. List the major concern
+boundaries:
 
-- **Frontend**: `src/app/` or `src/components/` — UI components, pages, styling
-- **Backend**: `src/api/` or `server/` — API routes, business logic
-- **Database**: `src/db/` or `prisma/` — schema, migrations, queries
-- **Shared types**: `src/types/` — interfaces, type definitions used across boundaries
-- **Infrastructure**: `deploy/` or `.github/` — CI/CD, Docker, deployment configs
-- **Tests**: `tests/` — keep test agents separate from implementation agents
+- **Frontend**: `src/app/` or `src/components/`
+- **Backend**: `src/api/` or `server/`
+- **Database**: `src/db/` or `prisma/`
+- **Shared types**: `src/types/`
+- **Infrastructure**: `deploy/` or `.github/`
+- **Tests**: `tests/`
 
 Add or remove boundaries to match your project layout.
 
 ## Naming Conventions
 
-How agents should be labeled for this project:
+How workgraph nodes and wave labels should be named for this project:
 
-- **Pattern**: `Agent [N]: {Boundary} — {Goal}` (e.g., "Agent 1: Frontend — Add user profile page")
+- **Node pattern**: `WG-00N: {Boundary} - {Goal}`
+- **Wave pattern**: `dac-{project}-wave-{nn}`
 - **Prefix**: Use the boundary name from Split Boundaries above
-- **Numbering**: Sequential, write-agents first, then explore-agents
 
 ## Validation
 
-Command to run after all agents complete and work is merged:
+Command to run after all waves complete and the final review worker is ready:
 
 ```bash
 cd ~/repos/{project-name} && npm run build && npm test

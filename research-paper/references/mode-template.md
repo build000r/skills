@@ -16,15 +16,21 @@ cwd_match: ~/repos/{project-name}
 
 ## Output
 
-- **File path**: `src/pages/research/{Name}ResearchPage.tsx`
+- **File path**: `content/research/{slug}.mdx` (MDX pipeline) or `src/pages/research/{Name}ResearchPage.tsx` (TSX)
 - **Framework**: React / Next.js / Vue / Svelte / HTML
-- **Existing papers command**: `ls src/pages/research/`
+- **MDX pipeline**: If the project has `content/research/` + `pages/research/[slug].tsx`, use MDX output. No TSX page needed.
+- **Existing papers command**: `ls content/research/*.mdx` (MDX) or `ls src/pages/research/` (TSX)
 
 ## Companion Outputs
 
 Describe the required derivatives that every paper should generate. Keep this narrow unless the project genuinely needs more than the default X article plus LinkedIn article/post bundle.
 
-- **X article path**: `src/pages/research/{Name}ResearchPage.x-article.md` (or your preferred location)
+For MDX pipeline projects, companion defaults are sibling files in `content/research/`:
+- `content/research/{slug}.x-article.md`
+- `content/research/{slug}.linkedin-article.md`
+- `content/research/{slug}.linkedin-post.md`
+
+- **X article path**: `content/research/{slug}.x-article.md` (MDX) or `src/pages/research/{Name}ResearchPage.x-article.md` (TSX)
 - **X article format**: Markdown / plain text / HTML / CMS draft
 - **X article paste target**: `https://x.com/compose/articles/edit`
 - **X article routing**: None / file-based / manual (describe exact pattern)
@@ -135,6 +141,8 @@ cd ~/repos/{project-name} && npx tsc --noEmit --pretty
 
 List every required follow-up step after writing the bundle.
 
+**MDX pipeline projects**: Homepage listing and API endpoints (`.md`/`.txt`) are auto-generated from `content/research/` at build time. No manual registration for those. List only additional tasks here.
+
 Examples:
 
 - Register the paper in a manifest
@@ -142,7 +150,7 @@ Examples:
 - Append the X article to a shared social-drafts file
 - Append the LinkedIn article/post drafts to a shared social-drafts file
 - Update `llms.txt` or other discovery surfaces
-- Add homepage/nav links
+- Add homepage/nav links (not needed for MDX pipeline — auto-generated)
 
 Keep this list limited to artifacts and registrations the project actually needs. Do not add channel-by-channel distribution tasks unless they are truly required by the client overlay.
 

@@ -78,10 +78,10 @@ Resolution rules:
 | Layer | What it owns | Files |
 |-------|-------------|-------|
 | **Soul** (`soul_md` via API) | Voice, tone, personas (with voice calibration), reply archetypes, engagement principles, boundaries | Fetched from `/v0/integrations/claw-runtime/policies/soul_md` |
-| **Client Overlay** (`skillbox-config/clients/{client}/overlay.yaml`) | Query packs, subreddit targets, ranking weights, exclusion regex, platform scope, handoff schema | Auto-generated `context.yaml` |
+| **Client Overlay** (`skillbox-config/clients/{client}/overlay.yaml`) | Query packs (with product affinity), subreddit targets, ranking weights, exclusion regex, platform scope, handoff schema | Auto-generated `context.yaml` |
 | **Skill** (this file) | API calls, script execution, data flow, error handling | `SKILL.md` + `scripts/` |
 
-**This skill is personality-agnostic.** It searches, filters, scores, and outputs candidates. How the agent *talks* is the soul's job. What the agent *searches for* is the client overlay's job.
+**This skill is personality-agnostic and knowledge-agnostic.** It searches, filters, scores, and outputs candidates. How the agent *talks* is the soul's job. What the agent *searches for* is the client overlay's job. *Why* those queries exist (which product needs clients, what buyers voice publicly) lives in wiki acquisition concept pages — but discover never reads those directly. The overlay carries the product affinity tag from wiki to discover.
 
 If no soul is published, fall back to `references/voice-guide.md` (generic defaults).
 
@@ -257,6 +257,7 @@ Also include:
 - `reply_strategy`
 - `action`
 - `evidence` (short note: why this was selected)
+- `product_affinity` (which product this candidate is relevant to, from the overlay's query-to-product mapping — e.g. `htma`, `cfo`, `buildooor`. Null if the candidate came from a non-product query or matched no product.)
 
 ### Phase 6 - Quality Gate and Present
 
@@ -264,10 +265,11 @@ Before finalizing, run the checklist in `references/feed-quality-checklist.md`.
 
 Return:
 
-- ranked table of candidates
+- ranked table of candidates (grouped by `product_affinity` when available)
 - top 3 immediate outreach targets
 - top 3 content/influence targets
 - rejected-pattern summary (what was filtered out)
+- **product gap signal**: candidates that scored well on intent/engagement but matched no product in the overlay. These are conversations worth engaging in where no product-acquisition concept page exists yet — report as "unmatched high-signal" with topic cluster summary. This output feeds back to the wiki as a potential ingest source for new acquisition concept pages.
 
 ### Phase 7 - Save + Handoff
 

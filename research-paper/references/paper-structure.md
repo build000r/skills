@@ -26,6 +26,30 @@ This file covers the canonical paper only. Companion X article defaults live in 
 
 ## Table Patterns
 
+### MDX pipeline projects (buildooor)
+
+Use `<ResearchTable>` — no raw HTML or Tailwind needed:
+
+```mdx
+<ResearchTable
+  caption="Table 1. Description"
+  columns={[
+    { label: 'Column A' },
+    { label: 'Column B', align: 'right', mono: true },
+    { label: 'Column C', muted: true }
+  ]}
+  rows={[
+    ['Row 1 A', 'Row 1 B', 'Row 1 C'],
+    ['Row 2 A', 'Row 2 B', 'Row 2 C']
+  ]}
+  footnote="Source: citation"
+/>
+```
+
+Column options: `align` ('left' | 'center' | 'right'), `mono` (boolean), `muted` (boolean). Table-level options: `compact` (boolean), `footnote` (string).
+
+### Non-MDX projects
+
 Use consistent Tailwind classes for all tables:
 
 ```
@@ -36,9 +60,19 @@ const trEven = "bg-gray-50";
 
 Modes should override these with their brand colors.
 
-## Highlight Boxes
+## Highlight Boxes / Callouts
 
-For key findings or callouts:
+### MDX pipeline projects
+
+Use `<ResearchCallout>`:
+
+```mdx
+<ResearchCallout>
+Key finding or emphasis text here. Renders as black box with white italic text.
+</ResearchCallout>
+```
+
+### Non-MDX projects
 
 ```html
 <div class="rounded border-l-4 border-blue-500 bg-blue-50 p-4">

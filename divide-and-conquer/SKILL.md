@@ -1,67 +1,128 @@
 ---
 name: divide-and-conquer
-description: Decompose complex work into independent parallel sub-agents with no write overlap, synthesize or consume a `WORKGRAPH.md` execution artifact, and launch describe-style worker briefs before review. Use before spawning multiple agents for multi-file, multi-domain, or naturally parallel tasks.
+description: Decompose complex work into an executable `WORKGRAPH.md`, then run an NTM-style swarm by ready frontier with no write overlap. Use before parallel execution for multi-file, multi-domain, or naturally orchestrated tasks.
 license: MIT
 ---
 
 # Divide and Conquer
 
-Decompose a task into sub-agents that run fully in parallel with zero conflicts.
-Autonomous: analyze → load or synthesize `WORKGRAPH.md` → launch
-describe-style node briefs → Codex review → commit → report. No approval
-gates.
+Decompose a task into a `WORKGRAPH.md`, then execute that graph through an
+NTM-managed swarm. Autonomous: analyze -> load or synthesize `WORKGRAPH.md` ->
+tighten fuzzy nodes -> spawn a wave swarm -> dispatch node briefs -> monitor ->
+collect -> update graph state -> advance waves -> run final integration review
+-> commit -> report. No approval gates.
 
 ## Default Marker
 
 Start with a stable first progress message such as:
 
-`Using \`divide-and-conquer\` to map the ready frontier, write a temp \`WORKGRAPH.md\` when needed, and launch conflict-free workers.`
+`Using \`divide-and-conquer\` to build the ready frontier, spawn an execution swarm, and hand the workgraph off wave by wave.`
 
 Shared cross-skill rules live in
 [references/orchestration-contract.md](references/orchestration-contract.md).
 Use that file for worker ownership, background-task collection, and detached
-review handoff semantics.
+handoff semantics.
 
-Temp workgraph synthesis and describe-style worker briefs live in
+Temp workgraph synthesis and describe-style node briefs live in
 [references/workgraph-synthesis.md](references/workgraph-synthesis.md).
+
+This skill now defaults to an external NTM swarm for execution. Do not fall
+back to ad hoc local subagents or `/codex:rescue` as the primary path unless
+the user explicitly asks to bypass the swarm. If `ntm` is unavailable, stop and
+surface the missing prerequisite instead of silently degrading.
+
+## Artifact Storage
+
+Execution artifacts belong alongside the active client overlay in
+`skillbox-config`, not in the repo root and not in `/tmp`.
+
+Resolve client context with the shared helper first:
+
+```bash
+python3 ~/.claude/skills/_shared/scripts/resolve_context.py "$PWD" --format json
+```
+
+Then resolve the invocation artifact root using this order:
+
+1. `workflow_builder.invocation_root` from the resolved context
+2. `client_dir + /invocations` when `client_dir` is present
+3. Stop and surface the missing overlay/artifact-root prerequisite
+
+Treat relative roots as relative to `client_dir`. If the resolver returns
+absolute paths, use them directly.
+
+Create one run directory per execution:
+
+```text
+{invocation_root}/{repo_slug}/divide-and-conquer/{run_id}/
+```
+
+Where:
+- `repo_slug` = matched repo id from the overlay when available, otherwise the
+  basename of the working repo
+- `run_id` = timestamped execution id such as `2026-04-09T16-22-31Z`
+
+Store these artifacts in the run directory:
+- `WORKGRAPH.md` for temp graphs created by this skill
+- `EXECUTION_CONTEXT.md`
+- `WG-*_RESULT.md`
+- `DAC_FINAL_RESULT.md`
+- any copied monitor notes or wave summaries
+
+If a durable `WORKGRAPH.md` already exists in a plan directory, read it in
+place, but still create the invocation run directory and write all new
+execution artifacts there. In that case, also write a pointer file such as
+`WORKGRAPH_SOURCE.txt` noting the durable graph path.
 
 ## Modes
 
-Modes customize decomposition for specific projects — split boundaries, agent preferences, repo structure, naming conventions, and validation commands. Stored in `modes/` (gitignored, never committed).
+Modes customize decomposition for specific projects: split boundaries, swarm
+sizing heuristics, naming conventions, validation commands, and preferred
+worker mix. Stored in `modes/` (gitignored, never committed).
 
 ### How Modes Work
 
-Project-specific configuration (split boundaries, agent type preferences, reasoning strategy, validation commands, agent labeling) lives in the client overlay: `skillbox-config/clients/{client}/overlay.yaml` → auto-generated `context.yaml`.
+Project-specific configuration (split boundaries, swarm sizing heuristics,
+validation commands, wave labels, reviewer preferences, and artifact roots)
+lives in the client overlay: `skillbox-config/clients/{client}/overlay.yaml` ->
+auto-generated `context.yaml`.
 
 ### Client Config Resolution (Step 0)
 
 1. Look for `context.yaml` in the working tree (generated from the client overlay)
-2. If found, load project-specific settings (split boundaries, agent preferences, validation commands) from it automatically
+2. If found, load project-specific settings automatically
 3. If not found, tell the user no overlay matches and create one using the skillbox-quickstart scan + generate flow before proceeding
-4. If no `skillbox-config/` exists, create one — do not fall back to generic decomposition
+4. If no `skillbox-config/` exists, create one; do not fall back to generic decomposition
 
-## Agent Types
+## Swarm Runtime (Default)
 
-Know what each type can and cannot do:
+`divide-and-conquer` uses the same external swarm posture as
+`modes-of-reasoning-project-analysis`: the lead agent owns selection,
+dispatch, monitoring, collection, and synthesis; the swarm workers do the node
+execution.
 
-| Type | Can Read | Can Write | Can Bash | Sees Conversation | Best For |
-|------|----------|-----------|----------|-------------------|----------|
-| **Explore** | Yes | **No** | No | No | Research, codebase exploration — inherently safe |
-| **general-purpose** | Yes | Yes | Yes | **Yes** | Implementation, complex multi-step work |
-| **Bash** | No | No | Yes | No | Running commands, builds, tests, git operations |
-| **Plan** | Yes | **No** | No | No | Designing implementation approaches |
+### Runtime knobs
 
-Key implications:
-- **Explore agents are physically read-only** — they cannot Edit, Write, or NotebookEdit. Use them for research without worrying about file conflicts.
-- **general-purpose agents see full conversation history** — prompts can reference earlier context concisely instead of repeating everything.
-- **Bash agents only have Bash** — they can't use Read/Edit/Glob/Grep tools. They run shell commands only.
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--project=NAME` | derived from cwd + wave id | NTM swarm project name |
+| `--cc=N` | auto | Claude Code panes for the current wave |
+| `--cod=N` | auto | Codex panes for the current wave |
+| `--gmi=N` | 0 | Optional Gemini panes |
+| `--max-workers=N` | 10 | Hard cap per wave |
+| `--wave-timeout-min=N` | 45 | Hard timeout for a wave before collect-and-triage |
+| `--monitor-cron` | every 3 minutes | Swarm health checks and nudges |
 
-## Model Selection (`gpt-5.4` Only)
+### Worker sizing rules
 
-- **Use `gpt-5.4` for every explicit model selection in this skill.** Do not fall back to older `gpt-5.x-codex` variants or provider-specific tier names.
-- **Tune depth with reasoning effort instead of swapping models.** Use `medium` only for clearly bounded work, default to `high`, and use `xhigh` for reviews, ambiguity, or high-risk changes.
-- **When unsure, go one tier higher.** Choose `high` over `medium`, and `xhigh` over `high`, when the task is borderline.
-- **Leaving the model unset is only fine if the runtime already resolves to `gpt-5.4`.** Otherwise set it explicitly.
+- Size each wave from the current ready frontier, not from the full graph
+- Default to one worker per ready node
+- If the frontier exceeds `--max-workers`, split it into multiple subwaves
+- Bias Codex panes toward write-heavy waves and Claude panes toward ambiguity,
+  research, or integration-heavy waves
+- Use `gpt-5.4` whenever you set a model explicitly
+- Default to `high`; use `medium` only for clearly bounded read-only nodes and
+  `xhigh` for integration review or ambiguous repairs
 
 ## Process
 
@@ -69,290 +130,322 @@ Key implications:
 
 Read the conversation to understand:
 - What the user wants accomplished
-- What files/areas of the codebase are involved
-- What the dependencies between subtasks are
+- What files or systems are involved
+- What dependency edges matter
+- Whether the task is actually ready for orchestration
 
 ### 2. Decide Whether a Workgraph Is Relevant
 
 Use a workgraph when any of these are true:
-- The task has 2+ plausible concern-owned sub-agents
-- Dependency edges matter to the launch order
+- The task has 2+ plausible concern-owned execution nodes
+- Dependency edges matter to launch order
 - The user explicitly wants an orchestrated or parallel split
-- You need a durable artifact to explain and reuse the split across workers
+- You need a durable artifact to explain and reuse the split across waves
 
-If the work collapses to one concern or a strict dependency chain, do **not**
-force a graph just to satisfy the ritual.
+If the work collapses to one concern or a strict dependency chain, do not
+invent fake parallelism. The graph can still be useful for sequencing, but the
+execution should stay narrow.
 
 If the split itself is unclear, use `ask-cascade` on the first blocking
-strategic fork before inventing nodes or launching agents.
+strategic fork before inventing nodes or launching a swarm.
 
 ### 3. Load or Synthesize `WORKGRAPH.md`
 
-Before inventing a split, check whether the repo or plan directory already has a
-durable `WORKGRAPH.md` execution artifact.
+Before inventing a split, check whether the repo or plan directory already has
+a durable `WORKGRAPH.md` execution artifact.
 
 If a durable `WORKGRAPH.md` exists:
 - Run `python3 ~/.claude/skills/divide-and-conquer/scripts/workgraph_ready.py --file <path-to-WORKGRAPH.md>`
-- Treat the reported `ready_nodes` and `waves` as the default split proposal
-- Launch work only from the current ready frontier
-- Do **not** pull blocked or dependency-pending nodes into the same batch
+- Treat the reported `ready_nodes` and `waves` as the default launch proposal
 - Respect `writes` ownership from the workgraph even if the user asked broadly
+- Do not pull blocked or dependency-pending nodes into the same wave
 
-If no durable `WORKGRAPH.md` exists and parallelism is still relevant:
-- Create a temp directory, for example `mktemp -d "${TMPDIR:-/tmp}/dac-workgraph-XXXXXX"`
-- Write `WORKGRAPH.md` inside that directory using the canonical node contract
+If no durable `WORKGRAPH.md` exists and orchestration is still relevant:
+- Create an invocation run directory under the resolved invocation root
+- Write `WORKGRAPH.md` inside that run directory using the canonical node contract
   from [references/workgraph-synthesis.md](references/workgraph-synthesis.md)
 - Keep the temp graph focused on this execution slice only, usually 2-8 nodes
-- Do **not** commit the temp graph unless the user explicitly asks to preserve
-  it
+- Do not commit the temp graph unless the user explicitly asks to preserve it
 - Immediately run `workgraph_ready.py` against the temp file and treat the
-  resulting ready frontier as the launch plan
+  resulting ready frontier as wave 1
 
 The temp graph is a scratch execution artifact, not a second plan document.
 
-### 4. Identify Node Boundaries
-
-Find natural seams where work can be divided. Good boundaries:
-- **Domain boundaries**: Frontend vs backend vs database vs tests
-- **Concern boundaries**: Research vs implementation, different features
-- **Goal boundaries**: Different outcomes that don't interact
-
-Scope agents by **concern**, not by file list. "Handle authentication changes"
-is better than "Modify src/auth.ts". The agent discovers which files are
-relevant; you verify no overlap in the conflict check. When `WORKGRAPH.md`
-exists, the node's `concern` and `writes` fields become the starting point for
-that split.
-
-If you cannot express a node with concrete `done_when` and `validate_cmds`, the
-node is not ready to launch. Tighten it first instead of delegating vague work.
-
-### 5. Verify Independence
-
-For each proposed agent pair, confirm:
-- No two agents write to the same file
-- No agent needs another agent's output to start
-- No shared mutable state between agents
-- Dependency edges are represented in `depends_on`, not hidden in prompt prose
-- Each agent's instructions are self-contained (or uses general-purpose type which sees conversation)
-
-If any check fails, merge those agents or restructure the split.
-
-See `references/decomposition-patterns.md` for safe/unsafe patterns and the full checklist.
-
-### 6. Plan, Brief, Launch, and Report (Single Flow)
-
-This is autonomous — **do NOT ask for approval** between planning and launching.
-Output the plan for transparency, then launch immediately in the same response.
-
-#### 6a. Resolve Fuzzy Nodes with `describe` Rules
+### 4. Tighten Fuzzy Nodes Before Swarm Launch
 
 Use `describe` only when a node is still fuzzy, not as mandatory ceremony for
-every worker.
+every node.
 
-When a ready node still has fuzzy `done_when`, `validate_cmds`, or non-goals:
-- Do **not** launch a write agent yet
-- Run a node-local `describe` pass or fresh review to tighten the node contract
-- If the review exposes a real strategic decision, route that single blocking
+When a ready node still has vague `done_when`, `validate_cmds`, or non-goals:
+- Do not launch a writer yet
+- Run a node-local `describe` pass or fresh review to tighten the contract
+- If the review exposes a real strategic decision, route that one blocking
   question through `ask-cascade`
 - Rewrite the node in `WORKGRAPH.md`
-- Re-run `workgraph_ready.py` before launching workers
+- Re-run `workgraph_ready.py` before launching the wave
 
-#### 6b. Build a Describe-Style Worker Brief
+### 5. Build the Execution Context Pack
 
-Every launched worker, especially write agents, gets the workgraph path and the
-specific node it owns. Use a compact describe-style brief:
+Before spawning the swarm, assemble a compact execution pack:
+- Original user ask
+- Repo path and branch or HEAD
+- Workgraph path and whether it is durable or temp
+- Invocation run directory path in `skillbox-config`
+- Current ready frontier and blocked nodes
+- Global constraints: no remote push, no cross-repo edits, no write-scope theft
+- Project validation posture: build, test, lint, typecheck, or smoke commands
+- Known risk gates or user caveats
+
+Every wave prompt inherits this pack.
+
+### 6. Spawn the Wave Swarm
+
+For each ready frontier wave, launch an NTM swarm sized to that wave.
+
+```bash
+frontier_json="$(python3 ~/.claude/skills/divide-and-conquer/scripts/workgraph_ready.py --file "$WORKGRAPH")"
+
+ntm spawn "$WAVE_PROJECT" \
+  --cc="$NUM_CC" --cod="$NUM_COD" \
+  --no-user \
+  --stagger-mode=smart
+```
+
+Wait for the swarm to be ready:
+
+```bash
+ntm --robot-wait="$WAVE_PROJECT" --condition=idle --timeout=120
+```
+
+Prefer wave-scoped swarm names such as
+`dac-<repo>-wave-01`, `dac-<repo>-wave-02`, and `dac-<repo>-review`.
+
+Write the execution context pack to `EXECUTION_CONTEXT.md` inside the run
+directory before the first dispatch.
+
+### 7. Dispatch Node-Specific Prompts
+
+Send each worker a unique node prompt. Stagger dispatch by 15-20 seconds to
+avoid thundering-herd effects:
+
+```bash
+for pane in <pane indexes for this wave>; do
+  ntm send "$WAVE_PROJECT" --pane="$pane" "$(cat <<'PROMPT'
+  <INSERT NODE-SPECIFIC PROMPT>
+  PROMPT
+  )"
+  sleep 18
+done
+```
+
+Every worker prompt MUST include:
+1. The execution context pack
+2. The workgraph path and exact node ID
+3. The node's `concern`, `depends_on`, `writes`, `done_when`, `validate_cmds`,
+   and `risk_gate`
+4. The hard ownership rule: edit only the declared `writes`
+5. The stop rule: if required edits escape `writes`, return a workgraph change
+   proposal instead of coding past the boundary
+6. The result artifact contract below
+
+### Node Worker Prompt Contract
+
+Use a compact brief like this:
 
 ```text
+You own one divide-and-conquer workgraph node inside an execution swarm.
+
 Workgraph: <path-to-WORKGRAPH.md> (durable | temp)
 Node: <WG-001> - <title>
 Concern: <concern>
 Depends on: <ids already satisfied, or None>
 Writes: <expected paths/globs, or None>
-Underlying ask: <plain-language user outcome for this node>
+
+Underlying ask:
+<plain-language user outcome for this node>
+
 Done when:
 - <binary completion check>
+
 Validate:
 - <command>
+
 Risk gate:
-- none | <what must be confirmed first>
+- none | <gate>
+
 Non-goals:
-- <explicitly out of scope items>
+- <explicitly out of scope>
 
-If anything above is ambiguous enough that you would guess, stop and return the
-single smallest ask-cascade question or a proposed WORKGRAPH edit instead of
-coding past it.
+Rules:
+- Work only inside the repo and inside your declared write scope
+- Do not commit
+- If you need edits outside `writes`, stop and propose the smallest WORKGRAPH edit
+- Run your validate commands before declaring success
+- Write `WG-001_RESULT.md` in the invocation run directory with the required sections
 ```
 
-This is the default launch contract even when you do **not** run the full
-`describe` skill for that node.
+### Node Result Artifact
 
-#### 6c. Output the Decomposition (Transparent, Not a Gate)
+Every worker MUST write `<NODE_ID>_RESULT.md` such as `WG-001_RESULT.md` in the
+invocation run directory:
 
-Print the decomposition as a numbered list. For each agent:
+```markdown
+# WG-001 Result
 
-```
-## Agent [N]: [Short Label]
+## Status
+done | blocked | needs_rework
 
-**Workgraph**: <path> (`durable` | `temp`)
-**Node**: <WG-00N> | None
-**Type**: Explore | general-purpose | Bash
-**Model**: `gpt-5.4` + `medium|high|xhigh` (`high` default; round up when unsure)
-**Background**: true if non-blocking, false if results needed before next step
-**Concern**: [Domain/goal this agent owns — scope by concern, not file list]
-**Task**: [Goal-focused instructions. Include the describe-style node brief in the launch prompt.]
-**Writes**: [Expected files — verified for no overlap, but agent discovers actual files needed. "None" for Explore/Bash types.]
-```
+## Summary
+One paragraph on what changed.
 
-Then the **Conflict Check**:
+## Files Changed
+- path/to/file
 
-```
-## Conflict Check
-- Write overlap: None | [list conflicts]
-- Data dependencies: None | [list dependencies]
-- Workgraph frontier: [ready nodes / waves used for this launch]
-- Type safety: [Confirm write-agents are general-purpose, research-agents are Explore]
-- Verdict: Ready to launch | Needs restructuring
+## Validation
+- Command: <validate command>
+- Result: pass | fail
+- Notes: <short output summary>
+
+## Workgraph Notes
+- Suggested graph update, if any
+
+## Blockers
+- Only if blocked or needs_rework
 ```
 
-If verdict is "Needs restructuring", fix the split before continuing. Otherwise, proceed immediately.
+### 8. Monitor the Wave
 
-#### 6d. Launch (Same Message — No Approval Gate)
-
-All parallel agents MUST be launched in the **same message** as the plan output above. Do not wait for user confirmation. The conflict check IS the safety gate.
-
-All worker prompts must reference the same `WORKGRAPH.md` path plus the
-specific node ID they own. Agents that depend on prior results must be launched
-sequentially in a follow-up message.
-
-#### 6e. Collect Agent Results
-
-Once all agents complete, read each agent's output. Do NOT manually review, fix, or verify — that's the Codex reviewer's job (Step 7).
-
-**Save the original task description and workgraph path** — the reviewer needs both.
-
-### 7. Codex Review (via `/codex:rescue`)
-
-After all agents return, launch a Codex review via `/codex:rescue` from the `codex-plugin-cc` plugin.
-
-#### 7a. Build the Review Prompt
+Set up monitoring immediately after dispatch:
 
 ```
-You are the REVIEW AGENT for a divide-and-conquer parallel execution.
-Multiple sub-agents just completed work in this repository. Your job:
+CronCreate(
+  cron: "*/3 * * * *",
+  recurring: true,
+  prompt: "Check divide-and-conquer wave $WAVE_PROJECT. Run:
+    1. ntm --robot-is-working=$WAVE_PROJECT
+    2. ntm --robot-tail=$WAVE_PROJECT --lines=80
+    3. ls -la <run_dir>/WG-*_RESULT.md 2>/dev/null
 
-1. Understand what was requested:
-   Task: <original task description>
-   Workgraph: <path-to-WORKGRAPH.md or null>
+  For each active node, determine:
+  (a) working / idle / stuck / rate-limited?
+  (b) has it produced its WG-*_RESULT.md file?
+  (c) if output exists, is validation explicit or hand-wavy?
 
-2. Review what was done:
-   - If a workgraph exists, read it first to understand node intent and ownership
-   - Run `git status` and `git diff` to see all changes
-   - Read modified files to understand the changes
-   - Assess whether the changes correctly and completely address the task
+  ACTIONS:
+  - If worker idle + no result: remind it of its node and result file
+  - If worker stuck for 2 checks: send an unblock prompt tied to the node
+  - If result is superficial: demand explicit validation and file list
+  - If all nodes in the wave are done, blocked, or timed out: cancel this cron and report
 
-3. Fix issues:
-   - If you find bugs, incomplete work, or inconsistencies, fix them
-   - If tests exist and are relevant, run them: fix failures
-   - If linting/type-checking is configured, run it: fix errors
-   - Do NOT add unnecessary improvements beyond what the task requires
-
-4. Commit:
-   - If there are uncommitted changes (from agents or your fixes), stage and commit
-   - Use a clear commit message summarizing what was accomplished
-   - Format: "feat: <what was done>" or "fix: <what was fixed>"
-   - If nothing was changed (no git modifications), skip the commit
-
-5. Report:
-   After committing (or determining no commit needed), print EXACTLY this
-   block at the end of your output (the orchestrator parses it):
-
-   ```json
-   {
-     "commit_hash": "<hash or null if no commit>",
-     "summary": "<1-2 sentence summary of what was done and any fixes applied>",
-     "files_changed": <number of files changed>,
-     "status": "success"
-   }
-   ```
-
-   If you encounter an unrecoverable error, use status "error" with a
-   summary explaining what went wrong.
-
-Guardrails:
-- Work ONLY in <repo>
-- Do NOT push to remote
-- Do NOT modify files outside the repo
-- Keep fixes minimal and targeted
+  Report concisely: N done, N working, N blocked, quality observations."
+)
 ```
 
-#### 7b. Launch the Reviewer
+### Nudge Prompts
 
-```
-/codex:rescue --background --model gpt-5.4 --effort xhigh \
-  <review prompt from 7a>
-```
-
-#### 7c. Tell User and Collect Result
-
-```
-Agents completed. Codex review launched in background.
-
-  Check status:  /codex:status
-  Get result:    /codex:result
-```
-
-The conversation can continue normally. Use `/codex:status` to check progress and `/codex:result` to retrieve the final output when done.
-
-### 8. Report to User
-
-When the result is available (via background task or manual check):
-
-#### If commit was made (commit_hash is not null)
+**Generic nudge (idle, no result):**
 
 ```bash
-git -C <repo> show --stat <commit_hash>  # files changed summary
+ntm send "$WAVE_PROJECT" --pane="$N" "You own node WG-00N. Finish the node, run its validate commands, and write WG-00N_RESULT.md into the invocation run directory now. Stay inside the declared write scope."
 ```
 
-Report:
-```
-Codex reviewed and committed: <commit_hash_short>
+**Depth nudge (result lacks proof):**
 
-<commit_message>
-
-Files changed:
-<git show --stat output>
+```bash
+ntm send "$WAVE_PROJECT" --pane="$N" "WG-00N_RESULT.md in the invocation run directory is not sufficient yet. Add the exact files changed, explicit validation commands, and whether the node is done, blocked, or needs_rework."
 ```
 
-#### If no commit (non-commitable work like DB writes, API calls)
+**Boundary nudge (scope drift):**
 
-```
-Done. No files modified (work involved external operations).
-Review session: <session_name>
+```bash
+ntm send "$WAVE_PROJECT" --pane="$N" "Do not code past your declared write scope. If the node truly needs broader edits, stop and propose the smallest WORKGRAPH change instead."
 ```
 
-#### If reviewer errored
+### 9. Collect Results and Advance the Graph
 
+Once the wave has produced results, or the timeout is reached:
+
+1. Cancel the monitoring cron
+2. Capture final pane state:
+   ```bash
+   ntm --robot-tail="$WAVE_PROJECT" --lines=200
+   ```
+3. Read every `WG-*_RESULT.md` in the run directory for the active wave completely
+4. Independently run each node's `validate_cmds` yourself before marking it
+   `done`
+5. Update `WORKGRAPH.md` statuses:
+   - `done` if implementation and independent validation both pass
+   - `blocked` if the node surfaced a real blocker
+   - `todo` or `ready` again if rework is still required
+6. Re-run `workgraph_ready.py`
+7. Launch the next ready wave
+
+Do not mark a node done based only on a worker's self-report.
+
+### 10. Repeat Until the Graph Is Exhausted or Truly Blocked
+
+Continue wave by wave until one of these is true:
+- All execution nodes are `done`
+- The remaining graph is genuinely blocked on a user decision or external system
+- Validation failures show the graph itself needs to be rewritten before more work
+
+If a node's result reveals a better decomposition, update the graph before the
+next wave instead of forcing the old split.
+
+### 11. Run a Final Integration and Review Wave
+
+After all execution nodes are complete, run one final integration wave through
+the same swarm runtime. Do not default to `/codex:rescue`.
+
+Spawn a small review swarm, usually 1-2 workers:
+
+```bash
+ntm spawn "$REVIEW_PROJECT" --cc=1 --cod=1 --no-user --stagger-mode=smart
+ntm --robot-wait="$REVIEW_PROJECT" --condition=idle --timeout=120
 ```
-Codex review failed. Agent work is in the repo but uncommitted.
-Inspect: tmux a -t <session-name>
+
+Reviewer prompt:
+- Read the original task, final `WORKGRAPH.md`, and current `git diff`
+- Confirm the graph intent matches the repo state
+- Run relevant build, test, lint, and typecheck commands
+- Fix only integration bugs or validation failures
+- Commit if there are clean, scoped changes to save
+- Write `DAC_FINAL_RESULT.md` in the invocation run directory
+
+`DAC_FINAL_RESULT.md` MUST end with:
+
+```json
+{
+  "commit_hash": "<hash or null>",
+  "summary": "<1-2 sentence summary>",
+  "files_changed": <number>,
+  "status": "success" | "error"
+}
 ```
+
+### 12. Report to User
+
+When the final review result is available:
+
+- If `commit_hash` is present, show the commit and file summary
+- If no commit was made, say why
+- If the graph is blocked, report the exact blocking node and the smallest next
+  decision needed
 
 ## Rules
 
-- **2-5 agents** is the sweet spot. More than 5 signals over-decomposition.
-- **Scope by concern, not files**. "Handle auth changes" > "Modify src/auth.ts". Agent discovers files; you verify no overlap.
-- **If `WORKGRAPH.md` exists, start from its ready frontier**. Do not freelance a broader split unless the workgraph is obviously stale or wrong.
-- **If no durable `WORKGRAPH.md` exists and parallelism is relevant, synthesize a temp one first**. Use the same node contract and parser flow.
-- **Never split same-concern work** across agents. One domain = one owner.
-- **Use Explore for research agents** — physically cannot write, so file conflicts are impossible.
-- **Use general-purpose for write agents** — they see conversation history, so prompts can be concise.
-- **Every launched agent gets the workgraph path and node ID**. Do not send workers into the repo with an unanchored task.
-- **Use describe-style briefs for worker prompts**. Do not hand off vague work when you can state `done_when`, `validate_cmds`, and non-goals explicitly.
-- **Use `describe` only for fuzzy nodes**. If the node contract is already concrete, launch directly.
-- **Use `ask-cascade` only for the first blocking strategic ambiguity**. Do not spray the user with tactical questions before the branch is set.
-- **Use `gpt-5.4` whenever you set a model explicitly** — do not drop back to older model families or provider-specific tiers inside this skill.
-- **Default reasoning to `high`** — use `medium` only for clearly bounded work and `xhigh` for reviews/ambiguity; when in doubt, choose the next higher tier.
-- **Use `run_in_background: true`** for agents whose results aren't needed before the next step.
-- **Prefer fewer write-agents**. Read-only Explore agents are cheap to parallelize.
-- **When in doubt, don't split**. A single well-prompted agent beats a bad decomposition.
-- **Sequential is fine** when there are real dependencies. Don't force parallelism.
+- `WORKGRAPH.md` is the execution source of truth
+- Invocation artifacts live under the overlay-backed invocation root in `skillbox-config`
+- Ready frontier first; do not pre-dispatch blocked nodes
+- `writes` ownership is a hard boundary, not a suggestion
+- Default to NTM swarm execution; do not substitute local ad hoc workers
+- One worker per ready node; one wave per ready frontier
+- If the frontier is too large, batch it; do not oversubscribe the swarm
+- Prefer 2-8 meaningful nodes; 10 is the hard cap per wave
+- Use `describe` only for fuzzy nodes
+- Use `ask-cascade` only for the first blocking strategic ambiguity
+- Every worker gets the workgraph path and exact node contract
+- Node workers do not commit; only the final integration review commits
+- Independently run `validate_cmds` before marking any node `done`
+- If `ntm` is missing or broken, stop and surface the prerequisite gap
+- Sequential waves are fine; fake parallelism is not

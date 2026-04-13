@@ -12,13 +12,20 @@ Start with a stable first progress message such as:
 
 `Using \`ask-cascade\` to frame the next highest-impact decision before I ask follow-ups.`
 
+## Runtime Mapping
+
+- In Claude mode, use `AskUserQuestion` for the actual user-facing question step. Do not fall back to a plain assistant message when you are formally asking the user to choose, confirm, or clarify.
+- In other runtimes, apply the same cascade rules to the runtime's equivalent question/input tool. If no such tool exists, ask the smallest plain-text question necessary.
+
 ## The Rule
 
 Questions flow top-down: **highest-impact decisions first**, then details that depend on those answers. Never present questions where one answer could change, nullify, or reframe another.
 
 When the top strategic fork is concrete enough to name, do not ask a naked abstract question first. Show the fork, recommend a starting branch, and let the user recalibrate before deeper questions.
 
-## Before Every AskUserQuestion Call
+## Before Every User-Facing Question Tool Call
+
+In Claude mode, this section applies to every `AskUserQuestion` call.
 
 Classify each question or branch you are considering:
 

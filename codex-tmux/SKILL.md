@@ -11,6 +11,10 @@ Run Codex non-interactively in a detached tmux session. The calling skill
 launches it, starts a background waiter, and continues — or dies. Either
 way the work completes and the result is retrievable.
 
+This skill is a detached transport wrapper, not an NTM-style swarm
+orchestrator. Use it only when detached single-session survivability is the
+actual requirement.
+
 Shared cross-skill rules live in
 [references/orchestration-contract.md](references/orchestration-contract.md).
 Use that file for detached review and background-result collection semantics.
@@ -28,7 +32,7 @@ Use that file for detached review and background-result collection semantics.
 ## Architecture
 
 ```
-Calling skill (e.g. divide-and-conquer)
+Calling skill or workflow
  ├── Builds prompt string
  ├── Calls: python3 codex-tmux/scripts/run.py launch --task "..." --cd <repo>
  ├── Starts background wait helper: python3 codex-tmux/scripts/run.py wait --session <name>

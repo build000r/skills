@@ -1,7 +1,7 @@
 # build000r/skills
 
 <p align="center">
-  <img alt="Catalog" src="https://img.shields.io/badge/catalog-30_skills-111111?style=for-the-badge" />
+  <img alt="Catalog" src="https://img.shields.io/badge/catalog-31_skills-111111?style=for-the-badge" />
   <img alt="Works with Claude Code, Codex, and Cursor" src="https://img.shields.io/badge/agents-Claude_Code%20%7C%20Codex%20%7C%20Cursor-2f6feb?style=for-the-badge" />
   <img alt="Licensing is skill-specific" src="https://img.shields.io/badge/license-skill--specific-6b7280?style=for-the-badge" />
 </p>
@@ -116,6 +116,7 @@ contain `SKILL.md`. You can install one skill, a lane, or the full catalog.
 | [`ask-cascade`](./ask-cascade/) | Orders user-facing questions from high-level dependencies down to details |
 | [`audit-plans`](./audit-plans/) | Audits plans, order, focus, and backlog state |
 | [`build-vs-clone`](./build-vs-clone/) | Decides whether work belongs in an existing repo, shared home, or new build |
+| [`cli-ergonomics`](./cli-ergonomics/) | Builds or reviews agent-facing CLIs for compact output, strong defaults, and clean shell UX |
 | [`codex-tmux`](./codex-tmux/) | Runs Codex in persistent tmux sessions for long jobs |
 | [`commit`](./commit/) | Batches working changes into clean, high-level commits |
 | [`crap`](./crap/) | Ranks risky hotspots with CRAP-style scoring |
@@ -136,7 +137,7 @@ contain `SKILL.md`. You can install one skill, a lane, or the full catalog.
 The `domain-*` family works best as a two-layer system:
 
 - **Planning layer**: [`domain-planner`](./domain-planner/) defines the slice, locks the contract, and settles the Core Value Gate.
-- **Execution layer**: `WORKGRAPH.md`, [`divide-and-conquer`](./divide-and-conquer/), [`describe`](./describe/), [`codex-tmux`](./codex-tmux/), [`commit`](./commit/), and [`domain-reviewer`](./domain-reviewer/) walk that accepted slice to done.
+- **Execution layer**: `WORKGRAPH.md`, [`divide-and-conquer`](./divide-and-conquer/), [`describe`](./describe/), [`commit`](./commit/), and [`domain-reviewer`](./domain-reviewer/) walk that accepted slice to done.
 
 The important boundary is this: once the plan is accepted, execution should stop re-litigating the 80/20 slice. Core value discipline belongs in planning. Execution should focus on sequencing, implementation, validation, and audit.
 
@@ -146,9 +147,8 @@ The important boundary is this: once the plan is accepted, execution should stop
 | --- | --- |
 | [`domain-planner`](./domain-planner/) | Creates the 6 plan files, runs the plan quality loop, then emits `WORKGRAPH.md` as the post-sign-off execution handoff |
 | `WORKGRAPH.md` | Holds executable nodes with `depends_on`, `writes`, `done_when`, `validate_cmds`, and `status` |
-| [`divide-and-conquer`](./divide-and-conquer/) | Reads the current ready frontier from `WORKGRAPH.md` and launches only safe parallel waves |
+| [`divide-and-conquer`](./divide-and-conquer/) | Reads the current ready frontier from `WORKGRAPH.md`, launches safe swarm waves, and handles the final integration review |
 | [`describe`](./describe/) | Tightens one fuzzy node when its completion rule or validation path is still ambiguous |
-| [`codex-tmux`](./codex-tmux/) | Runs the fresh-context review/validation gate for a wave |
 | [`commit`](./commit/) | Leaves a clean checkpoint after the reviewed wave |
 | [`domain-reviewer`](./domain-reviewer/) | Audits the implemented slice against the accepted plan and writes `AUDIT_REPORT.md` |
 
@@ -182,7 +182,7 @@ The important boundary is this: once the plan is accepted, execution should stop
          [A] execution wave
               |
               v
-      [A] codex-tmux review
+      [A] divide-and-conquer review wave
               |
               v
             [A] commit
@@ -302,7 +302,6 @@ Tooling:
 
 ```bash
 for skill in \
-  codex-tmux \
   prompt-reviewer 
 do
   npx skills add build000r/skills -s "$skill"
@@ -436,7 +435,7 @@ Skills that commonly rely on client overlays include:
                                v
         +--------------------------------------------------+
         | top-level skill directories with SKILL.md        |
-        | ask-cascade/  describe/  deploy/  codex-tmux/ ...|
+        | ask-cascade/  describe/  deploy/  divide-and-conquer/ ...|
         +--------------------------------------------------+
              |                |                 |
              |                |                 |

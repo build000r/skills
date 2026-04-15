@@ -15,21 +15,21 @@ class OssDocAuditSelectModeTests(unittest.TestCase):
     def test_resolves_overlay_section(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(os.path.realpath(tmpdir))
-            repo = root / "sweet-potato"
+            repo = root / "example-client"
             repo.mkdir()
 
             overlay = {
                 "version": 1,
                 "client": {
-                    "id": "sweet-potato",
-                    "label": "Sweet Potato",
+                    "id": "example-client",
+                    "label": "Example Client",
                     "default_cwd": str(repo),
                     "repos": [],
                     "logs": [],
                     "context": {
                         "cwd_match": [str(repo)],
                         "oss_doc_audit": {
-                            "mode_name": "sweet-potato",
+                            "mode_name": "example-client",
                             "active_codebase_path": "packages/python-server-quickstart/",
                             "deprecated_paths": ["src/"],
                             "baseline_commands": ["python3 scripts/check-oss-hygiene.py"],
@@ -38,7 +38,7 @@ class OssDocAuditSelectModeTests(unittest.TestCase):
                     "checks": [],
                 },
             }
-            overlay_path = root / "skillbox-config" / "clients" / "sweet-potato" / "overlay.yaml"
+            overlay_path = root / "skillbox-config" / "clients" / "example-client" / "overlay.yaml"
             overlay_path.parent.mkdir(parents=True)
             overlay_path.write_text(yaml.safe_dump(overlay, sort_keys=False), encoding="utf-8")
 
@@ -51,7 +51,7 @@ class OssDocAuditSelectModeTests(unittest.TestCase):
 
             self.assertEqual(result.returncode, 0, msg=result.stderr)
             payload = json.loads(result.stdout)
-            self.assertEqual(payload["MODE_NAME"], "sweet-potato")
+            self.assertEqual(payload["MODE_NAME"], "example-client")
             self.assertEqual(payload["MODE_ACTIVE_CODEBASE_PATH"], "packages/python-server-quickstart/")
             self.assertEqual(payload["MODE_DEPRECATED_PATHS"], "src/")
 

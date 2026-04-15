@@ -23,7 +23,7 @@ export VIRLO_API_KEY=$(grep 'VIRLO_API_KEY' ~/.zshrc | grep -o '"[^"]*"' | tr -d
 - **Comet**: recurring niche monitor with scheduled runs. Best after a lane has already proven valuable.
 - **MCP / AI-agent integration**: use when the trend work is being orchestrated through an agent client rather than raw HTTP.
 
-For buildooor-style portfolio GTM, the sequencing should be:
+For portfolio-style GTM, the sequencing should be:
 
 `acquisition page -> Virlo signal -> evidence hydration -> route`
 

@@ -29,7 +29,7 @@ Legacy compatibility aliases are still accepted in existing modes when the auth
 layer is SPAPS-shaped:
 
 ```text
-spaps_root: ../sweet-potato/packages
+spaps_root: ../shared-platform/packages
 spaps_python_packages: [<required package names>]
 spaps_npm_packages: [<required package names>]
 ```

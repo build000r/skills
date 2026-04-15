@@ -15,7 +15,7 @@ class SelectModeTests(unittest.TestCase):
     def test_resolves_service_target_from_shared_overlay(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(os.path.realpath(tmpdir))
-            repo = root / "htma_server"
+            repo = root / "api-service"
             repo.mkdir()
 
             overlay = {
@@ -31,10 +31,10 @@ class SelectModeTests(unittest.TestCase):
                         "deploy": {
                             "droplet_ssh": "ops@example",
                             "services": {
-                                "htma": {
+                                "api-service": {
                                     "repo_root": str(repo),
-                                    "repo_slug": "acme/htma_server",
-                                    "deploy_root": "/opt/htma-server",
+                                    "repo_slug": "acme/api-service",
+                                    "deploy_root": "/opt/api-service",
                                     "compose_file": "deploy/docker-compose.prod.yml",
                                     "compose_service": "api",
                                     "health_url": "https://api.example.test/health",
@@ -58,16 +58,16 @@ class SelectModeTests(unittest.TestCase):
 
             self.assertEqual(result.returncode, 0, msg=result.stderr)
             payload = json.loads(result.stdout)
-            self.assertEqual(payload["MODE_NAME"], "htma_server")
+            self.assertEqual(payload["MODE_NAME"], "api-service")
             self.assertEqual(payload["MODE_SURFACE"], "docker_compose")
-            self.assertEqual(payload["MODE_REPO_SLUG"], "acme/htma_server")
+            self.assertEqual(payload["MODE_REPO_SLUG"], "acme/api-service")
             self.assertEqual(payload["MODE_HEALTH_URL"], "https://api.example.test/health")
 
     def test_error_path_probes_legacy_sources_and_prints_valid_stub(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             (root / ".env").write_text(
-                "DATABASE_URL=postgresql+asyncpg://postgres:secret@db:5432/htma\n",
+                "DATABASE_URL=postgresql+asyncpg://postgres:secret@db:5432/appdb\n",
                 encoding="utf-8",
             )
             workflow = root / ".github" / "workflows" / "deploy.yml"
@@ -94,7 +94,7 @@ class SelectModeTests(unittest.TestCase):
 
             self.assertEqual(result.returncode, 2)
             self.assertIn("Legacy transition: no skillbox-config overlay matches ", result.stderr)
-            self.assertIn("database_url: postgresql+asyncpg://postgres:***@db:5432/htma", result.stderr)
+            self.assertIn("database_url: postgresql+asyncpg://postgres:***@db:5432/appdb", result.stderr)
             self.assertNotIn("secret", result.stderr)
             self.assertIn("repo_slug: acme/widgets", result.stderr)
             self.assertIn("ci_workflow: .github/workflows/deploy.yml", result.stderr)

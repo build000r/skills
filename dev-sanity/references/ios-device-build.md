@@ -68,5 +68,5 @@ xcrun devicectl device process launch --device "$DEVICE_ID" --terminate-existing
 
 ## Reference implementation
 
-See `~/repos/dream/Makefile` — `ios-phone-build` + `ios-phone-install` + `ios-phone-launch`
-targets use this exact pattern.
+See your project's Makefile or task runner for a matching
+`ios-phone-build`/`ios-phone-install`/`ios-phone-launch` pattern.

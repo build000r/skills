@@ -23,7 +23,7 @@ Start with a stable first progress update such as:
 
 - Writing replies to issues (that is a SPAPS API write path — not in scope here)
 - Closing, assigning, or otherwise mutating issue state
-- Building the `spaps-issue-reporting-react` package or backend router (use `issue-reporting-setup` and sweet-potato repo work)
+- Building the issue-reporting frontend package or backend router (use `issue-reporting-setup` and the relevant application/backend repo)
 - Generic SPAPS backend debugging (use `ssh-info` or `deploy`)
 
 ## Fetch Method
@@ -39,7 +39,7 @@ The fetch flow:
 
 ## Skill Routing Registry
 
-Each client overlay declares a `spaps_feedback.skill_registry` — a list of candidate sibling skills with the tags and path globs that identify them. The registry is what makes this skill portable across clients: the base script does not know about `cfo/quay-plan-update` or any specific sibling, it only reads the registry.
+Each client overlay declares a `spaps_feedback.skill_registry` — a list of candidate sibling skills with the tags and path globs that identify them. The registry is what makes this skill portable across clients: the base script does not know about any client-specific sibling skill ids or paths; it only reads the registry.
 
 Registry entry shape (see `references/overlay-schema.md` for the full spec):
 
@@ -52,11 +52,11 @@ spaps_feedback:
     database: spaps
     table: issue_reports                          # default; override if renamed
   skill_registry:
-    - id: cfo/quay-plan-update
-      path: ~/repos/cfo/.agents/skills/quay-plan-update
-      tags: [quay, condo, five-year-plan, assessment, solar]
+    - id: client/portfolio-skill
+      path: ~/repos/client/.agents/skills/portfolio-skill
+      tags: [service-a, service-b, renewal, audit]
       match_fields: [note, component_label, page_url]
-      applications: [cca-website]                 # optional: only match for these application ids
+      applications: [client-frontend]            # optional: only match for these application ids
 ```
 
 Matching is deterministic: score = count of registry `tags` that appear (case-insensitive, word-boundary) in the concatenation of the issue's `match_fields`. Ties break by registry order. Operators confirm matches before any handoff.

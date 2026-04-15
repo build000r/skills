@@ -257,7 +257,7 @@ Also include:
 - `reply_strategy`
 - `action`
 - `evidence` (short note: why this was selected)
-- `product_affinity` (which product this candidate is relevant to, from the overlay's query-to-product mapping — e.g. `htma`, `cfo`, `buildooor`. Null if the candidate came from a non-product query or matched no product.)
+- `product_affinity` (which product this candidate is relevant to, from the overlay's query-to-product mapping — e.g. `product-a`, `product-b`, `product-c`. Null if the candidate came from a non-product query or matched no product.)
 
 ### Phase 6 - Quality Gate and Present
 

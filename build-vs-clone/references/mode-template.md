@@ -119,5 +119,5 @@ skill files:
 - internal naming conventions
 - repo pairs that commonly ship together
 - anti-goals such as "never put payments logic in the website repo"
-- "extract up" defaults such as "prefer sweet-potato for auth/payment-adjacent
-  shared concepts"
+- "extract up" defaults such as "prefer the shared auth/billing platform for
+  auth/payment-adjacent shared concepts"

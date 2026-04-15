@@ -20,9 +20,9 @@ spaps_feedback:
     limit: 25
 
   skill_registry:
-    - id: cfo/quay-plan-update
-      path: ~/repos/cfo/.agents/skills/quay-plan-update
-      tags: [quay, condo, five-year-plan, assessment, solar]
+    - id: client/portfolio-skill
+      path: ~/repos/client/.agents/skills/portfolio-skill
+      tags: [service-a, service-b, renewal, audit]
       match_fields: [note, component_label, page_url]
       applications: []                     # optional whitelist of application_id UUIDs
       pages: []                            # optional whitelist of page_url prefixes

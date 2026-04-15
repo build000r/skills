@@ -26,7 +26,7 @@ This file covers the canonical paper only. Companion X article defaults live in 
 
 ## Table Patterns
 
-### MDX pipeline projects (buildooor)
+### MDX pipeline projects
 
 Use `<ResearchTable>` — no raw HTML or Tailwind needed:
 

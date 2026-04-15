@@ -126,7 +126,8 @@ This is a project wiring problem, not a code problem. Read
 2. Regenerate: `xcodegen generate`
 3. Build with `-allowProvisioningUpdates` and `generic/platform=iOS`
 
-Reference implementation: `~/repos/dream/Makefile` (`ios-phone-build` target).
+Reference implementation: use your project's Makefile or task runner for a single
+device-build target that wraps build, install, and launch.
 
 ## Validation
 

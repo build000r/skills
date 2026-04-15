@@ -283,7 +283,7 @@ If two titles score similarly and user preference matters, present the top 2 and
 
 Use divide-and-conquer with parallel agents when the bundle requires multiple files (e.g. paper + X article + LinkedIn article + LinkedIn post + route update). Otherwise, single agent.
 
-### MDX Pipeline (buildooor and projects with MDX research support)
+### MDX Pipeline (projects with MDX research support)
 
 When the project has an MDX research pipeline (i.e. a `content/research/` directory with a `pages/research/[slug].tsx` dynamic route), write ONE unified `.md` file per paper that contains all four versions (website + linkedin article + linkedin post + x article).
 
@@ -297,8 +297,8 @@ title: "Full Academic Title: With Subtitle"
 shortTitle: "casual homepage label"       # informal title for homepage listing
 status: "thought"                         # "thought" or "v0" (has a live version)
 description: "150-200 word abstract for SEO meta tags"
-url: "https://buildooor.com/research/{slug}"
-author: "Rob Baratta"
+url: "https://example.com/research/{slug}"
+author: "Your Name"
 publishDate: "2026-04-10"                 # ISO date
 version: "Working Paper v1.0"
 keywords:

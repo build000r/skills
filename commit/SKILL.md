@@ -1,12 +1,13 @@
 ---
 name: commit
 type: utility
-description: Commit working changes with clean, logical batches, including from a fresh repo context where no prior ownership is established. Use for "commit", "commit everything", "commit my changes", "save progress", "/commit", "initial cleanup commit", or when a dirty repo needs batching, .gitignore decisions, and OSS/privacy-aware staging.
+description: Commit working changes with clean, logical batches, including from a fresh repo context where no prior ownership is established. Use for "commit", "checkpoint", "commit everything", "commit my changes", "save progress", "/commit", "initial cleanup commit", or when a dirty tree needs batching, .gitignore decisions, and OSS/privacy-aware staging.
 ---
 
 # Commit
 
 Commit the working changes in the repo or repos touched during this run.
+Treat `checkpoint` / `save progress` asks and dirty-tree cleanup commits as direct triggers for this workflow.
 
 Default behavior matters:
 
@@ -231,9 +232,13 @@ Use the same mode decision per repo:
 - claimed-changes mode for explicitly scoped repos
 - repo-steward mode for dirty repos the user asked you to cleanly commit
 
-## Step 6: Verify no unexplained leftovers
+## Step 6: Required Verification (Post-Commit)
 
-Run concrete verification after each repo's commit sequence:
+Run these checks after each repo's commit sequence. This verification is required before handback.
+
+### Verify no unexplained leftovers
+
+Run concrete post-commit checks:
 
 ```bash
 git -C <repo> log -1 --stat --oneline

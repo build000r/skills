@@ -8,6 +8,14 @@ license: Complete terms in LICENSE.txt
 
 Create effective skills for AI coding agents: modular packages that extend agents with specialized workflows, domain expertise, and reusable tools.
 
+## First Progress Marker (Required)
+
+Start the first progress update with the exact prefix `Using skill-issue`.
+
+Preferred format: `Using skill-issue to <goal>. First I will <next concrete step>.`
+
+Do not change or omit that prefix. Reliability review tooling treats it as a stable invocation marker.
+
 ## Use This For
 
 - Creating, updating, packaging, or reviewing reusable agent skills
@@ -34,14 +42,14 @@ Each client overlay lives in `skillbox-config/clients/{client}/overlay.yaml`. It
 2. Each overlay has a `cwd_match` field — a path prefix to match against cwd
 3. If cwd matches exactly one overlay, use it automatically
 4. If cwd matches multiple, ask the user which overlay to use
-5. **If no overlay matches or none exist, create one before proceeding** — do not fall back to generic defaults
+5. **If no overlay matches or none exist, ask before creating one.** Default to read-only diagnostics (`list`, `match`, `validate`) until the user confirms creation. Do not fall back to generic defaults.
 
 ### Overlay Miss → Create Flow
 
 When no overlay matches the current working directory:
 
-1. Tell the user: no matching client overlay found for `{cwd}`
-2. Infer a `CLIENT_ID` from the cwd (repo name, project name, or ask)
+1. Tell the user: no matching client overlay found for `{cwd}` and ask whether to create one now
+2. If the user approves, infer a `CLIENT_ID` from the cwd (repo name, project name, or ask)
 3. Run the skillbox-quickstart scan + generate flow to create the overlay:
 
 ```bash
@@ -58,6 +66,8 @@ cp /tmp/overlay.yaml skillbox-config/clients/{CLIENT_ID}/overlay.yaml
 ```
 
 5. Re-run Step 0 — the new overlay should now match
+
+If the user does not approve creation, keep the run read-only and report that overlay-backed execution is blocked until creation is authorized.
 
 This keeps every skill invocation overlay-backed. Generic/manual fallbacks mask configuration gaps that compound across sessions.
 
@@ -76,13 +86,15 @@ Use this mode when the user wants to manage client overlays directly: "create an
 | "check overlays", "validate overlays" | `validate` |
 | "which overlay matches", "what client am I" | `match` |
 | "migrate overlays", "update overlay format" | `migrate` |
-| Another skill hits an overlay miss | `create` (auto-delegated) |
+| Another skill hits an overlay miss | `create` (ask-first; no auto-write) |
 
 ### Actions
 
 #### create
 
 Create a new client overlay. Two paths depending on context:
+
+Before running either create path, ask for explicit confirmation to write `skillbox-config/clients/{CLIENT_ID}/overlay.yaml`.
 
 **Quick create** (minimal — when the miss is blocking another skill):
 
@@ -150,11 +162,12 @@ Reports which overlays need migration. Does not auto-migrate — presents the li
 When any skill hits an overlay miss, it should delegate to skill-issue's overlay mode rather than implementing its own creation flow. The contract:
 
 1. Skill detects no overlay matches cwd
-2. Skill tells the user: "No matching client overlay for `{cwd}`. Creating one."
-3. Skill runs the quick create path (or invokes skill-issue if available)
-4. Skill re-runs overlay selection — should now match
+2. Skill tells the user: "No matching client overlay for `{cwd}`. Do you want me to create one?"
+3. If the user confirms, skill runs the quick create path (or invokes skill-issue if available)
+4. If the user does not confirm, skill stays in read-only mode and reports the block
+5. If created, skill re-runs overlay selection — should now match
 
-Skills that already stop on miss (deploy, ssh-info, dev-sanity) should add the create step before stopping.
+Skills that already stop on miss (deploy, ssh-info, dev-sanity) should add this ask-first create step before stopping.
 
 ## Core Principles
 
@@ -296,7 +309,7 @@ Read [references/operator-evidence-loop.md](references/operator-evidence-loop.md
 - High `correction_rate` / `contract-clarity`: tighten trigger language, non-goals, or ask-cascade guidance
 - Repeated raw shell stems (`rg`, `sed`, `find`, etc.) / `automation-gap`: bundle scripts/references instead of relying on freehand shell work
 
-5. If you ship a packet-driven change, log the shipment and expected watch window:
+5. If you ship a packet-driven change, ask before writing to the packet ledger. If approved, log the shipment and expected watch window:
 
 ```bash
 scripts/log_skill_packet_decision.py \
@@ -309,6 +322,26 @@ scripts/log_skill_packet_decision.py \
 This appends to `~/.claude/skill-packet-ledger.jsonl` with the packet id, expected contract,
 watch metric baseline, and the next live observation window. The ledger is for shipped changes
 against real traffic, not synthetic replay runs.
+
+### Required Verification (Packet-Driven Updates)
+
+Before handing back a packet-driven SKILL.md update, run all required checks:
+
+1. Validate the edited skill:
+
+```bash
+scripts/quick_validate.py <path/to/skill-folder>
+```
+
+2. Regenerate evidence packets from the current review input and confirm packet generation still succeeds:
+
+```bash
+scripts/generate_skill_evidence_packets.py --input /tmp/<skill>-review.json --json > /tmp/<skill>-packets.verify.json
+```
+
+3. If ledger logging was explicitly approved, verify the packet id in `~/.claude/skill-packet-ledger.jsonl` matches the shipped change; otherwise state that logging was intentionally skipped.
+
+Do not hand the run back until these checks are complete and passing.
 
 6. Save the review for trend tracking:
 
@@ -619,6 +652,8 @@ Validate during development:
 scripts/quick_validate.py <path/to/skill-folder>
 ```
 
+Packaging writes a distributable artifact. Ask for confirmation before running `package_skill.py`. If confirmation is not given, stop at validation and report the exact packaging command.
+
 Package when complete:
 
 ```bash
@@ -631,6 +666,12 @@ When the skill lives in a Git worktree, packaging also excludes any paths ignore
 For ops/deploy skills, do an additional manual quality pass:
 - Run every documented preflight command at least once.
 - Run at least one intentional failure-path probe and verify the troubleshooting guidance matches the real error.
+
+### Commit/Push Branch (Ask First)
+
+Do not run `git add`, `git commit`, `git tag`, `git push`, or PR creation commands unless the user explicitly asks for that branch in the current run.
+
+If commit/push is not authorized, finish with local edits plus verification output and report the pending commands instead of executing them.
 
 ### Step 6: Iterate
 
@@ -645,6 +686,8 @@ If you hit a production near-miss or rollback-causing mistake, treat the skill u
 3. Re-run the updated checklist to prove it catches the original failure mode.
 
 ### Step 7: Publish (Optional)
+
+Never publish by default. Ask for explicit approval before any repo creation, package upload, release creation, marketplace submission, or promotion action.
 
 1. Create a public GitHub repo
 2. Add a README.md (for humans, not Claude)

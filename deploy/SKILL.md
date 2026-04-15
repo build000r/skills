@@ -158,6 +158,18 @@ Examples:
 - Behavior: `curl "$MODE_HEALTH_URL"` returns `200`
 - State: running container/image tag/commit hash matches expected version
 
+## Required Closeout Verification Contract
+
+Before handing the run back, rerun both checks after the final deploy/debug
+change:
+
+- Behavior check: `curl -fsS "$MODE_HEALTH_URL"` returns `200` (or the
+  branch-specific smoke endpoint when health lives elsewhere).
+- State check: running container/image tag/commit hash in the target runtime
+  matches the expected rollout target.
+
+Do not hand the run back until both rerun checks pass.
+
 ## Docker / Compose Deploy
 
 Generic pattern:

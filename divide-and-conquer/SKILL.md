@@ -31,6 +31,16 @@ back to ad hoc local subagents or `/codex:rescue` as the primary path unless
 the user explicitly asks to bypass the swarm. If `ntm` is unavailable, stop and
 surface the missing prerequisite instead of silently degrading.
 
+## Related Skills
+
+- `ntm` for command reference, session inspection, and swarm debugging
+- `vibing-with-ntm` for swarm orchestration patterns, pane hygiene, and
+  transport-layer recovery when the problem is NTM rather than the workgraph
+- `codex-tmux` only when the user explicitly wants a detached single-worker
+  fallback instead of an NTM swarm
+- `modes-of-reasoning-project-analysis` and `dueling-idea-wizards` as sibling
+  swarm-heavy skills with stronger NTM operator patterns worth borrowing
+
 ## Artifact Storage
 
 Execution artifacts belong alongside the active client overlay in
@@ -222,6 +232,22 @@ Prefer wave-scoped swarm names such as
 
 Write the execution context pack to `EXECUTION_CONTEXT.md` inside the run
 directory before the first dispatch.
+
+### Transport Hygiene
+
+If the swarm transport looks wrong, fix that before blaming the node brief.
+
+- After each dispatch, verify the target pane actually switched onto the new
+  brief. `ntm send` reporting success is not enough.
+- If a pane still shows an unrelated prior task, a stale generic prompt, or an
+  idle shell after dispatch, treat it as contaminated. Respawn that pane and
+  resend the node brief before advancing the wave.
+- Prefer artifact-aware checks over coarse activity labels: a node is not
+  meaningfully in flight until its expected `WG-*_RESULT.md` path is plausible
+  and the pane output matches the assigned node.
+- When the failure surface is NTM itself rather than decomposition or prompt
+  quality, consult `vibing-with-ntm` or `ntm` if available instead of
+  improvising ad hoc transport rituals.
 
 ### 7. Dispatch Node-Specific Prompts
 

@@ -27,7 +27,7 @@ If working in a different vault, look for a `CLAUDE.md` in the vault root that d
 The skill has three modes. Determine which from the user's request:
 
 - "ingest", "add source", "process this", "wire up", "new source" → **ingest**
-- "what does the wiki say", "query", "look up", "find", "synthesize" → **query**
+- "what does the wiki say", "query", "look up", "find", "synthesize" → **query** (for deep adversarial synthesis, use `/wiki-forge`)
 - "lint", "health check", "audit wiki", "find orphans", "stale" → **lint**
 
 If ambiguous, ask.
@@ -130,6 +130,7 @@ After wiring, run ingest on the new source.
 - **cass / cass-memory**: mine agent sessions. Session insights can become wiki ingest sources when they surface durable knowledge (not ephemeral debugging).
 - **build-vs-clone**: makes placement decisions. Entity knowledge from wiki sources (repo visions, skill capabilities) informs where work should live.
 - **power-map**: maps industry power dynamics and challenges customer assumptions for each product. Reads existing wiki positioning (acquisition pages, competitive quadrant, professional monetization) as input, writes updated concept pages and acquisition pages as output. Optionally spawns dueling-idea-wizards to adversarially stress-test positioning. Power map findings are filed as concept pages (`upstream-industry-leverage.md`, product-specific power maps) and acquisition page updates.
+- **wiki-forge**: identifies the highest-lever concept in the wiki, runs an adversarial multi-model duel on it, and files the synthesis back. Use when the wiki needs to confront its own assumptions, deepen its most important concept, or stress-test a thesis. wiki-forge reads from and writes back to this wiki.
 - **unclawg-discover**: discovery runs queries derived from the wiki's acquisition concept pages (one per product — `htma-acquisition`, `cfo-acquisition`, etc.). The wiki answers "what should we be searching for to get clients for X?" via query against acquisition pages. Discover returns gap signals (high-scoring conversations that matched no product) which can trigger new or updated acquisition pages via ingest. The wiki never generates platform-specific queries — that's overlay generation. The wiki provides product → buyer → pain signal; the overlay translates to platform queries.
 
 ## Output

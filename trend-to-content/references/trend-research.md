@@ -4,47 +4,140 @@ Find what's trending to fuel content creation.
 
 ## Trend Sources
 
-### 1. Virlo API (Social Trends)
+### 1. Virlo API
 
-**Base URL**: `https://api.virlo.ai` (NOT `.com`, NOT `/api/` prefix)
+**Base URL**: `https://api.virlo.ai`
 **Auth**: `Authorization: Bearer $VIRLO_API_KEY`
+**Versioning**: all current endpoints use `/v1`
+**Naming**: Virlo V1 uses `snake_case` for request and response fields
 
 If `$VIRLO_API_KEY` is empty (Claude Code runs bash, not zsh — never `source ~/.zshrc`):
 ```bash
 export VIRLO_API_KEY=$(grep 'VIRLO_API_KEY' ~/.zshrc | grep -o '"[^"]*"' | tr -d '"')
 ```
 
-```bash
-# Trending topics digest
-curl -s -H "Authorization: Bearer $VIRLO_API_KEY" \
-  "https://api.virlo.ai/trends/digest" | jq '.data'
+#### Which Virlo lane to use
 
-# Hashtag research
+- **Trends**: broad scan of trend groups and the curated digest. Best for top-of-funnel attention sensing.
+- **Orbit**: async keyword-based social listening across YouTube, TikTok, and Instagram. Best when you already know the buyer lane and want signal density.
+- **Comet**: recurring niche monitor with scheduled runs. Best after a lane has already proven valuable.
+- **MCP / AI-agent integration**: use when the trend work is being orchestrated through an agent client rather than raw HTTP.
+
+For buildooor-style portfolio GTM, the sequencing should be:
+
+`acquisition page -> Virlo signal -> evidence hydration -> route`
+
+Do not start from raw trends alone. Use the product acquisition page, README,
+VISION, or positioning doc to decide the lane first, then use Virlo to rank
+which topics inside or adjacent to that lane are accelerating.
+
+#### Trends
+
+```bash
+# Trend groups in a date range
+curl -G https://api.virlo.ai/v1/trends \
+  -H "Authorization: Bearer $VIRLO_API_KEY" \
+  -d start_date=2025-10-14 \
+  -d end_date=2025-10-16 \
+  -d limit=25
+
+# Curated daily digest
 curl -s -H "Authorization: Bearer $VIRLO_API_KEY" \
-  "https://api.virlo.ai/hashtags?startDate=2026-01-25&endDate=2026-02-01&orderBy=views&limit=30"
+  "https://api.virlo.ai/v1/trends/digest" | jq '.data'
 ```
 
-Response format (trends/digest):
+Response shape (trends / digest):
 ```json
 {
-  "results": 1,
-  "data": [{
-    "id": "...",
-    "title": "Trends for Feb 3",
-    "trends": [{
-      "ranking": 1,
-      "trend": {
-        "id": "...",
-        "name": "Topic Name",
-        "description": "Why this is trending and what creators are doing with it",
-        "trend_type": "content"
-      }
-    }]
-  }]
+  "data": [
+    {
+      "id": "...",
+      "title": "Trends for Oct 15th",
+      "trends": [
+        {
+          "ranking": 1,
+          "trend": {
+            "name": "Topic Name",
+            "description": "Why this is trending and what creators are doing with it",
+            "trend_type": "content"
+          }
+        }
+      ]
+    }
+  ]
 }
 ```
 
 Access trend names: `jq '.data[0].trends[].trend | {name, description}'`
+
+#### Orbit
+
+Orbit is the highest-leverage Virlo primitive when you already know the topic
+lane you care about.
+
+```bash
+curl -X POST https://api.virlo.ai/v1/orbit \
+  -H "Authorization: Bearer $VIRLO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "AI coding agents",
+    "keywords": ["ai coding agents", "claude code", "cursor workflow"],
+    "time_period": "this_week",
+    "platforms": ["youtube", "tiktok", "instagram"],
+    "min_views": 10000
+  }'
+```
+
+Use specific multi-word phrases. Generic one-word keywords create noisy result
+sets. Orbit queues a job and returns an ID; polling and result retrieval are the
+follow-up steps.
+
+#### Comet
+
+Comet is the recurring-monitor lane:
+
+```bash
+curl -X POST https://api.virlo.ai/v1/comet \
+  -H "Authorization: Bearer $VIRLO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "AI coding workflow monitor",
+    "keywords": ["claude code workflow", "cursor workflow", "ai coding agent"],
+    "platforms": ["youtube", "tiktok"],
+    "cadence": "daily",
+    "min_views": 10000,
+    "time_range": "this_week",
+    "is_active": false,
+    "intent": "Track durable topics after manual validation"
+  }'
+```
+
+Keep `Comet` off until the lane is already proven. It is a monitor, not the
+first discovery step.
+
+#### Hashtags
+
+Hashtag analytics are still useful, but the endpoint is now `/v1/hashtags` and
+uses snake_case params:
+
+```bash
+curl -G https://api.virlo.ai/v1/hashtags \
+  -H "Authorization: Bearer $VIRLO_API_KEY" \
+  -d start_date=2026-01-25 \
+  -d end_date=2026-02-01 \
+  -d order_by=views \
+  -d limit=30
+```
+
+Use hashtag research after you already have a lane and want packaging ideas,
+distribution handles, or supporting metadata. It is not the strategy layer.
+
+#### MCP / AI Agents
+
+Virlo also ships an MCP / AI-agent layer. Use it when the work is agent-driven
+and you want tool-style access instead of hand-written `curl` calls. Keep the
+same guardrail: the buyer lane still comes from the acquisition page or
+positioning doc, not from the trend API.
 
 ### 2. Google Trends
 

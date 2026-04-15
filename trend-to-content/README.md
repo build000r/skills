@@ -10,10 +10,15 @@ npx skills add build000r/trend-to-content
 
 ## What it does
 
-- **Research trends** via APIs (Virlo, Google Trends) or WebSearch
+- **Research trends** via Virlo (`Trends`, `Orbit`, `Comet`), Google Trends, or WebSearch
 - **Generate PSEO pages** using 12 proven playbooks (templates, comparisons, personas, etc.)
 - **Create video content** with hook formulas and platform-specific formats
 - **Write copy** with headline, CTA, and transition frameworks
+
+For portfolio GTM, this skill should not start from raw trends alone. The
+correct flow is:
+
+`acquisition page -> Virlo signal -> evidence hydration -> content`
 
 ## The Workflow
 
@@ -32,7 +37,8 @@ WebSearch) niche   video,
 ```
 > What's trending in [your niche]?
 ```
-Queries trend sources, filters for relevance, identifies content gaps.
+Queries trend sources, filters for relevance, and identifies content gaps inside
+an already-defined buyer lane.
 
 ### PSEO Mode
 ```
@@ -57,7 +63,7 @@ Extracts hooks from trends, generates scripts for TikTok/YouTube/Reels.
 
 ## References Included
 
-- `trend-research.md` - API patterns, WebSearch queries, validation
+- `trend-research.md` - Virlo `/v1` patterns, lane selection, WebSearch queries, validation
 - `pseo-playbooks.md` - 12 playbooks with templates and examples
 - `video-patterns.md` - Hooks, scripts, platform specs
 - `copywriting-formulas.md` - Headlines, CTAs, transitions

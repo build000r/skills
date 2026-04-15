@@ -59,14 +59,23 @@ WebSearch) niche   video,
                    social)
 ```
 
+For portfolio GTM, the sequence is:
+
+`acquisition page -> Virlo signal -> evidence hydration -> content route`
+
+Use acquisition pages or equivalent positioning docs to decide who the buyer is,
+what pain matters, and which product the trend should route into. Use Virlo to
+rank what is hot inside that lane, not to define the lane from scratch.
+
 ## Quick Start by Mode
 
 ### Research Mode
 "What's trending in [niche]?"
 
-1. Query trend sources (see [references/trend-research.md](references/trend-research.md))
-2. Filter for niche relevance
-3. Identify content gaps (what's trending but not covered?)
+1. Start from the buyer/pain lane you care about
+2. Query trend sources (see [references/trend-research.md](references/trend-research.md))
+3. Filter for niche relevance
+4. Identify content gaps (what's trending but not covered?)
 
 ### PSEO Mode
 "Create pages at scale for [pattern]"
@@ -87,14 +96,38 @@ WebSearch) niche   video,
 
 ## Trend Research
 
-### Quick API Pattern
+### Virlo Lane Selection
 
-For APIs like Virlo, Google Trends, etc.:
+- **Trends**: broad scan of what is newly salient right now
+- **Orbit**: keyword-based social listening across YouTube, TikTok, and Instagram
+- **Comet**: recurring niche monitor once a lane is already proven
+- **MCP**: agent-facing access layer for the same capabilities
+
+For portfolio GTM, `Orbit` is usually the highest-leverage Virlo primitive once
+you already know the buyer lane. `Trends` is broader and noisier. `Comet`
+should stay off until a lane is proven valuable enough to justify recurring
+credits.
+
+### Quick API Patterns
+
+Virlo now uses a versioned `/v1` API surface and snake_case field naming.
 
 ```bash
-# Generic pattern - replace with your API
+# Broad trend scan
 curl -s -H "Authorization: Bearer $VIRLO_API_KEY" \
-  "https://api.virlo.ai/trends/digest" | jq '.data'
+  "https://api.virlo.ai/v1/trends/digest" | jq '.data'
+
+# Keyword-based social listening (async)
+curl -X POST https://api.virlo.ai/v1/orbit \
+  -H "Authorization: Bearer $VIRLO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "AI coding agents",
+    "keywords": ["ai coding agents", "claude code", "cursor workflow"],
+    "time_period": "this_week",
+    "platforms": ["youtube", "tiktok", "instagram"],
+    "min_views": 10000
+  }'
 ```
 
 ### WebSearch Fallback

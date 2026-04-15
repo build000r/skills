@@ -216,6 +216,8 @@ Checklist:
 
 - compare local env source vs deployed env file / CI secrets
 - note any new headers, scopes, or callback URLs
+- explicitly compare browser origin allowlists against every public hostname and
+  alias in the overlay (`example.com`, `www.example.com`, Pages/Vercel aliases)
 - decide whether old and new values must overlap temporarily
 - verify both behavior and state after sync
 
@@ -250,6 +252,7 @@ Use the exact failure signature instead of generic “unauthorized” summaries:
 | --- | --- | --- |
 | `401` + auth error code | missing or stale credential/header | compare env source and deployed secret |
 | `403` + permission code | role/scope mismatch | inspect auth config and subject role |
+| `400` + `Disallowed CORS origin` on `OPTIONS` | browser origin allowlist drift | diff deployed env/secret allowlist against all public hostnames and aliases, then rerun preflight |
 | `404` on health URL | wrong route/origin/frontdoor | check overlay host/path values |
 | `502` / `503` at proxy | upstream container down or wrong upstream port | check compose status and container-local health |
 | migration command fails | schema drift or wrong DB target | verify DB name, container, and current revision |

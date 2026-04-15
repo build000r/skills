@@ -43,6 +43,13 @@ def _normalize_path(value: str) -> str:
     return os.path.realpath(os.path.expanduser(value))
 
 
+def _expand_match_prefix(value: str) -> str | None:
+    expanded = os.path.expandvars(os.path.expanduser(value))
+    if "$" in expanded:
+        return None
+    return expanded
+
+
 def _matches_prefix(cwd: str, prefix: str) -> bool:
     if prefix == "/":
         return True
@@ -154,7 +161,10 @@ def _resolve_from_scan(cwd: str, section: str | None) -> dict[str, Any] | None:
         else:
             continue
         for raw_prefix in prefixes:
-            prefix = _normalize_path(raw_prefix)
+            expanded_prefix = _expand_match_prefix(raw_prefix)
+            if expanded_prefix is None:
+                continue
+            prefix = _normalize_path(expanded_prefix)
             if _matches_prefix(cwd, prefix):
                 candidates.append((len(prefix), ctx_path, data))
 
@@ -216,7 +226,10 @@ def _resolve_from_local_overlays(
                 continue
 
             for raw_prefix in prefixes:
-                prefix = _normalize_path(raw_prefix)
+                expanded_prefix = _expand_match_prefix(raw_prefix)
+                if expanded_prefix is None:
+                    continue
+                prefix = _normalize_path(expanded_prefix)
                 if _matches_prefix(cwd, prefix):
                     payload = _extract_overlay_payload(data, section)
                     if payload is not None:

@@ -201,16 +201,40 @@ def has_user_trigger(message: str, skill: str) -> bool:
     )
 
 
-def command_stem(command: str) -> str | None:
-    """Return a compact command stem from a shell command string."""
-    command = command.strip()
-    if not command:
+def normalize_command_text(command: Any) -> str | None:
+    """Normalize command payloads from session logs into shell-like text."""
+    if isinstance(command, str):
+        normalized = command.strip()
+        return normalized or None
+
+    if isinstance(command, (list, tuple)):
+        parts = []
+        for item in command:
+            if item is None:
+                continue
+            text = str(item).strip()
+            if text:
+                parts.append(text)
+        if not parts:
+            return None
+        try:
+            return shlex.join(parts)
+        except AttributeError:
+            return " ".join(shlex.quote(part) for part in parts)
+
+    return None
+
+
+def command_stem(command: Any) -> str | None:
+    """Return a compact command stem from a shell command payload."""
+    command_text = normalize_command_text(command)
+    if not command_text:
         return None
 
     try:
-        parts = shlex.split(command)
+        parts = shlex.split(command_text)
     except ValueError:
-        parts = command.split()
+        parts = command_text.split()
 
     if not parts:
         return None
@@ -546,13 +570,13 @@ def parse_session(provider: str, path: Path, mtime: datetime, skill: str) -> dic
         if tool_name:
             tool_counts[tool_name] += 1
 
-        command = call.get("command")
-        if command:
+        command_text = normalize_command_text(call.get("command"))
+        if command_text:
             for pattern in VALIDATION_PATTERNS:
-                if pattern.search(command):
-                    validation_commands.append(truncate(command))
+                if pattern.search(command_text):
+                    validation_commands.append(truncate(command_text))
                     break
-            stem = command_stem(command)
+            stem = command_stem(command_text)
             if stem:
                 command_stems[stem] += 1
 

@@ -113,6 +113,62 @@ class SkillReviewSignalTests(unittest.TestCase):
         opportunity_ids = [item["id"] for item in report["opportunities"]]
         self.assertIn("risk-gating-gap", opportunity_ids)
 
+    def test_scan_skill_invocations_handles_list_command_payloads(self) -> None:
+        now = datetime.now(timezone.utc).replace(microsecond=0)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            codex_dir = root / "codex"
+            claude_dir = root / "claude"
+            session_path = codex_dir / "2026" / "03" / "22" / "rollout-list-command.jsonl"
+
+            entries = [
+                {
+                    "type": "session_meta",
+                    "timestamp": now.isoformat().replace("+00:00", "Z"),
+                    "payload": {"cwd": "/tmp/demo"},
+                },
+                {
+                    "type": "response_item",
+                    "payload": {
+                        "type": "message",
+                        "role": "user",
+                        "content": [{"type": "input_text", "text": "$skill-issue review this skill"}],
+                    },
+                },
+                {
+                    "type": "event_msg",
+                    "payload": {"type": "agent_message", "message": "Using `skill-issue` for this review."},
+                },
+                {
+                    "type": "response_item",
+                    "payload": {
+                        "type": "function_call",
+                        "name": "functions.exec_command",
+                        "arguments": json.dumps({"cmd": ["pytest", "tests/test_skill_review_signals.py"]}),
+                    },
+                },
+                {
+                    "type": "event_msg",
+                    "payload": {"type": "task_complete", "last_agent_message": "done"},
+                },
+            ]
+            self.write_jsonl(session_path, entries, mtime=now)
+
+            with self.patch_session_dirs(codex_dir, claude_dir):
+                report = MODULE.scan_skill_invocations(
+                    skill="skill-issue",
+                    source="both",
+                    since=now - timedelta(days=1),
+                    until=now + timedelta(days=1),
+                    limit=10,
+                )
+
+        self.assertEqual(report["invocations_found"], 1)
+        invocation = report["invocations"][0]
+        self.assertEqual(invocation["validation_commands"], ["pytest tests/test_skill_review_signals.py"])
+        self.assertEqual(invocation["command_stems"], {"pytest": 1})
+
 
 if __name__ == "__main__":
     unittest.main()

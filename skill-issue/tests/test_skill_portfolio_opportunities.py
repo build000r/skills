@@ -103,7 +103,7 @@ Order user questions from strategic decisions to implementation details.
                 (
                     "rollout-deploy-1.jsonl",
                     "check approval api health and container logs after deploy",
-                    'ssh root@example-host "docker logs approval-api-1 --since 30m"',
+                    ["ssh", "root@example-host", "docker logs approval-api-1 --since 30m"],
                 ),
                 (
                     "rollout-deploy-2.jsonl",

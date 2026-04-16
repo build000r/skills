@@ -32,8 +32,9 @@ Identify the single highest-lever concept in a wiki vault, run an adversarial mu
 
 1. Read the vault's `CLAUDE.md` to load conventions
 2. Read `index.md` for the concept catalog
-3. Verify NTM: `ntm deps -v` — need 2+ agent types
-4. If fewer than 2 agent types are available, abort — forging requires adversarial cross-model pressure
+3. If `_ops/focus-sweeps/` exists, read the single active sweep note if present. Treat it as a hint about the current operator lens, not proof.
+4. Verify NTM: `ntm deps -v` — need 2+ agent types
+5. If fewer than 2 agent types are available, abort — forging requires adversarial cross-model pressure
 
 ## Phase 1: Identify the Highest Lever
 
@@ -47,6 +48,18 @@ Read ALL concept pages in `_concepts/`. For each concept, assess:
 | **Dependency chain** | If this concept is wrong, how many other concepts break? |
 | **Bidirectional load** | Does this concept determine both the "why" (thesis) and the "how" (execution)? |
 
+If the vault schema includes `importance` and `focus` metadata, treat them as operator hints:
+- `importance` = durable structural leverage
+- `focus` = temporary working set
+
+Do not trust either field blindly. Use them as priors to inspect, confirm, or challenge from the actual concept bodies.
+
+If the vault schema includes `focus-sweep` notes, treat the single active sweep as an operator hint about the current working-set lens:
+- `focus_set` = what the operator is actively trying to reason through right now
+- `considered` = adjacent concepts already reopened against that lens
+
+Do not treat a sweep as evidence that a concept is actually high leverage. It is a recency/context signal only.
+
 The highest lever is NOT the most well-articulated concept — it's the one where:
 - Getting it right makes everything else work
 - Getting it wrong breaks the most other concepts
@@ -54,6 +67,11 @@ The highest lever is NOT the most well-articulated concept — it's the one wher
 - It sits at the intersection of multiple conceptual clusters
 
 Present the identification with reasoning before proceeding. The user should confirm or redirect.
+
+If the vault is small or the concept set is tightly bounded, it is acceptable to identify:
+- 1 highest-lever concept
+- 1-3 `focus: now` concepts
+- 1-3 additional high-importance but not-currently-focused concepts
 
 ## Phase 2: /smart Both Sides
 
@@ -75,6 +93,8 @@ ntm --robot-wait={PROJECT} --condition=idle --timeout=120s
 Send the study prompt to all agents:
 
 > Read the entire {vault_path} directory carefully. Start with CLAUDE.md to understand the wiki architecture. Then read log.md for history. Then read ALL files in _concepts/ — every single one. Understand the FULL body of strategic thinking. Pay special attention to {concept_name}.md and its related concepts. Take your time and be thorough.
+
+If `_ops/focus-sweeps/` contains an active sweep, read that too so you understand the current operator lens before deciding whether to reinforce it or challenge it.
 
 Wait for study to complete:
 ```bash
@@ -160,15 +180,31 @@ This is what makes wiki-forge different from a standalone duel. The synthesis fi
 
 1. **Update the target concept page** — add new vocabulary, frameworks, or distinctions the duel produced. Use the wiki's deduplication rules: each new shared argument gets ONE canonical home.
 
+1a. **Update concept metadata when the duel justifies it.**
+- Set or revise `importance` if the duel changes your view of which concepts are structurally load-bearing.
+- Set `focus: now` on at most 1-3 concepts when the user explicitly wants a working set.
+- Move previously active concepts to `focus: next` or clear `focus` when they are no longer current.
+- Keep `importance` durable and `focus` temporary; never use `focus` as a synonym for importance.
+
+1b. **Update focus coverage only when the user wants the working set to stay graph-visible.**
+- If the vault uses `_ops/focus-sweeps/`, update the single active sweep or create a new one when the duel materially changes the active lens.
+- Prefer one append-only sweep note per real pass instead of stamping per-note review metadata across many concept pages.
+- If the duel supersedes the previous active lens, close the old sweep and make the new one `status: active`.
+- Do not use `updated` / `updated_at` to mean "considered during this forge."
+
 2. **Create new concept pages** if the duel produced genuinely new concepts (e.g., "discovery authority vs. maintenance authority" may deserve its own page if it's referenced by 3+ other concepts).
 
 3. **Update related concept pages** that are affected by the findings. Cross-link to the new material.
 
-4. **Append to log.md** — record the forge operation, which concept was targeted, what was updated.
+4. **Scan relevant published `/research/*.md` articles** for drift against the forged concept layer.
+   - Classify each candidate as `research discrepancy` or `research improvement opportunity`
+   - Prepare a concise patch plan, but do not edit published articles yet
 
-5. **Move wizard artifacts** to `{vault_path}/` so they're part of the vault but not concept pages. They're evidence, not synthesis.
+5. **Append to log.md** — record the forge operation, which concept was targeted, what was updated, and any article drift discovered.
 
-Present the proposed wiki updates to the user before applying. The duel produces recommendations; the human decides what enters the wiki.
+6. **Move wizard artifacts** to `{vault_path}/` so they're part of the vault but not concept pages. They're evidence, not synthesis.
+
+Present the proposed wiki updates to the user before applying. The duel produces recommendations; the human decides what enters the wiki. This is especially strict for published root-level `/research/*.md` articles: concept updates may be auto-filed, but article edits require explicit human confirmation in the current turn.
 
 ## Output
 
@@ -179,6 +215,8 @@ After forging, report:
 - What was killed and why
 - The combined program (the synthesis)
 - What wiki pages were updated or created
+- Whether the active `focus-sweep` was updated, replaced, or intentionally left alone
+- Which published articles now appear stale or improvable, and why
 - Score asymmetry and what it reveals about model biases
 
 ## Anti-Patterns

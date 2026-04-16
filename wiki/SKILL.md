@@ -44,25 +44,31 @@ If ambiguous, ask.
 
 1. Read the vault's `CLAUDE.md` to load conventions
 2. Read `index.md` to understand current wiki state
-3. Read the source file(s)
-4. Scan existing `_concepts/` pages to find which concepts the source touches
-5. For each touched concept:
+3. If `_ops/focus-sweeps/` exists, read the single `status: active` sweep note if present. Treat it as an operator hint about the current working set, not as source material.
+4. Read the source file(s)
+5. Scan existing `_concepts/` pages to find which concepts the source touches
+6. For each touched concept:
    - Read the concept page
    - Update with new information from the source
    - Add source to `sources:` frontmatter if not listed
    - Flag contradictions explicitly — do not silently overwrite existing claims
    - Add/update wikilinks to related concepts and articles
-6. If the source introduces concepts not yet covered:
+7. Scan relevant published `/research/*.md` articles for drift against the updated concept layer
+   - Classify each finding as either `research discrepancy` or `research improvement opportunity`
+   - Do not edit published articles yet; prepare a concise recommendation set for the human
+8. If the source introduces concepts not yet covered:
    - Create new concept pages in `_concepts/` following the frontmatter schema
    - Use noun-phrase slugs: `operator-velocity.md`, not `about-operator-velocity.md`
-7. Append to `log.md`
-8. Regenerate the Concepts and Sources sections of `index.md`
+9. Append to `log.md`
+10. Regenerate the Concepts and Sources sections of `index.md`
 
 **What NOT to do during ingest:**
 - Do not modify source files (they're symlinks to external repos)
 - Do not create concept pages for trivial or single-source observations
 - Do not duplicate source content — synthesize across sources
 - Do not touch the Papers section of `index.md` (owned by research-paper skill)
+- Do not rewrite `focus-sweep` notes during routine ingest unless the user explicitly asked to refresh the working set coverage
+- Do not silently edit published research articles. Ask first, then patch only with confirmation.
 
 ### Query
 
@@ -71,13 +77,15 @@ If ambiguous, ask.
 **Steps:**
 
 1. Read `index.md` to identify relevant pages
-2. Read relevant concept pages and source pages
-3. Synthesize an answer grounded in wiki content
-4. If the answer reveals a gap or novel synthesis:
+2. If `_ops/focus-sweeps/` exists, read the single active sweep note when it is relevant to the question. Treat it as current-working-set context, not canonical evidence.
+3. Read relevant concept pages and source pages
+4. Synthesize an answer grounded in wiki content
+5. If the answer reveals a gap or novel synthesis:
    - Update an existing concept page, or create a new one
    - Append to `log.md`
    - Update `index.md` if new pages were created
-5. Return the answer to the user
+6. If the answer reveals that a published `/research/*.md` article is stale, overstated, or now improvable, surface that explicitly and ask before editing it
+7. Return the answer to the user
 
 Prefer updating existing concept pages over creating new ones. A query that touches 1-2 pages is normal; one that creates 5 new pages is suspicious.
 
@@ -97,6 +105,9 @@ Prefer updating existing concept pages over creating new ones. A query that touc
    - **Missing cross-references** — concepts that discuss overlapping themes but don't link to each other
    - **Index drift** — concept pages that exist on disk but aren't in `index.md`
    - **Contradictions** — claims in one concept that conflict with another or with source material
+   - **Article drift** — published `/research/*.md` articles whose thesis, examples, or recommendations lag behind the current concept layer
+   - **Research improvement opportunities** — articles that are directionally right but should be deepened or tightened based on newer findings
+   - **Focus-sweep hygiene** — more than one `status: active` sweep, no active sweep when the working set clearly changed, or sweep links that point to missing notes
 4. Append lint report to `log.md`
 5. Present findings to user with suggested fixes
 6. Apply fixes only with human confirmation
@@ -139,4 +150,6 @@ After any operation, report:
 - What pages were read
 - What pages were created or updated (with diffs if updates)
 - What was appended to `log.md`
+- Any published-article discrepancies or improvement opportunities that should be discussed before edits
+- Any active `focus-sweep` implications the user may want to refresh manually
 - Any findings or suggestions for the user

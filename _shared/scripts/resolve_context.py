@@ -117,6 +117,18 @@ def _extract_overlay_payload(data: dict[str, Any], section: str | None) -> dict[
     return None
 
 
+def _extract_context_payload(data: dict[str, Any], section: str | None) -> dict[str, Any] | None:
+    if section is None:
+        return data
+
+    payload = data.get(section)
+    if isinstance(payload, dict):
+        return payload
+    if payload is None:
+        return None
+    return {"value": payload}
+
+
 def _resolve_from_env(section: str | None) -> dict[str, Any] | None:
     """Strategy 1: SKILLBOX_CLIENT_CONTEXT env var."""
     env_path = os.environ.get("SKILLBOX_CLIENT_CONTEXT")
@@ -186,7 +198,7 @@ def _resolve_from_scan(cwd: str, section: str | None) -> dict[str, Any] | None:
 def _resolve_from_local_overlays(
     cwd: str, section: str | None,
 ) -> dict[str, Any] | None:
-    """Strategy 3: Scan ~/.claude/skills/skillbox-config/clients/ and walk-up from cwd."""
+    """Strategy 3: Scan local/generated client contexts and overlays from skillbox-config."""
     if yaml is None:
         return None
 
@@ -206,8 +218,32 @@ def _resolve_from_local_overlays(
     if not roots:
         return None
 
-    candidates: list[tuple[int, dict[str, Any]]] = []
+    candidates: list[tuple[int, int, Path, dict[str, Any]]] = []
     for config_root in roots:
+        for ctx_file in config_root.glob("*/context.yaml"):
+            try:
+                data = _load_yaml_file(ctx_file)
+            except Exception:
+                continue
+
+            raw_match = data.get("cwd_match")
+            if isinstance(raw_match, str):
+                prefixes = [raw_match]
+            elif isinstance(raw_match, list):
+                prefixes = [str(v) for v in raw_match]
+            else:
+                continue
+
+            for raw_prefix in prefixes:
+                expanded_prefix = _expand_match_prefix(raw_prefix)
+                if expanded_prefix is None:
+                    continue
+                prefix = _normalize_path(expanded_prefix)
+                if _matches_prefix(cwd, prefix):
+                    payload = _extract_context_payload(data, section)
+                    if payload is not None:
+                        candidates.append((len(prefix), 1, ctx_file, payload))
+
         for overlay_file in config_root.glob("*/overlay.yaml"):
             try:
                 data = _load_yaml_file(overlay_file)
@@ -233,14 +269,22 @@ def _resolve_from_local_overlays(
                 if _matches_prefix(cwd, prefix):
                     payload = _extract_overlay_payload(data, section)
                     if payload is not None:
-                        candidates.append((len(prefix), payload))
+                        candidates.append((len(prefix), 0, overlay_file, payload))
 
     if not candidates:
         return None
 
-    max_len = max(c[0] for c in candidates)
-    top = [c for c in candidates if c[0] == max_len]
-    return top[0][1]
+    best_len = max(c[0] for c in candidates)
+    top = [c for c in candidates if c[0] == best_len]
+    best_priority = max(c[1] for c in top)
+    top = [c for c in top if c[1] == best_priority]
+
+    if len(top) > 1:
+        matches = ", ".join(str(c[2]) for c in top)
+        print(f"Ambiguous local context match for cwd: {cwd} ({matches})", file=sys.stderr)
+        return None
+
+    return top[0][3]
 
 
 # --- Main --------------------------------------------------------------------

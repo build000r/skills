@@ -63,6 +63,45 @@ class ResolveContextTests(unittest.TestCase):
         self.assertEqual(payload["id"], "personal")
         self.assertEqual(payload["context"]["cwd_match"], ["${SKILLBOX_MONOSERVER_ROOT}"])
 
+    def test_generated_local_context_beats_unexpanded_overlay_placeholders(self) -> None:
+        module = _load_module()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir).resolve()
+            repos_root = root / "repos"
+            overlay_root = repos_root / "skillbox-config"
+            overlay_dir = overlay_root / "clients" / "personal"
+            overlay_dir.mkdir(parents=True, exist_ok=True)
+
+            (overlay_dir / "overlay.yaml").write_text(
+                "version: 1\n"
+                "client:\n"
+                "  id: personal\n"
+                "  context:\n"
+                "    cwd_match:\n"
+                "      - ${SKILLBOX_MONOSERVER_ROOT}\n"
+                "    plans:\n"
+                "      plan_index: ${SKILLBOX_MONOSERVER_ROOT}/skillbox-config/clients/personal/plans/INDEX.md\n",
+                encoding="utf-8",
+            )
+            (overlay_dir / "context.yaml").write_text(
+                "cwd_match:\n"
+                f"  - {repos_root}\n"
+                "plans:\n"
+                f"  plan_index: {overlay_dir / 'plans' / 'INDEX.md'}\n",
+                encoding="utf-8",
+            )
+
+            with mock.patch.dict(os.environ, {}, clear=False):
+                os.environ.pop("SKILLBOX_MONOSERVER_ROOT", None)
+                os.environ.pop("SKILLBOX_CLIENT_CONTEXT", None)
+                payload = module.resolve(str(repos_root), section="plans")
+
+        self.assertEqual(
+            payload,
+            {"plan_index": str(overlay_dir / "plans" / "INDEX.md")},
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Analyze a repository for CRAP-style hotspots across Rust, Python, and TypeScript.
+Analyze a repository for CRAP-style hotspots across Rust, Python, TypeScript, and Swift.
 """
 
 from __future__ import annotations
@@ -17,11 +17,12 @@ from pathlib import Path
 from typing import Iterable
 
 
-SUPPORTED_LANGUAGES = ("rust", "python", "typescript")
+SUPPORTED_LANGUAGES = ("rust", "python", "typescript", "swift")
 LANGUAGE_EXTENSIONS = {
     "rust": {".rs"},
     "python": {".py"},
     "typescript": {".ts", ".tsx"},
+    "swift": {".swift"},
 }
 IGNORED_DIRS = {
     ".git",
@@ -35,12 +36,16 @@ IGNORED_DIRS = {
     ".ruff_cache",
     ".next",
     ".turbo",
+    ".build",
     "coverage",
     "dist",
     "build",
     "node_modules",
     "target",
     "vendor",
+    "DerivedData",
+    "Pods",
+    "Carthage",
 }
 
 
@@ -49,7 +54,11 @@ def should_ignore_dir(name: str, *, allow_coverage_dir: bool = False) -> bool:
         return False
     if name in IGNORED_DIRS:
         return True
-    return name.startswith(".venv.")
+    if name.startswith(".venv."):
+        return True
+    if name.startswith("DerivedData"):
+        return True
+    return False
 
 
 @dataclass
@@ -162,7 +171,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--languages",
         default="",
-        help="Comma-separated list from: rust, python, typescript.",
+        help="Comma-separated list from: rust, python, typescript, swift.",
     )
     parser.add_argument(
         "--top",
@@ -528,6 +537,36 @@ def analyze_typescript(path: Path) -> list[tuple[str, int, int, int]]:
     ]
 
 
+_LIZARD_WARNED = False
+
+
+def analyze_swift(path: Path) -> list[tuple[str, int, int, int]]:
+    try:
+        import lizard  # type: ignore import-not-found
+    except ImportError:
+        global _LIZARD_WARNED
+        if not _LIZARD_WARNED:
+            print(
+                "warning: lizard is required to analyze .swift files; skipping. "
+                "Install with: pip install lizard",
+                file=sys.stderr,
+            )
+            _LIZARD_WARNED = True
+        return []
+
+    try:
+        info = lizard.analyze_file(str(path))
+    except Exception:
+        return []
+
+    findings: list[tuple[str, int, int, int]] = []
+    for func in info.function_list:
+        findings.append(
+            (func.name, func.start_line, func.end_line, func.cyclomatic_complexity)
+        )
+    return findings
+
+
 def analyze_file(path: Path) -> list[tuple[str, int, int, int]]:
     suffix = path.suffix
     if suffix == ".py":
@@ -536,6 +575,8 @@ def analyze_file(path: Path) -> list[tuple[str, int, int, int]]:
         return analyze_rust(path)
     if suffix in {".ts", ".tsx"}:
         return analyze_typescript(path)
+    if suffix == ".swift":
+        return analyze_swift(path)
     return []
 
 
@@ -665,7 +706,7 @@ def main() -> int:
         unsupported_list = ", ".join(sorted(unsupported))
         print(
             "Unsupported language selection: "
-            f"{unsupported_list}. Supported v1 languages: rust, python, typescript."
+            f"{unsupported_list}. Supported languages: rust, python, typescript, swift."
         )
         return 2
 

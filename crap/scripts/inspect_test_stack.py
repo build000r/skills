@@ -9,6 +9,7 @@ import argparse
 import json
 import os
 import re
+import shutil
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -25,19 +26,29 @@ IGNORED_DIRS = {
     ".ruff_cache",
     ".next",
     ".turbo",
+    ".build",
     "coverage",
     "dist",
     "build",
     "node_modules",
     "target",
     "vendor",
+    "DerivedData",
+    "Pods",
+    "Carthage",
 }
 
 
 def should_ignore_dir(name: str, *, allow_coverage_dir: bool = False) -> bool:
     if allow_coverage_dir and name == "coverage":
         return False
-    return name in IGNORED_DIRS or name.startswith(".venv.")
+    if name in IGNORED_DIRS:
+        return True
+    if name.startswith(".venv."):
+        return True
+    if name.startswith("DerivedData"):
+        return True
+    return False
 
 
 def read_text(path: Path) -> str:
@@ -274,6 +285,90 @@ def inspect_typescript(root: Path, make_targets: set[str], artifacts: set[str], 
     )
 
 
+def _has_xcresult_bundle(root: Path) -> bool:
+    for current_root, dirs, _files in os.walk(root):
+        dirs[:] = sorted(d for d in dirs if not should_ignore_dir(d, allow_coverage_dir=True))
+        for name in dirs:
+            if name.endswith(".xcresult"):
+                return True
+    return False
+
+
+def inspect_swift(root: Path, make_targets: set[str], artifacts: set[str], makefile_present: bool) -> LaneReport | None:
+    swift_files = iter_files(root, "*.swift")
+    package_swift = root / "Package.swift"
+    xcodeproj = sorted(list(root.glob("*.xcodeproj")) + list(root.glob("*.xcworkspace")))
+    if not swift_files and not package_swift.exists() and not xcodeproj:
+        return None
+
+    if package_swift.exists():
+        manifest_label: str | None = "Package.swift"
+    elif xcodeproj:
+        manifest_label = xcodeproj[0].name
+    else:
+        manifest_label = None
+
+    xcresult_present = _has_xcresult_bundle(root)
+    xcresultparser_present = shutil.which("xcresultparser") is not None
+
+    tests_present = any(
+        "Tests" in p.parts or p.name.endswith("Tests.swift") for p in swift_files
+    )
+    runner_present = bool(xcodeproj) or package_swift.exists() or tests_present
+    coverage_target_present = "crap-swift-cobertura" in make_targets
+    machine_artifact_present = (
+        "coverage.xml" in artifacts
+        or "cobertura.xml" in artifacts
+        or coverage_target_present
+    )
+    coverage_support_present = machine_artifact_present or xcresult_present
+
+    preferred_wrapper = "make" if makefile_present else "manifest"
+
+    if machine_artifact_present:
+        recommended_mode = "ready"
+        actions = [
+            "Reuse the existing Swift baseline and coverage lane for /crap reruns.",
+            "Keep scope labels exact when narrowing to a scheme or target.",
+        ]
+    elif not tests_present or not runner_present:
+        recommended_mode = "bootstrap-tests"
+        actions = [
+            "Add an XCTest target around the hottest Swift module.",
+            "Use xcodebuild test as the stable baseline before CRAP remediation slices.",
+            "Install xcresultparser (brew install xcresultparser) before adding the coverage target.",
+            "Add the crap-swift-cobertura target once the baseline test path is green.",
+        ]
+    else:
+        recommended_mode = "add-coverage-target"
+        actions = [
+            "Keep the fast-path xcodebuild test entrypoint intact.",
+            "Add an additive crap-swift-cobertura target that writes coverage.xml from the .xcresult bundle.",
+            "Install lizard (pip install lizard) so the Swift analyzer lane is active.",
+        ]
+        if not xcresultparser_present:
+            actions.append("xcresultparser not on PATH — install with: brew install xcresultparser.")
+
+    suggested_targets = (
+        ["test", "crap-swift-cobertura"]
+        if preferred_wrapper == "make"
+        else ["xcodebuild test", "xcresultparser -o cobertura"]
+    )
+
+    return LaneReport(
+        ecosystem="swift",
+        manifest=manifest_label,
+        tests_present=tests_present,
+        runner_present=runner_present,
+        coverage_support_present=coverage_support_present,
+        machine_artifact_present=machine_artifact_present,
+        preferred_wrapper=preferred_wrapper,
+        recommended_mode=recommended_mode,
+        suggested_targets=suggested_targets,
+        actions=actions,
+    )
+
+
 def inspect_rust(root: Path, make_targets: set[str], artifacts: set[str], makefile_present: bool) -> LaneReport | None:
     manifest = root / "Cargo.toml"
     rust_files = iter_files(root, "*.rs")
@@ -336,6 +431,7 @@ def inspect_repo(root: Path) -> RepoReport:
             inspect_python(root, make_targets, artifacts, makefile.exists()),
             inspect_typescript(root, make_targets, artifacts, makefile.exists()),
             inspect_rust(root, make_targets, artifacts, makefile.exists()),
+            inspect_swift(root, make_targets, artifacts, makefile.exists()),
         )
         if lane is not None
     ]

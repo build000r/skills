@@ -31,7 +31,7 @@ Enter execution mode only when the user explicitly asks to run it, for example:
 - `kill the surviving mutants`
 - `harden these tests`
 
-## Supported v1 Adapters
+## Supported Adapters
 
 Use [references/adapter-matrix.md](references/adapter-matrix.md) to pick the
 right adapter and command family.
@@ -39,6 +39,7 @@ right adapter and command family.
 - `rust`: `cargo-mutants`
 - `python`: `mutmut`
 - `javascript` / `typescript`: `StrykerJS`
+- `swift`: `muter`
 
 If the target language or build stack has no credible adapter, stop and say so.
 Do not invent generic mutation commands.
@@ -57,6 +58,7 @@ python3 scripts/analyze_mutants.py
 python3 scripts/analyze_mutants.py /path/to/repo --top 20
 python3 scripts/analyze_mutants.py /path/to/repo --write-ledger
 python3 scripts/analyze_mutants.py /path/to/repo --adapters mutmut,stryker --top 20
+python3 scripts/analyze_mutants.py /path/to/repo --adapters muter --top 20
 ```
 
 ## Hand-Off From `crap`

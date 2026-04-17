@@ -255,6 +255,127 @@ class AnalyzeMutantsTests(unittest.TestCase):
             self.assertEqual(findings[0].line, 12)
             self.assertEqual(findings[0].symbol, "answer")
 
+    def test_muter_is_supported_adapter(self) -> None:
+        self.assertIn("muter", MODULE.SUPPORTED_ADAPTERS)
+        self.assertIn("muterReport.json", MODULE.MUTER_REPORT_NAMES)
+
+    def test_detect_language_maps_swift(self) -> None:
+        self.assertEqual(MODULE.detect_language(Path("x.swift")), "swift")
+
+    def test_canonicalize_muter_status_mappings(self) -> None:
+        cases = {
+            "passed": "survived",
+            "failed": "killed",
+            "buildError": "compile_error",
+            "runtimeError": "killed",
+            "noCoverage": "no_coverage",
+            "timeout": "timeout",
+        }
+        for raw, expected in cases.items():
+            with self.subTest(raw=raw):
+                self.assertEqual(MODULE.canonicalize_muter_status(raw), expected)
+        self.assertEqual(MODULE.canonicalize_muter_status("totally unknown"), "suspicious")
+
+    def test_parse_muter_report(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir)
+            (repo / "Package.swift").write_text("// swift-tools-version:5.9\n", encoding="utf-8")
+            report_path = repo / "muterReport.json"
+            report_path.write_text(
+                json.dumps(
+                    {
+                        "globalMutationScore": 66,
+                        "totalAppliedMutationOperators": 3,
+                        "numberOfKilledMutants": 2,
+                        "projectCodeCoverage": 80,
+                        "timeElapsed": "00:02:11",
+                        "fileReports": [
+                            {
+                                "fileName": "SessionStore.swift",
+                                "mutationScore": 50,
+                                "appliedOperators": [
+                                    {
+                                        "mutationPoint": {
+                                            "filePath": "Sources/Auth/SessionStore.swift",
+                                            "position": {"line": 42, "column": 5},
+                                            "mutationOperatorId": "RelationalOperatorReplacement",
+                                        },
+                                        "mutationSnapshot": {"before": ">", "after": "<"},
+                                        "testSuiteOutcome": "passed",
+                                    },
+                                    {
+                                        "mutationPoint": {
+                                            "filePath": "Sources/Auth/SessionStore.swift",
+                                            "position": {"line": 58, "column": 9},
+                                            "mutationOperatorId": "RemoveSideEffects",
+                                        },
+                                        "mutationSnapshot": {"before": "log()", "after": ""},
+                                        "testSuiteOutcome": "failed",
+                                    },
+                                    {
+                                        "mutationPoint": {
+                                            "filePath": "Sources/Auth/SessionStore.swift",
+                                            "position": {"line": 71, "column": 3},
+                                            "mutationOperatorId": "ChangeLogicalConnector",
+                                        },
+                                        "testSuiteOutcome": "noCoverage",
+                                    },
+                                ],
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            findings = MODULE.parse_muter_report(repo, report_path)
+
+            self.assertEqual(len(findings), 3)
+            counts, todo_count = MODULE.summarize(findings)
+            self.assertEqual(todo_count, 2)
+            self.assertEqual(counts["survived"], 1)
+            self.assertEqual(counts["killed"], 1)
+            self.assertEqual(counts["no_coverage"], 1)
+            survived = [f for f in findings if f.status == "survived"][0]
+            self.assertEqual(survived.path, Path("Sources/Auth/SessionStore.swift"))
+            self.assertEqual(survived.line, 42)
+            self.assertEqual(survived.raw_id, "RelationalOperatorReplacement")
+            self.assertIn(">", survived.detail or "")
+
+    def test_collect_findings_dispatches_muter(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir)
+            (repo / "Package.swift").write_text("// swift-tools-version:5.9\n", encoding="utf-8")
+            report_path = repo / "muterReport.json"
+            report_path.write_text(
+                json.dumps(
+                    {
+                        "fileReports": [
+                            {
+                                "fileName": "A.swift",
+                                "appliedOperators": [
+                                    {
+                                        "mutationPoint": {
+                                            "filePath": "Sources/A.swift",
+                                            "position": {"line": 10},
+                                            "mutationOperatorId": "SwapTernary",
+                                        },
+                                        "testSuiteOutcome": "passed",
+                                    }
+                                ],
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            findings, sources = MODULE.collect_findings(repo, ["muter"])
+
+            self.assertEqual(len(findings), 1)
+            self.assertEqual(findings[0].adapter, "muter")
+            self.assertEqual(sources, [report_path.resolve()])
+
 
 if __name__ == "__main__":
     unittest.main()

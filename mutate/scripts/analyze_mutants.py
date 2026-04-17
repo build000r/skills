@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 
-SUPPORTED_ADAPTERS = ("cargo-mutants", "mutmut", "stryker")
+SUPPORTED_ADAPTERS = ("cargo-mutants", "mutmut", "stryker", "muter")
 IGNORED_DIRS = {
     ".git",
     ".hg",
@@ -103,9 +103,13 @@ STRYKER_REPORT_NAMES = {
     "mutation-report.json",
     "stryker-incremental.json",
 }
-SOURCE_EXTENSIONS = (".rs", ".py", ".js", ".jsx", ".ts", ".tsx")
+MUTER_REPORT_NAMES = {
+    "muterReport.json",
+    "muter-report.json",
+}
+SOURCE_EXTENSIONS = (".rs", ".py", ".js", ".jsx", ".ts", ".tsx", ".swift")
 SOURCE_PATH_RE = re.compile(
-    r"(?P<path>[A-Za-z0-9_./\\-]+\.(?:rs|py|js|jsx|ts|tsx))(?:[:#](?:L)?(?P<line>\d+))?"
+    r"(?P<path>[A-Za-z0-9_./\\-]+\.(?:rs|py|js|jsx|ts|tsx|swift))(?:[:#](?:L)?(?P<line>\d+))?"
 )
 
 
@@ -146,7 +150,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--adapters",
         default="",
-        help="Comma-separated list from: cargo-mutants, mutmut, stryker.",
+        help="Comma-separated list from: cargo-mutants, mutmut, stryker, muter.",
     )
     parser.add_argument(
         "--top",
@@ -242,6 +246,9 @@ def discover_files(repo_root: Path) -> list[Path]:
                 continue
             if name in STRYKER_REPORT_NAMES and any(part in {"reports", "stryker"} for part in rel_parts):
                 matches.append(path.resolve())
+                continue
+            if name in MUTER_REPORT_NAMES:
+                matches.append(path.resolve())
     return matches
 
 
@@ -284,6 +291,8 @@ def detect_language(path: Path | None) -> str:
         return "typescript"
     if suffix in {".js", ".jsx"}:
         return "javascript"
+    if suffix == ".swift":
+        return "swift"
     return "unknown"
 
 
@@ -315,6 +324,33 @@ def canonicalize_cargo_status(raw: str | None) -> str:
         return value
     if value in ACTIVE_STATUSES or value in CLOSED_STATUSES:
         return value
+    return "suspicious"
+
+
+def canonicalize_muter_status(raw: str | None) -> str:
+    value = (raw or "").strip()
+    mapping = {
+        "passed": "survived",
+        "failed": "killed",
+        "buildError": "compile_error",
+        "runtimeError": "killed",
+        "noCoverage": "no_coverage",
+        "timeout": "timeout",
+    }
+    if value in mapping:
+        return mapping[value]
+    # Defensive: some muter versions/outputs may already use the human-readable form.
+    lowered = value.lower().replace(" ", "_")
+    if lowered in {"mutant_survived", "survived"}:
+        return "survived"
+    if lowered.startswith("mutant_killed") or lowered == "killed":
+        return "killed"
+    if lowered in {"build_error", "compile_error"}:
+        return "compile_error"
+    if lowered in {"skipped_(no_coverage)", "no_coverage", "nocoverage"}:
+        return "no_coverage"
+    if lowered in {"time_out", "timeout", "timed_out"}:
+        return "timeout"
     return "suspicious"
 
 
@@ -634,6 +670,76 @@ def parse_stryker_report(repo_root: Path, report_path: Path) -> list[Finding]:
     return findings
 
 
+def parse_muter_report(repo_root: Path, report_path: Path) -> list[Finding]:
+    repo_root = repo_root.resolve()
+    report_path = report_path.resolve()
+    try:
+        payload = json.loads(report_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+
+    file_reports = payload.get("fileReports") if isinstance(payload, dict) else None
+    if not isinstance(file_reports, list):
+        return []
+
+    findings: list[Finding] = []
+    for file_entry in file_reports:
+        if not isinstance(file_entry, dict):
+            continue
+        fallback_name = file_entry.get("fileName") or file_entry.get("path")
+        operators = file_entry.get("appliedOperators")
+        if not isinstance(operators, list):
+            continue
+        for mutant in operators:
+            if not isinstance(mutant, dict):
+                continue
+            raw_status = mutant.get("testSuiteOutcome")
+            if raw_status is None:
+                continue
+            status = canonicalize_muter_status(str(raw_status))
+
+            point = mutant.get("mutationPoint") if isinstance(mutant.get("mutationPoint"), dict) else {}
+            raw_path = point.get("filePath") or point.get("path") or fallback_name
+            operator = point.get("mutationOperatorId") or point.get("mutationOperator")
+            position = point.get("position") if isinstance(point.get("position"), dict) else {}
+            raw_line = position.get("line") or point.get("line")
+
+            path = normalize_path(str(raw_path), repo_root) if raw_path is not None else None
+            try:
+                line = int(raw_line) if raw_line is not None else None
+            except (TypeError, ValueError):
+                line = None
+
+            snapshot = mutant.get("mutationSnapshot") if isinstance(mutant.get("mutationSnapshot"), dict) else None
+            detail = str(operator) if operator is not None else None
+            if snapshot:
+                before = snapshot.get("before")
+                after = snapshot.get("after")
+                if before is not None and after is not None:
+                    delta = f"{before!r} -> {after!r}"
+                    detail = f"{detail}: {delta}" if detail else delta
+
+            findings.append(
+                Finding(
+                    adapter="muter",
+                    key=make_key(
+                        "muter",
+                        path.as_posix() if path else None,
+                        line,
+                        operator,
+                        raw_status,
+                    ),
+                    status=status,
+                    source=report_path,
+                    path=path,
+                    line=line,
+                    raw_id=str(operator) if operator is not None else None,
+                    detail=detail,
+                )
+            )
+    return findings
+
+
 def collect_findings(repo_root: Path, adapters: Iterable[str]) -> tuple[list[Finding], list[Path]]:
     repo_root = repo_root.resolve()
     findings: list[Finding] = []
@@ -672,6 +778,12 @@ def collect_findings(repo_root: Path, adapters: Iterable[str]) -> tuple[list[Fin
             if path.name in STRYKER_REPORT_NAMES:
                 sources.append(path)
                 findings.extend(parse_stryker_report(repo_root, path))
+
+    if "muter" in adapters:
+        for path in files:
+            if path.name in MUTER_REPORT_NAMES:
+                sources.append(path)
+                findings.extend(parse_muter_report(repo_root, path))
 
     deduped: dict[str, Finding] = {}
     for finding in findings:
@@ -853,7 +965,7 @@ def main() -> int:
         unsupported_list = ", ".join(sorted(unsupported))
         print(
             "Unsupported adapter selection: "
-            f"{unsupported_list}. Supported v1 adapters: cargo-mutants, mutmut, stryker."
+            f"{unsupported_list}. Supported adapters: cargo-mutants, mutmut, stryker, muter."
         )
         return 2
 

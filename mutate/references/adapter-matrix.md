@@ -56,6 +56,27 @@ CI. Otherwise use the default adapter for the language below.
   - Keep TypeScript checker and test-runner plugins aligned with the repo's
     stack when they are already in use.
 
+## Swift
+
+- Default adapter: `muter`
+- Detect with: `muter.conf.yml`, `muterReport.json`, `muter-report.json`,
+  `Package.swift`, any `*.xcodeproj` / `*.xcworkspace`
+- Install: `brew install muter-mutation-testing/formulae/muter`
+- Full run: `muter run`
+- Narrow scope: `muter run --files-to-mutate "Sources/Auth/**/*.swift"`
+- Machine-readable output: `muter run --format json --output muterReport.json`
+  (or `muter run --output-json`)
+- Preview scope: `muter run --skip-coverage --format xcode` for a dry-pass
+- Notes:
+  - `muter.conf.yml` at the project root declares the test command (usually
+    `xcodebuild` with scheme + destination, or `swift test` for SPM packages).
+  - Running on an iOS app requires a simulator destination; the CI recipe is
+    typically the same destination used for `xcodebuild test`.
+  - Muter rebuilds and re-runs the test suite once per mutant, so mutation
+    passes are expensive — keep `--files-to-mutate` as narrow as possible.
+  - The `/crap` skill's `crap-swift-cobertura` recipe produces the coverage
+    artifact `muter` honors when skipping uncovered mutants.
+
 ## Unsupported Or Risky Cases
 
 Stop and explain the gap when any of these is true:

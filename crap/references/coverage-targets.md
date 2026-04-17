@@ -18,6 +18,7 @@ replace a missing harness.
   - Python -> `coverage.xml`
   - TypeScript -> `lcov.info`
   - Rust -> `lcov.info`
+  - Swift -> `coverage.xml` (Cobertura, produced from `.xcresult` via `xcresultparser`)
 - In mixed-language repos, keep per-language coverage targets separate, then
   add an optional aggregate `make crap` target that runs coverage first and the
   analyzer second.
@@ -88,6 +89,45 @@ target:
 cargo install cargo-llvm-cov
 ```
 
+## Swift / Xcode (xcresultparser)
+
+Use when the scope is an iOS/macOS/tvOS/watchOS project that runs tests via
+`xcodebuild`. The binary `.xcresult` bundle is converted to Cobertura XML by
+[xcresultparser](https://github.com/a7ex/xcresultparser), which `/crap` already
+reads.
+
+Prerequisites:
+
+```bash
+brew install xcresultparser
+pip install lizard    # required by analyze_crap.py for Swift function parsing
+```
+
+```make
+.PHONY: crap-swift-cobertura
+crap-swift-cobertura: ## Run Swift tests and emit Cobertura coverage for /crap
+	xcodebuild \
+	  -scheme {scheme} \
+	  -destination '{destination}' \
+	  -resultBundlePath build/test.xcresult \
+	  -enableCodeCoverage YES \
+	  test
+	xcresultparser -o cobertura build/test.xcresult > coverage.xml
+```
+
+Typical placeholders:
+
+- `{scheme}` -> Xcode scheme (e.g., `MyApp`)
+- `{destination}` -> simulator destination, e.g.
+  `platform=iOS Simulator,name=iPhone 16`
+
+Expected artifact: `coverage.xml` at the repo root (Cobertura format).
+
+If `xcresultparser` cannot be installed, the zero-install fallback is
+`xcrun xccov view --report --json build/test.xcresult`, but CRAP does not read
+raw xccov JSON; you would need a converter such as `xccov2lcov`. Prefer
+`xcresultparser` when available.
+
 ## Optional Aggregate Target
 
 Use when the repo wants a single entrypoint that refreshes artifacts and runs
@@ -95,7 +135,7 @@ the analyzer.
 
 ```make
 .PHONY: crap
-crap: pytest-cov-xml vitest-cov-lcov cargo-cov-lcov ## Refresh coverage artifacts and run /crap
+crap: pytest-cov-xml vitest-cov-lcov cargo-cov-lcov crap-swift-cobertura ## Refresh coverage artifacts and run /crap
 	python3 {crap_script} {repo_root}
 ```
 

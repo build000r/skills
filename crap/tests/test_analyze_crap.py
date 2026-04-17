@@ -178,5 +178,78 @@ class AnalyzeCrapCoverageTests(unittest.TestCase):
         )
 
 
+class AnalyzeCrapSwiftTests(unittest.TestCase):
+    def test_swift_is_supported_language(self) -> None:
+        self.assertIn("swift", MODULE.SUPPORTED_LANGUAGES)
+        self.assertEqual(MODULE.LANGUAGE_EXTENSIONS["swift"], {".swift"})
+
+    def test_iter_supported_files_picks_up_swift(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir)
+            (repo / "src").mkdir()
+            swift_file = repo / "src" / "foo.swift"
+            swift_file.write_text(
+                "func foo() -> Int { return 1 }\n", encoding="utf-8"
+            )
+            files = MODULE.iter_supported_files(repo, ["swift"])
+            self.assertEqual(files, [swift_file.resolve()])
+
+    def test_detect_language_maps_swift_extension(self) -> None:
+        self.assertEqual(MODULE.detect_language(Path("x.swift")), "swift")
+
+    def test_requested_languages_accepts_swift(self) -> None:
+        supported, unsupported = MODULE.requested_languages("swift")
+        self.assertEqual(supported, ["swift"])
+        self.assertEqual(unsupported, [])
+
+    def test_analyze_swift_returns_list_shape(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            swift = Path(tmpdir) / "trivial.swift"
+            swift.write_text("func noop() {}\n", encoding="utf-8")
+            findings = MODULE.analyze_swift(swift)
+            self.assertIsInstance(findings, list)
+
+    def test_iter_supported_files_ignores_derived_data_variants(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir)
+            (repo / "Sources").mkdir()
+            wanted = repo / "Sources" / "App.swift"
+            wanted.write_text("func app() {}\n", encoding="utf-8")
+            for noisy in ("DerivedData", "DerivedDataSignupUI", "Pods", ".build"):
+                (repo / noisy).mkdir()
+                (repo / noisy / "leak.swift").write_text(
+                    "func leak() {}\n", encoding="utf-8"
+                )
+
+            files = MODULE.iter_supported_files(repo, ["swift"])
+
+            self.assertEqual(files, [wanted.resolve()])
+
+    def test_analyze_swift_counts_branches_when_lizard_available(self) -> None:
+        try:
+            import lizard  # noqa: F401
+        except ImportError:
+            self.skipTest("lizard not installed")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            swift = Path(tmpdir) / "branchy.swift"
+            swift.write_text(
+                "func branchy(x: Int) -> Int {\n"
+                "    if x > 0 {\n"
+                "        return 1\n"
+                "    } else if x < 0 {\n"
+                "        return -1\n"
+                "    }\n"
+                "    return 0\n"
+                "}\n",
+                encoding="utf-8",
+            )
+            findings = MODULE.analyze_swift(swift)
+            self.assertTrue(findings, "expected at least one Swift finding")
+            symbol, start, end, cc = findings[0]
+            self.assertIn("branchy", symbol)
+            self.assertGreaterEqual(cc, 3)
+            self.assertGreaterEqual(end, start)
+
+
 if __name__ == "__main__":
     unittest.main()

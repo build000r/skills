@@ -1,13 +1,13 @@
 ---
 name: crap
-description: Compute CRAP-style hotspot scores across Rust, Python, and TypeScript, print a ranked risk report, end with a FINAL_SCORE line, and suggest hardening follow-ons. Use for "/crap", CRAP score, risk score, hotspot ranking, weak coverage, or taking a scoped score under a threshold.
+description: Compute CRAP-style hotspot scores across Rust, Python, TypeScript, and Swift, print a ranked risk report, end with a FINAL_SCORE line, and suggest hardening follow-ons. Use for "/crap", CRAP score, risk score, hotspot ranking, weak coverage, or taking a scoped score under a threshold.
 license: MIT
 ---
 
 # /crap
 
-Score code-risk hotspots with a CRAP-style formula across Rust, Python, and
-TypeScript.
+Score code-risk hotspots with a CRAP-style formula across Rust, Python,
+TypeScript, and Swift.
 
 This skill is for **analysis and planning**, not auto-fixing. It finds risky
 functions, ranks them, and turns the output into candidate `/describe`
@@ -30,15 +30,30 @@ execution, for example:
 - `fix the hotspots`
 - `keep going`
 
-## Supported v1 Languages
+## Supported Languages
 
 - `rust`
 - `python`
 - `typescript`
+- `swift` (requires `pip install lizard` for function parsing; Swift coverage
+  is read from Cobertura XML produced by `xcresultparser`)
 
 If the user explicitly requests a language outside that set, stop and say so.
 Do not fabricate scores, findings, or follow-on suggestions for unsupported
 languages.
+
+### Swift prerequisites
+
+Swift analysis has two optional dependencies. If either is missing, the
+analyzer degrades gracefully rather than crashing:
+
+- **`lizard`** (Python library): parses Swift functions. Install with
+  `pip install lizard`. If missing, Swift files are skipped with a one-time
+  stderr warning; other languages still analyze.
+- **`xcresultparser`** (Homebrew tool): converts Xcode `.xcresult` bundles to
+  Cobertura XML. Install with `brew install xcresultparser`. See
+  [references/coverage-targets.md](references/coverage-targets.md) for the
+  `crap-swift-cobertura` Makefile recipe.
 
 ## Runtime Contract
 
@@ -60,6 +75,7 @@ python3 scripts/inspect_test_stack.py /path/to/repo --json
 python3 scripts/analyze_crap.py
 python3 scripts/analyze_crap.py /path/to/repo
 python3 scripts/analyze_crap.py /path/to/repo --languages rust,python
+python3 scripts/analyze_crap.py /path/to/repo --languages swift
 python3 scripts/analyze_crap.py /path/to/repo --languages python --top 20
 python3 scripts/analyze_crap.py /path/to/repo --languages python --threshold 25 --top 20
 python3 scripts/delta_audit.py snapshot /path/to/repo -o /tmp/crap-baseline.json
@@ -102,9 +118,9 @@ Default hand-off rule:
    while the scoped `FINAL_SCORE` is still `>= 30`.
 2. Start mentioning or running the sibling `mutate` skill when the scoped
    `FINAL_SCORE` is below `30`, the baseline test path is green, coverage is
-   numeric, the hotspot language is still within CRAP's supported set
-   (`rust`, `python`, `typescript`), and the hotspot scope is narrow enough to
-   mutate economically.
+   numeric, the hotspot language is one that `/mutate` supports
+   (`rust`, `python`, `typescript`, `swift`), and the hotspot scope is narrow
+   enough to mutate economically.
 3. Treat `FINAL_SCORE < 8` as a strong end-state target for stabilized
    hotspots, not as the prerequisite for mentioning `mutate`.
 4. If the user explicitly wants mutation testing while the scoped score is
@@ -342,8 +358,8 @@ Requirements:
 5. After each slice, rerun the canonical test path, the coverage target, and
    the analyzer.
 6. When a slice drops below `30`, the baseline is green, and the hotspot
-   language is one of CRAP's supported v1 languages (`rust`, `python`,
-   `typescript`), optionally run the sibling `mutate` skill on that narrowed
+   language is one that `/mutate` supports (`rust`, `python`, `typescript`,
+   `swift`), optionally run the sibling `mutate` skill on that narrowed
    scope before the next CRAP rerun.
 7. Use `scripts/analyze_crap.py ... --top 20` for inner-loop reruns to keep
    output concise while preserving the true `FINAL_SCORE`.
@@ -377,13 +393,45 @@ Requirements:
 - Treat the analyzer output as the formatting source of truth. Do not replace
   its `Suggested /describe follow-on` block or its final launch gate question
   with a handwritten alternative.
-- If the scoped `FINAL_SCORE` is below `30` and the reported language is still
-  within CRAP's supported v1 set (`rust`, `python`, `typescript`), mention the
-  sibling `mutate` skill as a follow-on path. Make it explicit that mutation
-  results are a test-quality signal, not a direct CRAP input.
+- If the scoped `FINAL_SCORE` is below `30` and the reported language is one
+  that `/mutate` supports (`rust`, `python`, `typescript`, `swift`), mention
+  the sibling `mutate` skill as a follow-on path. Make it explicit that
+  mutation results are a test-quality signal, not a direct CRAP input.
 - If you add a human summary, place it after the raw analyzer output and keep
   scope labels exact.
 - If a threshold was explicitly provided or the user is in one-shot mode, state
   the resolved target alongside the score comparison.
 - In one-shot remediation mode, keep inner-loop analyzer reruns concise with
   `--top`, but always report the true current `FINAL_SCORE`.
+
+## Future Work
+
+These are deferred follow-ups tracked here so they are not lost.
+
+### Full Lizard backend swap (scope B)
+
+Swift support currently routes only `.swift` files through
+[Lizard](https://github.com/terryyin/lizard) while Rust, Python, and
+TypeScript continue to use the hand-rolled analyzers in
+`scripts/analyze_crap.py`. The hand-rolled Rust/TypeScript paths are
+regex-based and known to miss edge cases that Lizard's token-state plugins
+handle (arrow functions with template literals, Rust `?` error propagation,
+etc.).
+
+A follow-up slice should evaluate replacing all four per-language analyzers
+with Lizard as a single backend:
+
+- **Risk**: score drift on existing Rust/Python/TypeScript repos that already
+  have CRAP baselines captured via `scripts/delta_audit.py`.
+- **Required work**: additive version bump in `delta_audit.py` snapshot
+  format so old baselines still load, plus a migration note for users with
+  in-flight remediation loops. Decide whether to keep the Python `ast` path
+  (structurally correct) or adopt Lizard's token-based Python plugin for
+  consistency.
+- **Benefit**: one parser path to maintain, richer per-function metrics
+  (NLOC, nesting depth, token count, parameter count) available to
+  `delta_audit.py` for stronger anti-gaming checks, and alignment with the
+  Swift path.
+
+Handle this as a standalone `/describe` packet with its own baseline
+migration plan.

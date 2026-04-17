@@ -123,5 +123,79 @@ class InspectTestStackTests(unittest.TestCase):
             self.assertEqual(report.nested_manifests, ["packages/api"])
 
 
+class InspectSwiftLaneTests(unittest.TestCase):
+    def test_no_swift_lane_when_no_swift_content(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir)
+            (repo / "README.md").write_text("", encoding="utf-8")
+
+            report = MODULE.inspect_repo(repo)
+
+            self.assertNotIn("swift", [lane.ecosystem for lane in report.lanes])
+
+    def test_swift_lane_detected_from_swift_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir)
+            (repo / "Sources").mkdir()
+            (repo / "Sources" / "App.swift").write_text(
+                "func hello() { print(\"hi\") }\n", encoding="utf-8"
+            )
+
+            report = MODULE.inspect_repo(repo)
+
+            swift_lanes = [lane for lane in report.lanes if lane.ecosystem == "swift"]
+            self.assertEqual(len(swift_lanes), 1)
+
+    def test_swift_lane_detected_from_package_swift(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir)
+            (repo / "Package.swift").write_text(
+                "// swift-tools-version:5.9\n", encoding="utf-8"
+            )
+
+            report = MODULE.inspect_repo(repo)
+
+            swift_lanes = [lane for lane in report.lanes if lane.ecosystem == "swift"]
+            self.assertEqual(len(swift_lanes), 1)
+            self.assertEqual(swift_lanes[0].manifest, "Package.swift")
+
+    def test_swift_lane_ready_when_cobertura_artifact_present(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir)
+            (repo / "Sources").mkdir()
+            (repo / "Sources" / "App.swift").write_text(
+                "func hello() {}\n", encoding="utf-8"
+            )
+            (repo / "coverage.xml").write_text(
+                "<?xml version='1.0' ?><coverage></coverage>\n", encoding="utf-8"
+            )
+
+            report = MODULE.inspect_repo(repo)
+
+            swift_lanes = [lane for lane in report.lanes if lane.ecosystem == "swift"]
+            self.assertEqual(len(swift_lanes), 1)
+            self.assertEqual(swift_lanes[0].recommended_mode, "ready")
+            self.assertTrue(swift_lanes[0].machine_artifact_present)
+
+    def test_swift_lane_recognizes_crap_swift_cobertura_make_target(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir)
+            (repo / "Sources").mkdir()
+            (repo / "Sources" / "App.swift").write_text(
+                "func hello() {}\n", encoding="utf-8"
+            )
+            (repo / "Makefile").write_text(
+                "crap-swift-cobertura:\n\techo doing swift coverage\n",
+                encoding="utf-8",
+            )
+
+            report = MODULE.inspect_repo(repo)
+
+            swift_lanes = [lane for lane in report.lanes if lane.ecosystem == "swift"]
+            self.assertEqual(len(swift_lanes), 1)
+            self.assertEqual(swift_lanes[0].recommended_mode, "ready")
+            self.assertEqual(swift_lanes[0].preferred_wrapper, "make")
+
+
 if __name__ == "__main__":
     unittest.main()

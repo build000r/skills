@@ -93,6 +93,38 @@ For auth, env, or schema changes, explicitly answer:
 - Does GitHub Actions or another CI system need updated secrets?
 - Does rollout require two phases so old and new code can coexist briefly?
 
+### Required CI Secret Parity Check
+
+When deploy auth depends on CI secrets, do not treat "local auth works" as
+enough. Before any irreversible step such as `git push`, run a concrete parity
+probe against the same auth surface CI will use.
+
+For Cloudflare Workers / Pages deploys, the minimum contract is:
+
+1. Identify the exact GitHub secret names from the workflow file.
+   Example: `.github/workflows/deploy-cloudflare.yml` may export
+   `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`.
+2. Verify the authoritative local credential separately.
+   Example:
+   ```bash
+   npx wrangler whoami
+   ```
+3. Verify the workflow actually references the same secrets you think it does.
+   Example:
+   ```bash
+   sed -n '1,220p' .github/workflows/deploy-cloudflare.yml
+   ```
+4. State the parity result before `git push`:
+   - `parity confirmed`: the CI secret source was freshly checked and matches
+     the intended rollout target
+   - `parity unknown`: local auth works, but CI secret freshness/ownership is
+     not verified
+   - `parity failed`: CI auth is known stale, missing, or invalid
+
+If parity is `unknown` or `failed`, stop and treat the rollout as blocked until
+the CI secret is rotated, synced, or deliberately bypassed by an approved
+manual deploy path.
+
 ## Permission Model
 
 Use these defaults unless the user explicitly changes them:
@@ -131,6 +163,7 @@ Pick the least invasive command that answers the user's question:
 - targeted logs
 - CI run status
 - package version inspection
+- auth identity checks such as `npx wrangler whoami`
 
 Do not jump straight to restarts or rollbacks when logs or health output would
 answer the question first.
@@ -200,6 +233,20 @@ Typical checks:
 - current Pages deployment status
 - current edge route or origin config
 - post-deploy health or smoke check
+- current auth identity for the deploy actor and the CI secret source
+
+Before `git push` or `wrangler deploy`, answer these explicitly for Workers /
+Pages deploys:
+
+- Which workflow file owns production deploys?
+- Which exact secret names does it read?
+- Did you verify local auth with `npx wrangler whoami` (or provider equivalent)?
+- Is CI secret parity `confirmed`, `unknown`, or `failed`?
+
+If CI deploy auth later fails but local provider auth succeeds, the run is not
+complete. Report the exact failure signature, mark the deploy as blocked on CI
+secret drift, and only use a manual local deploy path if the user wants that as
+the smallest safe operational step.
 
 Use overlay values for project name, public origin, and worker config path.
 
@@ -264,6 +311,7 @@ Use the exact failure signature instead of generic “unauthorized” summaries:
 | --- | --- | --- |
 | `401` + auth error code | missing or stale credential/header | compare env source and deployed secret |
 | `403` + permission code | role/scope mismatch | inspect auth config and subject role |
+| Cloudflare `10000` / `9109` | stale or invalid CI token | compare `npx wrangler whoami` locally vs workflow secret source, then rotate/sync the GitHub secret before the next push |
 | `400` + `Disallowed CORS origin` on `OPTIONS` | browser origin allowlist drift | diff deployed env/secret allowlist against all public hostnames and aliases, then rerun preflight |
 | `404` on health URL | wrong route/origin/frontdoor | check overlay host/path values |
 | `502` / `503` at proxy | upstream container down or wrong upstream port | check compose status and container-local health |

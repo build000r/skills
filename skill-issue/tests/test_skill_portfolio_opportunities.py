@@ -55,12 +55,22 @@ class SkillPortfolioOpportunityTests(unittest.TestCase):
             encoding="utf-8",
         )
 
+    @contextmanager
+    def patch_default_roots(self, *roots: Path):
+        original = PORTFOLIO.DEFAULT_SKILLS_ROOT_CANDIDATES
+        PORTFOLIO.DEFAULT_SKILLS_ROOT_CANDIDATES = tuple(roots)
+        try:
+            yield
+        finally:
+            PORTFOLIO.DEFAULT_SKILLS_ROOT_CANDIDATES = original
+
     def test_generate_portfolio_report_surfaces_creation_discoverability_and_consolidation(self) -> None:
         now = datetime.now(timezone.utc)
 
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            skills_root = root / "skills"
+            public_skills_root = root / "skills-public"
+            private_skills_root = root / "skills-private"
             codex_dir = root / "codex"
             claude_dir = root / "claude"
 
@@ -76,19 +86,19 @@ This skill supports project-specific modes via local `modes/*.md` files.
 Check health endpoints, container logs, rollbacks, and deploy status.
 """
             self.write_skill(
-                skills_root,
+                public_skills_root,
                 "deploy",
                 "Deploy and debug Docker infrastructure with health checks, container logs, rollbacks, and environment sync.",
                 shared_body,
             )
             self.write_skill(
-                skills_root,
+                private_skills_root,
                 "deploy-approval",
                 'Deploy and debug the approval api infrastructure. Use when handling "approval api", "api.example.com", "app.example.com", container logs, rollbacks, or health checks.',
                 shared_body,
             )
             self.write_skill(
-                skills_root,
+                public_skills_root,
                 "ask-cascade",
                 "Ask high-level questions first, then detail questions only when needed.",
                 """
@@ -158,7 +168,7 @@ Order user questions from strategic decisions to implementation details.
                     since=now - timedelta(days=1),
                     until=now + timedelta(days=1),
                     limit=20,
-                    skills_root=skills_root,
+                    skills_root=[public_skills_root, private_skills_root],
                 )
                 report = PORTFOLIO.generate_portfolio_opportunity_report(
                     portfolio,
@@ -171,6 +181,13 @@ Order user questions from strategic decisions to implementation details.
             self.assertIn("skill-discoverability-gap", issue_types)
             self.assertIn("skill-creation-opportunity", issue_types)
             self.assertIn("skill-consolidation-opportunity", issue_types)
+            self.assertEqual(portfolio["skills_root"], str(public_skills_root.resolve()))
+            self.assertEqual(
+                portfolio["catalog_roots"],
+                [str(public_skills_root.resolve()), str(private_skills_root.resolve())],
+            )
+            self.assertEqual(report["catalog_summary"]["roots_loaded"], 2)
+            self.assertEqual(len(report["catalog_summary"]["root_details"]), 2)
 
             discoverability = next(card for card in report["cards"] if card["issue_type"] == "skill-discoverability-gap")
             self.assertEqual(discoverability["scope"], "deploy-approval")
@@ -188,7 +205,14 @@ Order user questions from strategic decisions to implementation details.
     def test_render_portfolio_markdown_includes_new_card_types(self) -> None:
         report = {
             "source_review": {"sessions_scanned": 12, "sessions_analyzed": 7},
-            "catalog_summary": {"skills_loaded": 3},
+            "catalog_summary": {
+                "skills_loaded": 3,
+                "roots_loaded": 2,
+                "root_details": [
+                    {"root": "/tmp/public-skills", "skills_loaded": 2, "duplicates_skipped": 0},
+                    {"root": "/tmp/private-skills", "skills_loaded": 1, "duplicates_skipped": 1},
+                ],
+            },
             "cards": [
                 {
                     "issue_type": "skill-creation-opportunity",
@@ -218,6 +242,41 @@ Order user questions from strategic decisions to implementation details.
         self.assertIn("## Skill Portfolio Opportunity Funnel", markdown)
         self.assertIn("skill-creation-opportunity", markdown)
         self.assertIn("attach-pdf-transaction", markdown)
+        self.assertIn("Catalog roots: 2", markdown)
+        self.assertIn("/tmp/private-skills", markdown)
+        self.assertIn("duplicates skipped=1", markdown)
+
+    def test_default_catalog_roots_federate_multiple_existing_roots(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            public_skills_root = root / "skills-public"
+            private_skills_root = root / "skills-private"
+            missing_root = root / "missing-root"
+
+            self.write_skill(
+                public_skills_root,
+                "describe",
+                "Turn work into pass/fail test cases before patching.",
+                "# Describe",
+            )
+            self.write_skill(
+                private_skills_root,
+                "smart",
+                "Ask the single highest-leverage next question.",
+                "# Smart",
+            )
+
+            with self.patch_default_roots(public_skills_root, missing_root, private_skills_root):
+                bundle = PORTFOLIO.load_skill_catalog_bundle()
+
+        self.assertEqual(
+            bundle["catalog_roots"],
+            [str(public_skills_root.resolve()), str(private_skills_root.resolve())],
+        )
+        self.assertEqual(
+            sorted(skill["name"] for skill in bundle["catalog"]),
+            ["describe", "smart"],
+        )
 
 
 if __name__ == "__main__":

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter, defaultdict
+from collections.abc import Iterable, Sequence
 from datetime import datetime, timezone
 from itertools import combinations
 from pathlib import Path
@@ -111,6 +112,14 @@ STOPWORDS = {
 }
 DISCOVERABILITY_MIN_SCORE = 3.0
 MIN_CARD_SCORE = 14
+DEFAULT_SKILLS_ROOT = Path(__file__).resolve().parents[3]
+DEFAULT_SKILLS_ROOT_CANDIDATES = (
+    DEFAULT_SKILLS_ROOT,
+    DEFAULT_SKILLS_ROOT.parent / "skills-private",
+    DEFAULT_SKILLS_ROOT.parents[1] / "skills-private",
+    Path.home() / ".claude" / "skills",
+    Path.home() / ".codex" / "skills",
+)
 
 
 def _tokenize(text: str) -> list[str]:
@@ -173,51 +182,145 @@ def _body_excerpt(body: str, max_lines: int = 60) -> str:
     return "\n".join(kept)
 
 
-def load_skill_catalog(skills_root: str | Path | None = None) -> list[dict[str, Any]]:
-    """Load top-level skills from a repo or installed skills directory."""
-    root = Path(skills_root) if skills_root else Path(__file__).resolve().parents[3]
+def _catalog_roots_from_inputs(
+    skills_root: str | Path | Sequence[str | Path] | None = None,
+    skills_roots: Sequence[str | Path] | None = None,
+) -> list[Path]:
+    """Return a stable ordered list of catalog roots from one-or-many inputs."""
+
+    def iter_roots(value: str | Path | Sequence[str | Path] | None) -> Iterable[Path]:
+        if value is None:
+            return []
+        if isinstance(value, (str, Path)):
+            return [Path(value)]
+        return [Path(item) for item in value]
+
+    roots = [path.expanduser().resolve(strict=False) for path in iter_roots(skills_root)]
+    roots.extend(path.expanduser().resolve(strict=False) for path in iter_roots(skills_roots))
+    if not roots:
+        roots = [path.expanduser().resolve(strict=False) for path in DEFAULT_SKILLS_ROOT_CANDIDATES]
+
+    deduped = []
+    seen = set()
+    for root in roots:
+        if not root.is_dir():
+            continue
+        key = str(root)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(root)
+    return deduped
+
+
+def _load_skill_metadata(skill_path: Path, catalog_root: Path) -> dict[str, Any]:
+    """Load one skill metadata record from disk."""
+    text = skill_path.read_text(encoding="utf-8")
+    frontmatter, body = _frontmatter(text)
+    name = frontmatter.get("name") or skill_path.parent.name
+    description = frontmatter.get("description", "")
+    heading = _first_heading(body) or name
+    trigger_phrases = _quoted_phrases(description)
+    discovery_text = " ".join(
+        [
+            name.replace("-", " "),
+            skill_path.parent.name.replace("-", " "),
+            description,
+            heading,
+            " ".join(trigger_phrases),
+        ]
+    )
+    excerpt = _body_excerpt(body)
+    return {
+        "name": name,
+        "slug": skill_path.parent.name,
+        "path": str(skill_path),
+        "catalog_root": str(catalog_root),
+        "description": description,
+        "heading": heading,
+        "excerpt": excerpt,
+        "trigger_phrases": trigger_phrases,
+        "name_tokens": set(_tokenize(name.replace("-", " "))),
+        "discovery_tokens": set(_tokenize(discovery_text)),
+        "content_tokens": set(_tokenize(excerpt)),
+        "has_modes": ("modes/" in body.lower()) or ("mode selection" in body.lower()),
+    }
+
+
+def load_skill_catalog_bundle(
+    skills_root: str | Path | Sequence[str | Path] | None = None,
+    skills_roots: Sequence[str | Path] | None = None,
+) -> dict[str, Any]:
+    """Load and dedupe a federated skill catalog across one or more roots."""
+    catalog_roots = _catalog_roots_from_inputs(skills_root=skills_root, skills_roots=skills_roots)
+    if not catalog_roots:
+        return {
+            "skills_root": None,
+            "catalog_roots": [],
+            "catalog_root_details": [],
+            "duplicate_skills_skipped": [],
+            "catalog": [],
+        }
     skills = []
+    root_details = []
+    duplicates = []
+    alias_owner: dict[str, dict[str, Any]] = {}
 
-    for path in sorted(root.iterdir()):
-        if not path.is_dir():
-            continue
-        skill_path = path / "SKILL.md"
-        if not skill_path.exists():
-            continue
+    for root in catalog_roots:
+        loaded_count = 0
+        duplicate_count = 0
+        for path in sorted(root.iterdir()):
+            if not path.is_dir():
+                continue
+            skill_path = path / "SKILL.md"
+            if not skill_path.exists():
+                continue
 
-        text = skill_path.read_text(encoding="utf-8")
-        frontmatter, body = _frontmatter(text)
-        name = frontmatter.get("name") or path.name
-        description = frontmatter.get("description", "")
-        heading = _first_heading(body) or name
-        trigger_phrases = _quoted_phrases(description)
-        discovery_text = " ".join(
-            [
-                name.replace("-", " "),
-                path.name.replace("-", " "),
-                description,
-                heading,
-                " ".join(trigger_phrases),
-            ]
-        )
-        excerpt = _body_excerpt(body)
-        skills.append(
+            skill = _load_skill_metadata(skill_path, root)
+            aliases = _skill_aliases(skill)
+            collisions = sorted({alias for alias in aliases if alias in alias_owner})
+            if collisions:
+                duplicate_count += 1
+                duplicates.append(
+                    {
+                        "name": skill["name"],
+                        "slug": skill["slug"],
+                        "path": skill["path"],
+                        "catalog_root": skill["catalog_root"],
+                        "conflicting_aliases": collisions,
+                        "kept_paths": sorted({alias_owner[alias]["path"] for alias in collisions}),
+                    }
+                )
+                continue
+
+            skills.append(skill)
+            loaded_count += 1
+            for alias in aliases:
+                alias_owner[alias] = skill
+
+        root_details.append(
             {
-                "name": name,
-                "slug": path.name,
-                "path": str(skill_path),
-                "description": description,
-                "heading": heading,
-                "excerpt": excerpt,
-                "trigger_phrases": trigger_phrases,
-                "name_tokens": set(_tokenize(name.replace("-", " "))),
-                "discovery_tokens": set(_tokenize(discovery_text)),
-                "content_tokens": set(_tokenize(excerpt)),
-                "has_modes": ("modes/" in body.lower()) or ("mode selection" in body.lower()),
+                "root": str(root),
+                "skills_loaded": loaded_count,
+                "duplicates_skipped": duplicate_count,
             }
         )
 
-    return skills
+    return {
+        "skills_root": str(catalog_roots[0]),
+        "catalog_roots": [str(root) for root in catalog_roots],
+        "catalog_root_details": root_details,
+        "duplicate_skills_skipped": duplicates,
+        "catalog": skills,
+    }
+
+
+def load_skill_catalog(
+    skills_root: str | Path | Sequence[str | Path] | None = None,
+    skills_roots: Sequence[str | Path] | None = None,
+) -> list[dict[str, Any]]:
+    """Load top-level skills from one or more repo or installed skills directories."""
+    return load_skill_catalog_bundle(skills_root=skills_root, skills_roots=skills_roots)["catalog"]
 
 
 def _skill_aliases(skill: dict[str, Any]) -> list[str]:
@@ -385,12 +488,14 @@ def scan_skill_portfolio(
     since: datetime | None = None,
     until: datetime | None = None,
     limit: int = 200,
-    skills_root: str | Path | None = None,
+    skills_root: str | Path | Sequence[str | Path] | None = None,
+    skills_roots: Sequence[str | Path] | None = None,
 ) -> dict[str, Any]:
     """Scan transcripts and summarize portfolio-level demand across skills."""
     since = since or datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     until = until or datetime.now(timezone.utc)
-    catalog = load_skill_catalog(skills_root)
+    catalog_bundle = load_skill_catalog_bundle(skills_root=skills_root, skills_roots=skills_roots)
+    catalog = catalog_bundle["catalog"]
     sessions = []
     sessions_scanned = 0
     providers = Counter()
@@ -418,7 +523,8 @@ def scan_skill_portfolio(
         "source": source,
         "since": since.isoformat(),
         "until": until.isoformat(),
-        "skills_root": str(Path(skills_root) if skills_root else Path(__file__).resolve().parents[3]),
+        "skills_root": catalog_bundle["skills_root"],
+        "catalog_roots": catalog_bundle["catalog_roots"],
         "catalog": catalog,
         "sessions_scanned": sessions_scanned,
         "sessions_analyzed": len(sessions),
@@ -426,6 +532,9 @@ def scan_skill_portfolio(
         "sessions": sessions,
         "catalog_summary": {
             "skills_loaded": len(catalog),
+            "roots_loaded": len(catalog_bundle["catalog_roots"]),
+            "root_details": catalog_bundle["catalog_root_details"],
+            "duplicate_skills_skipped": catalog_bundle["duplicate_skills_skipped"],
             "activated_counts": dict(activated_counts),
             "suggested_counts": dict(suggested_counts),
         },
@@ -864,6 +973,7 @@ def generate_portfolio_opportunity_report(
     return {
         "generated_at": now.isoformat(),
         "skills_root": portfolio_report.get("skills_root"),
+        "catalog_roots": portfolio_report.get("catalog_roots", []),
         "source_review": {
             "generated_at": portfolio_report.get("generated_at"),
             "source": portfolio_report.get("source"),
@@ -875,6 +985,11 @@ def generate_portfolio_opportunity_report(
         },
         "catalog_summary": {
             "skills_loaded": portfolio_report.get("catalog_summary", {}).get("skills_loaded", len(catalog)),
+            "roots_loaded": portfolio_report.get("catalog_summary", {}).get("roots_loaded", 0),
+            "root_details": portfolio_report.get("catalog_summary", {}).get("root_details", []),
+            "duplicate_skills_skipped": portfolio_report.get("catalog_summary", {}).get(
+                "duplicate_skills_skipped", []
+            ),
         },
         "summary": {
             "cards_generated": len(cards),
@@ -898,6 +1013,11 @@ def render_portfolio_opportunity_markdown(report: dict[str, Any]) -> str:
     )
     lines.append("")
     lines.append(f"- Skills loaded: {catalog_summary.get('skills_loaded', 0)}")
+    lines.append(f"- Catalog roots: {catalog_summary.get('roots_loaded', 0)}")
+    for detail in catalog_summary.get("root_details", []):
+        duplicate_count = detail.get("duplicates_skipped", 0)
+        duplicate_suffix = f", duplicates skipped={duplicate_count}" if duplicate_count else ""
+        lines.append(f"- Root loaded: {detail.get('root')} ({detail.get('skills_loaded', 0)} skills{duplicate_suffix})")
     lines.append(f"- Sessions scanned: {source_review.get('sessions_scanned', 0)}")
     lines.append(f"- Sessions analyzed: {source_review.get('sessions_analyzed', 0)}")
     lines.append(f"- Cards returned: {len(cards)}")

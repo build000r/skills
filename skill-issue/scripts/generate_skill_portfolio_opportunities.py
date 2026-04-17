@@ -3,7 +3,7 @@
 Generate portfolio-level skill opportunities from Claude/Codex transcript data.
 
 Usage:
-  generate_skill_portfolio_opportunities.py [--skills-root /path/to/skills] [--source both] [--since month]
+  generate_skill_portfolio_opportunities.py [--skills-root /path/to/skills ...] [--source both] [--since month]
 """
 
 from __future__ import annotations
@@ -24,8 +24,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Generate portfolio-level skill opportunities")
     parser.add_argument(
         "--skills-root",
+        action="append",
         default=None,
-        help="Root directory containing top-level skill folders; defaults to the installed/repo skills root",
+        help=(
+            "Root directory containing top-level skill folders. Repeat this flag to federate multiple roots; "
+            "defaults to the installed/repo skills root."
+        ),
     )
     parser.add_argument(
         "--source",

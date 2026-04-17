@@ -9,6 +9,78 @@ import yaml
 from pathlib import Path
 from lib.skill_bundle_filter import iter_included_skill_files
 
+
+ANALYSIS_LANE_SKILLS = {
+    "cass",
+    "codebase-archaeology",
+    "divide-and-conquer",
+    "dueling-idea-wizards",
+    "skill-issue",
+    "smart",
+}
+STABLE_MARKER_PATTERN = r"Using\s+(?:\\?`)?{name}(?:\\?`)?\b"
+VERIFICATION_HEADING_RE = re.compile(
+    r"^##+\s+.*(?:required verification|verification|validation|completion gate|closeout)\b",
+    re.IGNORECASE | re.MULTILINE,
+)
+VERIFICATION_COMMAND_RE = re.compile(
+    r"\b("
+    r"quick_validate\.py|pytest|cargo test|npm test|pnpm test|bun test|"
+    r"uv run pytest|make (?:test|check)|scripts/check\.sh|"
+    r"cass status --json|cass index|ntm deps -v|workgraph_ready\.py"
+    r")\b",
+    re.IGNORECASE,
+)
+PREREQUISITE_RE = re.compile(r"\b(cass|ntm)\b", re.IGNORECASE)
+DEGRADED_MODE_RE = re.compile(
+    r"\b("
+    r"unavailable|missing|stale|unhealthy|broken|not found|"
+    r"stop and surface|proceed with|transcript-only|abort|cannot duel|"
+    r"recommended action|fallback"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def _requires_analysis_contracts(name: str, description: str, body: str) -> bool:
+    if name in ANALYSIS_LANE_SKILLS:
+        return True
+
+    text = f"{description}\n{body}".lower()
+    return any(
+        phrase in text
+        for phrase in (
+            "transcript",
+            "operator evidence",
+            "history",
+            "codebase",
+            "workgraph",
+            "swarm",
+            "highest-leverage",
+        )
+    )
+
+
+def _has_stable_marker(name: str, body: str) -> bool:
+    return bool(re.search(STABLE_MARKER_PATTERN.format(name=re.escape(name)), body, re.IGNORECASE))
+
+
+def _has_verification_contract(body: str) -> bool:
+    if VERIFICATION_HEADING_RE.search(body) and VERIFICATION_COMMAND_RE.search(body):
+        return True
+
+    return (
+        "validate_cmds" in body
+        and "independently run" in body.lower()
+        and "do not mark" in body.lower()
+    )
+
+
+def _has_degraded_mode_guidance(body: str) -> bool:
+    if not PREREQUISITE_RE.search(body):
+        return True
+    return bool(DEGRADED_MODE_RE.search(body))
+
 def validate_skill(skill_path, strict=False):
     """
     Validate a skill directory.
@@ -101,6 +173,24 @@ def validate_skill(skill_path, strict=False):
     todo_matches = re.findall(r'\[TODO[:\]].{0,50}', body, re.IGNORECASE)
     if todo_matches:
         return False, f"Incomplete skill: found TODO marker(s): {todo_matches[0]}..."
+
+    # Behavioral contract scan for analysis/orchestration skills
+    contract_errors = []
+    if _requires_analysis_contracts(name, description, body):
+        if not _has_stable_marker(name, body):
+            contract_errors.append(
+                f"Missing stable first progress marker for analysis skill '{name}' (expected `Using {name}`)"
+            )
+        if not _has_verification_contract(body):
+            contract_errors.append(
+                f"Missing explicit verification/closeout contract for analysis skill '{name}'"
+            )
+        if not _has_degraded_mode_guidance(body):
+            contract_errors.append(
+                f"Missing degraded-mode guidance for prerequisite-dependent skill '{name}'"
+            )
+    if contract_errors:
+        return False, "\n".join(contract_errors)
 
     # Privacy scan — check all tracked files for personal/business info leaks
     PRIVACY_PATTERNS = [

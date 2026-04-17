@@ -1,0 +1,97 @@
+import unittest
+from importlib.machinery import SourceFileLoader
+from pathlib import Path
+
+
+MODULE = SourceFileLoader(
+    "workgraph_ready",
+    str((Path(__file__).resolve().parent.parent / "scripts" / "workgraph_ready.py").resolve()),
+).load_module()
+
+
+class WorkgraphReadyTests(unittest.TestCase):
+    def test_ready_node_requires_done_when_and_validate_cmds(self) -> None:
+        ready, waiting, issues = MODULE.classify_nodes(
+            [
+                {
+                    "id": "WG-001",
+                    "title": "Missing contracts",
+                    "depends_on": [],
+                    "writes": [],
+                    "done_when": [],
+                    "validate_cmds": [],
+                    "status": "todo",
+                }
+            ]
+        )
+
+        self.assertEqual(ready, [])
+        self.assertEqual(len(waiting), 1)
+        self.assertIn("WG-001: missing done_when contract", issues)
+        self.assertIn("WG-001: missing validate_cmds contract", issues)
+
+    def test_placeholder_contracts_block_readiness(self) -> None:
+        ready, waiting, issues = MODULE.classify_nodes(
+            [
+                {
+                    "id": "WG-001",
+                    "title": "Template node",
+                    "depends_on": [],
+                    "writes": ["src/**"],
+                    "done_when": ["Binary completion check"],
+                    "validate_cmds": ["Concrete validation command"],
+                    "status": "todo",
+                }
+            ]
+        )
+
+        self.assertEqual(ready, [])
+        self.assertEqual(len(waiting), 1)
+        self.assertIn("WG-001: done_when contains placeholder text", issues)
+        self.assertIn("WG-001: validate_cmds contains placeholder text", issues)
+
+    def test_valid_ready_nodes_are_grouped_by_write_overlap(self) -> None:
+        ready, waiting, issues = MODULE.classify_nodes(
+            [
+                {
+                    "id": "WG-001",
+                    "title": "Backend",
+                    "depends_on": [],
+                    "writes": ["src/backend/**"],
+                    "done_when": ["API contract implemented"],
+                    "validate_cmds": ["pytest tests/test_backend.py"],
+                    "status": "todo",
+                },
+                {
+                    "id": "WG-002",
+                    "title": "Frontend",
+                    "depends_on": [],
+                    "writes": ["src/frontend/**"],
+                    "done_when": ["UI updated"],
+                    "validate_cmds": ["npm test -- frontend"],
+                    "status": "todo",
+                },
+                {
+                    "id": "WG-003",
+                    "title": "Backend follow-up",
+                    "depends_on": [],
+                    "writes": ["src/backend/routes/**"],
+                    "done_when": ["Routes updated"],
+                    "validate_cmds": ["pytest tests/test_routes.py"],
+                    "status": "todo",
+                },
+            ]
+        )
+
+        self.assertEqual(len(waiting), 0)
+        self.assertEqual(issues, [])
+        self.assertEqual([node["id"] for node in ready], ["WG-001", "WG-002", "WG-003"])
+
+        waves = MODULE.group_waves(ready)
+        self.assertEqual(len(waves), 2)
+        self.assertEqual([node["id"] for node in waves[0]["nodes"]], ["WG-001", "WG-002"])
+        self.assertEqual([node["id"] for node in waves[1]["nodes"]], ["WG-003"])
+
+
+if __name__ == "__main__":
+    unittest.main()

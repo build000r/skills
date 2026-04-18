@@ -1,7 +1,7 @@
 # build000r/skills
 
 <p align="center">
-  <img alt="Catalog" src="https://img.shields.io/badge/catalog-31_skills-111111?style=for-the-badge" />
+  <img alt="Catalog" src="https://img.shields.io/badge/catalog-41_skills-111111?style=for-the-badge" />
   <img alt="Works with Claude Code, Codex, and Cursor" src="https://img.shields.io/badge/agents-Claude_Code%20%7C%20Codex%20%7C%20Cursor-2f6feb?style=for-the-badge" />
   <img alt="Licensing is skill-specific" src="https://img.shields.io/badge/license-skill--specific-6b7280?style=for-the-badge" />
 </p>
@@ -233,11 +233,17 @@ human re-enters only for ambiguity, risk, or escalation
 | [`deploy`](./deploy/) | Deploys, debugs, and operates multi-service infrastructure with mode-driven safety rails |
 | [`ssh-info`](./ssh-info/) | Provides mode-driven server connection references and targeted live status checks |
 
+### Product, UX, And Growth
+
+| Skill | What it does |
+| --- | --- |
+| [`mobile-onboarding-cro`](./mobile-onboarding-cro/) | Designs and instruments high-converting iOS and mobile onboarding flows around activation, branch logic, trust, and drop-off measurement |
+
 ### Tooling, Docs, And Creative Systems
 
 | Skill | What it does |
 | --- | --- |
-| [`remotion`](./remotion/) | Encodes practical Remotion guidance for React video work |
+| [`remotion`](./remotion/) | Encodes practical Remotion guidance for React video work and SVG-first motion architecture |
 | [`research-paper`](./research-paper/) | Produces dense research pages plus social companions |
 | [`swimmers-sprite`](./swimmers-sprite/) | Generates thronglet sprite packs from master pixel assets |
 | [`trend-to-content`](./trend-to-content/) | Turns search and social trends into research, PSEO, and video ideas |

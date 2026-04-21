@@ -55,6 +55,7 @@ Add a stack by writing a new adapter pair (`scan_<stack>`, `default_scope_<stack
 - `--all` to bypass stack defaults and scan the whole repo (noisy; use only when you know why)
 - `--tailwind-config <path>` to pin a tailwind config explicitly
 - `--output <path>` to write a repo-relative or absolute scan artifact other than `.drift/scan.json`
+- `--token-source <path>` to exclude a repo-relative token source from violation counts; repeat for multiple files. Swift files named like `*Colors.swift`, `*Typography.swift`, `*DesignTokens.swift`, or `*Theme.swift` are auto-detected.
 
 ## Workflow
 

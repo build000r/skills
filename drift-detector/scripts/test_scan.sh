@@ -51,6 +51,17 @@ scan_custom_output_with_stubbed_npx() {
   PATH="$stub_bin:$PATH" "$SCAN" "$repo" --stack tsx --scope src --output "$scan_output" > "$out"
 }
 
+scan_token_source_with_stubbed_npx() {
+  local repo="$1"
+  local out="$2"
+  local scan_output="$3"
+  local token_source="$4"
+  local stub_bin
+  stub_bin="$(make_npx_stub)"
+  PATH="$stub_bin:$PATH" "$SCAN" "$repo" --stack tsx --scope src \
+    --token-source "$token_source" --output "$scan_output" > "$out"
+}
+
 token_fixture="$tmp/token-filter-fixture"
 mkdir -p "$token_fixture/src"
 cat > "$token_fixture/src/App.tsx" <<'TSX'
@@ -73,6 +84,15 @@ assert_eq "1" "$(jq -r '.findings.tsx.tailwind_arbitrary[0].matches | length' "$
 
 scan_custom_output_with_stubbed_npx "$token_fixture" "$tmp/token-custom.out" ".drift/custom-scan.json"
 assert_eq "1" "$(jq -r '.summary.tsx.tailwind_arbitrary' "$token_fixture/.drift/custom-scan.json")" "custom output path"
+
+cat > "$token_fixture/src/tokens.tsx" <<'TSX'
+export const palette = {
+  accent: "#123456",
+};
+TSX
+scan_token_source_with_stubbed_npx "$token_fixture" "$tmp/token-source.out" ".drift/token-source-scan.json" "src/tokens.tsx"
+assert_eq "1" "$(jq -r '.summary.tsx.raw_color_literals' "$token_fixture/.drift/token-source-scan.json")" "token source excluded"
+assert_eq "src/tokens.tsx" "$(jq -r '.meta.token_sources[0]' "$token_fixture/.drift/token-source-scan.json")" "token source recorded"
 
 large_fixture="$tmp/large-fixture"
 mkdir -p "$large_fixture/src"

@@ -8,13 +8,16 @@ set -euo pipefail
 usage() {
   cat >&2 <<'EOF'
 Usage: scan.sh <repo-path> [--scope <subpath>] [--stack auto|tsx|swift]
-                           [--tailwind-config <path>] [--output <path>] [--all]
+                           [--tailwind-config <path>] [--token-source <path>]
+                           [--output <path>] [--all]
 
 Per-stack defaults:
   tsx    scope = first of {src, app, components, pages} that exists
   swift  scope = first of {Sources, App, <repo>/<repo>} containing .swift files
 
 --output  repo-relative or absolute output path (default: .drift/scan.json)
+--token-source  repo-relative token source file to exclude from violation findings
+                (repeatable; Swift token files are auto-detected)
 --all     bypass per-stack defaults and scan the whole repo (noisy).
 Requires: jq, rg. Optional: node+npx for jscpd / knip.
 EOF
@@ -27,12 +30,14 @@ USER_SCOPE=""
 STACK="auto"
 TW_CONFIG=""
 OUT_FILE=".drift/scan.json"
+TOKEN_SOURCES=()
 SCAN_ALL=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --scope) USER_SCOPE="$2"; shift 2 ;;
     --stack) STACK="$2"; shift 2 ;;
     --tailwind-config) TW_CONFIG="$2"; shift 2 ;;
+    --token-source) TOKEN_SOURCES+=("$2"); shift 2 ;;
     --output) OUT_FILE="$2"; shift 2 ;;
     --all) SCAN_ALL=1; shift ;;
     -h|--help) usage ;;
@@ -52,6 +57,41 @@ case "$OUT_FILE" in
   /*) OUT_DISPLAY="$OUT_FILE" ;;
   *) OUT_DISPLAY="$REPO/$OUT_FILE" ;;
 esac
+
+detect_swift_token_sources() {
+  find . -type f \( \
+      -name '*Colors.swift' -o \
+      -name '*Typography.swift' -o \
+      -name '*DesignTokens.swift' -o \
+      -name '*Theme.swift' \
+    \) \
+    -not -path '*/.build/*' \
+    -not -path '*/DerivedData*/*' \
+    -not -path '*/Pods/*' \
+    2>/dev/null \
+    | sed 's#^\./##'
+}
+
+mapfile -t AUTO_SWIFT_TOKEN_SOURCES < <(detect_swift_token_sources)
+TOKEN_SOURCES+=("${AUTO_SWIFT_TOKEN_SOURCES[@]}")
+mapfile -t TOKEN_SOURCES_UNIQUE < <(
+  printf '%s\n' "${TOKEN_SOURCES[@]}" \
+    | sed 's#^\./##' \
+    | awk 'NF && !seen[$0]++ { print }'
+)
+
+token_sources_json() {
+  if [ ${#TOKEN_SOURCES_UNIQUE[@]} -eq 0 ]; then
+    echo "[]"
+  else
+    printf '%s\n' "${TOKEN_SOURCES_UNIQUE[@]}" \
+      | awk '{ print $0; print "./" $0 }' \
+      | jq -R . \
+      | jq -s .
+  fi
+}
+
+TOKEN_SOURCES_JSON="$(token_sources_json)"
 
 # ---------- stack detection ----------
 detect_stacks() {
@@ -129,6 +169,16 @@ filter_matches() {
   mv "$filtered" "$file"
 }
 
+filter_token_sources() {
+  local file="$1"
+  local filtered="$tmp/$(basename "$file").token-filtered"
+  [ -s "$file" ] || return 0
+  jq -c --argjson token_sources "$TOKEN_SOURCES_JSON" \
+    'select((.file as $f | $token_sources | index($f)) | not)' \
+    "$file" > "$filtered"
+  mv "$filtered" "$file"
+}
+
 jsonl_to_array_file() {
   local src="$1"
   local dst="$2"
@@ -170,6 +220,7 @@ scan_tsx() {
   # not arbitrary literal drift.
   filter_matches "$tmp/tsx_tailwind_arbitrary.jsonl" \
     '.matches = [.matches[] | select((test("\\[[^\\]]*var\\(--")) | not)] | select(.matches | length > 0)'
+  filter_token_sources "$tmp/tsx_tailwind_arbitrary.jsonl"
   # raw color literals
   emit_matches "$tmp/tsx_raw_color_literals.jsonl" \
     -g '*.{ts,tsx,js,jsx,css,scss,vue,svelte,astro}' \
@@ -180,11 +231,13 @@ scan_tsx() {
   # CSS custom property color functions are token reads, not raw color values.
   filter_matches "$tmp/tsx_raw_color_literals.jsonl" \
     '.matches = [.matches[] | select((test("\\b(?:rgb|rgba|hsl|hsla)\\(\\s*var\\("; "i")) | not)] | select(.matches | length > 0)'
+  filter_token_sources "$tmp/tsx_raw_color_literals.jsonl"
   # off-scale spacing (px values in declarations)
   emit_matches "$tmp/tsx_off_scale_spacing.jsonl" \
     -g '*.{ts,tsx,js,jsx,css,scss,vue,svelte,astro}' \
     -e '\b(margin|padding|gap|top|left|right|bottom|width|height)(-[a-z]+)?:\s*-?\d+(\.\d+)?px' \
     "${scope[@]}"
+  filter_token_sources "$tmp/tsx_off_scale_spacing.jsonl"
   # off-scale typography
   emit_matches "$tmp/tsx_off_scale_typography.jsonl" \
     -g '*.{ts,tsx,js,jsx,css,scss,vue,svelte,astro}' \
@@ -192,16 +245,19 @@ scan_tsx() {
     -e '\bfont-weight:\s*\d' \
     -e '\bline-height:\s*\d' \
     "${scope[@]}"
+  filter_token_sources "$tmp/tsx_off_scale_typography.jsonl"
   # inline styles
   emit_matches "$tmp/tsx_inline_styles.jsonl" \
     -g '*.{tsx,jsx,vue,svelte,astro}' \
     -e 'style=\{\{' \
     "${scope[@]}"
+  filter_token_sources "$tmp/tsx_inline_styles.jsonl"
   # className soup: 12+ whitespace-separated tokens in a className string
   emit_matches "$tmp/tsx_classname_soup.jsonl" \
     -g '*.{tsx,jsx,vue,svelte,astro}' \
     -e 'className=("|\x27|\x60)(?:[^"\x27\x60]*\s){12,}[^"\x27\x60]*("|\x27|\x60)' \
     "${scope[@]}"
+  filter_token_sources "$tmp/tsx_classname_soup.jsonl"
   # jscpd
   echo '{"statistics":{"total":{"clones":0}},"duplicates":[]}' > "$tmp/tsx_clone_clusters.json"
   if command -v npx >/dev/null 2>&1; then
@@ -234,6 +290,7 @@ scan_swift() {
     -e '\.offset\(\s*[xy]?:?\s*-?\d' \
     -e '\.spacing\(\s*-?\d' \
     "${scope[@]}"
+  filter_token_sources "$tmp/swift_arbitrary_modifiers.jsonl"
   # raw color literals: #hex, Color(red:green:blue:), UIColor(red:...), Color(hex:)
   emit_matches "$tmp/swift_raw_color_literals.jsonl" \
     -g '*.swift' \
@@ -243,17 +300,20 @@ scan_swift() {
     -e '\bColor\(\s*hex\s*:' \
     -e '\bColor\(\s*white\s*:\s*\d' \
     "${scope[@]}"
+  filter_token_sources "$tmp/swift_raw_color_literals.jsonl"
   # off-scale typography (raw font sizes outside .font(.body) / .largeTitle etc.)
   emit_matches "$tmp/swift_off_scale_typography.jsonl" \
     -g '*.swift' \
     -e '\.font\(\s*\.system\(\s*size\s*:\s*-?\d' \
     -e '\bFont\.system\(\s*size\s*:\s*-?\d' \
     "${scope[@]}"
+  filter_token_sources "$tmp/swift_off_scale_typography.jsonl"
   # "inline styles" analog: long chained modifier runs on a single View — proxy: 6+ dots
   emit_matches "$tmp/swift_modifier_soup.jsonl" \
     -g '*.swift' \
     -e '(?:\.[a-zA-Z]+\([^)]*\)\s*){6,}' \
     "${scope[@]}"
+  filter_token_sources "$tmp/swift_modifier_soup.jsonl"
   # jscpd for swift
   echo '{"statistics":{"total":{"clones":0}},"duplicates":[]}' > "$tmp/swift_clone_clusters.json"
   if command -v npx >/dev/null 2>&1; then
@@ -331,6 +391,7 @@ jq -n \
   --arg tw_config "$TW_CONFIG" \
   --arg tsx_scope "$TSX_SCOPE" \
   --arg swift_scope "$SWIFT_SCOPE" \
+  --argjson token_sources "$(printf '%s\n' "${TOKEN_SOURCES_UNIQUE[@]}" | jq -R . | jq -s .)" \
   --argjson stacks "$(printf '%s\n' "${DETECTED[@]}" | jq -R . | jq -s .)" \
   --slurpfile tsx_tw "$TSX_TW_FILE" \
   --slurpfile tsx_col "$TSX_COL_FILE" \
@@ -352,6 +413,7 @@ jq -n \
       tsx_scope: $tsx_scope,
       swift_scope: $swift_scope,
       tailwind_config: $tw_config,
+      token_sources: $token_sources,
       scanned_at: $date
     },
     findings: {

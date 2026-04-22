@@ -1,13 +1,13 @@
 ---
 name: remotion-best-practices
-description: Best practices for Remotion - Video creation in React. Use when working with Remotion compositions, animations, sequences, or video rendering. Covers project setup for a shared Remotion hub, animation patterns, timing/interpolation, audio, captions, and media handling.
+description: Best practices for Remotion - Video creation in React. Use when working with Remotion compositions, animations, SVG-first motion architecture, stack selection, or video rendering. Covers project setup for a shared Remotion hub, animation patterns, timing/interpolation, motion-spec design, preview/runtime boundaries, audio, captions, and media handling.
 metadata:
-  tags: remotion, video, react, animation, composition
+  tags: remotion, video, react, animation, composition, svg, motion-spec
 ---
 
 ## When to use
 
-Use this skill when working with Remotion code for video creation in React.
+Use this skill when working with Remotion code for video creation in React, or when deciding how Remotion should fit into an SVG-first motion stack.
 
 ## Videos Hub Location
 
@@ -16,6 +16,8 @@ All Remotion projects can aggregate into a shared hub via symlinks. Configure a 
 ## How to use
 
 Read individual rule files for detailed explanations and code examples:
+
+For SVG-heavy architecture or stack-selection questions, start with [rules/svg-motion-stack-research.md](rules/svg-motion-stack-research.md) before dropping into narrower implementation rules.
 
 ### Project Setup
 - [rules/project-hub.md](rules/project-hub.md) - Centralized videos hub: store videos in repos, aggregate via symlinks for unified studio
@@ -42,6 +44,7 @@ Read individual rule files for detailed explanations and code examples:
 - [rules/measuring-dom-nodes.md](rules/measuring-dom-nodes.md) - Measuring DOM element dimensions in Remotion
 - [rules/measuring-text.md](rules/measuring-text.md) - Measuring text dimensions, fitting text to containers, and checking overflow
 - [rules/sequencing.md](rules/sequencing.md) - Sequencing patterns for Remotion - delay, trim, limit duration of items
+- [rules/svg-motion-stack-research.md](rules/svg-motion-stack-research.md) - Architecture guidance for SVG-first motion specs, preview adapters, and render authority
 - [rules/tailwind.md](rules/tailwind.md) - Using TailwindCSS in Remotion
 - [rules/text-animations.md](rules/text-animations.md) - Typography and text animation patterns for Remotion
 - [rules/timing.md](rules/timing.md) - Interpolation curves in Remotion - linear, easing, spring animations

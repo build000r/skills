@@ -233,12 +233,6 @@ human re-enters only for ambiguity, risk, or escalation
 | [`deploy`](./deploy/) | Deploys, debugs, and operates multi-service infrastructure with mode-driven safety rails |
 | [`ssh-info`](./ssh-info/) | Provides mode-driven server connection references and targeted live status checks |
 
-### Product, UX, And Growth
-
-| Skill | What it does |
-| --- | --- |
-| [`mobile-onboarding-cro`](./mobile-onboarding-cro/) | Designs and instruments high-converting iOS and mobile onboarding flows around activation, branch logic, trust, and drop-off measurement |
-
 ### Tooling, Docs, And Creative Systems
 
 | Skill | What it does |

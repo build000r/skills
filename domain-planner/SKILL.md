@@ -1,12 +1,20 @@
 ---
 name: domain-planner
-description: Plan new multi-repo domain slices, assess plan quality, or orchestrate implementation from an accepted slice plan. Use for "plan the X slice", multi-repo feature planning, API contract design, "implement the X slice", or slice-quality review; not for bug fixes, small refactors, or single-repo work.
+description: Plan new multi-repo domain slices, assess plan quality, or orchestrate implementation from an accepted slice plan. Use for "plan the X slice", multi-repo feature planning, API contract design, "implement the X slice", or slice-quality review; not for bug fixes, small refactors, or single-repo work. When a slice premise depends on live external reality rather than internal repo evidence, run a bounded GPT-5 Pro / Deep Research gate before committing to the plan.
 license: MIT
 ---
 
 # Domain Planner
 
 Three modes: **Planning** (create specs), **Quality Assessment** (validate/fix specs), and **Orchestration** (implement specs via agents).
+
+## First Progress Marker (Required)
+
+Start the first progress update with the exact prefix `Using domain-planner`.
+
+Preferred format: `Using domain-planner to <goal>. First I will <next concrete step>.`
+
+Do not change or omit that prefix.
 
 ## Use This For
 
@@ -103,9 +111,9 @@ The shared auth/payments/identity service (`{auth_packages_root}` from the clien
 
 **When:** Before Phase 0, on every new slice (plan does not yet exist). Skip for "Continue planning", "Check quality", or "Implement it" flows.
 
-**Goal:** Ensure the project's public documentation and strategic positioning are current before committing to a new slice plan. Stale READMEs and unexamined build-vs-clone questions create downstream rework.
+**Goal:** Ensure the project's public documentation and strategic positioning are current before committing to a new slice plan. Stale READMEs, unexamined build-vs-clone questions, and externally unverified market/regulatory assumptions create downstream rework.
 
-Launch two parallel subagents (divide-and-conquer pattern):
+Launch the prerequisite subagents that apply. A and B always run. C runs only when the slice is externally gated.
 
 ### Subagent A: Build-vs-Clone Assessment
 
@@ -133,10 +141,29 @@ Invoke the `build-vs-clone` skill as a background subagent with the slice name a
    - **README is current** → no action, report "docs fresh" and continue
    - **README needs update** → invoke the `readme-writing` skill as a subagent, passing it the list of drifted sections and the diff summary. **Wait for readme-writing to complete before returning.**
 
-### After Both Subagents Return
+### Subagent C: External Reality Gate (conditional)
+
+Run this only when the slice's go/no-go depends on current outside facts rather than local repo inspection. Typical triggers:
+
+- the slice changes target buyer, pricing, packaging, or competitive wedge
+- the slice depends on current vendor/platform motion or ecosystem viability
+- the slice relies on regulatory or compliance assumptions that may have changed
+- the slice's business value depends on 2024-2026 market structure, buyer behavior, or incumbent weakness
+
+Routing rules:
+
+1. **Thesis-grade question** — if the uncertainty is strategic positioning, ICP, wedge, or GTM, invoke `thesis-gtm` for the affected product with `--skip-vision` so it can run the full wiki → Pro/Deep Research → wiki loop without patching public docs yet.
+2. **Narrow external question** — if the uncertainty is more focused (specific vendor, regulation, platform dependency, or adjacent-market fact), use `deep-research-prompt` in Oracle handoff mode and run GPT-5 Pro + Deep Research directly.
+3. If Oracle is unavailable, hand the prompt back in paste-ready form and mark the plan as externally-unverified rather than pretending the gate passed.
+4. If a wiki vault exists and the gate did not already file through `thesis-gtm`, distill the result to `_sources/notes/domain-planner-<slice>-<date>.md` and run `/wiki ingest` before Phase 0.
+
+**Wait for Subagent C before proceeding** when it runs. If it invalidates the slice premise, halt planning and surface the contradiction to the user.
+
+### After Prerequisite Subagents Return
 
 - If build-vs-clone changed the plan (adopt/clone/extract), surface to user and halt until they confirm or redirect.
 - If README was rewritten, note this in the slice's `plan.md` under a "Pre-planning artifacts" section so the plan reflects the current documented state.
+- If the external reality gate ran, record the note/session artifact under "Pre-planning artifacts" and carry any newly surfaced constraints or invalidated assumptions into Phase 0 and Phase 0.5.
 - If the new slice materially changes the project's competitive positioning or feature set, **add a WORKGRAPH.md node** for a post-implementation README update (invoke `readme-writing` again after the slice ships). This ensures the README stays accurate after implementation, not just before planning.
 
 ---
@@ -665,3 +692,21 @@ See `~/.claude/skills/domain-planner/assets/templates/` — copied automatically
 - **domain-scaffolder** — Generate backend or frontend code from plan using the explicit surface selection
 - **domain-reviewer** — Audit implementation against plan, retire completed slices
 - **divide-and-conquer** — Decompose multi-agent work into independent parallel concerns
+- **thesis-gtm** — Use when the slice premise is really a product-thesis / buyer / GTM question that needs a final Pro/Deep Research pass before planning.
+- **deep-research-prompt** — Use when the slice depends on a narrower live external unknown and you need an Oracle-ready prompt plus execution wrapper.
+
+## Verification / Closeout Contract
+
+For skill-contract edits, rerun:
+
+```bash
+python3 skill-issue/scripts/quick_validate.py domain-planner
+```
+
+Before returning, confirm all of the following:
+
+1. The plan path and mode were resolved before planning/orchestration advice.
+2. Pre-planning prerequisites report build-vs-clone, docs freshness, and the external reality gate as used, skipped, or not applicable.
+3. If the external reality gate ran, the response says whether it used `thesis-gtm` or a direct Oracle/Deep Research brief, plus the note/session artifact it produced.
+4. If a wiki vault existed and the gate surfaced durable findings, `_sources/notes/` + `/wiki ingest` status is explicit.
+5. Architectural review (`apr` or fallback) is reported as used, skipped, or unavailable rather than implied.

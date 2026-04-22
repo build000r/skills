@@ -1,11 +1,19 @@
 ---
 name: deep-research-prompt
-description: Produce copy-pasteable mega-prompts for external deep research tools (ChatGPT Deep Research, Perplexity Deep Research, Claude Research). Use when the user asks for "a prompt for another agent to research X", "mega prompt for deep research", "draft a research prompt", "make a prompt to paste into ChatGPT deep research", "prompt for another agent to do all the Y", or says they want to hand a structured research task to an external deep research tool. Not for inline research the current agent can do with WebFetch or WebSearch directly, and not for prompts that ask another agent to write code or edit files.
+description: Produce copy-pasteable mega-prompts for external deep research tools (ChatGPT Deep Research, Perplexity Deep Research, Claude Research) and Oracle-ready prompt handoffs when the current run should execute GPT-5 Pro / Deep Research directly. Use when the user asks for "a prompt for another agent to research X", "mega prompt for deep research", "draft a research prompt", "make a prompt to paste into ChatGPT deep research", "prompt for another agent to do all the Y", or when another skill needs a bounded external-reality pass before a strategic decision or document update. Not for inline research the current agent can do with WebFetch or WebSearch directly, and not for prompts that ask another agent to write code or edit files.
 ---
 
 # Deep research prompt
 
-Produce a single copy-pasteable prompt the user can drop into an external deep research tool. The output is for the user to send outside the current session — it is not executed here.
+Produce a single standalone deep-research prompt that survives copy/paste cleanly. Default output is for the user to send outside the current session. When the caller explicitly wants an Oracle handoff, also return the prompt file path and the run/verification commands needed for GPT-5 Pro + Deep Research. Do not execute Oracle unless the parent skill or user asked for execution.
+
+## First Progress Marker (Required)
+
+Start the first progress update with the exact prefix `Using deep-research-prompt`.
+
+Preferred format: `Using deep-research-prompt to <goal>. First I will <next concrete step>.`
+
+Do not change or omit that prefix.
 
 ## When to use this
 
@@ -24,6 +32,20 @@ Invoked when the user wants a structured research task delegated to an external 
 - Short lookups (fewer than ~10 facts). The overhead of a deep research prompt is not worth it.
 - Prompts for agents that will write code, edit files, or execute commands. Those belong to the `Agent` tool, not a deep research prompt.
 - Interactive back-and-forth with a research agent. Deep research tools are one-shot report generators; multi-turn dialogue is a different contract.
+
+## Two delivery modes
+
+Pick one mode from context and say which one you are producing:
+
+- **Paste mode** (default) — the user will paste the prompt into ChatGPT Deep Research, Perplexity, Claude Research, or a similar external tool.
+- **Oracle handoff mode** — another skill or the current run will execute the prompt through `oracle` against ChatGPT/GPT-5 Pro. Use this when external reality is the blocking uncertainty for a strategic choice, a market/positioning document, or a repo/portfolio decision.
+
+Oracle handoff mode still produces the same standalone prompt block. It additionally returns:
+
+- a prompt file path like `/tmp/<slug>-deep-research-<date>.md`
+- a sizing command: `oracle --dry-run summary --file <promptfile>`
+- a run command using `oracle --engine browser --browser-manual-login --model gpt-5-pro --browser-timeout 30m -p "$(cat <promptfile>)"`
+- a short verification reminder: confirm the Deep Research toggle is on, capture the Oracle session ID, and verify the resulting chat actually ran on a `gpt-5-pro`-ish model slug
 
 ## The core contract
 
@@ -104,6 +126,17 @@ The exact wording changes per task; the shape stays constant.
 3. **Reusability note** — if the prompt is parameterized on one variable (topic, entity class), tell the user how to rerun it for other values.
 4. **Red flag to watch for** — name the one most-likely failure mode given the task. Examples: "confidence inflation if every row is high-confidence," "aggregator citations if source discipline slips," "prose drift if the agent ignores the schema."
 
+### 5b. If Oracle handoff mode, add the execution wrapper outside the block
+
+After the normal post-block notes, add:
+
+1. **Prompt file** — where the caller should save the block contents
+2. **Sizing command** — `oracle --dry-run summary --file <promptfile>`
+3. **Run command** — GPT-5 Pro browser invocation
+4. **Verification note** — Deep Research toggle, session ID capture, model-slug check
+
+Do not put shell commands inside the prompt block. They are operator instructions, not research instructions.
+
 ## Output shape for the current agent
 
 When invoked, produce exactly this structure in the current conversation:
@@ -112,6 +145,7 @@ When invoked, produce exactly this structure in the current conversation:
 2. **The copy instruction** — "Copy only the contents of the code block below..." placed immediately before the block.
 3. **The fenced code block** — the prompt itself. Starts with "You are a [role]..."
 4. **Post-block notes** — save path, time budget, reusability, red flag.
+5. **Oracle wrapper** — only in Oracle handoff mode: prompt file, sizing command, run command, verification note.
 
 Do not summarize the prompt content in prose after the block. The user will read the block themselves.
 
@@ -127,6 +161,7 @@ Before finalizing the prompt, check:
 - No terminal chrome, shell prompts, or Claude Code banner text inside the block
 - Copy instruction is outside the block and above it (users scan top-to-bottom)
 - Post-block notes name the one most-likely failure mode
+- If Oracle handoff mode was requested, the response includes prompt file, sizing command, run command, and verification note outside the block
 
 If any item fails, fix before sending. Read `references/anti-patterns.md` for the fixes.
 
@@ -137,3 +172,23 @@ If any item fails, fix before sending. Read `references/anti-patterns.md` for th
 - `references/anti-patterns.md` — failure modes and their fixes
 - `assets/templates/n-entity-structured.md` — generic skeleton for "research N things with same structure"
 - `assets/templates/cross-jurisdiction-legal.md` — specialization for state-by-state or country-by-country legal research
+
+## Verification / Closeout Contract
+
+For skill-contract edits, rerun:
+
+```bash
+python3 skill-issue/scripts/quick_validate.py deep-research-prompt
+```
+
+Before returning, confirm all of the following:
+
+1. Delivery mode is explicit: `Paste mode` or `Oracle handoff mode`.
+2. The prompt is a single fenced code block with a self-announcing first line,
+   output schema, hard constraints, and completion criteria.
+3. The copy instruction sits above the block and no session chrome leaked into
+   the prompt.
+4. If Oracle handoff mode was requested, the response includes prompt file,
+   sizing command, run command, and verification note outside the block.
+5. If the caller expected execution rather than handoff, state plainly whether
+   Oracle was actually run or only prepared.

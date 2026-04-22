@@ -1,11 +1,19 @@
 ---
 name: wiki-forge
-description: Identify the highest-lever concept in a wiki vault, stress-test it adversarially via multi-model duel, and file the synthesis back. Use for "wiki forge", "wiki synthesize", "deepen the wiki", "stress test the wiki", "find the highest lever", "forge a concept", "adversarial wiki synthesis", or when the wiki needs to confront its own assumptions.
+description: Identify the highest-lever concept in a wiki vault, stress-test it adversarially via multi-model duel, optionally validate the final synthesis against current external reality with GPT-5 Pro + Deep Research, and file it back. Use for "wiki forge", "wiki synthesize", "deepen the wiki", "stress test the wiki", "find the highest lever", "forge a concept", "adversarial wiki synthesis", or when the wiki needs to confront its own assumptions.
 ---
 
 # Wiki Forge
 
 Identify the single highest-lever concept in a wiki vault, run an adversarial multi-model duel on it, and file the synthesis back as upgraded wiki content. The wiki uses itself to improve itself.
+
+## First Progress Marker (Required)
+
+Start the first progress update with the exact prefix `Using wiki-forge`.
+
+Preferred format: `Using wiki-forge to <goal>. First I will <next concrete step>.`
+
+Do not change or omit that prefix.
 
 ## When to Use
 
@@ -24,6 +32,8 @@ Identify the single highest-lever concept in a wiki vault, run an adversarial mu
 ## Dependencies
 
 - **wiki** skill (reads concept pages, files findings back)
+- **deep-research-prompt** skill for the final external-reality pass when the
+  concept depends on live outside facts
 - **NTM** (`ntm` CLI for spawning agent swarms)
 - At least 2 different agent CLIs: `cc` (Claude Code) + `cod` (Codex) or `gemini`
 - Target vault must have a `CLAUDE.md` schema and 10+ concept pages in `_concepts/`
@@ -174,6 +184,29 @@ The highest-value output: a combined program that neither model produced alone. 
 
 If one model scored much higher than the other, note it. The harsher scorer is usually more evidence-grounded. The generous scorer may be inflating via politeness bias.
 
+## Phase 7b: Final External Reality Pass
+
+If the target concept makes claims about current market structure, regulation,
+competitive motion, buyer behavior, or other live external facts, do a final
+GPT-5 Pro + Deep Research pass after the duel and before the wiki update.
+
+Rules:
+
+1. Use `deep-research-prompt` to build a bounded brief around the concept, the
+   two `/smart` questions, the top duel findings, and the exact premises that
+   could be broken by current external evidence.
+2. If `oracle` is available and authenticated, run the prompt via GPT-5 Pro +
+   Deep Research. Otherwise return the prompt and mark the forge as
+   externally-unverified.
+3. Do not ask Pro to replace the duel. Ask it to stress-test or confirm the
+   duel's synthesis against dated external evidence.
+4. Distill the result to
+   `{vault_path}/_sources/notes/wiki-forge-<concept>-<date>.md`, including the
+   Oracle session ID if any, verdict, confirming/disconfirming evidence, and
+   affected concepts/articles.
+5. Run `/wiki ingest` on that note before finalizing the concept updates so
+   the concept layer can cite the note as a source.
+
 ## Phase 8: File Back to Wiki
 
 This is what makes wiki-forge different from a standalone duel. The synthesis findings get filed BACK into the wiki:
@@ -214,6 +247,8 @@ After forging, report:
 - Consensus winners from the duel (with scores)
 - What was killed and why
 - The combined program (the synthesis)
+- Whether the final GPT-5 Pro / Deep Research pass ran, what it changed, and
+  the `_sources/notes/` path + Oracle session ID if any
 - What wiki pages were updated or created
 - Whether the active `focus-sweep` was updated, replaced, or intentionally left alone
 - Which published articles now appear stale or improvable, and why
@@ -228,6 +263,7 @@ After forging, report:
 | Both agents generate identical ideas | Strong independent convergence. Note it. Re-run with --focus on a different angle. |
 | Reveal produces no concessions | Agents were too polite. Nudge: "The other model scored your #1 idea at 280. Defend it or concede." |
 | Synthesis doesn't produce anything the wiki didn't already know | The concept was already well-articulated. Pick a different lever. |
+| Stopping at the duel when the concept is externally gated | Run the final Pro / Deep Research pass and file it to `_sources/notes/` before calling the forge complete. |
 
 ## Relationship to Other Skills
 
@@ -235,3 +271,17 @@ After forging, report:
 - **dueling-idea-wizards**: wiki-forge adapts the duel methodology for concept analysis rather than project improvement. The prompts, scoring, and reveal follow the same structure.
 - **smart**: the /smart questions from both sides frame the duel. wiki-forge uses the same "single most accretive question" principle but applied adversarially.
 - **power-map**: power-map challenges customer assumptions for specific products. wiki-forge challenges the wiki's own conceptual assumptions at the highest level.
+
+## Verification / Closeout Contract
+
+Before returning, confirm all of the following:
+
+1. The highest-lever concept was identified with explicit reasoning and the
+   user had a chance to redirect before the duel proceeded.
+2. Duel artifacts were produced, read, and synthesized into a final report.
+3. If the concept was externally gated, the final GPT-5 Pro / Deep Research
+   pass either ran and was filed to `_sources/notes/` or was explicitly marked
+   externally-unverified.
+4. Wiki updates are explicit: concept pages, new concepts, log updates,
+   focus-sweep changes, and article-drift findings.
+5. `/wiki ingest` status is reported for any note filed from the run.

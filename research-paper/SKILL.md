@@ -1,12 +1,20 @@
 ---
 name: research-paper
-description: Generate dense research-paper-style pages on any topic plus companion X and LinkedIn drafts that keep the same thesis. Also has a discover mode that mines recent session activity (via cass) and existing paper coverage to propose accretive topics rooted in actual work. Use for "research paper", "write a paper on", "research page", "/research-paper", "discover topics", "what should I write about", or internal write-ups on a topic, with optional client overlays for styling, data sources, and routing.
+description: Generate dense research-paper-style pages on any topic plus companion X and LinkedIn drafts that keep the same thesis. Also has a discover mode that mines recent session activity (via cass) and existing paper coverage to propose accretive topics rooted in actual work. Use for "research paper", "write a paper on", "research page", "/research-paper", "discover topics", "what should I write about", or internal write-ups on a topic, especially when the paper should be grounded in existing wiki concepts, pressure-tested with wiki duels when needed, externally validated with GPT-5 Pro / Deep Research, and then fed back into the wiki as a new source note.
 license: Complete terms in LICENSE
 ---
 
 # Research Paper Generator
 
 Generate dense, academic research paper-style pages on any topic. Adapts to project context via optional client overlays. Pages are noindex, unlinked, for internal reference unless the active client overlay says otherwise.
+
+## First Progress Marker (Required)
+
+Start the first progress update with the exact prefix `Using research-paper`.
+
+Preferred format: `Using research-paper to <goal>. First I will <next concrete step>.`
+
+Do not change or omit that prefix.
 
 Every run produces a companion bundle in this order:
 - A canonical research paper (source of truth)
@@ -96,6 +104,28 @@ The skill has two modes:
 11. Type-check / validate
 12. Post-creation tasks (MDX: update Obsidian index.md + rebuild; overlay: homepage links, nav updates, etc.)
 ```
+
+## Evidence Ladder
+
+Research-paper follows a fixed order. Do not invert it:
+
+1. **Wiki first** — query the relevant concept pages, prior papers, and raw
+   sources so the thesis starts from existing internal knowledge.
+2. **Adversarial wiki pass when needed** — if the topic touches a contested,
+   high-leverage, or under-articulated concept, use `wiki-duel` or
+   `wiki-forge` before widening to external research.
+3. **Normal web research** — gather the baseline external evidence with
+   WebSearch and primary sources.
+4. **GPT-5 Pro / Deep Research last** — if the remaining uncertainty is
+   external reality (current market structure, regulation, buyer behavior,
+   competitive motion, recent data), run a bounded Oracle / Deep Research pass
+   after the internal framing is already sharp.
+5. **Feed the result back into the wiki** — distill the paper's durable
+   findings to `_sources/notes/research-paper-<slug>-<date>.md` and run
+   `/wiki ingest` before marking the run complete.
+
+The paper itself is the published artifact. The wiki ingest artifact is the
+distilled note, not the full paper body.
 
 ## Discover Mode
 
@@ -197,9 +227,13 @@ Extract the topic from skill arguments or from the Discover Mode selection. Deri
 
 Read the overlay config from `context.yaml`. If it specifies data sources (DB queries, reference files, APIs), gather that data now. Read any files in `skillbox-config/clients/{client-name}/` that are referenced.
 
+If a wiki vault exists for the project, also query the relevant concept pages,
+related papers, and source notes before widening to external research.
+
 ### Generic (No Client Overlay)
 
-Skip — proceed directly to web research.
+Skip overlay-specific data gathering. If a wiki vault exists for the project,
+query it here anyway; otherwise proceed directly to web research.
 
 ## Step 4: Research the Topic
 
@@ -211,6 +245,15 @@ Use WebSearch to find:
 - Controversies or commonly cited but poorly supported claims
 
 Aim for 5-10 high-quality sources.
+
+If the topic's core claims depend on live external reality, use
+`deep-research-prompt` in Oracle handoff mode after the wiki/context pass and
+the normal WebSearch sweep. GPT-5 Pro + Deep Research is the final external
+pass, not the first move.
+
+When the internal framing itself is contested, use `wiki-duel` or
+`wiki-forge` before the Deep Research pass so the Oracle prompt is pointed at
+the real unresolved thesis rather than a vague topic area.
 
 ## Step 5: Map Findings to Paper Structure
 
@@ -453,6 +496,12 @@ Append the row after the latest-dated existing row, matching the date-ascending 
 
 After that, rebuild/redeploy. If the client overlay specifies additional tasks (social drafts ledger, `llms.txt` update), execute those too.
 
+If a wiki vault exists, also write a distilled note to
+`_sources/notes/research-paper-<slug>-<date>.md` capturing the thesis, top
+findings, external sources, any Oracle session ID, and the concept pages or
+published papers affected. Then run `/wiki ingest` on that note. Do not make
+the wiki ingest the full published paper directly.
+
 **Client overlay projects**: Check the client overlay for a "Post-Creation" section. If present, execute every step — these are required, not optional. Common post-creation tasks include adding the paper to a homepage link array, updating a navigation component, registering the paper in a manifest, or appending the X article / LinkedIn drafts to a social/content drafts ledger. **Do not skip this step.** Also update the overlay's "Existing Papers" list with the new paper.
 
 If the client overlay uses machine-readable paper alternates, treat registry updates and discovery surfaces (`llms.txt`, manifests, feed pages) as part of post-creation, not optional cleanup.
@@ -465,8 +514,34 @@ Report to the user:
 - The paper and companion output file paths (and URL paths if applicable)
 - Key sections and what they cover
 - Notable findings from the research
+- Whether wiki grounding, wiki-duel/wiki-forge, and GPT-5 Pro / Deep Research
+  were used or intentionally skipped
+- The `_sources/notes/` path used for wiki feedback and the `/wiki ingest`
+  status
 - The inferred companion briefs (reader, surface, CTA) when they materially shaped the X or LinkedIn drafts
 - The chosen X article angle and LinkedIn angle
 - Reminder that the paper is noindex / not publicly linked unless the client overlay says otherwise
 
 Before creating, check if the topic already has a page (per the client overlay's output path pattern). If so, ask whether to update or create a new version. All companion outputs should follow the same update/new-version decision.
+
+## Verification / Closeout Contract
+
+For skill-contract edits, rerun:
+
+```bash
+python3 skill-issue/scripts/quick_validate.py research-paper
+```
+
+Before returning, confirm all of the following:
+
+1. The evidence ladder status is explicit: wiki grounding, duel/forge use,
+   normal web research, and GPT-5 Pro / Deep Research used or intentionally
+   skipped.
+2. The canonical paper exists and every companion output stays within that
+   paper's thesis/evidence base.
+3. If Deep Research ran, the response includes the prompt/session details; if
+   it did not, the response says why not.
+4. If a wiki vault exists, the distilled note in `_sources/notes/` was written
+   and `/wiki ingest` was run before closeout.
+5. Validation/post-creation work is reported: type-check or file verification,
+   index/registry updates, and any rebuild/redeploy requirement.

@@ -8,6 +8,16 @@ description: Use a command-first verification workflow that tests changes before
 Verify behavior with automation, APIs, logs, and data checks before opening
 browser DevTools.
 
+## The Reproduce-First Loop
+
+The canonical sequence for any bug fix:
+
+1. **Reproduce**: write a failing test (or deterministic probe) that captures the buggy behavior.
+2. **Fix**: implement the minimum change that makes it pass.
+3. **Verify no regression**: run the nearest related suite.
+
+Strong success criteria let the loop run without constant clarification. "Make it work" is not a success criterion — the failing test is. If you can't write a failing check first, you don't yet understand the bug well enough to fix it.
+
 ## Rules
 
 1. Do not ask the user to test until you attempted at least two independent verification paths and reported command outputs.

@@ -80,6 +80,22 @@ Default chaining rules:
 
 ## Workflow
 
+### 0) Surface assumptions before drafting
+
+Before classifying scope, declare the silent assumptions the spec is about to encode. For every assumption, pick the cheapest source that can actually answer it — route through `ask-cascade`'s resolution ladder (read code, `/wiki query`, `/wiki-duel`, `/dueling-idea-wizards`, `/deep-research-prompt`, then human).
+
+Transform imperative requests into verifiable goals before writing any test case:
+
+| Request shape | Verifiable reframe |
+|---|---|
+| "Fix the bug" | Write a failing test that reproduces it; done = test passes |
+| "Add validation" | Write tests for each invalid input; done = all pass |
+| "Refactor X" | Existing test suite green before and after; done = no behavior delta |
+| "Make it faster" | Name the metric + target (p95, throughput, perceived) before touching code |
+| "Make X work" | Unusable — push back and ask for an observable success signal |
+
+If the request is still "make it work" after routing, that ambiguity is the first thing to resolve — not a scope classification.
+
 ### 1) Scope (draft-spec entry; infer first, ask only if ambiguous)
 
 Skip this step when the user already provided a concrete `# Describe:` packet

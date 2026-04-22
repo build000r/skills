@@ -1,7 +1,7 @@
 ---
 name: ask-cascade
 type: utility
-description: Enforce hierarchical, dependency-aware question ordering for AskUserQuestion and other user-facing clarification steps. Use for gathering requirements, asking 2+ dependent questions, framing decision trees, or surfacing strategic branches before detail questions.
+description: Enforce hierarchical, dependency-aware question ordering for AskUserQuestion and other user-facing clarification steps. Use for gathering requirements, asking 2+ dependent questions, framing decision trees, surfacing strategic branches before detail questions, or routing open-ended visual choices into a show-don't-tell picker flow before asking the user to choose.
 ---
 
 # Ask Cascade
@@ -22,6 +22,71 @@ Start with a stable first progress message such as:
 Questions flow top-down: **highest-impact decisions first**, then details that depend on those answers. Never present questions where one answer could change, nullify, or reframe another.
 
 When the top strategic fork is concrete enough to name, do not ask a naked abstract question first. Show the fork, recommend a starting branch, and let the user recalibrate before deeper questions.
+
+## Picker Branches: Show, Don't Tell
+
+When the unresolved decision is a visual direction, component treatment, layout, hierarchy, or "what looks best?" choice, prefer a picker journey over a prose-only question.
+
+Use this route when:
+
+- The task is in a real project with source files that can render the relevant surface.
+- The user is asking for ideas, options, variants, recommendations, or visual taste.
+- A screenshot, browser preview, or in-app comparison would answer the question better than text.
+
+Do not use it when the user asked for one specific surface change, when the blocker is product logic/data rather than visual judgment, or when the project cannot reasonably be previewed.
+
+Route the branch through a picker. If a dedicated picker skill or tool is available, use it. Otherwise configure the picker directly:
+
+1. Read the current surface and identify the visual decision point.
+2. Implement variants directly in the existing source files. For an existing screen, keep the current implementation as option 1 and label it with `(current)`.
+3. Mark the comparison wrapper with `data-uidotsh-pick="Human readable label"`.
+4. Mark each option with `data-uidotsh-option="Human readable option"`, using the `contents` class on picker wrappers/options so scaffolding does not affect layout.
+5. Keep exactly one option visible and mark the rest `hidden`.
+6. Inject the picker toolbar once in the shared app shell/root layout after variants are in place, using a framework-native script API when available or `<script src="https://ui.sh/ui-picker.js"></script>` before `</body>`.
+7. Let the user inspect the options in-browser, then ask the selection question with labels that exactly match the picker option labels.
+8. After selection, keep only the chosen variant and remove unpicked picker scaffolding unless the user wants another comparison round.
+
+Ask-cascade still owns the ordering: show the highest-impact visual branch first, avoid batching dependent detail questions, and only ask for final preference after the user has something concrete to inspect.
+
+## Surface Assumptions Before Asking
+
+Before any user-facing question, run a two-step check:
+
+1. **Name the silent assumption.** If you were about to act without asking, state what you were going to assume and why. "I was going to assume the export is paginated JSON returned from an API endpoint, because that matches the existing patterns in this repo."
+2. **Decide who can answer it.** Not every ambiguity needs the human. Pick the cheapest source that can actually resolve it.
+
+### Resolution routing (cheapest-first)
+
+Route the blocker to the source that can answer it without interrupting the user:
+
+| Source | Use when |
+|---|---|
+| **Read the code/docs** | The answer is in the repo, CLAUDE.md, or already-visible context. Just look. |
+| **`/wiki query`** | The answer lives in the user's accumulated project knowledge (past decisions, product context, prior research). |
+| **`/wiki-duel`** | Two plausible interpretations and the wiki holds enough prior context to ground an adversarial read between them. |
+| **`/dueling-idea-wizards`** | Cold-context strategic fork (scope, approach, architecture) with no clear winner and no external-reality blocker — let the adversarial pass surface the tradeoffs. |
+| **`/deep-research-prompt` (Oracle/Pro browser or external DR)** | The blocker is current external reality: market facts, library behavior under load, pricing, competitive positioning, API contracts that may have drifted. |
+| **Ask the human** | Only preference, taste, priority, risk tolerance, or private context the above can't reach. |
+
+Rules:
+
+- Escalate only once. If a routed pass (wiki, duel, or research) returns a confident answer, adopt it and keep going — do not then re-ask the human as a ceremonial checkpoint.
+- If the pass returns ambiguity, present its findings to the human as the question, not as a second round of "what do you want?"
+- Surface the routing decision to the user in one line: "Blocker is [X]. Resolving via [source] before asking." This lets the user redirect if they'd rather just answer.
+- If a risk gate applies (irreversible, external, legal, financial), always ask the human even when another source could answer — routing does not override risk gating.
+
+### Example
+
+```text
+Silent assumption I was about to make: export means an API endpoint returning paginated JSON.
+Source best equipped to confirm: /wiki query ("how do we expose user data today").
+
+[runs wiki query]
+
+Wiki says: past exports were always background jobs emitting S3 files, not API endpoints.
+Revised assumption: background job with S3 output.
+Now asking the human only the remaining preference question: retention window?
+```
 
 ## Before Every User-Facing Question Tool Call
 
@@ -178,3 +243,15 @@ Q2: "What test framework?"  ← depends on Q1
 Q3: "What package manager?" ← depends on Q1
 Q4: "Tab width?"            ← independent, safe to batch with Q1
 ```
+
+## Closeout / Verification
+
+Before handing control back, confirm the cascade did its job:
+
+- Every question asked either is strategic-first or was batched with truly independent peers only
+- Every silent assumption that would have been encoded by acting without asking has been named
+- Every blocker routable to code, `/wiki query`, `/wiki-duel`, `/dueling-idea-wizards`, or `/deep-research-prompt` was routed there before touching the human
+- Every open-ended visual choice was routed through a show-don't-tell picker path, or the reason it was not was explicit
+- No stale pre-planned questions were asked after a strategic answer reframed the tree
+
+If any of these fail, revise the cascade and re-ask only the still-relevant questions instead of continuing on stale ground.

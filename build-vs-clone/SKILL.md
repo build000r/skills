@@ -8,7 +8,9 @@ description: >-
   repo for this", "am I recreating the wheel", "should we fork/build this",
   "audit this codebase for build-vs-buy violations", "what can I get from this
   repo", "mine this repo", "prospect this", or when a plan should consider both
-  ecosystem fit and the user's current repo portfolio.
+  ecosystem fit and the user's current repo portfolio. When the blocker is
+  current external reality rather than local code inspection, escalate to a
+  bounded Deep Research / Oracle pass before finalizing the recommendation.
 ---
 
 # Build Vs Clone
@@ -151,6 +153,9 @@ For extraction review, also use
     `workspace/default-skills.manifest`, relevant
     `workspace/clients/*/{skills.sources.yaml,skills.manifest,overlay.yaml}`,
     `skills/*/SKILL.md`, and sync/packaging/runtime scripts.
+14. Deep Research does not replace code inspection. If you use Oracle / GPT-5
+    Pro to widen the search, still read the actual code for the final
+    shortlist before recommending `ADOPT`, `BORROW`, or `BUILD`.
 
 See [references/repo-diligence.md](references/repo-diligence.md) for the trust
 rubric, red flags, and search prompts.
@@ -624,6 +629,34 @@ that miss obvious hard constraints.
 Skip this step when the ask is pure local placement and no external ecosystem
 decision is needed.
 
+#### Tier 5b: Deep Research escalation for externally gated decisions
+
+Use this only after Tier 1-5 discovery when the remaining blocker is external
+reality rather than missing local inspection. Typical triggers:
+
+- the decision depends on current maintainer momentum, vendor packaging,
+  pricing, funding, regulatory motion, or buyer adoption patterns
+- Tier 5 surfaced too many plausible candidates across ecosystems and a normal
+  repo scan will be noisy or incomplete
+- the choice could lock the user into weeks of work or a major portfolio move
+- the result will directly shape a `README.md`, `docs/VISION.md`, or other
+  positioning artifact that makes dated market claims
+
+When triggered:
+
+1. Use `deep-research-prompt` to build a bounded brief around the exact
+   question: named candidates, target stack, hard constraints, time bounds
+   (prefer 2024-2026), and the required decision format (`ADOPT` / `BORROW` /
+   `BUILD` implications plus red-team risks).
+2. If `oracle` is installed and authenticated, run the prompt via GPT-5 Pro +
+   Deep Research. Otherwise hand the prompt back to the user in paste-ready
+   form and say what blocked execution.
+3. Treat the result as discovery/triage, not as final evidence. Re-rank the
+   shortlist, then inspect the actual code for the finalists.
+4. If a wiki vault exists and the run surfaced durable market or placement
+   knowledge, distill it to `_sources/notes/build-vs-clone-<topic>-<date>.md`
+   and run `/wiki ingest` before finalizing any follow-on strategy docs.
+
 ### 5. Inspect the code, not just metadata
 
 For each shortlisted candidate, verify fit by reading the repo.
@@ -785,6 +818,8 @@ Extraction Candidates Reviewed
 Evidence Inspected
 - local: <CLAUDE.md>, <manifest>, <settings>, <docs>
 - <repo>: <LICENSE>, <manifest>, <implementation file>, <test or CI file>
+- Deep Research: used | skipped — why, prompt file, Oracle session ID if any,
+  and how it changed the shortlist
 
 Suggested Path
 - Adopt directly, fork, borrow specific ideas, or build from scratch
@@ -831,3 +866,27 @@ the recommendation.
 - Prefer a cross-repo slice when the canonical skill should live in
   `opensource/skills` but the behavior only becomes real through `skillbox`
   runtime or distribution integration.
+
+## Verification / Closeout Contract
+
+For skill-contract edits, rerun:
+
+```bash
+python3 skill-issue/scripts/quick_validate.py build-vs-clone
+```
+
+Before returning, confirm all of the following:
+
+1. The search stopped at a justified tier and the response says where the
+   decision was made.
+2. Every serious external candidate cited in the recommendation has real code
+   evidence attached (`LICENSE`, manifest, implementation file, test/CI file).
+3. Local placement/extraction recommendations cite local repo evidence, not
+   name-based guesses.
+4. If Deep Research was used, the response includes the prompt/session details
+   and confirms the finalists were still code-inspected afterward.
+5. If a wiki vault existed and the run produced durable market/placement
+   knowledge, the response says whether `_sources/notes/` + `/wiki ingest`
+   were completed or intentionally skipped.
+6. The final `ADOPT` / `BORROW` / `BUILD`, placement, extraction, and
+   destination decisions are stated plainly.

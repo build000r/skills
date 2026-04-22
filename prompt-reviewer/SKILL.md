@@ -463,3 +463,7 @@ NEVER delete without asking first.
 - Highlight what's working, not just problems
 - Make coaching actionable ("Instead of X, try Y")
 - Acknowledge context (quick questions don't need full briefs)
+
+## Related
+
+- [[skill-issue]]

@@ -689,6 +689,7 @@ See `~/.claude/skills/domain-planner/assets/templates/` — copied automatically
 
 ## Related Skills
 
+- [[skill-issue]]
 - **domain-scaffolder** — Generate backend or frontend code from plan using the explicit surface selection
 - **domain-reviewer** — Audit implementation against plan, retire completed slices
 - **divide-and-conquer** — Decompose multi-agent work into independent parallel concerns

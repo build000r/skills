@@ -382,6 +382,7 @@ versionHref: "https://example.com"        # optional: link to live product versi
 
 ## Related
 
+- [[skill-issue]]
 - [[other-paper-slug]] — one line on how they relate
 - [[another-paper-slug]] — another relationship
 ```

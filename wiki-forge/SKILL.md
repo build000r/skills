@@ -285,3 +285,7 @@ Before returning, confirm all of the following:
 4. Wiki updates are explicit: concept pages, new concepts, log updates,
    focus-sweep changes, and article-drift findings.
 5. `/wiki ingest` status is reported for any note filed from the run.
+
+## Related
+
+- [[skill-issue]]

@@ -183,3 +183,7 @@ session's working directory (or any ancestor), it reads the 4 SVGs and serves
 them inline via the bootstrap API. The frontend renders them instead of the
 built-in defaults, preserving the idle-depth progression
 (active -> drowsy -> sleeping -> deep_sleep) and tool-based CSS recoloring.
+
+## Related
+
+- [[skill-issue]]

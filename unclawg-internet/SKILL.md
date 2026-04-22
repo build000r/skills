@@ -447,3 +447,7 @@ Read **[references/artifact-templates.md](references/artifact-templates.md)** fo
 ## Phase D — Summary
 
 See the summary template in **[references/artifact-templates.md](references/artifact-templates.md)** (bottom section).
+
+## Related
+
+- [[skill-issue]]

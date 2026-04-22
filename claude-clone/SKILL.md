@@ -142,3 +142,7 @@ When the clone is complete, report:
 4. **Behavioral test(s)** added and what upstream test they mirror
 5. **Deliberately omitted** upstream features and why
 6. **skillbox commands** the user can rerun to re-validate
+
+## Related
+
+- [[skill-issue]]

@@ -324,3 +324,7 @@ The complete production template lives in:
 - `assets/client-kit/security/WRITE_GATEWAY_CONTRACT.md`
 - `assets/client-kit/security/PERMISSIONS_PLAYBOOK.md`
 - `assets/client-kit/scripts/*`
+
+## Related
+
+- [[skill-issue]]

@@ -392,3 +392,7 @@ at different granularities (API endpoint, utility function, UI behavior).
   when there are no real decisions left
 - **Silent review skipping:** if implementation is likely or the user pasted an
   existing spec, do not skip `review-spec`
+
+## Related
+
+- [[skill-issue]]

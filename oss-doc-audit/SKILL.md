@@ -351,3 +351,7 @@ Always include:
 - `Next Loop:` what to fix first before rerunning
 
 If no issues are found, say so plainly and still report what you checked.
+
+## Related
+
+- [[skill-issue]]

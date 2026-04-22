@@ -228,3 +228,7 @@ Verification Summary
 ```
 
 If blocked, state exactly what prevented testing and the next concrete command needed to unblock. Do not stop at "please test this" without attempting a path first.
+
+## Related
+
+- [[skill-issue]]

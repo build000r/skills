@@ -331,3 +331,7 @@ Use the exact failure signature instead of generic “unauthorized” summaries:
 - Prefer the smallest safe operational step before escalations.
 - Always call out one-phase vs two-phase rollout when env, auth, or schema changes are involved.
 - Always end with one behavior check and one state check.
+
+## Related
+
+- [[skill-issue]]

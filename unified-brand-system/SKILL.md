@@ -152,3 +152,7 @@ Rollout state
 Next verification
 - <command or visual check the user should run>
 ```
+
+## Related
+
+- [[skill-issue]]

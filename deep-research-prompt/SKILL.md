@@ -192,3 +192,7 @@ Before returning, confirm all of the following:
    sizing command, run command, and verification note outside the block.
 5. If the caller expected execution rather than handoff, state plainly whether
    Oracle was actually run or only prepared.
+
+## Related
+
+- [[skill-issue]]

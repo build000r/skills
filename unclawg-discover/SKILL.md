@@ -351,3 +351,7 @@ rate is 40-80% relevant content depending on query specificity. Very niche phras
 - If discovery quality degrades, tune overlay-level ranking weights before touching core logic.
 - If reply quality degrades, tune the soul (voice, archetypes, persona calibration) — not the overlay or skill.
 - For public packaging, use `scripts/package_public.sh` to exclude client overlay data.
+
+## Related
+
+- [[skill-issue]]

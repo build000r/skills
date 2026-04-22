@@ -55,3 +55,7 @@ For SVG-heavy architecture or stack-selection questions, start with [rules/svg-m
 
 ### Publishing & SEO
 - [rules/seo-video-schema.md](rules/seo-video-schema.md) - VideoObject JSON-LD schema for Google rich results and video search
+
+## Related
+
+- [[skill-issue]]

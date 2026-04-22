@@ -255,3 +255,7 @@ Before handing control back, confirm the cascade did its job:
 - No stale pre-planned questions were asked after a strategic answer reframed the tree
 
 If any of these fail, revise the cascade and re-ask only the still-relevant questions instead of continuing on stale ground.
+
+## Related
+
+- [[skill-issue]]

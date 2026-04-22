@@ -243,6 +243,7 @@ constructing worker prompts.
 
 ## Related Skills
 
+- [[skill-issue]]
 - **domain-planner** -- Creates the plans this skill audits
 - **domain-scaffolder** -- Generates backend or frontend code from plan using explicit surface selection
 - **divide-and-conquer** -- Decompose multi-agent work into independent parallel concerns

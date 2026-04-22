@@ -142,3 +142,7 @@ head -n 2 /tmp/dev-sanity.out /tmp/dev-sanity.err
 
 The helper should fail cleanly with a missing-config message when no overlay
 matches and should return non-zero when a configured check fails.
+
+## Related
+
+- [[skill-issue]]

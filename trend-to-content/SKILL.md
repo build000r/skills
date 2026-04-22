@@ -298,6 +298,7 @@ CTA: [Engagement driver]
 
 ## Related Skills
 
+- [[skill-issue]]
 - **programmatic-seo**: Deep dive on PSEO implementation
 - **copywriting**: Line-by-line copy improvement
 - **social-content**: Platform-specific social strategies

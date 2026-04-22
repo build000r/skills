@@ -136,3 +136,7 @@ After completing the audit, the recommended workflow is:
 5. Run review: `bash scripts/review_kit.sh --skill`
 6. For live claws: `bash scripts/review_kit.sh --live`
 7. Commit changes to the bootstrap skill repo
+
+## Related
+
+- [[skill-issue]]

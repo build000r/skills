@@ -273,3 +273,7 @@ Priority rules:
 4. `DONE` plans should not keep active priority numbers
 
 When the catalog violates those rules, explain the exact conflict and propose a corrected order before editing any index.
+
+## Related
+
+- [[skill-issue]]

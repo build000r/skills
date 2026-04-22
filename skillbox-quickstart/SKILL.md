@@ -146,3 +146,7 @@ After provisioning completes:
 
 - `skillbox-operator` — for remote provisioning via MCP tools
 - `dev-sanity` — for post-provision health checks
+
+## Related
+
+- [[skill-issue]]

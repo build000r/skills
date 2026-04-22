@@ -890,3 +890,7 @@ Before returning, confirm all of the following:
    were completed or intentionally skipped.
 6. The final `ADOPT` / `BORROW` / `BUILD`, placement, extraction, and
    destination decisions are stated plainly.
+
+## Related
+
+- [[skill-issue]]

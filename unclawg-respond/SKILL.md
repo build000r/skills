@@ -176,3 +176,7 @@ uc_respond fulfill --approval-id <id> --revision-id <id> --input <revised.json>
 
 - `/divide-and-conquer` — parallel sub-agents when custom rewrite logic is needed at scale
 - `references/api-contract.md` — full endpoint specs, response shapes, error codes
+
+## Related
+
+- [[skill-issue]]

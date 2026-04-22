@@ -166,3 +166,7 @@ head -n 2 /tmp/ssh-info.out /tmp/ssh-info.err
 
 The helper should fail cleanly with usage or the shared legacy-transition
 message when no client overlay exists.
+
+## Related
+
+- [[skill-issue]]

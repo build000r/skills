@@ -171,6 +171,7 @@ Prefer updating existing concept pages over creating new ones. A query that touc
    - **Article drift** — published `/research/*.md` articles whose thesis, examples, or recommendations lag behind the current concept layer
    - **Research improvement opportunities** — articles that are directionally right but should be deepened or tightened based on newer findings
    - **Focus-sweep hygiene** — more than one `status: active` sweep, no active sweep when the working set clearly changed, or sweep links that point to missing notes
+   - **Skill-hub backlinks** — every skill source in `_sources/skills/` must contain a `[[skill-issue]]` wikilink so the skill cluster traces back to the meta-skill hub. Resolve each symlink and grep the target `SKILL.md`; flag any skill (other than `skill-issue` itself) that omits the backlink. Suggested fix: append a `## Related` section with `- [[skill-issue]]` (or add the bullet to an existing `## Related`).
 4. Append lint report to `log.md`
 5. Present findings to user with suggested fixes
 6. Apply fixes only with human confirmation
@@ -268,3 +269,7 @@ Before returning, confirm all of the following:
    articles.
 5. If the source was a note in `_sources/notes/`, it was treated as a source
    artifact and left in place for future audit.
+
+## Related
+
+- [[skill-issue]]

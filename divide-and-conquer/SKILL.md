@@ -33,6 +33,7 @@ surface the missing prerequisite instead of silently degrading.
 
 ## Related Skills
 
+- [[skill-issue]]
 - `ntm` for command reference, session inspection, and swarm debugging
 - `vibing-with-ntm` for swarm orchestration patterns, pane hygiene, and
   transport-layer recovery when the problem is NTM rather than the workgraph

@@ -174,3 +174,7 @@ If the user explicitly asks to run the loop, use
 - When the run follows `crap`, frame the result as `crap -> mutate -> crap`,
   not as a replacement for CRAP analysis.
 - Keep the final line machine-readable and unique: `FINAL_TODO: <value>`.
+
+## Related
+
+- [[skill-issue]]

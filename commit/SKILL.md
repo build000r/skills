@@ -273,3 +273,7 @@ Closeout contract:
 - In repo-steward mode, unexplained leftovers are a failure. Either commit them, ignore them, or explicitly call out the risk that blocked them.
 - Report which repos were committed, how many commits were created, and the commit messages.
 - Do **not** push unless explicitly asked.
+
+## Related
+
+- [[skill-issue]]

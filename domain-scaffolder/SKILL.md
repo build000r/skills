@@ -289,5 +289,6 @@ Before marking complete:
 
 ## Related Skills
 
+- [[skill-issue]]
 - `domain-planner` -- creates the plan this skill implements
 - `domain-reviewer` -- audits the implementation against the plan

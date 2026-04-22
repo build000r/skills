@@ -125,3 +125,7 @@ python3 "$SKILLS_ROOT/spaps-feedback/scripts/match_skills.py" 2>&1 | head -5
 - `issue-reporting-setup` — for wiring SPAPS issue reporting into a frontend
 - `skill-issue` overlay mode — for creating or repairing the client overlay that this skill depends on
 - `references/overlay-schema.md` — the full `spaps_feedback` overlay config shape
+
+## Related
+
+- [[skill-issue]]

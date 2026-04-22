@@ -35,6 +35,7 @@ entire `gh` command tree.
 
 ## Related Skills
 
+- [[skill-issue]]
 - **`rust-cli-with-sqlite`** — For Rust CLIs that manage local state via SQLite + JSONL sync.
   Covers WAL/PRAGMA tuning, atomic writes, cross-process locking, sync strategy, and crash
   recovery. Use that skill for the implementation; use this one for the shell UX contract.

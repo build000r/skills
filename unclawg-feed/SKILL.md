@@ -361,3 +361,7 @@ When feeding 30+ candidates (e.g., from `/divide-and-conquer` discovery runs):
 - `/unclawg-discover` — upstream: discovers posts to feed
 - `/unclawg-respond` — downstream: handles human feedback on these cards
 - `references/api-contract.md` — shared with unclawg-respond, full endpoint specs
+
+## Related
+
+- [[skill-issue]]

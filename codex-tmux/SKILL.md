@@ -196,3 +196,7 @@ Three channels fire on completion (any may be dead, all are best-effort):
 1. **tmux wait-for -S** — unblocks the orchestrator's background Bash task
 2. **macOS notification** — reaches user even if conversation died
 3. **tmux display-message** — visible if user is in another tmux window
+
+## Related
+
+- [[skill-issue]]

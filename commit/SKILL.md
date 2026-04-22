@@ -78,6 +78,19 @@ Every dirty or untracked path must end up in one of these buckets:
 
 In repo-steward mode, do this classification for the whole dirty tree before committing.
 
+### Traceability check (surgical-changes test)
+
+For each hunk you are about to stage, ask: **does this line trace directly to the stated intent for this commit?**
+
+If no, it's a drive-by — quote reformatting, added type hints the task didn't ask for, "while I'm here" refactors of adjacent code, docstring additions on unrelated functions. Split drive-bys into their own commit (so the main batch stays surgical) or revert them if they were unintentional.
+
+Common drive-by signatures to catch:
+
+- Style drift: quote changes, whitespace reflow, import reorder across files you weren't asked to touch
+- Adjacent "improvement": adding validation or error handling on a function next to the one you fixed
+- Speculative docstrings/type hints on functions outside the stated change
+- Deletion of pre-existing dead code the user did not ask to remove
+
 ### Strong commit-now signals
 
 - Source files, tests, docs, schemas, migrations, lockfiles, CI config, reusable scripts

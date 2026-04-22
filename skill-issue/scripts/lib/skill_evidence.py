@@ -7,255 +7,31 @@ historical reference slices before a team invests in a fuller eval harness.
 
 from __future__ import annotations
 
-from collections import Counter
+import importlib.util
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
-RAW_SHELL_STEMS = {"rg", "sed", "find", "git", "ls"}
+try:
+    from lib.skill_facts import build_skill_fact_bundle
+    from lib.skill_families import build_family_candidates, build_llm_interpretation_packet
+except ModuleNotFoundError:
+    def _load_local_module(filename: str, module_name: str) -> Any:
+        module_path = Path(__file__).resolve().with_name(filename)
+        spec = importlib.util.spec_from_file_location(module_name, module_path)
+        module = importlib.util.module_from_spec(spec)
+        assert spec and spec.loader
+        spec.loader.exec_module(module)
+        return module
 
-TASK_TYPE_PATTERNS = (
-    ("review", ("review", "audit", "lookback", "judge", "eval", "measure", "trend")),
-    ("package", ("package", "publish", "bundle", ".skill")),
-    ("create", ("create", "make", "new skill", "build", "template", "init")),
-    ("update", ("update", "improve", "fix", "iterate", "refactor", "tighten")),
-)
-
-PACKET_RULES = {
-    "observability-gap": {
-        "failure_family": "Invocation observability is too weak to trust the trend line.",
-        "why_now": (
-            "Tracking depends on path heuristics instead of a stable acknowledgement, so "
-            "usage history and trend reporting are noisier than they need to be."
-        ),
-        "expected_contract": (
-            "Emit a stable first progress marker such as `Using <skill>` whenever the "
-            "skill becomes active."
-        ),
-        "suggested_fix_class": "add-stable-ack-marker",
-        "target_files": ["SKILL.md"],
-        "watch_metric": "ack_rate",
-    },
-    "verification-gap": {
-        "failure_family": "The skill reaches closeout without enough verification evidence.",
-        "why_now": (
-            "Unverified runs let the maintainer overestimate the reliability of a wording "
-            "change or script addition."
-        ),
-        "expected_contract": (
-            "Run a concrete verification command or deterministic smoke path before handing "
-            "the result back to the user."
-        ),
-        "suggested_fix_class": "tighten-skill-contract",
-        "target_files": ["SKILL.md", "scripts/"],
-        "watch_metric": "validation_rate",
-    },
-    "checkpoint-defaults": {
-        "failure_family": "The skill still burns turns on avoidable human checkpoints.",
-        "why_now": (
-            "Repeated preference questions slow the workflow and usually indicate that "
-            "defaults or mode configuration are underspecified."
-        ),
-        "expected_contract": (
-            "Handle repeated preferences through defaults or mode files and only ask when "
-            "information is missing or genuinely risky."
-        ),
-        "suggested_fix_class": "move-preferences-into-defaults",
-        "target_files": ["SKILL.md", "modes/"],
-        "watch_metric": "checkpoint_rate",
-    },
-    "risk-gating-gap": {
-        "failure_family": "The skill crosses risky boundaries without the human gate the workflow expects.",
-        "why_now": (
-            "When users have to say wait, ask first, or bring in an outside reviewer, "
-            "the skill is treating risky branches as defaults instead of gated paths."
-        ),
-        "expected_contract": (
-            "Pause for confirmation, clarification, or designated outside review before "
-            "irreversible or high-risk actions."
-        ),
-        "suggested_fix_class": "add-risk-gating-rules",
-        "target_files": ["SKILL.md", "references/", "modes/"],
-        "watch_metric": "risk_gating_rate",
-    },
-    "contract-clarity": {
-        "failure_family": "The skill activates, but users still have to redirect it onto the right path.",
-        "why_now": (
-            "Post-start corrections usually mean the trigger language, non-goals, or early "
-            "branching rules are still underspecified."
-        ),
-        "expected_contract": (
-            "Choose the right path earlier by tightening trigger language, non-goals, and "
-            "default branching rules."
-        ),
-        "suggested_fix_class": "tighten-trigger-language",
-        "target_files": ["SKILL.md", "references/"],
-        "watch_metric": "correction_rate",
-    },
-    "closeout-gap": {
-        "failure_family": "Runs do work but do not consistently reach a visible done state.",
-        "why_now": (
-            "A weak closeout contract hides whether the skill actually completed the job or "
-            "just stopped producing output."
-        ),
-        "expected_contract": (
-            "End with explicit completion language tied to the verification evidence and any "
-            "remaining risks."
-        ),
-        "suggested_fix_class": "strengthen-closeout",
-        "target_files": ["SKILL.md"],
-        "watch_metric": "completion_rate",
-    },
-    "automation-gap": {
-        "failure_family": "The workflow still depends on repeated freehand shell inspection.",
-        "why_now": (
-            "If the same raw shell stems recur across runs, reliability is gated on manual "
-            "operator dexterity rather than bundled reusable tooling."
-        ),
-        "expected_contract": (
-            "Bundle repeated shell-heavy inspection into helper scripts or concise references "
-            "and point the skill at them."
-        ),
-        "suggested_fix_class": "bundle-helper-script",
-        "target_files": ["scripts/", "references/", "SKILL.md"],
-        "watch_metric": "raw_shell_stem_frequency",
-    },
-}
-
-
-def infer_task_type(user_request: str | None) -> str:
-    """Infer a coarse task type from the first user request."""
-    if not user_request:
-        return "general"
-
-    text = user_request.lower()
-    for label, patterns in TASK_TYPE_PATTERNS:
-        if any(pattern in text for pattern in patterns):
-            return label
-    return "general"
-
-
-def enrich_invocation(invocation: dict[str, Any]) -> dict[str, Any]:
-    """Attach stable metadata used for historical reference slices."""
-    enriched = dict(invocation)
-    project = invocation.get("project")
-    if isinstance(project, str) and project.startswith("/"):
-        enriched["project"] = project.rstrip("/").rsplit("/", 1)[-1]
-    enriched["task_type"] = infer_task_type(invocation.get("user_request"))
-    return enriched
-
-
-def _matches(issue_type: str, invocation: dict[str, Any]) -> bool:
-    matched_on = set(invocation.get("matched_on", []))
-
-    if issue_type == "observability-gap":
-        return "skill_path" in matched_on and "assistant_ack" not in matched_on
-    if issue_type == "verification-gap":
-        return not invocation.get("validation_commands")
-    if issue_type == "checkpoint-defaults":
-        return bool(invocation.get("checkpoint_messages"))
-    if issue_type == "risk-gating-gap":
-        return bool(invocation.get("risk_gating_messages"))
-    if issue_type == "contract-clarity":
-        return bool(invocation.get("user_corrections"))
-    if issue_type == "closeout-gap":
-        return not invocation.get("task_complete")
-    if issue_type == "automation-gap":
-        stems = set(invocation.get("command_stems", {}))
-        return bool(stems & RAW_SHELL_STEMS)
-    raise KeyError(f"Unsupported issue type: {issue_type}")
-
-
-def _signal(issue_type: str, invocation: dict[str, Any]) -> str:
-    if issue_type == "observability-gap":
-        return "skill path touched without explicit ack marker"
-    if issue_type == "verification-gap":
-        return "no validation command detected"
-    if issue_type == "checkpoint-defaults":
-        return (invocation.get("checkpoint_messages") or ["checkpoint prompt detected"])[0]
-    if issue_type == "risk-gating-gap":
-        return (invocation.get("risk_gating_messages") or ["risk gate should have existed"])[0]
-    if issue_type == "contract-clarity":
-        return (invocation.get("user_corrections") or ["user redirect detected"])[0]
-    if issue_type == "closeout-gap":
-        return "no completion event detected"
-    if issue_type == "automation-gap":
-        stems = sorted(stem for stem in invocation.get("command_stems", {}) if stem in RAW_SHELL_STEMS)
-        return f"raw shell stems: {', '.join(stems)}"
-    raise KeyError(f"Unsupported issue type: {issue_type}")
-
-
-def _trace_row(issue_type: str, invocation: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "timestamp": invocation.get("timestamp"),
-        "project": invocation.get("project"),
-        "task_type": invocation.get("task_type"),
-        "file": invocation.get("file"),
-        "user_request": invocation.get("user_request"),
-        "signal": _signal(issue_type, invocation),
-    }
-
-
-def _holdout_signal(issue_type: str, invocation: dict[str, Any]) -> str:
-    if issue_type == "observability-gap":
-        return "holdout control: explicit ack marker detected"
-    if issue_type == "verification-gap":
-        return "holdout control: validation command detected"
-    if issue_type == "checkpoint-defaults":
-        return "holdout control: no checkpoint prompt detected"
-    if issue_type == "risk-gating-gap":
-        return "holdout control: no missing risk gate cue detected"
-    if issue_type == "contract-clarity":
-        return "holdout control: no user redirect detected"
-    if issue_type == "closeout-gap":
-        return "holdout control: completion event detected"
-    if issue_type == "automation-gap":
-        return "holdout control: no raw shell stems detected"
-    raise KeyError(f"Unsupported issue type: {issue_type}")
-
-
-def _holdout_examples(
-    issue_type: str,
-    focus_examples: list[dict[str, Any]],
-    all_invocations: list[dict[str, Any]],
-    max_controls: int,
-) -> list[dict[str, Any]]:
-    """Pick a few non-matching past runs as simple anti-regression controls."""
-    if not focus_examples or max_controls <= 0:
-        return []
-
-    anchor = focus_examples[0]
-    candidates = [
-        invocation
-        for invocation in all_invocations
-        if not _matches(issue_type, invocation)
-    ]
-    candidates.sort(
-        key=lambda invocation: (
-            0 if invocation.get("task_type") == anchor.get("task_type") else 1,
-            0 if invocation.get("project") == anchor.get("project") else 1,
-            invocation.get("timestamp") or "",
-        ),
-        reverse=True,
-    )
-    rows = []
-    for invocation in candidates[:max_controls]:
-        row = _trace_row(issue_type, invocation)
-        row["signal"] = _holdout_signal(issue_type, invocation)
-        rows.append(row)
-    return rows
-
-
-def _automation_supporting_metrics(invocations: list[dict[str, Any]]) -> dict[str, Any]:
-    stem_counts: Counter[str] = Counter()
-    for invocation in invocations:
-        stems = set(invocation.get("command_stems", {}))
-        stem_counts.update(stems & RAW_SHELL_STEMS)
-    return {
-        "top_raw_shell_stems": [stem for stem, _ in stem_counts.most_common(3)],
-    }
+    _skill_facts = _load_local_module("skill_facts.py", "skill_facts_local")
+    _skill_families = _load_local_module("skill_families.py", "skill_families_local")
+    build_skill_fact_bundle = _skill_facts.build_skill_fact_bundle
+    build_family_candidates = _skill_families.build_family_candidates
+    build_llm_interpretation_packet = _skill_families.build_llm_interpretation_packet
 
 
 def _post_ship_window(affected_runs: int) -> dict[str, Any]:
-    """Recommend a lightweight live-traffic observation window after shipping."""
     min_new_invocations = max(5, min(20, affected_runs * 2))
     return {
         "type": "real_invocation_window",
@@ -273,6 +49,35 @@ def _packet_brief(skill: str, issue_type: str, affected_runs: int, total_runs: i
     )
 
 
+def _ensure_fact_bundle(review_report: dict[str, Any]) -> dict[str, Any]:
+    fact_bundle = review_report.get("fact_bundle")
+    if fact_bundle:
+        return fact_bundle
+
+    generated_at = review_report.get("generated_at") or datetime.now(timezone.utc).isoformat()
+    return build_skill_fact_bundle(
+        skill=review_report.get("skill", "unknown"),
+        source=review_report.get("source", "both"),
+        since=review_report.get("since", ""),
+        until=review_report.get("until", ""),
+        generated_at=generated_at,
+        sessions_scanned=review_report.get("sessions_scanned", 0),
+        invocations=review_report.get("invocations", []),
+        summary=review_report.get("summary", {}),
+        tool_counts=review_report.get("tool_counts", []),
+    )
+
+
+def _ensure_family_candidates(review_report: dict[str, Any], fact_bundle: dict[str, Any]) -> dict[str, Any]:
+    family_candidates = review_report.get("family_candidates")
+    if family_candidates:
+        return family_candidates
+    return build_family_candidates(
+        fact_bundle,
+        source=review_report.get("source", "both"),
+    )
+
+
 def generate_evidence_report(
     review_report: dict[str, Any],
     min_occurrences: int = 2,
@@ -282,49 +87,54 @@ def generate_evidence_report(
 ) -> dict[str, Any]:
     """Generate operator-evidence packets from a review report."""
     skill = review_report.get("skill")
-    raw_invocations = review_report.get("invocations", [])
-    invocations = [enrich_invocation(invocation) for invocation in raw_invocations]
-    total_runs = len(invocations)
+    fact_bundle = _ensure_fact_bundle(review_report)
+    family_candidates = _ensure_family_candidates(review_report, fact_bundle)
 
     packets: list[dict[str, Any]] = []
-    for issue_type, rule in PACKET_RULES.items():
-        matches = [invocation for invocation in invocations if _matches(issue_type, invocation)]
-        affected_runs = len(matches)
-        if affected_runs < min_occurrences:
+    for candidate in family_candidates.get("candidates", []):
+        packet_meta = candidate.get("packet")
+        if not packet_meta:
+            continue
+        if candidate.get("slice", {}).get("label") != "global":
+            continue
+        if candidate.get("affected_runs", 0) < min_occurrences:
             continue
 
-        traces = [_trace_row(issue_type, invocation) for invocation in matches[:max_examples]]
-        prevalence = round(affected_runs / total_runs, 3) if total_runs else 0.0
+        affected_runs = candidate["affected_runs"]
+        total_runs = candidate["total_runs"]
         packet = {
-            "packet_id": f"{issue_type}-global",
-            "issue_type": issue_type,
-            "failure_family": rule["failure_family"],
-            "why_now": rule["why_now"],
-            "expected_contract": rule["expected_contract"],
-            "suggested_fix_class": rule["suggested_fix_class"],
-            "target_files": rule["target_files"],
-            "watch_metric": rule["watch_metric"],
+            "packet_id": candidate["family_candidate_id"],
+            "issue_type": candidate["family_id"],
+            "failure_family": packet_meta["failure_family"],
+            "why_now": packet_meta["why_now"],
+            "expected_contract": packet_meta["expected_contract"],
+            "suggested_fix_class": candidate["allowed_fix_classes"][0],
+            "target_files": candidate["target_files"],
+            "watch_metric": candidate["watch_metric"],
             "experiment_unit": "real_invocation_window",
             "affected_runs": affected_runs,
             "total_runs": total_runs,
-            "prevalence": prevalence,
-            "representative_traces": traces,
+            "prevalence": candidate["prevalence"],
+            "representative_traces": list(candidate.get("representative_traces", []))[:max_examples],
             "historical_reference_slice": {
-                "target_examples": traces,
-                "holdout_examples": _holdout_examples(issue_type, matches, invocations, max_controls),
+                "target_examples": list(candidate.get("representative_traces", []))[:max_examples],
+                "holdout_examples": list(candidate.get("holdout_examples", []))[:max_controls],
             },
             "post_ship_window": _post_ship_window(affected_runs),
             "skill_issue_brief": _packet_brief(
                 skill=skill,
-                issue_type=issue_type,
+                issue_type=candidate["family_id"],
                 affected_runs=affected_runs,
                 total_runs=total_runs,
-                expected_contract=rule["expected_contract"],
+                expected_contract=packet_meta["expected_contract"],
             ),
+            "family_candidate_id": candidate["family_candidate_id"],
+            "allowed_fix_classes": candidate["allowed_fix_classes"],
+            "evidence_refs": candidate["evidence_refs"],
         }
         packet["replay_slice"] = packet["historical_reference_slice"]
-        if issue_type == "automation-gap":
-            packet["supporting_metrics"] = _automation_supporting_metrics(matches)
+        if candidate.get("supporting_metrics"):
+            packet["supporting_metrics"] = candidate["supporting_metrics"]
         packets.append(packet)
 
     packets.sort(
@@ -335,6 +145,8 @@ def generate_evidence_report(
         ),
         reverse=True,
     )
+    packets_generated = len(packets)
+    packets = packets[:max_packets]
 
     return {
         "skill": skill,
@@ -345,14 +157,16 @@ def generate_evidence_report(
             "since": review_report.get("since"),
             "until": review_report.get("until"),
             "sessions_scanned": review_report.get("sessions_scanned"),
-            "invocations_found": review_report.get("invocations_found", total_runs),
+            "invocations_found": review_report.get("invocations_found", fact_bundle.get("invocations_found", 0)),
         },
         "summary": {
-            "packets_generated": len(packets),
-            "packets_returned": min(len(packets), max_packets),
-            "issue_types": {packet["issue_type"]: packet["affected_runs"] for packet in packets[:max_packets]},
+            "packets_generated": packets_generated,
+            "packets_returned": len(packets),
+            "issue_types": {packet["issue_type"]: packet["affected_runs"] for packet in packets},
         },
-        "packets": packets[:max_packets],
+        "llm_interpretation_packet": review_report.get("llm_interpretation_packet")
+        or build_llm_interpretation_packet(fact_bundle, family_candidates),
+        "packets": packets,
     }
 
 
@@ -406,7 +220,11 @@ def render_evidence_markdown(report: dict[str, Any]) -> str:
         if packet.get("supporting_metrics"):
             stems = packet["supporting_metrics"].get("top_raw_shell_stems", [])
             if stems:
-                lines.append(f"Supporting metrics: top raw shell stems = {', '.join(stems)}")
+                pretty = ", ".join(
+                    stem["stem"] if isinstance(stem, dict) else str(stem)
+                    for stem in stems
+                )
+                lines.append(f"Supporting metrics: top raw shell stems = {pretty}")
         lines.append("Representative traces:")
         for trace in packet.get("representative_traces", []):
             lines.append(

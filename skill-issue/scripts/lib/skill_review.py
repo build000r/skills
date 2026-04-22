@@ -5,12 +5,36 @@ Helpers for reviewing skill usage across Claude Code and Codex session logs.
 from __future__ import annotations
 
 import json
+import importlib.util
 import re
 import shlex
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+
+try:
+    from lib.skill_facts import build_skill_fact_bundle
+    from lib.skill_families import (
+        build_family_candidates,
+        build_llm_interpretation_packet,
+        build_opportunities_from_candidates,
+    )
+except ModuleNotFoundError:
+    def _load_local_module(filename: str, module_name: str) -> Any:
+        module_path = Path(__file__).resolve().with_name(filename)
+        spec = importlib.util.spec_from_file_location(module_name, module_path)
+        module = importlib.util.module_from_spec(spec)
+        assert spec and spec.loader
+        spec.loader.exec_module(module)
+        return module
+
+    _skill_facts = _load_local_module("skill_facts.py", "skill_facts_local")
+    _skill_families = _load_local_module("skill_families.py", "skill_families_local")
+    build_skill_fact_bundle = _skill_facts.build_skill_fact_bundle
+    build_family_candidates = _skill_families.build_family_candidates
+    build_llm_interpretation_packet = _skill_families.build_llm_interpretation_packet
+    build_opportunities_from_candidates = _skill_families.build_opportunities_from_candidates
 
 REVIEW_HISTORY_FILE = Path.home() / ".claude" / "skill-review-history.jsonl"
 MARKERS_DIR = Path.home() / ".claude" / "skill-markers"
@@ -654,146 +678,21 @@ def build_opportunities(
     invocations: list[dict[str, Any]],
     summary: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    """Generate improvement opportunities from review heuristics."""
-    opportunities: list[dict[str, Any]] = []
-
-    marker_gaps = [
-        inv for inv in invocations
-        if "skill_path" in inv["matched_on"] and "assistant_ack" not in inv["matched_on"]
-    ]
-    if marker_gaps:
-        opportunities.append(
-            {
-                "id": "ack-marker",
-                "priority": "high",
-                "summary": (
-                    f"Some {skill} runs touched skill files without an explicit `Using {skill}` "
-                    "commentary marker. Make the first progress update mandatory and stable so last-use "
-                    "detection does not depend on path heuristics."
-                ),
-                "evidence": [
-                    {
-                        "timestamp": inv["timestamp"],
-                        "file": inv["file"],
-                    }
-                    for inv in marker_gaps[:3]
-                ],
-            }
-        )
-
-    missing_validation = [inv for inv in invocations if not inv["validation_commands"]]
-    if missing_validation and summary["metrics"]["validation_rate"] < 0.75:
-        opportunities.append(
-            {
-                "id": "verification-gap",
-                "priority": "high",
-                "summary": (
-                    "Validation coverage is low relative to the number of detected invocations. "
-                    "Add a required verification block with concrete commands and a 'do not hand back "
-                    "untested changes' rule."
-                ),
-                "evidence": [
-                    {
-                        "timestamp": inv["timestamp"],
-                        "file": inv["file"],
-                    }
-                    for inv in missing_validation[:3]
-                ],
-            }
-        )
-
-    checkpoint_examples = [inv for inv in invocations if inv["checkpoint_messages"]]
-    if checkpoint_examples and summary["metrics"]["checkpoint_rate"] >= 0.25:
-        opportunities.append(
-            {
-                "id": "checkpoint-defaults",
-                "priority": "medium",
-                "summary": (
-                    "Checkpoint prompts are still common. Move repeated preferences into mode files or "
-                    "default decision rules so human checkpoints are reserved for missing information or "
-                    "high-risk operations."
-                ),
-                "evidence": [
-                    {
-                        "timestamp": inv["timestamp"],
-                        "message": inv["checkpoint_messages"][0],
-                    }
-                    for inv in checkpoint_examples[:3]
-                ],
-            }
-        )
-
-    risk_gating_examples = [inv for inv in invocations if inv["risk_gating_messages"]]
-    if risk_gating_examples and summary["metrics"]["risk_gating_rate"] >= 0.1:
-        opportunities.append(
-            {
-                "id": "risk-gating-gap",
-                "priority": "high",
-                "summary": (
-                    "Users are explicitly flagging steps that should have paused for confirmation, "
-                    "clarification, or outside review before proceeding. Add risk-gating rules so "
-                    "irreversible or high-risk branches are not treated as defaults."
-                ),
-                "evidence": [
-                    {
-                        "timestamp": inv["timestamp"],
-                        "message": inv["risk_gating_messages"][0],
-                    }
-                    for inv in risk_gating_examples[:3]
-                ],
-            }
-        )
-
-    correction_examples = [inv for inv in invocations if inv["user_corrections"]]
-    if correction_examples and summary["metrics"]["correction_rate"] >= 0.15:
-        opportunities.append(
-            {
-                "id": "contract-clarity",
-                "priority": "medium",
-                "summary": (
-                    "Users are redirecting the run after it starts. Tighten trigger language, non-goals, "
-                    "and ask-cascade guidance so the skill picks the right path earlier."
-                ),
-                "evidence": [
-                    {
-                        "timestamp": inv["timestamp"],
-                        "message": inv["user_corrections"][0],
-                    }
-                    for inv in correction_examples[:3]
-                ],
-            }
-        )
-
-    top_stems = summary.get("top_command_stems", [])
-    raw_shell_stems = [item for item in top_stems if item["stem"] in {"rg", "sed", "find", "git", "ls"}]
-    if raw_shell_stems and raw_shell_stems[0]["count"] >= 4:
-        stems = ", ".join(item["stem"] for item in raw_shell_stems[:3])
-        opportunities.append(
-            {
-                "id": "automation-gap",
-                "priority": "medium",
-                "summary": (
-                    f"Repeated ad-hoc shell work ({stems}) shows up across invocations. Bundle the recurring "
-                    "analysis path into helper scripts or references so reliability is not gated on freehand shell usage."
-                ),
-                "evidence": raw_shell_stems[:3],
-            }
-        )
-
-    if source in {"claude", "both", "all"} and summary["providers"].get("claude", 0) == 0:
-        opportunities.append(
-            {
-                "id": "provider-coverage",
-                "priority": "low",
-                "summary": (
-                    "No Claude Code invocations were matched in the selected range. Detection and markers are "
-                    "currently validated on Codex logs only."
-                ),
-                "evidence": [],
-            }
-        )
-
-    return opportunities
+    """Generate improvement opportunities from shared deterministic family candidates."""
+    generated_at = datetime.now(timezone.utc).isoformat()
+    fact_bundle = build_skill_fact_bundle(
+        skill=skill,
+        source=source,
+        since="",
+        until="",
+        generated_at=generated_at,
+        sessions_scanned=0,
+        invocations=invocations,
+        summary=summary,
+        tool_counts=[],
+    )
+    family_candidates = build_family_candidates(fact_bundle, source=source)
+    return build_opportunities_from_candidates(family_candidates)
 
 
 def scan_skill_invocations(
@@ -837,7 +736,7 @@ def scan_skill_invocations(
         return round(sum(1 for item in invocations if predicate(item)) / total, 3)
 
     summary = {
-        "providers": dict(providers),
+        "providers": {provider: providers[provider] for provider in sorted(providers)},
         "metrics": {
             "ack_rate": rate(lambda item: "assistant_ack" in item["matched_on"]),
             "validation_rate": rate(lambda item: bool(item["validation_commands"])),
@@ -848,16 +747,31 @@ def scan_skill_invocations(
         },
         "top_command_stems": [
             {"stem": stem, "count": count}
-            for stem, count in stems.most_common(8)
+            for stem, count in sorted(stems.items(), key=lambda item: (-item[1], item[0]))[:8]
         ],
         "total_tool_calls": sum(tools.values()),
         "unique_tools": len(tools),
         "top_tools": build_tool_count_rows(tools, provider_tools)[:8],
     }
+    generated_at = datetime.now(timezone.utc).isoformat()
+    tool_count_rows = build_tool_count_rows(tools, provider_tools)
+    fact_bundle = build_skill_fact_bundle(
+        skill=skill,
+        source=source,
+        since=since.isoformat(),
+        until=until.isoformat(),
+        generated_at=generated_at,
+        sessions_scanned=sessions_scanned,
+        invocations=invocations,
+        summary=summary,
+        tool_counts=tool_count_rows,
+    )
+    family_candidates = build_family_candidates(fact_bundle, source=source)
+    llm_interpretation_packet = build_llm_interpretation_packet(fact_bundle, family_candidates)
 
     report = {
         "skill": skill,
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": generated_at,
         "source": source,
         "since": since.isoformat(),
         "until": until.isoformat(),
@@ -865,10 +779,13 @@ def scan_skill_invocations(
         "invocations_found": total,
         "last_invoked_at": last_invoked_at,
         "summary": summary,
-        "tool_counts": build_tool_count_rows(tools, provider_tools),
+        "tool_counts": tool_count_rows,
         "invocations": invocations,
+        "fact_bundle": fact_bundle,
+        "family_candidates": family_candidates,
+        "llm_interpretation_packet": llm_interpretation_packet,
     }
-    report["opportunities"] = build_opportunities(skill, source, invocations, summary)
+    report["opportunities"] = build_opportunities_from_candidates(family_candidates)
     return report
 
 

@@ -104,6 +104,9 @@ class SkillReviewSignalTests(unittest.TestCase):
 
         self.assertEqual(report["invocations_found"], 1)
         self.assertEqual(report["summary"]["metrics"]["risk_gating_rate"], 1.0)
+        self.assertEqual(report["fact_bundle"]["schema"], "skill_fact_bundle.v1")
+        self.assertEqual(report["family_candidates"]["schema"], "family_candidates.v1")
+        self.assertEqual(report["llm_interpretation_packet"]["schema"], "llm_interpretation_packet.v1")
 
         invocation = report["invocations"][0]
         self.assertEqual(len(invocation["risk_gating_messages"]), 2)
@@ -112,6 +115,8 @@ class SkillReviewSignalTests(unittest.TestCase):
 
         opportunity_ids = [item["id"] for item in report["opportunities"]]
         self.assertIn("risk-gating-gap", opportunity_ids)
+        family_ids = [item["family_id"] for item in report["family_candidates"]["candidates"]]
+        self.assertIn("risk-gating-gap", family_ids)
 
     def test_scan_skill_invocations_handles_list_command_payloads(self) -> None:
         now = datetime.now(timezone.utc).replace(microsecond=0)
@@ -168,6 +173,13 @@ class SkillReviewSignalTests(unittest.TestCase):
         invocation = report["invocations"][0]
         self.assertEqual(invocation["validation_commands"], ["pytest tests/test_skill_review_signals.py"])
         self.assertEqual(invocation["command_stems"], {"pytest": 1})
+        fact_invocation = report["fact_bundle"]["invocations"][0]
+        self.assertTrue(fact_invocation["invocation_id"].startswith("inv_"))
+        self.assertEqual(fact_invocation["task_type"], "review")
+        self.assertTrue(fact_invocation["flags"]["has_validation"])
+        llm_packet = report["llm_interpretation_packet"]
+        self.assertTrue(llm_packet["top_candidates"])
+        self.assertTrue(llm_packet["constraints"]["must_cite_candidate_ids"])
 
 
 if __name__ == "__main__":

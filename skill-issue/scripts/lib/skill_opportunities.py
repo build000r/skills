@@ -7,472 +7,135 @@ be handed back into skill-issue for focused iteration.
 
 from __future__ import annotations
 
-from collections import Counter, defaultdict
+import importlib.util
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
-from lib.skill_review import parse_timestamp
-
-RAW_SHELL_STEMS = {"rg", "sed", "find", "git", "ls"}
 MIN_CARD_SCORE = 10
 
-TASK_TYPE_PATTERNS = (
-    ("review", ("review", "audit", "lookback", "judge", "eval", "measure", "trend")),
-    ("package", ("package", "publish", "bundle", ".skill")),
-    ("create", ("create", "make", "new skill", "build", "template", "init")),
-    ("update", ("update", "improve", "fix", "iterate", "refactor", "tighten")),
-)
+try:
+    from lib.skill_facts import build_skill_fact_bundle
+    from lib.skill_families import build_family_candidates, build_llm_interpretation_packet
+except ModuleNotFoundError:
+    def _load_local_module(filename: str, module_name: str) -> Any:
+        module_path = Path(__file__).resolve().with_name(filename)
+        spec = importlib.util.spec_from_file_location(module_name, module_path)
+        module = importlib.util.module_from_spec(spec)
+        assert spec and spec.loader
+        spec.loader.exec_module(module)
+        return module
 
-ISSUE_RULES = {
-    "verification-gap": {
-        "impact_weight": 5.0,
-        "confidence_weight": 1.0,
-        "severity": "high",
-        "suggested_fix_class": "tighten-skill-contract",
-        "target_files": ["SKILL.md", "scripts/"],
-        "hypothesis": (
-            "The skill contract does not force a concrete verification path, or the "
-            "documented validation path is too manual to be used consistently."
-        ),
-        "recommendation": (
-            "Add or tighten a required verification block and bundle a helper script "
-            "when the validation path is repetitive."
-        ),
-    },
-    "contract-clarity": {
-        "impact_weight": 5.0,
-        "confidence_weight": 0.95,
-        "severity": "high",
-        "suggested_fix_class": "tighten-trigger-language",
-        "target_files": ["SKILL.md", "references/"],
-        "hypothesis": (
-            "The skill contract is underspecified for at least one common task shape, "
-            "so the user has to redirect the run after the skill is already active."
-        ),
-        "recommendation": (
-            "Tighten trigger language, defaults, non-goals, and early branching rules "
-            "so the run picks the right path without redirection."
-        ),
-    },
-    "checkpoint-defaults": {
-        "impact_weight": 3.0,
-        "confidence_weight": 0.95,
-        "severity": "medium",
-        "suggested_fix_class": "move-preferences-into-defaults",
-        "target_files": ["SKILL.md", "modes/"],
-        "hypothesis": (
-            "The skill still relies on user checkpoints for choices that could be "
-            "handled through defaults or mode configuration."
-        ),
-        "recommendation": (
-            "Move repeated preferences into mode files or explicit defaults so the "
-            "skill only asks when information is missing or risky."
-        ),
-    },
-    "risk-gating-gap": {
-        "impact_weight": 4.5,
-        "confidence_weight": 0.8,
-        "severity": "high",
-        "suggested_fix_class": "add-risk-gating-rules",
-        "target_files": ["SKILL.md", "references/", "modes/"],
-        "hypothesis": (
-            "The skill is treating an irreversible or externally reviewed step as a "
-            "default path when it should pause for confirmation, clarification, or a "
-            "designated human reviewer."
-        ),
-        "recommendation": (
-            "Add explicit risk gates for high-cost steps, including when to ask first, "
-            "wait for clarification, or bring in a named reviewer before proceeding."
-        ),
-    },
-    "automation-gap": {
-        "impact_weight": 3.0,
-        "confidence_weight": 0.85,
-        "severity": "medium",
-        "suggested_fix_class": "bundle-helper-script",
-        "target_files": ["scripts/", "references/", "SKILL.md"],
-        "hypothesis": (
-            "The workflow depends on repeated ad-hoc shell inspection instead of a "
-            "stable helper script or reference."
-        ),
-        "recommendation": (
-            "Bundle the recurring analysis path into a helper script or concise "
-            "reference and point the skill at it."
-        ),
-    },
-    "closeout-gap": {
-        "impact_weight": 2.5,
-        "confidence_weight": 0.75,
-        "severity": "medium",
-        "suggested_fix_class": "strengthen-closeout",
-        "target_files": ["SKILL.md"],
-        "hypothesis": (
-            "The skill does not consistently drive runs to a clear completion event "
-            "or explicit final verification closeout."
-        ),
-        "recommendation": (
-            "Strengthen the completion block so the run ends with verification "
-            "evidence and a clear done state."
-        ),
-    },
-    "observability-gap": {
-        "impact_weight": 1.5,
-        "confidence_weight": 0.95,
-        "severity": "low",
-        "suggested_fix_class": "add-stable-ack-marker",
-        "target_files": ["SKILL.md"],
-        "hypothesis": (
-            "The skill does not require a stable first-use acknowledgement, so "
-            "tracking usage depends on path-touch heuristics."
-        ),
-        "recommendation": (
-            "Require a stable first commentary marker so invocation detection and "
-            "trend reporting are easier to trust."
-        ),
-    },
-}
+    _skill_facts = _load_local_module("skill_facts.py", "skill_facts_local")
+    _skill_families = _load_local_module("skill_families.py", "skill_families_local")
+    build_skill_fact_bundle = _skill_facts.build_skill_fact_bundle
+    build_family_candidates = _skill_families.build_family_candidates
+    build_llm_interpretation_packet = _skill_families.build_llm_interpretation_packet
 
 
-def infer_task_type(user_request: str | None) -> str:
-    """Infer a coarse task type from the first user request."""
-    if not user_request:
-        return "general"
+def _ensure_fact_bundle(review_report: dict[str, Any]) -> dict[str, Any]:
+    fact_bundle = review_report.get("fact_bundle")
+    if fact_bundle:
+        return fact_bundle
 
-    text = user_request.lower()
-    for label, patterns in TASK_TYPE_PATTERNS:
-        if any(pattern in text for pattern in patterns):
-            return label
-    return "general"
-
-
-def infer_invocation_mode(invocation: dict[str, Any]) -> str:
-    """Infer how the invocation was detected."""
-    matched_on = set(invocation.get("matched_on", []))
-    if "assistant_ack" in matched_on:
-        return "explicit-ack"
-    if "skill_path" in matched_on:
-        return "path-inferred"
-    if "user_trigger" in matched_on:
-        return "trigger-inferred"
-    return "unknown"
-
-
-def enrich_invocation(invocation: dict[str, Any]) -> dict[str, Any]:
-    """Attach stable metadata used for slicing."""
-    enriched = dict(invocation)
-    project = invocation.get("project")
-    if isinstance(project, str) and project.startswith("/"):
-        enriched["project"] = project.rstrip("/").rsplit("/", 1)[-1]
-    enriched["task_type"] = infer_task_type(invocation.get("user_request"))
-    enriched["invocation_mode"] = infer_invocation_mode(invocation)
-    return enriched
-
-
-def group_invocations(invocations: list[dict[str, Any]], min_runs: int) -> list[dict[str, Any]]:
-    """Create global and single-dimension slices for opportunity mining."""
-    groups = [
-        {
-            "label": "global",
-            "dimension": "global",
-            "value": "all",
-            "invocations": invocations,
-        }
-    ]
-
-    for dimension in ("provider", "project", "task_type", "invocation_mode"):
-        buckets: dict[str, list[dict[str, Any]]] = defaultdict(list)
-        for invocation in invocations:
-            value = invocation.get(dimension) or "unknown"
-            buckets[str(value)].append(invocation)
-
-        for value, items in sorted(buckets.items()):
-            if len(items) < min_runs:
-                continue
-            groups.append(
-                {
-                    "label": f"{dimension}={value}",
-                    "dimension": dimension,
-                    "value": value,
-                    "invocations": items,
-                }
-            )
-
-    return groups
-
-
-def _coverage_weight(total_runs: int, overall_runs: int) -> float:
-    """Favor signals that affect meaningful portions of the sample."""
-    if overall_runs <= 0:
-        return 1.0
-    fraction = total_runs / overall_runs
-    return 0.6 + 0.4 * min(fraction / 0.5, 1.0)
-
-
-def _recency_weight(invocations: list[dict[str, Any]], now: datetime) -> float:
-    """Favor issues that are still happening recently."""
-    if not invocations:
-        return 1.0
-
-    latest = max(
-        parse_timestamp(invocation.get("timestamp"), now)
-        for invocation in invocations
+    generated_at = review_report.get("generated_at") or datetime.now(timezone.utc).isoformat()
+    return build_skill_fact_bundle(
+        skill=review_report.get("skill", "unknown"),
+        source=review_report.get("source", "both"),
+        since=review_report.get("since", ""),
+        until=review_report.get("until", ""),
+        generated_at=generated_at,
+        sessions_scanned=review_report.get("sessions_scanned", 0),
+        invocations=review_report.get("invocations", []),
+        summary=review_report.get("summary", {}),
+        tool_counts=review_report.get("tool_counts", []),
     )
-    age_days = max(0, (now - latest).days)
-    if age_days <= 7:
-        return 1.25
-    if age_days <= 30:
-        return 1.1
-    return 1.0
 
 
-def _score_card(
-    prevalence: float,
-    total_runs: int,
-    overall_runs: int,
-    affected_invocations: list[dict[str, Any]],
-    impact_weight: float,
-    confidence_weight: float,
-    now: datetime,
-) -> int:
-    """Compute a ranked score for an opportunity card."""
-    coverage_weight = _coverage_weight(total_runs, overall_runs)
-    recency_weight = _recency_weight(affected_invocations, now)
-    return round(prevalence * impact_weight * confidence_weight * coverage_weight * recency_weight * 20)
-
-
-def _evidence_for_rule(issue_type: str, invocation: dict[str, Any]) -> dict[str, Any]:
-    """Build a compact evidence snippet for one invocation."""
-    evidence = {
-        "timestamp": invocation.get("timestamp"),
-        "file": invocation.get("file"),
-        "user_request": invocation.get("user_request"),
-    }
-
-    if issue_type == "verification-gap":
-        evidence["signal"] = "no validation command detected"
-    elif issue_type == "contract-clarity":
-        evidence["signal"] = (invocation.get("user_corrections") or ["user redirect detected"])[0]
-    elif issue_type == "checkpoint-defaults":
-        evidence["signal"] = (invocation.get("checkpoint_messages") or ["checkpoint prompt detected"])[0]
-    elif issue_type == "risk-gating-gap":
-        evidence["signal"] = (invocation.get("risk_gating_messages") or ["risk gate should have existed"])[0]
-    elif issue_type == "closeout-gap":
-        evidence["signal"] = "no completion event detected"
-    elif issue_type == "observability-gap":
-        evidence["signal"] = "skill path touched without explicit ack marker"
-
-    return evidence
-
-
-def _predicate_matches(issue_type: str, invocation: dict[str, Any]) -> bool:
-    """Return whether an invocation matches a rule."""
-    matched_on = set(invocation.get("matched_on", []))
-
-    if issue_type == "verification-gap":
-        return not invocation.get("validation_commands")
-    if issue_type == "contract-clarity":
-        return bool(invocation.get("user_corrections"))
-    if issue_type == "checkpoint-defaults":
-        return bool(invocation.get("checkpoint_messages"))
-    if issue_type == "risk-gating-gap":
-        return bool(invocation.get("risk_gating_messages"))
-    if issue_type == "closeout-gap":
-        return not invocation.get("task_complete")
-    if issue_type == "observability-gap":
-        return "skill_path" in matched_on and "assistant_ack" not in matched_on
-    raise KeyError(f"Unsupported issue type: {issue_type}")
-
-
-def _automation_card(
-    skill: str,
-    group: dict[str, Any],
-    overall_runs: int,
-    max_evidence: int,
-    now: datetime,
-) -> dict[str, Any] | None:
-    """Generate an automation-gap card from repeated raw shell stems."""
-    stem_counts: Counter[str] = Counter()
-    affected_invocations: list[dict[str, Any]] = []
-
-    for invocation in group["invocations"]:
-        invocation_stems = set(invocation.get("command_stems", {}))
-        raw_hits = sorted(stem for stem in invocation_stems if stem in RAW_SHELL_STEMS)
-        if not raw_hits:
-            continue
-        stem_counts.update(raw_hits)
-        affected_invocations.append(invocation)
-
-    total_runs = len(group["invocations"])
-    affected_runs = len(affected_invocations)
-    if total_runs == 0 or affected_runs < 2:
-        return None
-
-    prevalence = affected_runs / total_runs
-    if prevalence < 0.3:
-        return None
-
-    score = _score_card(
-        prevalence=prevalence,
-        total_runs=total_runs,
-        overall_runs=overall_runs,
-        affected_invocations=affected_invocations,
-        impact_weight=ISSUE_RULES["automation-gap"]["impact_weight"],
-        confidence_weight=ISSUE_RULES["automation-gap"]["confidence_weight"],
-        now=now,
+def _ensure_family_candidates(review_report: dict[str, Any], fact_bundle: dict[str, Any], min_runs: int) -> dict[str, Any]:
+    family_candidates = review_report.get("family_candidates")
+    if family_candidates:
+        return family_candidates
+    return build_family_candidates(
+        fact_bundle,
+        source=review_report.get("source", "both"),
+        min_slice_runs=min_runs,
     )
-    if score < MIN_CARD_SCORE:
+
+
+def _candidate_to_card(skill: str, candidate: dict[str, Any]) -> dict[str, Any] | None:
+    opportunity = candidate.get("opportunity")
+    if not opportunity:
+        return None
+    if candidate["rank"]["score"] < MIN_CARD_SCORE:
         return None
 
-    top_stems = [stem for stem, _ in stem_counts.most_common(3)]
-    rule = ISSUE_RULES["automation-gap"]
-    evidence = []
-    for invocation in affected_invocations[:max_evidence]:
-        invocation_stems = sorted(stem for stem in invocation.get("command_stems", {}) if stem in RAW_SHELL_STEMS)
-        evidence.append(
-            {
-                "timestamp": invocation.get("timestamp"),
-                "file": invocation.get("file"),
-                "user_request": invocation.get("user_request"),
-                "signal": f"raw shell stems: {', '.join(invocation_stems)}",
-            }
-        )
-
-    return {
+    card = {
         "skill": skill,
-        "issue_type": "automation-gap",
-        "score": score,
-        "severity": rule["severity"],
-        "affected_runs": affected_runs,
-        "total_runs": total_runs,
-        "prevalence": round(prevalence, 3),
-        "slice": {
-            "label": group["label"],
-            "dimension": group["dimension"],
-            "value": group["value"],
-        },
-        "supporting_metrics": {
-            "top_raw_shell_stems": top_stems,
-        },
-        "hypothesis": rule["hypothesis"],
-        "recommendation": rule["recommendation"],
-        "suggested_fix_class": rule["suggested_fix_class"],
-        "target_files": rule["target_files"],
-        "evidence": evidence,
-        "skill_issue_brief": _skill_issue_brief(
-            skill=skill,
-            issue_type="automation-gap",
-            group=group,
-            affected_runs=affected_runs,
-            total_runs=total_runs,
-            recommendation=rule["recommendation"],
+        "issue_type": candidate["family_id"],
+        "score": candidate["rank"]["score"],
+        "severity": candidate["severity"],
+        "affected_runs": candidate["affected_runs"],
+        "total_runs": candidate["total_runs"],
+        "prevalence": candidate["prevalence"],
+        "slice": candidate["slice"],
+        "hypothesis": opportunity["hypothesis"],
+        "recommendation": opportunity["recommendation"],
+        "suggested_fix_class": candidate["allowed_fix_classes"][0],
+        "allowed_fix_classes": candidate["allowed_fix_classes"],
+        "target_files": candidate["target_files"],
+        "evidence": list(candidate.get("representative_traces", [])),
+        "evidence_refs": list(candidate.get("evidence_refs", [])),
+        "family_candidate_id": candidate["family_candidate_id"],
+        "skill_issue_brief": (
+            f"Improve `{skill}` for `{candidate['family_id']}` in the slice `{candidate['slice']['label']}`. "
+            f"Affected runs: {candidate['affected_runs']}/{candidate['total_runs']}. "
+            f"{opportunity['recommendation']}"
         ),
     }
+    if candidate.get("supporting_metrics"):
+        card["supporting_metrics"] = candidate["supporting_metrics"]
+    return card
 
 
-def _rule_cards(
-    skill: str,
-    group: dict[str, Any],
-    overall_runs: int,
-    max_evidence: int,
-    now: datetime,
-) -> list[dict[str, Any]]:
-    """Generate cards for simple per-invocation predicates."""
-    cards: list[dict[str, Any]] = []
-    total_runs = len(group["invocations"])
-    if total_runs == 0:
-        return cards
+def _filter_redundant_slices(cards: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Keep global cards and only slice cards that materially differ."""
+    globals_by_issue = {
+        card["issue_type"]: card
+        for card in cards
+        if card["slice"]["label"] == "global"
+    }
 
-    for issue_type, rule in ISSUE_RULES.items():
-        if issue_type == "automation-gap":
+    filtered: list[dict[str, Any]] = []
+    per_issue_counts: dict[str, int] = {}
+
+    for card in cards:
+        issue_type = card["issue_type"]
+        is_global = card["slice"]["label"] == "global"
+        global_card = globals_by_issue.get(issue_type)
+
+        if is_global:
+            filtered.append(card)
+            per_issue_counts[issue_type] = per_issue_counts.get(issue_type, 0) + 1
             continue
 
-        affected_invocations = [
-            invocation
-            for invocation in group["invocations"]
-            if _predicate_matches(issue_type, invocation)
-        ]
-        affected_runs = len(affected_invocations)
-        if affected_runs == 0:
+        if not global_card:
+            filtered.append(card)
+            per_issue_counts[issue_type] = per_issue_counts.get(issue_type, 0) + 1
             continue
 
-        prevalence = affected_runs / total_runs
-        score = _score_card(
-            prevalence=prevalence,
-            total_runs=total_runs,
-            overall_runs=overall_runs,
-            affected_invocations=affected_invocations,
-            impact_weight=rule["impact_weight"],
-            confidence_weight=rule["confidence_weight"],
-            now=now,
-        )
-        if score < MIN_CARD_SCORE:
+        prevalence_gap = card["prevalence"] - global_card["prevalence"]
+        score_gap = card["score"] - global_card["score"]
+        if prevalence_gap < 0.15 and score_gap < 5:
             continue
 
-        evidence = [
-            _evidence_for_rule(issue_type, invocation)
-            for invocation in affected_invocations[:max_evidence]
-        ]
-        cards.append(
-            {
-                "skill": skill,
-                "issue_type": issue_type,
-                "score": score,
-                "severity": rule["severity"],
-                "affected_runs": affected_runs,
-                "total_runs": total_runs,
-                "prevalence": round(prevalence, 3),
-                "slice": {
-                    "label": group["label"],
-                    "dimension": group["dimension"],
-                    "value": group["value"],
-                },
-                "hypothesis": rule["hypothesis"],
-                "recommendation": rule["recommendation"],
-                "suggested_fix_class": rule["suggested_fix_class"],
-                "target_files": rule["target_files"],
-                "evidence": evidence,
-                "skill_issue_brief": _skill_issue_brief(
-                    skill=skill,
-                    issue_type=issue_type,
-                    group=group,
-                    affected_runs=affected_runs,
-                    total_runs=total_runs,
-                    recommendation=rule["recommendation"],
-                ),
-            }
-        )
+        if per_issue_counts.get(issue_type, 0) >= 3:
+            continue
 
-    automation = _automation_card(
-        skill=skill,
-        group=group,
-        overall_runs=overall_runs,
-        max_evidence=max_evidence,
-        now=now,
-    )
-    if automation:
-        cards.append(automation)
+        filtered.append(card)
+        per_issue_counts[issue_type] = per_issue_counts.get(issue_type, 0) + 1
 
-    return cards
-
-
-def _skill_issue_brief(
-    skill: str,
-    issue_type: str,
-    group: dict[str, Any],
-    affected_runs: int,
-    total_runs: int,
-    recommendation: str,
-) -> str:
-    """Create a concise handoff line for a follow-up skill-issue run."""
-    if group["label"] == "global":
-        scope = "across all detected runs"
-    else:
-        scope = f"in the slice `{group['label']}`"
-
-    return (
-        f"Improve `{skill}` for `{issue_type}` {scope}. "
-        f"Affected runs: {affected_runs}/{total_runs}. {recommendation}"
-    )
+    return filtered
 
 
 def generate_opportunity_report(
@@ -482,24 +145,16 @@ def generate_opportunity_report(
     max_evidence: int = 3,
 ) -> dict[str, Any]:
     """Generate ranked improvement cards from a review report."""
+    del max_evidence  # family candidates already bound evidence selection
     skill = review_report.get("skill")
-    raw_invocations = review_report.get("invocations", [])
-    invocations = [enrich_invocation(invocation) for invocation in raw_invocations]
-    overall_runs = len(invocations)
-    now = datetime.now(timezone.utc)
+    fact_bundle = _ensure_fact_bundle(review_report)
+    family_candidates = _ensure_family_candidates(review_report, fact_bundle, min_runs=min_runs)
 
-    groups = group_invocations(invocations, min_runs=min_runs)
-    cards: list[dict[str, Any]] = []
-    for group in groups:
-        cards.extend(
-            _rule_cards(
-                skill=skill,
-                group=group,
-                overall_runs=overall_runs,
-                max_evidence=max_evidence,
-                now=now,
-            )
-        )
+    cards = []
+    for candidate in family_candidates.get("candidates", []):
+        card = _candidate_to_card(skill, candidate)
+        if card:
+            cards.append(card)
 
     cards = _filter_redundant_slices(cards)
     cards.sort(
@@ -511,69 +166,37 @@ def generate_opportunity_report(
         ),
         reverse=True,
     )
+    cards_generated = len(cards)
+    cards = cards[:max_cards]
 
-    issue_counts = Counter(card["issue_type"] for card in cards)
-    slice_counts = Counter(card["slice"]["label"] for card in cards)
+    issue_types = {}
+    slices = {}
+    for card in cards:
+        issue_types[card["issue_type"]] = issue_types.get(card["issue_type"], 0) + 1
+        label = card["slice"]["label"]
+        slices[label] = slices.get(label, 0) + 1
 
     return {
         "skill": skill,
-        "generated_at": now.isoformat(),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
         "source_review": {
             "generated_at": review_report.get("generated_at"),
             "source": review_report.get("source"),
             "since": review_report.get("since"),
             "until": review_report.get("until"),
             "sessions_scanned": review_report.get("sessions_scanned"),
-            "invocations_found": review_report.get("invocations_found", overall_runs),
+            "invocations_found": review_report.get("invocations_found", fact_bundle.get("invocations_found", 0)),
         },
         "summary": {
-            "cards_generated": len(cards),
-            "cards_returned": min(len(cards), max_cards),
-            "issue_types": dict(issue_counts),
-            "slices": dict(slice_counts),
+            "cards_generated": cards_generated,
+            "cards_returned": len(cards),
+            "issue_types": issue_types,
+            "slices": slices,
         },
-        "cards": cards[:max_cards],
+        "llm_interpretation_packet": review_report.get("llm_interpretation_packet")
+        or build_llm_interpretation_packet(fact_bundle, family_candidates),
+        "cards": cards,
     }
-
-
-def _filter_redundant_slices(cards: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Keep global cards and only slice cards that are materially worse than global."""
-    globals_by_issue = {
-        card["issue_type"]: card
-        for card in cards
-        if card["slice"]["label"] == "global"
-    }
-
-    filtered: list[dict[str, Any]] = []
-    per_issue_counts: Counter[str] = Counter()
-
-    for card in cards:
-        issue_type = card["issue_type"]
-        is_global = card["slice"]["label"] == "global"
-        global_card = globals_by_issue.get(issue_type)
-
-        if is_global:
-            filtered.append(card)
-            per_issue_counts[issue_type] += 1
-            continue
-
-        if not global_card:
-            filtered.append(card)
-            per_issue_counts[issue_type] += 1
-            continue
-
-        prevalence_gap = card["prevalence"] - global_card["prevalence"]
-        score_gap = card["score"] - global_card["score"]
-        if prevalence_gap < 0.15 and score_gap < 5:
-            continue
-
-        if per_issue_counts[issue_type] >= 3:
-            continue
-
-        filtered.append(card)
-        per_issue_counts[issue_type] += 1
-
-    return filtered
 
 
 def render_opportunity_markdown(report: dict[str, Any]) -> str:
@@ -618,7 +241,11 @@ def render_opportunity_markdown(report: dict[str, Any]) -> str:
             metrics = card["supporting_metrics"]
             stems = metrics.get("top_raw_shell_stems")
             if stems:
-                lines.append(f"Supporting metrics: top raw shell stems = {', '.join(stems)}")
+                pretty = ", ".join(
+                    stem["stem"] if isinstance(stem, dict) else str(stem)
+                    for stem in stems
+                )
+                lines.append(f"Supporting metrics: top raw shell stems = {pretty}")
         lines.append("Evidence:")
         for evidence in card.get("evidence", []):
             signal = evidence.get("signal", "")

@@ -16,6 +16,11 @@ openclaw-client-bootstrap/assets/instances/*/
 .ntm/
 *.bak.*
 briefs/
+# local session artifacts from dueling-idea-wizards runs
+DUELING_WIZARDS_REPORT.md
+WIZARD_IDEAS_*.md
+WIZARD_REACTIONS_*.md
+WIZARD_SCORES_*.md
 # private AI runtime overlays and admin-only skill packs
 modes/
 */modes/

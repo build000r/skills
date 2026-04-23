@@ -173,6 +173,16 @@ Ideas scored 700+ by BOTH agents, or where post-reveal concessions aligned both 
 
 Ideas where the opponent scored below 400 AND the originator conceded post-reveal. Dead. Note why.
 
+For each killed idea, append one row to `{vault_path}/_ops/exclusion-ledger.md`
+(create the file with the header from `/wiki` if absent) so the duel's
+anti-knowledge is durable, not buried in a moved wizard artifact:
+
+```
+| {concept}:{idea_slug} | {today} | forge_kill | {concession text, ≤120 chars} | {+180d} | active |
+```
+
+Use `+180d` rather than the intake-gate default of `+90d` — forge concessions are higher-effort to produce and should not be re-litigated quickly. Skip the append when `{concept}:{idea_slug}` already has an `active` row to avoid duplicate entries across reruns.
+
 ### The Synthesis
 
 The highest-value output: a combined program that neither model produced alone. Look for:

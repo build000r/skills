@@ -32,11 +32,12 @@ If working in a different vault, look for a `CLAUDE.md` in the vault root that d
 
 ## Operations
 
-The skill has three modes. Determine which from the user's request:
+The skill has four modes. Determine which from the user's request:
 
 - "ingest", "add source", "process this", "wire up", "new source" → **ingest**
 - "what does the wiki say", "query", "look up", "find", "synthesize" → **query** (for deep adversarial synthesis, use `/wiki-forge`)
 - "lint", "health check", "audit wiki", "find orphans", "stale" → **lint**
+- "exclude", "park this", "mark as rejected", "don't consider", "tried and rejected" → **exclude**
 
 If ambiguous, ask.
 
@@ -52,26 +53,38 @@ If ambiguous, ask.
 
 **Steps:**
 
-1. Read the vault's `CLAUDE.md` to load conventions
-2. Read `index.md` to understand current wiki state
-3. If `_ops/focus-sweeps/` exists, read the single `status: active` sweep note if present. Treat it as an operator hint about the current working set, not as source material.
-4. Read the source file(s)
-5. If a source is an app idea, product bet, feature bet, or "new repo" concept, run the App Idea Intake Gate before editing concept pages
-6. Scan existing `_concepts/` pages to find which concepts the source touches
-7. For each touched concept:
+1. Read `_ops/exclusion-ledger.md` if it exists. For each concept the source
+   would plausibly touch, check for active exclusions:
+   - If excluded and `reconsider_after` has NOT passed: warn the operator
+     "`{concept}` was excluded on {date} by {source}: {reason}. Override and
+     ingest?" If declined, skip writes to that concept and log
+     `exclusion: upheld`.
+   - If excluded and `reconsider_after` HAS passed: note "`{concept}`
+     exclusion expired — proceeding. Updating ledger status to `reconsidered`."
+     Flip the row's `status` to `reconsidered` before continuing. If the
+     ingest subsequently writes a real update to the concept, the Exclude
+     operation's status lifecycle (see "Exclusion Ledger Format") flips the
+     row to `readmitted` at close-out.
+2. Read the vault's `CLAUDE.md` to load conventions
+3. Read `index.md` to understand current wiki state
+4. If `_ops/focus-sweeps/` exists, read the single `status: active` sweep note if present. Treat it as an operator hint about the current working set, not as source material.
+5. Read the source file(s)
+6. If a source is an app idea, product bet, feature bet, or "new repo" concept, run the App Idea Intake Gate before editing concept pages
+7. Scan existing `_concepts/` pages to find which concepts the source touches
+8. For each touched concept:
    - Read the concept page
    - Update with new information from the source
    - Add source to `sources:` frontmatter if not listed
    - Flag contradictions explicitly — do not silently overwrite existing claims
    - Add/update wikilinks to related concepts and articles
-8. Scan relevant published `/research/*.md` articles for drift against the updated concept layer
+9. Scan relevant published `/research/*.md` articles for drift against the updated concept layer
    - Classify each finding as either `research discrepancy` or `research improvement opportunity`
    - Do not edit published articles yet; prepare a concise recommendation set for the human
-9. If the source introduces concepts not yet covered:
-   - Create new concept pages in `_concepts/` following the frontmatter schema
-   - Use noun-phrase slugs: `operator-velocity.md`, not `about-operator-velocity.md`
-10. Append to `log.md`
-11. Regenerate the Concepts and Sources sections of `index.md`
+10. If the source introduces concepts not yet covered:
+    - Create new concept pages in `_concepts/` following the frontmatter schema
+    - Use noun-phrase slugs: `operator-velocity.md`, not `about-operator-velocity.md`
+11. Append to `log.md`
+12. Regenerate the Concepts and Sources sections of `index.md`
 
 #### App Idea Intake Gate
 
@@ -83,7 +96,9 @@ README drafts. First decide what kind of object the idea is:
 
 - `park` — too raw, speculative, private, or off-strategy. Recommend moving it
   to `~/notes/`; do not create or update concept pages unless it reveals a
-  broader reusable pattern.
+  broader reusable pattern. Also append one row to `_ops/exclusion-ledger.md`:
+  `| {concept_key} | {today} | intake_gate | {routing reason, ≤120 chars} | {+90d} | active |`
+  so the parking reasoning is not lost to append-only `log.md` prose.
 - `ingest_as_signal` — the idea is not a product candidate yet, but it sharpens
   an existing concept such as [[operator-portfolio]], [[professional-monetization]],
   [[competitive-quadrant-positioning]], [[skill-as-workflow]], or
@@ -172,9 +187,56 @@ Prefer updating existing concept pages over creating new ones. A query that touc
    - **Research improvement opportunities** — articles that are directionally right but should be deepened or tightened based on newer findings
    - **Focus-sweep hygiene** — more than one `status: active` sweep, no active sweep when the working set clearly changed, or sweep links that point to missing notes
    - **Skill-hub backlinks** — every skill source in `_sources/skills/` must contain a `[[skill-issue]]` wikilink so the skill cluster traces back to the meta-skill hub. Resolve each symlink and grep the target `SKILL.md`; flag any skill (other than `skill-issue` itself) that omits the backlink. Suggested fix: append a `## Related` section with `- [[skill-issue]]` (or add the bullet to an existing `## Related`).
+   - **Exclusion staleness** — scan `_ops/exclusion-ledger.md` for rows whose `reconsider_after` has passed while `status` is still `active`. These are former NO decisions due for re-evaluation. Suggested fix: run `/wiki ingest` on the excluded concept (which will flip the row to `reconsidered` via ingest step 1) or extend the `reconsider_after` date with a short justification appended to the reason cell.
 4. Append lint report to `log.md`
 5. Present findings to user with suggested fixes
 6. Apply fixes only with human confirmation
+
+### Exclude
+
+Records a concept or topic as explicitly excluded from the wiki. Use when the
+operator wants to mark a direction as tried-and-rejected or out-of-scope. The
+ledger is the wiki's anti-knowledge artifact — it remembers what was
+considered and rejected so the same ground is not re-walked without
+acknowledgment.
+
+**Input:** a concept key and reason. Optionally a `reconsider_after` date
+(defaults to `+90d` from today).
+
+**Steps:**
+
+1. Read `_ops/exclusion-ledger.md` (create the file with a one-row header if
+   absent — see "Exclusion Ledger Format" below).
+2. Check if `concept_key` already has an active entry:
+   - If yes and `status: active`: update reason and `reconsider_after` in
+     place rather than appending a duplicate row.
+   - If yes and `status: readmitted`: warn the operator "This concept was
+     previously readmitted on {date} — excluding again will re-open the
+     rejection." Require explicit confirmation before writing.
+3. Append a row:
+   `| {concept_key} | {today} | operator | {reason} | {reconsider_after or +90d} | active |`
+4. If `_concepts/{concept_key}.md` exists, add `excluded: true` to the
+   frontmatter and prepend `> **Excluded {date}:** {reason}` to the body.
+   Do NOT delete the concept page — exclusion is reversible.
+5. Append to `log.md`.
+
+### Exclusion Ledger Format
+
+`_ops/exclusion-ledger.md` is a single markdown table:
+
+```markdown
+# Exclusion Ledger
+
+| concept_key | excluded_at | source | reason | reconsider_after | status |
+|---|---|---|---|---|---|
+```
+
+- `source` is one of: `operator`, `intake_gate`, `forge_kill`.
+- `status` values: `active` → `reconsidered` → `readmitted`. Entries stay
+  `active` indefinitely until lint surfaces staleness or an ingest
+  readmits them.
+- When a `reconsidered` entry leads to a successful ingest, flip status to
+  `readmitted` and append the readmission date to the reason cell.
 
 ## Wiring New Sources
 

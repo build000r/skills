@@ -12,10 +12,33 @@ Start with a stable first progress message such as:
 
 `Using \`ask-cascade\` to frame the next highest-impact decision before I ask follow-ups.`
 
-## Runtime Mapping
+## Required Tool In Claude Code
 
-- In Claude mode, use `AskUserQuestion` for the actual user-facing question step. Do not fall back to a plain assistant message when you are formally asking the user to choose, confirm, or clarify.
-- In other runtimes, apply the same cascade rules to the runtime's equivalent question/input tool. If no such tool exists, ask the smallest plain-text question necessary.
+**When this skill is active in Claude Code (the Anthropic CLI / `claude-code` runtime), you MUST use the `AskUserQuestion` tool for every user-facing question step.** This is a hard requirement, not advisory.
+
+Applies to every moment you are formally:
+
+- **Choosing** — asking the user to pick between 2+ options (including branch previews like `1`, `1A`, `2`).
+- **Confirming** — asking the user to approve, reject, or modify a proposed action or plan.
+- **Clarifying** — asking the user to resolve an ambiguity you cannot route to code / wiki / duel / deep-research.
+
+Do NOT:
+
+- Emit the question as a plain assistant message and wait for the next turn.
+- Bullet-list options in prose and say "reply with 1/2/3" when `AskUserQuestion` can render them as real options.
+- Batch a question into a longer narrative message hoping the user answers inline.
+
+The only exceptions:
+
+- A single, terse yes/no confirmation already scoped by the immediately preceding assistant sentence, where rendering a tool UI would be more friction than the question is worth.
+- A free-form request where the user genuinely needs to type prose and no option set applies — even then, prefer `AskUserQuestion` with an "Other" escape hatch over a bare prose prompt.
+
+### Other Runtimes
+
+If this skill is invoked in a runtime that is not Claude Code:
+
+- Use that runtime's equivalent structured question/input tool when one exists.
+- If no such tool exists, ask the smallest plain-text question necessary, but still apply every cascade rule below.
 
 ## The Rule
 
@@ -90,7 +113,7 @@ Now asking the human only the remaining preference question: retention window?
 
 ## Before Every User-Facing Question Tool Call
 
-In Claude mode, this section applies to every `AskUserQuestion` call.
+In Claude Code, this section applies to every `AskUserQuestion` call. The tool is mandatory (see **Required Tool In Claude Code** above) — these rules govern how to shape the call, not whether to make it.
 
 Classify each question or branch you are considering:
 
@@ -248,6 +271,7 @@ Q4: "Tab width?"            ← independent, safe to batch with Q1
 
 Before handing control back, confirm the cascade did its job:
 
+- In Claude Code, every user-facing choose/confirm/clarify step went through the `AskUserQuestion` tool — not a plain assistant message
 - Every question asked either is strategic-first or was batched with truly independent peers only
 - Every silent assumption that would have been encoded by acting without asking has been named
 - Every blocker routable to code, `/wiki query`, `/wiki-duel`, `/dueling-idea-wizards`, or `/deep-research-prompt` was routed there before touching the human

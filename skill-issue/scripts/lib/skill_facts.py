@@ -65,17 +65,37 @@ def enrich_invocation(invocation: dict[str, Any]) -> dict[str, Any]:
     checkpoint_messages = list(invocation.get("checkpoint_messages", []))
     user_corrections = list(invocation.get("user_corrections", []))
     risk_gating_messages = list(invocation.get("risk_gating_messages", []))
+    matched_on = set(invocation.get("matched_on", []))
+    task_complete = bool(invocation.get("task_complete"))
+    has_correction = bool(user_corrections)
+    # Invocation-level failure modes (v1, heuristic — refine as data accumulates):
+    #   invocation_miss: scanner saw no trigger/ack/path signal on a real session
+    #   trigger_mismatch: user phrasing triggered, but the skill never acknowledged
+    #   output_rejected: user corrected and the run did not complete
+    #   output_corrected: user corrected but the run still reached completion
+    #   wrong_skill_invoked: correction references another slash-command/skill name
+    import re as _re
+    slash_in_correction = any(
+        _re.search(r"(?:try|use|should (?:be|have used))\s*/[\w-]+", text, _re.IGNORECASE)
+        or _re.search(r"/(?:skill-|cass|wiki|deploy|review|ultrareview)[\w-]*", text)
+        for text in user_corrections
+    )
 
     enriched["invocation_id"] = build_invocation_id(invocation)
     enriched["task_type"] = infer_task_type(invocation.get("user_request"))
     enriched["invocation_mode"] = infer_invocation_mode(invocation)
     enriched["flags"] = {
-        "has_ack": "assistant_ack" in set(invocation.get("matched_on", [])),
+        "has_ack": "assistant_ack" in matched_on,
         "has_validation": bool(validation_commands),
         "has_checkpoint": bool(checkpoint_messages),
         "has_risk_gate_gap": bool(risk_gating_messages),
-        "has_user_correction": bool(user_corrections),
-        "task_complete": bool(invocation.get("task_complete")),
+        "has_user_correction": has_correction,
+        "task_complete": task_complete,
+        "has_invocation_miss": not matched_on and bool(invocation.get("user_request")),
+        "has_trigger_mismatch": "user_trigger" in matched_on and "assistant_ack" not in matched_on,
+        "has_output_rejected": has_correction and not task_complete,
+        "has_output_corrected": has_correction and task_complete,
+        "has_wrong_skill_invoked": slash_in_correction,
     }
     enriched["counts"] = {
         "validation_commands": len(validation_commands),

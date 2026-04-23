@@ -10,6 +10,7 @@ catalog and surfacing:
 
 from __future__ import annotations
 
+import os
 import re
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Sequence
@@ -17,6 +18,39 @@ from datetime import datetime, timezone
 from itertools import combinations
 from pathlib import Path
 from typing import Any
+
+COVERAGE_INDEX_PATHS = (
+    "~/.claude/skills/SKILLS_COVERAGE.yaml",
+    "~/.codex/skills/SKILLS_COVERAGE.yaml",
+)
+
+
+def _load_coverage_index() -> dict[str, dict[str, Any]]:
+    """Load SKILLS_COVERAGE.yaml if present; return {} on any failure.
+
+    The coverage index is the JIT-corpus backbone (MVP #1). Excluded entries
+    cause the portfolio miner to hard-zero any matching creation card; absent
+    entries are surfaced as tracked gaps in the report summary.
+    """
+    try:
+        import yaml  # optional dep; fail soft
+    except ImportError:
+        return {}
+    for raw in COVERAGE_INDEX_PATHS:
+        path = Path(os.path.expanduser(raw))
+        if not path.is_file():
+            continue
+        try:
+            data = yaml.safe_load(path.read_text()) or {}
+        except (OSError, yaml.YAMLError):
+            continue
+        if isinstance(data, dict):
+            return {k: (v if isinstance(v, dict) else {}) for k, v in data.items()}
+    return {}
+
+
+def _slug(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", (value or "").lower()).strip("-")
 
 from lib.skill_review import (
     collect_session_data,
@@ -960,6 +994,27 @@ def generate_portfolio_opportunity_report(
         )
     )
 
+    # --- Coverage-awareness index filter (JIT-corpus MVP #1) ---
+    coverage = _load_coverage_index()
+    excluded_ids = {
+        _slug(name): entry
+        for name, entry in coverage.items()
+        if entry.get("status") == "excluded"
+    }
+    absent_entries = {
+        name: entry
+        for name, entry in coverage.items()
+        if entry.get("status") == "absent"
+    }
+    for card in cards:
+        scope_slug = _slug(card.get("scope", ""))
+        if scope_slug and scope_slug in excluded_ids:
+            entry = excluded_ids[scope_slug]
+            card["score"] = 0
+            card["coverage_status"] = "excluded"
+            card["coverage_reason"] = entry.get("reason", "excluded in SKILLS_COVERAGE.yaml")
+            card["coverage_decided"] = entry.get("decided")
+
     cards.sort(
         key=lambda card: (
             card["score"],
@@ -995,8 +1050,19 @@ def generate_portfolio_opportunity_report(
             "cards_generated": len(cards),
             "cards_returned": min(len(cards), max_cards),
             "issue_types": dict(issue_counts),
+            "coverage_excluded_count": len(excluded_ids),
+            "coverage_absent_count": len(absent_entries),
         },
         "cards": cards[:max_cards],
+        "tracked_absent_gaps": [
+            {
+                "id": name,
+                "reason": entry.get("reason"),
+                "sessions": entry.get("sessions"),
+                "first_seen": entry.get("first_seen"),
+            }
+            for name, entry in sorted(absent_entries.items())
+        ],
     }
 
 

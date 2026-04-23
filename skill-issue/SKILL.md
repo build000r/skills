@@ -189,7 +189,25 @@ Match specificity to the task's fragility:
 
 Every skill has a required `SKILL.md` (YAML frontmatter + markdown body) and optional bundled resources (`scripts/`, `references/`, `assets/`).
 
+Optional frontmatter field `depends_on:` (YAML list of skill ids) declares cross-skill contracts this skill relies on. The `scripts/check_skill_deps.py` helper reads this field when a skill changes to find dependents whose interface surfaces (commands, phase headers, file paths) may drift. Example:
+
+```yaml
+name: skill-issue
+depends_on:
+  - cass          # Step 1b delegates transcript mining
+```
+
 For directory structure details, resource types, progressive disclosure patterns, and what NOT to include, see [references/skill-structure.md](references/skill-structure.md).
+
+### Coverage-Awareness Index (`SKILLS_COVERAGE.yaml`)
+
+`~/.claude/skills/SKILLS_COVERAGE.yaml` is a single-operator coverage index
+with one entry per skill id and a `status` of `present`, `absent`,
+`excluded`, or `pending`. `generate_skill_portfolio_opportunities.py` reads
+it at startup: `excluded` entries hard-zero any matching creation card, and
+`absent` entries surface as tracked gaps in the report. Write `excluded`
+when you decide against building a skill (include `reason` and `decided`)
+so the miner stops re-proposing it. See the file header for the schema.
 
 ### Cross-Skill Contract Drift
 
@@ -308,6 +326,11 @@ Read [references/operator-evidence-loop.md](references/operator-evidence-loop.md
 - High `risk_gating_rate` / `risk-gating-gap`: add explicit pause points for irreversible or high-risk branches so the skill asks first or routes to the right reviewer before proceeding
 - High `correction_rate` / `contract-clarity`: tighten trigger language, non-goals, or ask-cascade guidance
 - Repeated raw shell stems (`rg`, `sed`, `find`, etc.) / `automation-gap`: bundle scripts/references instead of relying on freehand shell work
+- `invocation_miss`: user did manually what this skill covers but no trigger/ack/path signal fired — sharpen description and trigger phrases
+- `trigger_mismatch`: `user_trigger` matched without `assistant_ack` — description is over-matching; narrow it or expand the skill body
+- `output_rejected`: user correction with no `task_complete` — tighten non-goals and default output shape
+- `output_corrected`: user correction after `task_complete` — fold the recurring correction into defaults or validation
+- `wrong_skill_invoked`: user redirected to a different slash-command — add non-goals referencing the sibling skill and tighten the description
 
 5. If you ship a packet-driven change, ask before writing to the packet ledger. If approved, log the shipment and expected watch window:
 
@@ -667,11 +690,34 @@ For ops/deploy skills, do an additional manual quality pass:
 - Run every documented preflight command at least once.
 - Run at least one intentional failure-path probe and verify the troubleshooting guidance matches the real error.
 
-### Commit/Push Branch (Ask First)
+### Risk-Tiered Review Gate
 
-Do not run `git add`, `git commit`, `git tag`, `git push`, or PR creation commands unless the user explicitly asks for that branch in the current run.
+Every proposed SKILL.md edit gets a risk tier before review. Classify with
+`scripts/skill_risk_classifier.py --old <current> --new <proposed> --skill-id <id>`
+(exit code: 0=low, 1=medium, 2=high). The classifier auto-bumps to `high` when
+`scripts/check_skill_deps.py` reports cross-skill interface drift.
 
-If commit/push is not authorized, finish with local edits plus verification output and report the pending commands instead of executing them.
+| Tier | What changed | Gate |
+|------|--------------|------|
+| **low** | Prose, examples, reference files | `quick_validate.py` must pass; low-risk edits may be applied without an explicit ask |
+| **medium** | `description` field, phase/step ordering, script logic | LLM self-review + one human confirm before apply |
+| **high** | `allowed-tools`, destructive commands (`rm -rf`, `sudo`, `git push`, etc.), safety rules, hooks config, or cross-skill interface drift | Mandatory human approval; never auto-apply |
+
+Do not lower the tier to keep flow. If review capacity is saturated, pause
+the proposal queue rather than relaxing the gate.
+
+### Commit/Push Branch (Tier-Gated)
+
+Do not run `git add`, `git commit`, `git tag`, `git push`, or PR creation
+commands unless the user explicitly asks for that branch in the current run.
+
+The ask-first gate is stricter for `high`-tier edits: even after the user
+authorizes a commit, re-confirm before pushing if the risk tier is `high`.
+For `low`-tier edits the confirmation can cover multiple closely related
+changes; for `medium` and `high` tiers, confirm each edit individually.
+
+If commit/push is not authorized, finish with local edits plus verification
+output and report the pending commands instead of executing them.
 
 ### Step 6: Iterate
 

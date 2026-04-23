@@ -52,6 +52,16 @@ def _predicate_matches(family_id: str, invocation: dict[str, Any]) -> bool:
     if family_id == "automation-gap":
         stems = set(invocation.get("command_stems", {}))
         return bool(stems & RAW_SHELL_STEMS)
+    if family_id == "invocation_miss":
+        return flags.get("has_invocation_miss", False)
+    if family_id == "trigger_mismatch":
+        return flags.get("has_trigger_mismatch", False)
+    if family_id == "output_rejected":
+        return flags.get("has_output_rejected", False)
+    if family_id == "output_corrected":
+        return flags.get("has_output_corrected", False)
+    if family_id == "wrong_skill_invoked":
+        return flags.get("has_wrong_skill_invoked", False)
     raise KeyError(f"Unsupported family: {family_id}")
 
 
@@ -80,6 +90,16 @@ def _signal_for_family(family_id: str, invocation: dict[str, Any]) -> dict[str, 
     if family_id == "automation-gap":
         stems = sorted(stem for stem in invocation.get("command_stems", {}) if stem in RAW_SHELL_STEMS)
         return {**base, "signal": f"raw shell stems: {', '.join(stems)}"}
+    if family_id == "invocation_miss":
+        return {**base, "signal": "user_request looks skill-shaped but scanner saw no trigger/ack/path signal"}
+    if family_id == "trigger_mismatch":
+        return {**base, "signal": "user_trigger matched without assistant_ack: description over-matches"}
+    if family_id == "output_rejected":
+        return {**base, "signal": (refs.get("user_corrections") or ["user correction without task_complete"])[0]}
+    if family_id == "output_corrected":
+        return {**base, "signal": (refs.get("user_corrections") or ["user correction after task_complete"])[0]}
+    if family_id == "wrong_skill_invoked":
+        return {**base, "signal": (refs.get("user_corrections") or ["user redirected to another slash-command"])[0]}
     raise KeyError(f"Unsupported family: {family_id}")
 
 
@@ -92,6 +112,11 @@ def _holdout_signal(family_id: str) -> str:
         "contract-clarity": "holdout control: no user redirect detected",
         "closeout-gap": "holdout control: completion event detected",
         "automation-gap": "holdout control: no raw shell stems detected",
+        "invocation_miss": "holdout control: trigger/ack/path signal present",
+        "trigger_mismatch": "holdout control: trigger and ack both present",
+        "output_rejected": "holdout control: run completed without user correction",
+        "output_corrected": "holdout control: run completed without user correction",
+        "wrong_skill_invoked": "holdout control: no slash-command redirect in corrections",
     }
     return mapping[family_id]
 

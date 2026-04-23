@@ -220,6 +220,166 @@ FAMILY_REGISTRY = {
             "Repeated ad-hoc shell work appears across invocations. Bundle the recurring analysis path into helper scripts or references so reliability is not gated on freehand shell usage."
         ),
     },
+    # --- Invocation-level failure modes (JIT-corpus MVP, #3 failure taxonomy) ---
+    "invocation_miss": {
+        "predicate": "has_invocation_miss",
+        "severity": "high",
+        "watch_metric": "invocation_miss_rate",
+        "impact_weight": 4.0,
+        "confidence_weight": 0.7,
+        "allowed_fix_classes": ["sharpen-description-trigger", "surface-skill-in-discovery"],
+        "target_files": ["SKILL.md"],
+        "packet_failure_family": "The skill should have been invoked but was not.",
+        "packet_why_now": (
+            "A session's user_request looks skill-shaped but no trigger, ack, or "
+            "path signal fired. Discoverability or description match is likely wrong."
+        ),
+        "packet_expected_contract": (
+            "Sharpen the description field and trigger phrases so the activation "
+            "surface catches the prompts this skill is meant to handle."
+        ),
+        "opportunity_hypothesis": (
+            "The skill's description does not match the language the operator is "
+            "actually using to request this kind of work."
+        ),
+        "opportunity_recommendation": (
+            "Revise the description field and sample trigger phrases to cover the "
+            "operator's real prompts; add a discovery hint if applicable."
+        ),
+        "legacy_opportunity_id": "invocation-miss",
+        "legacy_priority": "high",
+        "legacy_summary": (
+            "Sessions that should have triggered this skill did not. Tighten the description "
+            "and trigger phrases so activation is not left to chance."
+        ),
+    },
+    "trigger_mismatch": {
+        "predicate": "has_trigger_mismatch",
+        "severity": "medium",
+        "watch_metric": "trigger_mismatch_rate",
+        "impact_weight": 3.0,
+        "confidence_weight": 0.85,
+        "allowed_fix_classes": ["sharpen-description-trigger"],
+        "target_files": ["SKILL.md"],
+        "packet_failure_family": "The user's phrasing looked like a trigger but the skill never acknowledged.",
+        "packet_why_now": (
+            "A user_trigger match fired without a matching assistant_ack, so the "
+            "description is pulling in prompts the body is not actually servicing."
+        ),
+        "packet_expected_contract": (
+            "Either broaden the skill to handle the trigger phrase, or narrow the "
+            "description so it does not over-match."
+        ),
+        "opportunity_hypothesis": (
+            "The description is broader than the skill's real coverage, producing "
+            "trigger-without-ack events."
+        ),
+        "opportunity_recommendation": (
+            "Narrow the description and add explicit non-goals, or expand the skill "
+            "body to cover the missing shape."
+        ),
+        "legacy_opportunity_id": "trigger-mismatch",
+        "legacy_priority": "medium",
+        "legacy_summary": (
+            "The trigger fires but the skill body does not acknowledge. Narrow description "
+            "or expand coverage so trigger-without-ack stops occurring."
+        ),
+    },
+    "output_rejected": {
+        "predicate": "has_output_rejected",
+        "severity": "high",
+        "watch_metric": "output_rejected_rate",
+        "impact_weight": 4.5,
+        "confidence_weight": 0.85,
+        "allowed_fix_classes": ["tighten-skill-contract", "tighten-trigger-language"],
+        "target_files": ["SKILL.md"],
+        "packet_failure_family": "The skill produced output the user rejected; the run did not complete.",
+        "packet_why_now": (
+            "A user correction appeared and task_complete was not reached, so the "
+            "skill's output was discarded rather than edited in place."
+        ),
+        "packet_expected_contract": (
+            "Tighten non-goals, default branching, and the expected output shape so "
+            "the skill does not produce material the operator throws away."
+        ),
+        "opportunity_hypothesis": (
+            "The skill produces output shapes the operator does not want, signaling a "
+            "contract mismatch strong enough to abandon the run."
+        ),
+        "opportunity_recommendation": (
+            "Tighten the skill contract, narrow defaults, and add explicit non-goals."
+        ),
+        "legacy_opportunity_id": "output-rejected",
+        "legacy_priority": "high",
+        "legacy_summary": (
+            "Runs with corrections are not reaching completion. The output contract is "
+            "losing the operator; tighten it."
+        ),
+    },
+    "output_corrected": {
+        "predicate": "has_output_corrected",
+        "severity": "medium",
+        "watch_metric": "output_corrected_rate",
+        "impact_weight": 2.5,
+        "confidence_weight": 0.8,
+        "allowed_fix_classes": ["tighten-skill-contract"],
+        "target_files": ["SKILL.md"],
+        "packet_failure_family": "The skill's output was accepted but then corrected by the operator.",
+        "packet_why_now": (
+            "Runs with user corrections still reach task_complete, so the output is "
+            "close enough to accept but off enough to need a fix."
+        ),
+        "packet_expected_contract": (
+            "Close the gap between acceptable and right by sharpening the output "
+            "contract or adding a post-hoc validation step."
+        ),
+        "opportunity_hypothesis": (
+            "The skill's defaults land near-right but not right, leaking a consistent "
+            "correction tax onto the operator."
+        ),
+        "opportunity_recommendation": (
+            "Identify the recurring correction pattern and fold it into defaults, "
+            "examples, or validation checks."
+        ),
+        "legacy_opportunity_id": "output-corrected",
+        "legacy_priority": "medium",
+        "legacy_summary": (
+            "Completions still require the operator to correct output. Fold the recurring "
+            "correction pattern into defaults or validation."
+        ),
+    },
+    "wrong_skill_invoked": {
+        "predicate": "has_wrong_skill_invoked",
+        "severity": "medium",
+        "watch_metric": "wrong_skill_invoked_rate",
+        "impact_weight": 3.0,
+        "confidence_weight": 0.7,
+        "allowed_fix_classes": ["sharpen-description-trigger", "tighten-non-goals"],
+        "target_files": ["SKILL.md"],
+        "packet_failure_family": "The wrong skill activated; the operator redirected to a different one.",
+        "packet_why_now": (
+            "A user correction referenced a different slash-command or skill name, "
+            "meaning this skill won an activation race it should have lost."
+        ),
+        "packet_expected_contract": (
+            "Add non-goals and a clear boundary against the neighboring skill's "
+            "territory; tighten trigger phrases so this skill stops over-matching."
+        ),
+        "opportunity_hypothesis": (
+            "The skill's description overlaps with a sibling skill's territory, "
+            "producing mis-activation."
+        ),
+        "opportunity_recommendation": (
+            "Add explicit non-goals referencing the sibling skill and tighten the "
+            "description to eliminate the overlap."
+        ),
+        "legacy_opportunity_id": "wrong-skill-invoked",
+        "legacy_priority": "medium",
+        "legacy_summary": (
+            "This skill activated when the operator actually wanted a different one. Add "
+            "non-goals referencing the sibling skill and tighten the description."
+        ),
+    },
     "provider-coverage": {
         "predicate": "missing_claude_provider",
         "severity": "low",

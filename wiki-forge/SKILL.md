@@ -178,10 +178,10 @@ For each killed idea, append one row to `{vault_path}/_ops/exclusion-ledger.md`
 anti-knowledge is durable, not buried in a moved wizard artifact:
 
 ```
-| {concept}:{idea_slug} | {today} | forge_kill | {concession text, ≤120 chars} | {+180d} | active |
+| {concept}:{idea_slug} | {today} | forge_kill | {concession text, ≤120 chars} | {+90d} | active |
 ```
 
-Use `+180d` rather than the intake-gate default of `+90d` — forge concessions are higher-effort to produce and should not be re-litigated quickly. Skip the append when `{concept}:{idea_slug}` already has an `active` row to avoid duplicate entries across reruns.
+Skip the append when `{concept}:{idea_slug}` already has an `active` row to avoid duplicate entries across reruns.
 
 ### The Synthesis
 

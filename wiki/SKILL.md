@@ -26,20 +26,54 @@ The wiki has three layers:
 
 Read the vault's `CLAUDE.md` first. It is the source of truth for page types, directory layout, frontmatter schemas, and conventions. This skill encodes the operations; the schema encodes the structure.
 
-Default vault path: `content/research/`
+### Resolving the target vault
 
-If working in a different vault, look for a `CLAUDE.md` in the vault root that defines the wiki schema. If none exists, this skill cannot operate — the schema must be written first.
+Vaults are resolved through the operator-wide registry at `~/repos/skillbox-config/wikis.yaml`, which points at per-client overlays under `clients/{client}/wikis.yaml`. Resolution order:
+
+1. **Explicit `--vault=<id>`** — search across `client_wiki_overlays` in the top-level `wikis.yaml` for the matching wiki id; load that client's `wikis.yaml`; use its `path`.
+2. **Implicit by `cwd`** — if the current working directory is inside any per-client overlay's `wikis[].path`, use that vault.
+3. **`defaults.default_vault`** — fall back to the registry's default vault (resolved through the same client-overlay lookup).
+4. **Legacy fallback** — if no registry exists, use `content/research/` relative to cwd.
+
+If the registry exists, prefer it. If the resolved path has no `CLAUDE.md`, this skill cannot operate — the schema must be written first.
+
+### Autoblog awareness (REQUIRED before any write or move)
+
+Every per-client wiki overlay declares an `autoblog_sources:` list. Before writing, moving, archiving, or migrating any file inside a wiki path, check whether the destination (and source) intersects an autoblog source:
+
+1. Resolve the wiki's per-client overlay (`clients/{client}/wikis.yaml`).
+2. For each entry in `autoblog_sources`, check whether the planned operation's path matches the `path` + `glob` pattern.
+3. If yes, surface the entry's `published_to`, `triggered_by`, and `publication_gate` to the user before acting. Do not proceed silently.
+4. If the operation would *remove* a file from an autoblog path that is *not* gated (`publication_gate: none`), warn that the published URL will start 404'ing on next build.
+5. If the operation would *add* a file to a non-gated autoblog path, warn that it will publish on next build.
+6. Files in `safe_zones:` skip this check.
+
+Symlinks need extra care: a symlink in `_sources/articles/` pointing into `content/articles/heavy-metals.md` does not itself publish, but editing the *target* publishes — because the target is the production markdown.
+
+### Multi-vault operations
+
+When a request implies cross-vault work (`wiki list`, `wiki lint --all`, `wiki migrate --from=X --to=Y`), iterate over the registry. Each vault is operated on under its own local `CLAUDE.md` schema; do not assume one schema across vaults.
 
 ## Operations
 
-The skill has four modes. Determine which from the user's request:
+The skill has four primary modes plus two registry-aware modes. Determine which from the user's request:
 
 - "ingest", "add source", "process this", "wire up", "new source" → **ingest**
 - "what does the wiki say", "query", "look up", "find", "synthesize" → **query** (for deep adversarial synthesis, use `/wiki-forge`)
-- "lint", "health check", "audit wiki", "find orphans", "stale" → **lint**
+- "lint", "health check", "audit wiki", "find orphans", "stale" → **lint** (add `--all` to lint every registered vault)
 - "exclude", "park this", "mark as rejected", "don't consider", "tried and rejected" → **exclude**
+- "list wikis", "which wikis", "show registry" → **list** (read `wikis.yaml`, report each wiki's id/role/path/parent and flag any registered path that is missing or any unregistered Obsidian vault discovered under a registered tree)
+- "migrate concept", "move to child wiki", "promote to parent" → **migrate** (move a concept page between vaults, rewriting frontmatter to the destination's `schema_dialect` and leaving a breadcrumb cross-link in the source)
 
 If ambiguous, ask.
+
+### Cross-vault lint additions (when `--all` is used)
+
+In addition to each vault's own lint checks, also flag:
+
+- **Unregistered vaults** — directories under a registered vault's tree that contain `.obsidian/` but are not themselves the registered vault. These are "phantom vaults" (see `wikis.yaml > phantoms:`).
+- **Stale registry entries** — registry paths that no longer resolve.
+- **Cross-vault link drift** — breadcrumbs of the form "See <id> wiki: [[slug]]" where the target slug no longer exists in the named vault.
 
 ### Ingest
 

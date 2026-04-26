@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import bisect
 import os
 import re
 import signal
@@ -72,11 +73,18 @@ class CoverageRecord:
             self.covered.add(number)
 
     def ratio_for_range(self, start_line: int, end_line: int) -> float | None:
-        in_range = {line for line in self.instrumented if start_line <= line <= end_line}
-        if not in_range:
+        instrumented_count = 0
+        covered_count = 0
+        for line in range(start_line, end_line + 1):
+            if line not in self.instrumented:
+                continue
+            instrumented_count += 1
+            if line in self.covered:
+                covered_count += 1
+
+        if instrumented_count == 0:
             return None
-        covered = {line for line in self.covered if line in in_range}
-        return len(covered) / len(in_range)
+        return covered_count / instrumented_count
 
 
 @dataclass
@@ -95,6 +103,7 @@ class CoverageIndex:
     def __init__(self, repo_root: Path) -> None:
         self.repo_root = repo_root.resolve()
         self.records: dict[str, CoverageRecord] = {}
+        self._key_cache: dict[tuple[str, str], list[str]] = {}
 
     def add_hit(self, raw_path: str, base_dir: Path, line_number: int, hits: int) -> None:
         keys = self._keys_for(raw_path, base_dir)
@@ -121,6 +130,11 @@ class CoverageIndex:
         return None
 
     def _keys_for(self, raw_path: str | Path, base_dir: Path) -> list[str]:
+        cache_key = (str(raw_path), str(base_dir))
+        cached = self._key_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
         raw = Path(raw_path)
         candidates: list[Path] = []
 
@@ -157,6 +171,7 @@ class CoverageIndex:
                 continue
             add(rel.as_posix())
 
+        self._key_cache[cache_key] = keys
         return keys
 
 
@@ -461,8 +476,9 @@ def strip_code_like_text(text: str) -> str:
     return "".join(result)
 
 
-def find_matching_brace(text: str, open_index: int) -> int | None:
-    stripped = strip_code_like_text(text)
+def find_matching_brace(text: str, open_index: int, stripped: str | None = None) -> int | None:
+    if stripped is None:
+        stripped = strip_code_like_text(text)
     depth = 0
     for index in range(open_index, len(stripped)):
         if stripped[index] == "{":
@@ -477,6 +493,12 @@ def find_matching_brace(text: str, open_index: int) -> int | None:
 def extract_code_functions(text: str, patterns: Iterable[re.Pattern[str]]) -> list[tuple[str, int, int, int, str]]:
     functions: list[tuple[str, int, int, int, str]] = []
     seen_ranges: set[tuple[int, int]] = set()
+    stripped = strip_code_like_text(text)
+    line_starts = [0]
+    line_starts.extend(match.end() for match in re.finditer(r"\n", text))
+
+    def line_for(index: int) -> int:
+        return bisect.bisect_right(line_starts, index)
 
     for pattern in patterns:
         for match in pattern.finditer(text):
@@ -484,14 +506,14 @@ def extract_code_functions(text: str, patterns: Iterable[re.Pattern[str]]) -> li
             brace_index = text.find("{", match.end() - 1)
             if brace_index == -1:
                 continue
-            end_index = find_matching_brace(text, brace_index)
+            end_index = find_matching_brace(text, brace_index, stripped)
             if end_index is None:
                 continue
             if (match.start(), end_index) in seen_ranges:
                 continue
             seen_ranges.add((match.start(), end_index))
-            start_line = text.count("\n", 0, match.start()) + 1
-            end_line = text.count("\n", 0, end_index) + 1
+            start_line = line_for(match.start())
+            end_line = line_for(end_index)
             body = text[brace_index + 1 : end_index]
             functions.append((symbol, start_line, end_line, brace_index, body))
 

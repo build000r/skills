@@ -110,7 +110,7 @@ If still blocked, propose at least three concrete next ideas, each with:
 Example idea set:
 1. Add temporary request/response logging around the suspected handler and re-run a `curl` probe.
 2. Replay production-like payload from logs into local API to test parser/validation drift.
-3. Run headless E2E from CLI (Playwright/Cypress) before any interactive browser tooling.
+3. Run a **headless browser probe** from the CLI before any interactive browser tooling. Default to obscura (Rust CDP server, Puppeteer/Playwright drop-in, ~30 MB / ~6× faster startup than Chromium) so the headless rung is cheap enough to run by default. See [references/headless-probes.md](references/headless-probes.md) for ready-to-run templates: selector assertion on a JS-rendered page, overlay-credential login + state capture, and screenshot diff.
 
 ### 5) Access request protocol (before DevTools)
 
@@ -159,6 +159,7 @@ Only use DevTools if all are true:
 1. Behavior is browser-runtime-only (layout, paint, client-only state, extension-specific issue).
 2. No API/log/test/CLI assertion can observe it.
 3. At least two non-DevTools probes were attempted first.
+4. **A headless browser probe was attempted and could not capture the behavior.** Per [references/headless-probes.md](references/headless-probes.md), most "browser-runtime-only" bugs (hydration, computed style, client-side routing, auth-gated pages) can be turned into a scriptable obscura/Puppeteer assertion, which then graduates into the regression test required by §7. Skipping this rung is the most common false trigger of the DevTools gate.
 
 When used, report:
 

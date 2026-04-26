@@ -93,6 +93,26 @@ token_sources_json() {
 
 TOKEN_SOURCES_JSON="$(token_sources_json)"
 
+# ---------- .driftignore loading ----------
+# Repo-local ignore file. Each non-empty, non-comment line is an rg glob
+# pattern. Prepended with `!` and passed as a -g exclude to every rg call
+# via EXTRA_RG_ARGS. Lets consumers quiet per-repo false positives (e.g.
+# gitignored scratch files rg's -g globs would otherwise re-include).
+EXTRA_RG_ARGS=()
+DRIFTIGNORE_PATTERNS=()
+if [ -f .driftignore ]; then
+  while IFS= read -r line || [ -n "$line" ]; do
+    # strip comments + trim
+    line="${line%%#*}"
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+    line="${line#./}"
+    [ -z "$line" ] && continue
+    DRIFTIGNORE_PATTERNS+=("$line")
+    EXTRA_RG_ARGS+=(-g "!$line")
+  done < .driftignore
+fi
+
 # ---------- stack detection ----------
 detect_stacks() {
   local stacks=()
@@ -150,13 +170,15 @@ trap 'rm -rf "$tmp"' EXIT
 emit_matches() {
   # $1 = output jsonl file, $2+ = rg args
   local out="$1"; shift
-  rg -n --no-heading --json "$@" 2>/dev/null \
+  rg -n --no-heading --json "${EXTRA_RG_ARGS[@]}" "$@" 2>/dev/null \
     | jq -c 'select(.type=="match") | {
         file: .data.path.text,
         line: .data.line_number,
         matches: [.data.submatches[]?.match.text],
         value: .data.lines.text | gsub("^\\s+|\\s+$"; "")
       }' > "$out" || true
+  filter_gitignored_matches "$out"
+  filter_driftignored_matches "$out"
 }
 
 filter_matches() {
@@ -175,6 +197,92 @@ filter_token_sources() {
   [ -s "$file" ] || return 0
   jq -c --argjson token_sources "$TOKEN_SOURCES_JSON" \
     'select((.file as $f | $token_sources | index($f)) | not)' \
+    "$file" > "$filtered"
+  mv "$filtered" "$file"
+}
+
+filter_gitignored_matches() {
+  local file="$1"
+  local ignored_file="$tmp/$(basename "$file").gitignored"
+  local ignored_json="$tmp/$(basename "$file").gitignored.json"
+  local filtered="$tmp/$(basename "$file").gitignored.filtered"
+  [ -s "$file" ] || return 0
+  git rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 0
+  jq -r '.file' "$file" | sort -u | git check-ignore --stdin > "$ignored_file" 2>/dev/null || true
+  [ -s "$ignored_file" ] || return 0
+  jq -Rs 'split("\n") | map(select(length > 0))' "$ignored_file" > "$ignored_json"
+  jq -c --slurpfile gitignored "$ignored_json" \
+    'select((.file as $f | $gitignored[0] | index($f)) | not)' \
+    "$file" > "$filtered"
+  mv "$filtered" "$file"
+}
+
+filter_driftignored_matches() {
+  local file="$1"
+  local filtered="$tmp/$(basename "$file").driftignored.filtered"
+  local path json ignored pattern
+  [ -s "$file" ] || return 0
+  [ ${#DRIFTIGNORE_PATTERNS[@]} -gt 0 ] || return 0
+  : > "$filtered"
+  while IFS= read -r json; do
+    path="$(jq -r '.file' <<<"$json")"
+    ignored=0
+    for pattern in "${DRIFTIGNORE_PATTERNS[@]}"; do
+      if [[ "$path" == $pattern ]]; then
+        ignored=1
+        break
+      fi
+    done
+    [ "$ignored" = "1" ] || printf '%s\n' "$json" >> "$filtered"
+  done < "$file"
+  mv "$filtered" "$file"
+}
+
+prompt_content_lines_json() {
+  local file="$1"
+  local prompt_lines="$tmp/$(basename "$file").prompt-lines.tsv"
+  [ -s "$file" ] || { echo "{}"; return 0; }
+  rm -f "$prompt_lines"
+  while IFS= read -r source_file; do
+    local lines_csv
+    lines_csv="$(
+      awk '
+        /(^|["'"'"'[:space:]])(image_prompt|video_prompt|keyPrompt)(["'"'"'[:space:]]*)[[:space:]]*:/ {
+          print NR
+          print NR + 1
+        }
+      ' "$source_file" \
+        | awk '!seen[$0]++' \
+        | paste -sd',' -
+    )"
+    [ -n "$lines_csv" ] || continue
+    printf '%s\t%s\n' "$source_file" "$lines_csv" >> "$prompt_lines"
+  done < <(jq -r '.file' "$file" | sort -u)
+
+  [ -f "$prompt_lines" ] || { echo "{}"; return 0; }
+  jq -Rn '
+    reduce inputs as $line ({};
+      ($line | split("\t")) as $parts
+      | . + {
+          ($parts[0]): (
+            ($parts[1] // "")
+            | split(",")
+            | map(select(length > 0) | tonumber)
+          )
+        }
+    )
+  ' < "$prompt_lines"
+}
+
+filter_prompt_content_matches() {
+  local file="$1"
+  local filtered="$tmp/$(basename "$file").prompt.filtered"
+  local prompt_lines_json
+  [ -s "$file" ] || return 0
+  prompt_lines_json="$(prompt_content_lines_json "$file")"
+  [ "$prompt_lines_json" != "{}" ] || return 0
+  jq -c --argjson prompt_lines "$prompt_lines_json" \
+    'select((.line as $line | ($prompt_lines[.file] // []) | index($line)) | not)' \
     "$file" > "$filtered"
   mv "$filtered" "$file"
 }
@@ -220,6 +328,8 @@ scan_tsx() {
   # not arbitrary literal drift.
   filter_matches "$tmp/tsx_tailwind_arbitrary.jsonl" \
     '.matches = [.matches[] | select((test("\\[[^\\]]*var\\(--")) | not)] | select(.matches | length > 0)'
+  filter_matches "$tmp/tsx_tailwind_arbitrary.jsonl" \
+    '.matches = [.matches[] | select((startswith("data-[") or startswith("group-data-[") or startswith("peer-data-[")) | not)] | select(.matches | length > 0)'
   filter_token_sources "$tmp/tsx_tailwind_arbitrary.jsonl"
   # raw color literals
   emit_matches "$tmp/tsx_raw_color_literals.jsonl" \
@@ -231,6 +341,7 @@ scan_tsx() {
   # CSS custom property color functions are token reads, not raw color values.
   filter_matches "$tmp/tsx_raw_color_literals.jsonl" \
     '.matches = [.matches[] | select((test("\\b(?:rgb|rgba|hsl|hsla)\\(\\s*var\\("; "i")) | not)] | select(.matches | length > 0)'
+  filter_prompt_content_matches "$tmp/tsx_raw_color_literals.jsonl"
   filter_token_sources "$tmp/tsx_raw_color_literals.jsonl"
   # off-scale spacing (px values in declarations)
   emit_matches "$tmp/tsx_off_scale_spacing.jsonl" \

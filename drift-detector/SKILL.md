@@ -56,6 +56,7 @@ Add a stack by writing a new adapter pair (`scan_<stack>`, `default_scope_<stack
 - `--tailwind-config <path>` to pin a tailwind config explicitly
 - `--output <path>` to write a repo-relative or absolute scan artifact other than `.drift/scan.json`
 - `--token-source <path>` to exclude a repo-relative token source from violation counts; repeat for multiple files. Swift files named like `*Colors.swift`, `*Typography.swift`, `*DesignTokens.swift`, or `*Theme.swift` are auto-detected.
+- Optional repo-local `.driftignore` file. Each non-comment line is an `rg` glob excluded from scanner findings after normal stack scoping.
 
 ## Workflow
 
@@ -66,6 +67,11 @@ scripts/scan.sh <repo-path> [--stack auto|tsx|swift] [--scope <subpath>] [--all]
 ```
 
 Writes `<repo>/.drift/scan.json` with `meta.stacks`, `findings.<stack>.<category>`, and `summary.<stack>.<category>`. Every finding has `file:line`, matched substrings, and the raw line value. The scanner does not cluster or categorize — that is the LLM's job.
+
+The TSX adapter also suppresses three noisy false-positive classes before writing findings:
+- repo-gitignored files (post-filtered even when `rg -g` globs are in play)
+- repo-local `.driftignore` globs
+- prompt-content hexes in `image_prompt` / `video_prompt` / `keyPrompt` fields and Tailwind `data-[...]` variants such as Radix state selectors
 
 `scan.json` is a generated local artifact. It may include source-line snippets for scanner evidence, so do not commit it by default in public repos. Commit the human plan (`.drift/plan.md`) and keep `scan*.json` ignored unless the operator explicitly wants raw findings versioned. Clone-cluster findings strip full duplicate fragments and retain locations/counts only.
 

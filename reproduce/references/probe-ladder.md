@@ -48,7 +48,7 @@ curl -sS -i "http://localhost:<api-port>/<underlying-endpoint>"
 docker logs <api-container> --since 10m 2>&1 | rg -i '<endpoint|request id|error>'
 ```
 
-If API and logs are correct, then consider headless E2E (Playwright/Cypress CLI) before DevTools.
+If API and logs are correct, run a headless browser probe before DevTools. See [headless-probes.md](headless-probes.md) — obscura is the default backend (Rust CDP server, Puppeteer/Playwright drop-in, cheap enough to run by default).
 
 ## Strong Evidence Pattern
 

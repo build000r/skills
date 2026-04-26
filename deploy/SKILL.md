@@ -86,6 +86,8 @@ Run this checklist before any irreversible step:
    - two-phase deploy because env/schema/auth changes must land first
 4. Check current health and version before changing anything.
 5. Confirm the verification path you will use after the change.
+6. For browser-facing surfaces, identify the canonical production origin and
+   every first-party alias from the overlay before changing code or config.
 
 For auth, env, or schema changes, explicitly answer:
 
@@ -249,6 +251,21 @@ secret drift, and only use a manual local deploy path if the user wants that as
 the smallest safe operational step.
 
 Use overlay values for project name, public origin, and worker config path.
+For `pages_edge` targets, the overlay should be the source of truth for:
+
+- `project` / Pages project name
+- `pages_origin` / `*.pages.dev` origin
+- `production_domain` / canonical public origin
+- `production_aliases` / first-party aliases that must be redirected or allowed
+- `canonical_redirect` / expected alias-to-canonical redirect
+- `required_github_secrets` / deploy auth contract
+- `wrangler_config`
+- `smoke` / post-deploy commands
+
+Deploy is not complete unless the canonical origin serves successfully and each
+declared alias behaves according to the overlay policy. If an API consumes that
+frontend, compare the same alias set against CORS, auth callback, and checkout
+redirect allowlists before rollout.
 
 ## Rollback
 
@@ -277,6 +294,9 @@ Checklist:
 - note any new headers, scopes, or callback URLs
 - explicitly compare browser origin allowlists against every public hostname and
   alias in the overlay (`example.com`, `www.example.com`, Pages/Vercel aliases)
+- for checkout or billing flows, compare redirect allowlists against the
+  canonical origin and first-party aliases in the overlay, then test one
+  rejected lookalike host
 - decide whether old and new values must overlap temporarily
 - verify both behavior and state after sync
 

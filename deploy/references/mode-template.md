@@ -36,10 +36,28 @@ client:
           mode_name: your-frontend
           surface: pages_edge
           repo_slug: your-org/your-frontend
-          frontend_pages_project: example-pages-project
-          frontend_pages_origin: example-pages-project.pages.dev
-          health_url: https://app.example.com/health
-          worker_config_path: workers/frontdoor/wrangler.toml
+          project: example-pages-project
+          pages_origin: example-pages-project.pages.dev
+          production_branch: main
+          production_domain: https://www.example.com
+          production_aliases:
+            - https://example.com
+          canonical_redirect:
+            from: https://example.com
+            to: https://www.example.com
+          health_url: https://www.example.com/health
+          wrangler_config: wrangler.toml
+          ci_workflow: .github/workflows/deploy-pages.yml
+          required_github_secrets:
+            - CLOUDFLARE_API_TOKEN
+            - CLOUDFLARE_ACCOUNT_ID
+          cli:
+            auth: cd ~/repos/your-frontend && npx wrangler whoami
+            deploy: cd ~/repos/your-frontend && npx wrangler pages deploy --project-name example-pages-project --branch main
+            deployments: cd ~/repos/your-frontend && npx wrangler pages deployment list --project-name example-pages-project
+          smoke:
+            - "curl -fsSI https://example.com/ | grep -i 'location: https://www.example.com/'"
+            - "curl -fsS https://www.example.com/health"
 
   checks: []
 
@@ -66,6 +84,9 @@ Common keys:
 - target keys: `mode_name`, `surface`, `repo_root`, `repo_slug`,
   `deploy_root`, `compose_file`, `compose_project`, `compose_service`,
   `health_url`, `ci_workflow`
+- Pages/edge target keys: `project`, `pages_origin`, `production_branch`,
+  `production_domain`, `production_aliases`, `canonical_redirect`,
+  `wrangler_config`, `required_github_secrets`, `cli`, `smoke`
 
 Selection rules:
 

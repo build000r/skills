@@ -25,8 +25,8 @@ The agent never guesses what is duplicated. Scanners surface candidate duplicate
 
 ## Companion Skills
 
-- `unified-brand-system` — defines the *target* tokens this skill measures against. If no token source exists, run it first.
-- `simplify` — executes the consolidation edits once a plan is accepted.
+- `ui` — provides the design-quality bar for Tailwind markup, components, typography, surfaces, tables, and responsive behavior.
+- `simplify-and-refactor-code-isomorphically` — executes consolidation edits once a plan is accepted.
 - `codebase-audit` (UX domain) — a11y-focused; complementary, not overlapping.
 
 ## Supported Stacks
@@ -35,7 +35,7 @@ The scanner ships with stack adapters. Stack is auto-detected per repo; a repo c
 
 | Stack | Detected by | Default scope | Categories |
 |---|---|---|---|
-| `tsx` | `package.json`, `tsconfig*.json`, `.tsx` files | first non-empty of `{src, app, components, pages}` | tailwind_arbitrary, raw_color_literals, off_scale_spacing, off_scale_typography, inline_styles, classname_soup, clone_clusters, orphan_primitives |
+| `tsx` / web | `package.json`, `tsconfig*.json`, Vite/Next/Astro/Svelte/Vue config, `index.html`, or frontend source extensions | all source roots from `{src, app, components, pages, public}`, nested package/app roots, and top-level `index.html` | tailwind_arbitrary, raw_color_literals, off_scale_spacing, off_scale_typography, inline_styles, classname_soup, component_motifs, ui_guideline_violations, clone_clusters, orphan_primitives, unused_canonical |
 | `swift` | `*.xcodeproj`, `Package.swift`, `.swift` files | first non-empty of `{Sources, App, <repo>/<repo>}` | arbitrary_modifiers, raw_color_literals, off_scale_typography, modifier_soup, clone_clusters |
 
 Swift categories map to SwiftUI idioms:
@@ -50,12 +50,14 @@ Add a stack by writing a new adapter pair (`scan_<stack>`, `default_scope_<stack
 ## Inputs
 
 - Target repo path (required)
-- `--stack auto|tsx|swift` (default `auto`)
+- `--stack auto|tsx|swift` (default `auto`; `tsx` is the generic web frontend adapter, not React-only)
 - `--scope <subpath>` to override stack-default scope
 - `--all` to bypass stack defaults and scan the whole repo (noisy; use only when you know why)
 - `--tailwind-config <path>` to pin a tailwind config explicitly
 - `--output <path>` to write a repo-relative or absolute scan artifact other than `.drift/scan.json`
 - `--token-source <path>` to exclude a repo-relative token source from violation counts; repeat for multiple files. Swift files named like `*Colors.swift`, `*Typography.swift`, `*DesignTokens.swift`, or `*Theme.swift` are auto-detected.
+- `--canonical-root <path>` to declare a repo-relative folder or file whose named exports are canonical UI primitives for the `unused_canonical` scanner. Repeatable. When omitted, defaults only to `src/components/ui`, `components/ui`, and `app/components/ui`. Feature-local primitive roots must be passed explicitly or via overlay; the scanner intentionally does not auto-promote every `**/components/<area>/index.tsx` barrel because feature barrels are often not primitive owners.
+- Skillbox client overlays may declare canonical roots under `frontend.design_system.canonical_roots: [...]`; the calling agent passes these to `scan.sh` via `--canonical-root` (the script itself stays overlay-agnostic).
 - Optional repo-local `.driftignore` file. Each non-comment line is an `rg` glob excluded from scanner findings after normal stack scoping.
 
 ## Workflow
@@ -66,12 +68,15 @@ Add a stack by writing a new adapter pair (`scan_<stack>`, `default_scope_<stack
 scripts/scan.sh <repo-path> [--stack auto|tsx|swift] [--scope <subpath>] [--all]
 ```
 
-Writes `<repo>/.drift/scan.json` with `meta.stacks`, `findings.<stack>.<category>`, and `summary.<stack>.<category>`. Every finding has `file:line`, matched substrings, and the raw line value. The scanner does not cluster or categorize — that is the LLM's job.
+Writes `<repo>/.drift/scan.json` with `meta.stacks`, `meta.tsx_scope`, `meta.tsx_canonical_roots`, `findings.<stack>.<category>`, and `summary.<stack>.<category>`. Every line-based finding has `file:line`, matched substrings, and the raw line value. The scanner emits candidate facts; the LLM verifies and clusters them into design families.
 
-The TSX adapter also suppresses three noisy false-positive classes before writing findings:
+Before interpreting results, confirm `meta.tsx_scope` contains every expected frontend root. The generic web adapter now looks beyond React/Next layouts: it includes Vue/Svelte/Astro/plain HTML files, nested `package.json` / Vite app roots, `packages/*/src`, `apps/*/src`, and top-level `index.html` when present. If a repo keeps UI somewhere unusual (`frontend`, `website`, `examples/foo`, generated source checked in under a custom name), rerun with `--scope` or `--all`. Do not produce a consolidation plan from a scan that omitted known frontend code.
+
+The TSX/web adapter also suppresses noisy false-positive classes before writing findings:
 - repo-gitignored files (post-filtered even when `rg -g` globs are in play)
 - repo-local `.driftignore` globs
 - prompt-content hexes in `image_prompt` / `video_prompt` / `keyPrompt` fields and Tailwind `data-[...]` variants such as Radix state selectors
+- common generated or preserved-output folders: `node_modules`, `dist`, `dist-ssr`, `build`, `coverage`, `.next`, `.nuxt`, `storybook-static`, `.drift`, and the drift archive folder `archive`
 
 `scan.json` is a generated local artifact. It may include source-line snippets for scanner evidence, so do not commit it by default in public repos. Commit the human plan (`.drift/plan.md`) and keep `scan*.json` ignored unless the operator explicitly wants raw findings versioned. Clone-cluster findings strip full duplicate fragments and retain locations/counts only.
 
@@ -82,15 +87,73 @@ Stack-agnostic drift signals always present:
 
 Stack-specific signals documented in the Supported Stacks table above.
 
+#### `component_motifs` (TSX)
+
+Surfaces semantic UI-family candidates even when token-level clone detection misses them. Families currently emitted:
+
+- `button`
+- `card`
+- `form-control`
+- `dropdown`
+- `table`
+- `tabs`
+- `pagination`
+- `badge`
+- `modal`
+- `filter-bar`
+- `widget`
+
+Each record includes `{file, line, family, matches, value}`. This scanner handles JSX/TSX, JS/TS, Vue, Svelte, Astro, and plain HTML where regex can see markup or class attributes. Treat these as candidate evidence, not a final verdict; read the top files before recommending a canonical form.
+
+#### `ui_guideline_violations` (TSX)
+
+Surfaces direct `/ui` guideline candidates that regex can prove without layout inference:
+
+- `inline_text_size` — `text-*` / `leading-*` on inline elements
+- `redundant_display` — default display utility on matching native elements
+- `deprecated_tailwind` — deprecated utilities such as `min-h-screen`, `bg-gradient-*`, `flex-shrink-*`, `flex-grow-*`, `leading-tight/snug/relaxed`, or `theme(...)`
+- `small_default_text_review` — unprefixed `text-xs` / `text-sm` requiring review against mobile body-text rules
+- `heading_font_bold` — headings using `font-bold`
+- `solid_divider_color` — solid gray/slate/zinc/neutral divider colors instead of opacity-based dividers
+- `table_heading_uppercase` — uppercase table headers
+- `table_vertical_divider` — vertical table dividers / `divide-x`
+- `button_text_base` — app buttons using `text-base`
+- `margin_layout_candidate` — margin utilities that may need parent `gap-*`
+
+These findings are intentionally conservative about absence-style rules. They work across `className=` and plain `class=` attributes where possible. They do not prove missing `text-balance`, missing focus rings, missing table responsive wrappers, or "only one primary button"; those require source review.
+
+#### `unused_canonical` (TSX)
+
+Surfaces *canonical-bypass* drift — files that render motifs already covered by a canonical primitive but do not reference that primitive. Discovers canonical roots in this order:
+
+1. `--canonical-root` flags (overlay-fed, when present)
+2. Default convention folders: `src/components/ui`, `components/ui`, `app/components/ui`
+
+For each canonical root the scanner extracts named exports (top-level `export function|const|class` plus `export { ... }` re-exports), classifies each export into a UI family, and compares those families against `component_motifs`. Then it finds files in scope that:
+
+- match a semantic component motif family
+- live outside every canonical root
+- reference none of that canonical root's exports for the same family
+
+Each match emits one finding: `{file, family, canonical_root, canonical_file, missing_exports[], motif_signals[]}`. The LLM then verifies imports/call sites, names the family, and proposes consolidation.
+
+This is the signal that catches "agent rebuilt the rules table in a different file" — token-level dup (jscpd) misses it because the rebuilt UI uses different prop names while serving the same intent.
+
 ### 2. Cluster into design families
 
 The agent reads `scan.json` plus the top N offending files and groups findings into families:
 
-- **Component duplication families**: `button`, `card`, `dropdown`, `modal`, `input`, `badge`, `avatar`, ... (or SwiftUI analogs: `PrimaryButton`, `CardView`, etc.)
+- **Component duplication families**: `button`, `card`, `dropdown`, `modal`, `input`, `badge`, `avatar`, `table`, `filter-bar`, `sort-header`, `tabs`, `pagination`, `accordion`, `drawer`, `data-grid`, ... (or SwiftUI analogs: `PrimaryButton`, `CardView`, etc.)
 - **Token violation families**: `color`, `spacing`, `typography`, `radius`, `shadow`, `z-index`
 - **Structure families**: `inline-style-overuse` / `modifier-soup`, `classname-soup`, `orphan-primitive`
+- **Guideline families**: direct `/ui` rule drift from `ui_guideline_violations`
 
-Before emitting the plan, identify the **token source file(s)** for the stack (e.g. `tailwind.config.*`, `Theme/*.swift`, `DesignTokens.swift`) and exclude them from violation counts — they are the canonical, not drift. Findings inside the token source are expected.
+Before emitting the plan:
+
+1. Confirm `meta.tsx_scope` covers all frontend roots. Rerun if it does not.
+2. Confirm `meta.tsx_canonical_roots` contains every design-system primitive root. Rerun with `--canonical-root` for feature-local primitives.
+3. Identify the **token source file(s)** for the stack (e.g. `tailwind.config.*`, `Theme/*.swift`, `DesignTokens.swift`) and exclude them from violation counts — they are the canonical, not drift. Findings inside the token source are expected.
+4. Cross-check `component_motifs`, `unused_canonical`, `clone_clusters`, and `ui_guideline_violations`; do not rely on any single category as complete.
 
 For each family, record:
 - canonical candidate (file path + reason it's the best starting point)
@@ -133,7 +196,7 @@ This:
 1. Copies the source file to `<repo>/archive/<family>/NN-<basename>` where `NN` is the next zero-padded number in the family
 2. Appends an entry to `<repo>/.drift/archive.json` with `{family, number, from, reason, date, sha, canonical_at_time}`
 3. Re-renders the archive index (see 5)
-4. Removes the original file (caller handles call-site rewrites via `simplify`)
+4. Removes the original file (caller handles call-site rewrites via `simplify-and-refactor-code-isomorphically`)
 
 ### 5. Single-page archive index
 
@@ -166,8 +229,8 @@ The index is the safety net: if a user scans it and realizes archetype `button/0
 
 ## Non-Goals
 
-- Does not auto-edit component code. Consolidation edits go through `simplify` or a human.
-- Does not generate tokens. That's `unified-brand-system`.
+- Does not auto-edit component code. Consolidation edits go through `simplify-and-refactor-code-isomorphically` or a human.
+- Does not invent a target brand system. It measures against existing repo tokens, canonical roots, and `/ui` guidance; if those are missing, call that out before consolidation.
 - Does not do a11y review. That's `codebase-audit` UX domain.
 - Does not cover non-frontend codebases.
 
@@ -205,5 +268,6 @@ scripts/test_scan.sh
 ## Troubleshooting
 
 - **No tailwind arbitrary findings on a Tailwind repo**: confirm `scripts/scan.sh` detected `tailwind.config.*` (logs the path). Pass `--tailwind-config <path>` if needed.
+- **Expected frontend root missing from `meta.tsx_scope`**: rerun with `--scope "<root1> <root2>"` or `--all`, then add a `.driftignore` for generated/noisy local folders. If the layout is common across repos, add a regression fixture to `scripts/test_scan.sh` before changing the scope heuristic.
 - **jscpd flagging boilerplate imports as clones**: tune `scripts/jscpd.json` threshold, not the agent output.
 - **Archive index out of sync**: rebuild via `render_archive_index.sh`; never hand-edit `INDEX.md`.

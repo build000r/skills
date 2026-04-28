@@ -10,14 +10,19 @@ usage() {
 Usage: scan.sh <repo-path> [--scope <subpath>] [--stack auto|tsx|swift]
                            [--tailwind-config <path>] [--token-source <path>]
                            [--output <path>] [--all]
+                           [--canonical-root <repo-rel-path>]
 
 Per-stack defaults:
-  tsx    scope = first of {src, app, components, pages} that exists
+  tsx    scope = source roots from {src, app, components, pages, public},
+           nested package/app roots, and top-level index.html
   swift  scope = first of {Sources, App, <repo>/<repo>} containing .swift files
 
 --output  repo-relative or absolute output path (default: .drift/scan.json)
 --token-source  repo-relative token source file to exclude from violation findings
                 (repeatable; Swift token files are auto-detected)
+--canonical-root  repo-relative folder whose named exports are the canonical UI
+                primitives. Repeatable. Falls back to default conventions
+                (src/components/ui, components/ui, app/components/ui) when omitted.
 --all     bypass per-stack defaults and scan the whole repo (noisy).
 Requires: jq, rg. Optional: node+npx for jscpd / knip.
 EOF
@@ -31,6 +36,7 @@ STACK="auto"
 TW_CONFIG=""
 OUT_FILE=".drift/scan.json"
 TOKEN_SOURCES=()
+CANONICAL_ROOTS=()
 SCAN_ALL=0
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -38,6 +44,7 @@ while [ $# -gt 0 ]; do
     --stack) STACK="$2"; shift 2 ;;
     --tailwind-config) TW_CONFIG="$2"; shift 2 ;;
     --token-source) TOKEN_SOURCES+=("$2"); shift 2 ;;
+    --canonical-root) CANONICAL_ROOTS+=("$2"); shift 2 ;;
     --output) OUT_FILE="$2"; shift 2 ;;
     --all) SCAN_ALL=1; shift ;;
     -h|--help) usage ;;
@@ -50,13 +57,35 @@ command -v jq >/dev/null || { echo "need jq" >&2; exit 1; }
 command -v rg >/dev/null || { echo "need ripgrep (rg)" >&2; exit 1; }
 
 cd "$REPO"
-mkdir -p .drift
 mkdir -p "$(dirname "$OUT_FILE")"
 REPO_LABEL="$(basename "$PWD")"
 case "$OUT_FILE" in
   /*) OUT_DISPLAY="$OUT_FILE" ;;
   *) OUT_DISPLAY="$REPO/$OUT_FILE" ;;
 esac
+
+COMMON_RG_EXCLUDES=(
+  -g '!node_modules/**'
+  -g '!**/node_modules/**'
+  -g '!dist/**'
+  -g '!**/dist/**'
+  -g '!dist-ssr/**'
+  -g '!**/dist-ssr/**'
+  -g '!build/**'
+  -g '!**/build/**'
+  -g '!coverage/**'
+  -g '!**/coverage/**'
+  -g '!.next/**'
+  -g '!**/.next/**'
+  -g '!.nuxt/**'
+  -g '!**/.nuxt/**'
+  -g '!storybook-static/**'
+  -g '!**/storybook-static/**'
+  -g '!archive/**'
+  -g '!**/archive/**'
+  -g '!.drift/**'
+  -g '!**/.drift/**'
+)
 
 detect_swift_token_sources() {
   find . -type f \( \
@@ -91,6 +120,14 @@ token_sources_json() {
   fi
 }
 
+token_sources_meta_json() {
+  if [ ${#TOKEN_SOURCES_UNIQUE[@]} -eq 0 ]; then
+    echo "[]"
+  else
+    printf '%s\n' "${TOKEN_SOURCES_UNIQUE[@]}" | jq -R . | jq -s .
+  fi
+}
+
 TOKEN_SOURCES_JSON="$(token_sources_json)"
 
 # ---------- .driftignore loading ----------
@@ -98,7 +135,7 @@ TOKEN_SOURCES_JSON="$(token_sources_json)"
 # pattern. Prepended with `!` and passed as a -g exclude to every rg call
 # via EXTRA_RG_ARGS. Lets consumers quiet per-repo false positives (e.g.
 # gitignored scratch files rg's -g globs would otherwise re-include).
-EXTRA_RG_ARGS=()
+EXTRA_RG_ARGS=("${COMMON_RG_EXCLUDES[@]}")
 DRIFTIGNORE_PATTERNS=()
 if [ -f .driftignore ]; then
   while IFS= read -r line || [ -n "$line" ]; do
@@ -116,13 +153,18 @@ fi
 # ---------- stack detection ----------
 detect_stacks() {
   local stacks=()
-  if [ -f package.json ] || ls tsconfig*.json >/dev/null 2>&1 || \
-     compgen -G "**/*.tsx" >/dev/null 2>&1 || \
-     find . -maxdepth 4 -name '*.tsx' -not -path '*/node_modules/*' -not -path '*/.next/*' -not -path '*/dist/*' 2>/dev/null | head -1 | grep -q .; then
+  if [ -f package.json ] || \
+     ls tsconfig*.json >/dev/null 2>&1 || \
+     ls vite.config.* astro.config.* svelte.config.* vue.config.* next.config.* >/dev/null 2>&1 || \
+     [ -f index.html ] || \
+     [ -n "$(find . -maxdepth 4 \
+       \( -path '*/node_modules' -o -path '*/dist' -o -path '*/dist-ssr' -o -path '*/build' -o -path '*/coverage' -o -path '*/.next' -o -path '*/.nuxt' -o -path '*/storybook-static' -o -path '*/archive' -o -path '*/.drift' \) -prune -o \
+       -type f \( -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.jsx' -o -name '*.vue' -o -name '*.svelte' -o -name '*.astro' -o -name '*.html' -o -name '*.css' -o -name '*.scss' \) \
+       -print -quit 2>/dev/null)" ]; then
     stacks+=("tsx")
   fi
   if ls *.xcodeproj >/dev/null 2>&1 || ls */Package.swift >/dev/null 2>&1 || [ -f Package.swift ] || \
-     find . -maxdepth 4 -name '*.swift' -not -path '*/.build/*' -not -path '*/Pods/*' -not -path '*/DerivedData*/*' 2>/dev/null | head -1 | grep -q .; then
+     [ -n "$(find . -maxdepth 4 -name '*.swift' -not -path '*/.build/*' -not -path '*/Pods/*' -not -path '*/DerivedData*/*' -print -quit 2>/dev/null)" ]; then
     stacks+=("swift")
   fi
   printf '%s\n' "${stacks[@]}"
@@ -136,17 +178,96 @@ else
 fi
 
 # ---------- default scope selection per stack ----------
+is_frontend_file() {
+  case "$1" in
+    *.ts|*.tsx|*.js|*.jsx|*.vue|*.svelte|*.astro|*.html|*.css|*.scss) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+frontend_file_exists() {
+  local root="$1"
+  local maxdepth="${2:-8}"
+  [ -e "$root" ] || return 1
+  if [ -f "$root" ]; then
+    is_frontend_file "$root"
+    return $?
+  fi
+  [ -n "$(find "$root" -maxdepth "$maxdepth" \
+      \( -path '*/node_modules' -o -path '*/dist' -o -path '*/dist-ssr' -o -path '*/build' -o -path '*/coverage' -o -path '*/.next' -o -path '*/.nuxt' -o -path '*/storybook-static' -o -path '*/archive' -o -path '*/.drift' \) -prune -o \
+      -type f \( -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.jsx' -o -name '*.vue' -o -name '*.svelte' -o -name '*.astro' -o -name '*.html' -o -name '*.css' -o -name '*.scss' \) \
+      -print -quit 2>/dev/null)" ]
+}
+
+normalize_scope_path() {
+  local path="$1"
+  path="${path#./}"
+  path="${path%/}"
+  [ -n "$path" ] && printf '%s\n' "$path"
+}
+
+add_scope() {
+  local candidate selected keep=()
+  candidate="$(normalize_scope_path "$1")"
+  [ -n "$candidate" ] || return 0
+  for selected in "${scopes[@]}"; do
+    [ "$candidate" = "$selected" ] && return 0
+    [[ "$candidate" == "$selected"/* ]] && return 0
+  done
+  for selected in "${scopes[@]}"; do
+    if [[ "$selected" == "$candidate"/* ]]; then
+      continue
+    fi
+    keep+=("$selected")
+  done
+  scopes=("${keep[@]}" "$candidate")
+}
+
 default_scope_tsx() {
-  # Collect scopes that actually contain tsx/jsx (not empty placeholders).
-  local d scopes=()
+  # Collect source scopes for generic web frontends: React/TSX, JS/JSX,
+  # Vue/Svelte/Astro, plain HTML/CSS, Vite sub-apps, and monorepo packages.
+  local d f dir root
+  local -a scopes=()
+
   for d in src app components pages; do
     [ -d "$d" ] || continue
-    find "$d" -maxdepth 6 -type f \( -name '*.tsx' -o -name '*.jsx' -o -name '*.ts' \) \
-      -not -path '*/node_modules/*' -not -path '*/.next/*' -not -path '*/dist/*' \
-      2>/dev/null | head -1 | grep -q . && scopes+=("$d")
+    frontend_file_exists "$d" 8 && add_scope "$d"
   done
+  if [ -d public ] && frontend_file_exists public 4; then
+    add_scope public
+  fi
+  [ -f index.html ] && add_scope index.html
+
+  while IFS= read -r f; do
+    dir="$(dirname "$f")"
+    dir="${dir#./}"
+    [ "$dir" = "." ] && continue
+    for root in src app pages components; do
+      [ -d "$dir/$root" ] || continue
+      frontend_file_exists "$dir/$root" 8 && add_scope "$dir/$root"
+    done
+    if [ -f "$dir/index.html" ] && frontend_file_exists "$dir" 3; then
+      add_scope "$dir"
+    fi
+  done < <(
+    find . -maxdepth 5 \
+      \( -path '*/node_modules' -o -path '*/dist' -o -path '*/dist-ssr' -o -path '*/build' -o -path '*/coverage' -o -path '*/.next' -o -path '*/.nuxt' -o -path '*/storybook-static' -o -path '*/archive' -o -path '*/.drift' \) -prune -o \
+      -type f \( -name package.json -o -name 'vite.config.*' -o -name 'astro.config.*' -o -name 'svelte.config.*' -o -name 'vue.config.*' -o -name 'next.config.*' \) \
+      -print 2>/dev/null
+  )
+
+  while IFS= read -r root; do
+    root="${root#./}"
+    frontend_file_exists "$root" 8 && add_scope "$root"
+  done < <(
+    find . -maxdepth 5 \
+      \( -path '*/node_modules' -o -path '*/dist' -o -path '*/dist-ssr' -o -path '*/build' -o -path '*/coverage' -o -path '*/.next' -o -path '*/.nuxt' -o -path '*/storybook-static' -o -path '*/archive' -o -path '*/.drift' \) -prune -o \
+      -type d \( -name src -o -name app -o -name pages -o -name components \) \
+      -print 2>/dev/null
+  )
+
   if [ ${#scopes[@]} -eq 0 ]; then echo "."; else
-    # Space-separated: rg accepts multiple paths positionally via eval
+    # Space-separated: resolved into an array before passing to rg.
     printf '%s\n' "${scopes[@]}" | paste -sd' ' -
   fi
 }
@@ -156,9 +277,9 @@ default_scope_swift() {
   repo_name="$(basename "$PWD")"
   for d in Sources App "$repo_name"/"$repo_name" "$repo_name"; do
     [ -d "$d" ] || continue
-    find "$d" -maxdepth 6 -name '*.swift' \
+    [ -n "$(find "$d" -maxdepth 6 -name '*.swift' \
       -not -path '*/.build/*' -not -path '*/Pods/*' -not -path '*/DerivedData*/*' \
-      2>/dev/null | head -1 | grep -q . && { scopes+=("$d"); break; }
+      -print -quit 2>/dev/null)" ] && { scopes+=("$d"); break; }
   done
   if [ ${#scopes[@]} -eq 0 ]; then echo "."; else printf '%s\n' "${scopes[@]}" | paste -sd' ' -; fi
 }
@@ -179,6 +300,17 @@ emit_matches() {
       }' > "$out" || true
   filter_gitignored_matches "$out"
   filter_driftignored_matches "$out"
+}
+
+emit_tagged_matches() {
+  # $1 = output jsonl file, $2 = key, $3 = value, $4+ = rg args.
+  local out="$1"; shift
+  local key="$1"; shift
+  local value="$1"; shift
+  local scratch="$tmp/$(basename "$out").${key}.${value}.jsonl"
+  emit_matches "$scratch" "$@"
+  [ -s "$scratch" ] || return 0
+  jq -c --arg key "$key" --arg value "$value" '. + {($key): $value}' "$scratch" >> "$out"
 }
 
 filter_matches() {
@@ -317,6 +449,334 @@ sanitize_clone_file() {
   mv "$sanitized" "$file"
 }
 
+discover_canonical_roots_tsx() {
+  # Echo repo-relative canonical root directories or files, one per line.
+  # Order: explicit --canonical-root flags first (also accept individual
+  # canonical FILES, not just directories), then default convention folders.
+  # Feature-local primitive roots should be passed explicitly or via overlay.
+  # Auto-discovering every */components/<area>/index.ts barrel is too noisy:
+  # feature modules often have barrels that would hide their own variants.
+  local d
+  {
+    for d in "${CANONICAL_ROOTS[@]}"; do
+      [ -n "$d" ] || continue
+      if [ -d "$d" ] || [ -f "$d" ]; then
+        printf '%s\n' "${d%/}"
+      fi
+    done
+    for d in src/components/ui components/ui app/components/ui; do
+      [ -d "$d" ] && printf '%s\n' "$d"
+    done
+  } | awk 'NF && !seen[$0]++ { print }'
+}
+
+tsx_canonical_roots_json() {
+  discover_canonical_roots_tsx | jq -R . | jq -s .
+}
+
+extract_named_exports_tsx() {
+  # $1 = canonical-root path (dir OR file). Echo "<file-rel-to-repo>\t<exported-name>" per line.
+  # Picks up:
+  #   export function Foo
+  #   export const Foo
+  #   export class Foo
+  #   export { Foo, Bar as Baz } from './x'
+  #   export { Foo } (re-exports without source)
+  local root="$1"
+  { rg -n --no-heading \
+    -g '*.{ts,tsx,js,jsx}' \
+    -e '^\s*export\s+(?:default\s+)?(?:async\s+)?function\s+([A-Z][A-Za-z0-9_]+)' \
+    -e '^\s*export\s+(?:const|let|var)\s+([A-Z][A-Za-z0-9_]+)' \
+    -e '^\s*export\s+class\s+([A-Z][A-Za-z0-9_]+)' \
+    "$root" 2>/dev/null || true; } \
+    | awk -F: '{
+        path = $1
+        sub(/^\.\//, "", path)
+        n = index($0, ":")
+        rest = substr($0, n + 1)
+        n = index(rest, ":")
+        line = substr(rest, n + 1)
+        if (match(line, /(function|const|let|var|class)[[:space:]]+[A-Z][A-Za-z0-9_]+/)) {
+          s = substr(line, RSTART, RLENGTH)
+          sub(/^(function|const|let|var|class)[[:space:]]+/, "", s)
+          print path "\t" s
+        }
+      }'
+
+  # Re-exports: export { A, B as C } from "./x"
+  { rg -n --no-heading \
+    -g '*.{ts,tsx,js,jsx}' \
+    -e '^\s*export\s*\{[^}]+\}' \
+    "$root" 2>/dev/null || true; } \
+    | awk -F: '{
+        path = $1
+        sub(/^\.\//, "", path)
+        n = index($0, ":")
+        rest = substr($0, n + 1)
+        n = index(rest, ":")
+        line = substr(rest, n + 1)
+        gsub(/.*\{|\}.*/, "", line)
+        n_items = split(line, items, /,/)
+        for (i = 1; i <= n_items; i++) {
+          item = items[i]
+          gsub(/^[[:space:]]+|[[:space:]]+$/, "", item)
+          if (match(item, /[[:space:]]+as[[:space:]]+[A-Z][A-Za-z0-9_]+/)) {
+            s = substr(item, RSTART, RLENGTH)
+            sub(/^[[:space:]]+as[[:space:]]+/, "", s)
+            print path "\t" s
+          } else if (match(item, /^[A-Z][A-Za-z0-9_]+$/)) {
+            print path "\t" item
+          }
+        }
+      }'
+}
+
+canonical_family_for_export() {
+  # Classify a canonical export into the nearest UI family. This is only a
+  # deterministic candidate signal; the plan-writing step still verifies source.
+  local file="$1"
+  local name="$2"
+  local key
+  key="$(printf '%s %s' "$file" "$name" | tr '[:upper:]' '[:lower:]')"
+  case "$key" in
+    *widget*) echo "widget" ;;
+    *table*|*column*|*sort*|*grid*) echo "table" ;;
+    *button*|*toggle*) echo "button" ;;
+    *card*|*panel*|*surface*) echo "card" ;;
+    *input*|*textarea*|*select*|*field*|*label*|*switch*|*combobox*) echo "form-control" ;;
+    *dropdown*|*menu*|*popover*|*command*) echo "dropdown" ;;
+    *tab*) echo "tabs" ;;
+    *pagination*|*pager*) echo "pagination" ;;
+    *badge*|*chip*) echo "badge" ;;
+    *avatar*) echo "avatar" ;;
+    *dialog*|*modal*|*drawer*|*sheet*) echo "modal" ;;
+    *filter*|*search*) echo "filter-bar" ;;
+    *skeleton*|*loading*|*empty*|*error*) echo "state" ;;
+    *) echo "unknown" ;;
+  esac
+}
+
+scan_tsx_component_motifs() {
+  # Broad semantic UI motifs. These are intentionally candidates, not verdicts:
+  # they let the LLM see families even when token-level duplication misses them.
+  local -a scope=("$@")
+  local out="$tmp/tsx_component_motifs.jsonl"
+  : > "$out"
+
+  emit_tagged_matches "$out" family button \
+    -g '*.{ts,tsx,js,jsx,html,vue,svelte,astro}' \
+    -e '<button\b' \
+    -e '\bButton\b' \
+    -e 'role=("|\x27)button' \
+    "${scope[@]}"
+  emit_tagged_matches "$out" family card \
+    -g '*.{ts,tsx,js,jsx,html,vue,svelte,astro}' \
+    -e '\b(Card|CardHeader|CardContent|CardFooter|CardTitle|CardDescription)\b' \
+    -e '\b(rounded-[^"\x27\x60]*\s+(border|shadow|bg-)|(border|shadow|bg-)[^"\x27\x60]*\s+rounded-)' \
+    "${scope[@]}"
+  emit_tagged_matches "$out" family form-control \
+    -g '*.{ts,tsx,js,jsx,html,vue,svelte,astro}' \
+    -e '<(input|textarea|select)\b' \
+    -e '\b(Input|Textarea|Select|Field|Label|Switch|Combobox)\b' \
+    "${scope[@]}"
+  emit_tagged_matches "$out" family dropdown \
+    -g '*.{ts,tsx,js,jsx,html,vue,svelte,astro}' \
+    -e '\b(DropdownMenu|Dropdown|Popover|Command|Combobox|Menu)\b' \
+    -e 'aria-haspopup=' \
+    "${scope[@]}"
+  emit_tagged_matches "$out" family table \
+    -g '*.{ts,tsx,js,jsx,html,vue,svelte,astro}' \
+    -e '<table\b' \
+    -e 'BillingTable\b' \
+    -e 'DataTable\b' \
+    -e '\bTable(Shell|HeadRow|Body|Row|Cell)\b' \
+    "${scope[@]}"
+  emit_tagged_matches "$out" family tabs \
+    -g '*.{ts,tsx,js,jsx,html,vue,svelte,astro}' \
+    -e '\bTabs(List|Trigger|Content)?\b' \
+    -e 'role=("|\x27)tab' \
+    "${scope[@]}"
+  emit_tagged_matches "$out" family pagination \
+    -g '*.{ts,tsx,js,jsx,html,vue,svelte,astro}' \
+    -e '\b(Pagination|pageSize|nextPage|previousPage|canNextPage|canPreviousPage)\b' \
+    -e 'aria-label=("|\x27)[^"\x27]*(pagination|next page|previous page)' \
+    "${scope[@]}"
+  emit_tagged_matches "$out" family badge \
+    -g '*.{ts,tsx,js,jsx,html,vue,svelte,astro}' \
+    -e '\b(Badge|Chip)\b' \
+    -e '\brounded-full\b[^"\x27\x60]*\btext-(xs|sm)\b' \
+    "${scope[@]}"
+  emit_tagged_matches "$out" family modal \
+    -g '*.{ts,tsx,js,jsx,html,vue,svelte,astro}' \
+    -e '\b(Dialog|Modal|Drawer|Sheet)(Content|Header|Footer|Title|Description)?\b' \
+    -e 'role=("|\x27)dialog' \
+    "${scope[@]}"
+  emit_tagged_matches "$out" family filter-bar \
+    -g '*.{ts,tsx,js,jsx,html,vue,svelte,astro}' \
+    -e '\b(Filter|Search|Sort|Toolbar)\b' \
+    -e 'aria-label=("|\x27)[^"\x27]*(filter|search|sort)' \
+    "${scope[@]}"
+  emit_tagged_matches "$out" family widget \
+    -g '*.{ts,tsx,js,jsx,html,vue,svelte,astro}' \
+    -e '\bWidget[A-Z][A-Za-z0-9_]*\b' \
+    -e '\b(FloatingActionDock|OrbitLoader)\b' \
+    "${scope[@]}"
+
+  filter_token_sources "$out"
+}
+
+scan_tsx_ui_guidelines() {
+  # Direct checks for the highest-signal /ui Tailwind guidelines. Absence-style
+  # rules are intentionally omitted because regex cannot prove them safely.
+  local -a scope=("$@")
+  local out="$tmp/tsx_ui_guideline_violations.jsonl"
+  : > "$out"
+
+  emit_tagged_matches "$out" rule_id inline_text_size \
+    -g '*.{tsx,jsx,html,vue,svelte,astro}' \
+    -e '<(span|a|strong|em|code)\b[^>]*\b(className|class)=("|\x27|\x60)[^"\x27\x60]*\b(text|leading)-' \
+    "${scope[@]}"
+  emit_tagged_matches "$out" rule_id redundant_display \
+    -g '*.{tsx,jsx,html,vue,svelte,astro}' \
+    -e '<(div|p|h[1-6])\b[^>]*\b(className|class)=("|\x27|\x60)[^"\x27\x60]*\bblock\b' \
+    -e '<(span|a)\b[^>]*\b(className|class)=("|\x27|\x60)[^"\x27\x60]*\binline\b' \
+    -e '<(button|input|select)\b[^>]*\b(className|class)=("|\x27|\x60)[^"\x27\x60]*\binline-block\b' \
+    "${scope[@]}"
+  emit_tagged_matches "$out" rule_id deprecated_tailwind \
+    -g '*.{ts,tsx,js,jsx,css,scss,html,vue,svelte,astro}' \
+    -e '\b(min-h-screen|bg-gradient-|flex-shrink-|flex-grow-|leading-(tight|snug|relaxed)|theme\()' \
+    "${scope[@]}"
+  emit_tagged_matches "$out" rule_id small_default_text_review \
+    -g '*.{tsx,jsx,html,vue,svelte,astro}' \
+    -e '\b(className|class)=("|\x27|\x60)[^"\x27\x60]*\btext-(xs|sm)\b' \
+    "${scope[@]}"
+  emit_tagged_matches "$out" rule_id heading_font_bold \
+    -g '*.{tsx,jsx,html,vue,svelte,astro}' \
+    -e '<h[1-6]\b[^>]*\b(className|class)=("|\x27|\x60)[^"\x27\x60]*\bfont-bold\b' \
+    "${scope[@]}"
+  emit_tagged_matches "$out" rule_id solid_divider_color \
+    -g '*.{tsx,jsx,html,vue,svelte,astro}' \
+    -e '\b(border|divide)-(gray|slate|zinc|neutral)-(200|300|400)\b' \
+    "${scope[@]}"
+  emit_tagged_matches "$out" rule_id table_heading_uppercase \
+    -g '*.{tsx,jsx,html,vue,svelte,astro}' \
+    -e '<th\b[^>]*\b(className|class)=("|\x27|\x60)[^"\x27\x60]*\buppercase\b' \
+    "${scope[@]}"
+  emit_tagged_matches "$out" rule_id table_vertical_divider \
+    -g '*.{tsx,jsx,html,vue,svelte,astro}' \
+    -e '\b(border-l|border-r|divide-x)\b' \
+    "${scope[@]}"
+  emit_tagged_matches "$out" rule_id button_text_base \
+    -g '*.{tsx,jsx,html,vue,svelte,astro}' \
+    -e '<button\b[^>]*\b(className|class)=("|\x27|\x60)[^"\x27\x60]*\btext-base\b' \
+    -e '<Button\b[^>]*\bclassName=("|\x27|\x60)[^"\x27\x60]*\btext-base\b' \
+    "${scope[@]}"
+  emit_tagged_matches "$out" rule_id margin_layout_candidate \
+    -g '*.{tsx,jsx,html,vue,svelte,astro}' \
+    -e '\b(className|class)=("|\x27|\x60)[^"\x27\x60]*\bm[trblxy]-' \
+    "${scope[@]}"
+
+  filter_token_sources "$out"
+}
+
+scan_tsx_unused_canonical() {
+  # Emits one JSONL record per (canonical family, suspect_file) pair.
+  # Record shape:
+  #   { file, family, canonical_root, canonical_file, missing_exports[], motif_signals[] }
+  # Disable set -e inside this function — many sub-pipelines may exit non-zero
+  # on no-match (rg, jq) and we treat those as valid empty results.
+  set +e
+  set +o pipefail
+  local out="$tmp/tsx_unused_canonical.jsonl"
+  : > "$out"
+
+  mapfile -t roots < <(discover_canonical_roots_tsx)
+  [ ${#roots[@]} -gt 0 ] || return 0
+
+  # Build canonical export map: per root + family, collect exports separately so
+  # we can detect "imports nothing from THIS root/family" rather than "imports
+  # nothing from ANY canonical root" (which lets partial consumers slip through).
+  local exports_tsv="$tmp/tsx_canonical_exports.tsv"
+  : > "$exports_tsv"
+  local root export_file export_name family
+  for root in "${roots[@]}"; do
+    while IFS=$'\t' read -r export_file export_name; do
+      [ -n "$export_file" ] && [ -n "$export_name" ] || continue
+      family="$(canonical_family_for_export "$export_file" "$export_name")"
+      [ "$family" = "unknown" ] && continue
+      printf '%s\t%s\t%s\t%s\n' "$root" "$export_file" "$export_name" "$family" >> "$exports_tsv"
+    done < <(extract_named_exports_tsx "$root")
+  done
+  [ -s "$exports_tsv" ] || return 0
+
+  local motif_pairs="$tmp/tsx_motif_pairs.tsv"
+  if [ -s "$tmp/tsx_component_motifs.jsonl" ]; then
+    jq -r '[.file, .family] | @tsv' "$tmp/tsx_component_motifs.jsonl" | sort -u > "$motif_pairs"
+  else
+    : > "$motif_pairs"
+  fi
+  [ -s "$motif_pairs" ] || return 0
+
+  # Build canonical-root prefix list (so we can exclude files inside canonical roots)
+  local roots_alt
+  roots_alt=$(printf '%s\n' "${roots[@]}" | sed 's#/$##' | sed 's#[.[\*^$()+?{}|\\]#\\&#g' | paste -sd'|' -)
+
+  local suspect suspect_family
+  while IFS=$'\t' read -r suspect suspect_family; do
+    # Skip files inside a canonical root
+    if [[ "$suspect" =~ ^($roots_alt)(/|$) ]]; then continue; fi
+    [ -f "$suspect" ] || continue
+    # Capture motif signals once
+    local motifs_json
+    motifs_json=$(
+      jq -c --arg file "$suspect" --arg family "$suspect_family" \
+        'select(.file == $file and .family == $family) | {line, matches, value}' \
+        "$tmp/tsx_component_motifs.jsonl" \
+        | jq -cs '. // []'
+    )
+    [ -n "$motifs_json" ] || motifs_json="[]"
+
+    # For each canonical root/family, check whether suspect references any of
+    # its exports. A reference is enough for scanner purposes; the LLM verifies
+    # imports and call sites in source before recommending consolidation.
+    for root in "${roots[@]}"; do
+      local root_exports
+      root_exports=$(awk -F'\t' -v r="$root" -v fam="$suspect_family" '$1==r && $4==fam {print $3}' "$exports_tsv" | awk 'NF && !seen[$0]++')
+      [ -n "$root_exports" ] || continue
+      local root_alt
+      root_alt=$(printf '%s\n' "$root_exports" | sed 's#[.[\*^$()+?{}|\\]#\\&#g' | paste -sd'|' -)
+      [ -n "$root_alt" ] || continue
+      if rg -q "(^|[^A-Za-z0-9_])($root_alt)([^A-Za-z0-9_]|$)" "$suspect" 2>/dev/null; then
+        continue
+      fi
+      local canonical_file
+      canonical_file=$(awk -F'\t' -v r="$root" -v fam="$suspect_family" '$1==r && $4==fam {print $2; exit}' "$exports_tsv")
+      local missing_json
+      missing_json=$(printf '%s\n' "$root_exports" | jq -R . | jq -s .)
+      local rec
+      rec=$(jq -nc \
+        --arg suspect "$suspect" \
+        --arg family "$suspect_family" \
+        --arg root "$root" \
+        --arg canonical_file "$canonical_file" \
+        --argjson missing "$missing_json" \
+        --argjson motifs "$motifs_json" \
+        '{
+          file: $suspect,
+          family: $family,
+          canonical_root: $root,
+          canonical_file: $canonical_file,
+          missing_exports: $missing,
+          motif_signals: $motifs
+        }')
+      printf '%s\n' "$rec" >> "$out"
+    done
+  done < "$motif_pairs"
+
+  set -e
+  set -o pipefail
+}
+
 scan_tsx() {
   local -a scope=("$@")
   # tailwind arbitrary values
@@ -359,16 +819,21 @@ scan_tsx() {
   filter_token_sources "$tmp/tsx_off_scale_typography.jsonl"
   # inline styles
   emit_matches "$tmp/tsx_inline_styles.jsonl" \
-    -g '*.{tsx,jsx,vue,svelte,astro}' \
+    -g '*.{tsx,jsx,html,vue,svelte,astro}' \
     -e 'style=\{\{' \
+    -e 'style=("|\x27)[^"\x27]*[:;]' \
     "${scope[@]}"
   filter_token_sources "$tmp/tsx_inline_styles.jsonl"
-  # className soup: 12+ whitespace-separated tokens in a className string
+  # class/className soup: 12+ whitespace-separated tokens in a class attribute string
   emit_matches "$tmp/tsx_classname_soup.jsonl" \
-    -g '*.{tsx,jsx,vue,svelte,astro}' \
-    -e 'className=("|\x27|\x60)(?:[^"\x27\x60]*\s){12,}[^"\x27\x60]*("|\x27|\x60)' \
+    -g '*.{tsx,jsx,html,vue,svelte,astro}' \
+    -e '\b(className|class)=("|\x27|\x60)(?:[^"\x27\x60]*\s){12,}[^"\x27\x60]*("|\x27|\x60)' \
     "${scope[@]}"
   filter_token_sources "$tmp/tsx_classname_soup.jsonl"
+  # semantic component-family motif candidates
+  scan_tsx_component_motifs "${scope[@]}"
+  # /ui guideline candidate violations
+  scan_tsx_ui_guidelines "${scope[@]}"
   # jscpd
   echo '{"statistics":{"total":{"clones":0}},"duplicates":[]}' > "$tmp/tsx_clone_clusters.json"
   if command -v npx >/dev/null 2>&1; then
@@ -376,8 +841,8 @@ scan_tsx() {
       --reporters json \
       --output "$tmp/jscpd_tsx" \
       --min-lines 8 --min-tokens 60 \
-      --pattern '**/*.{ts,tsx,jsx,vue,svelte,astro}' \
-      --ignore '**/node_modules/**,**/dist/**,**/.next/**,**/build/**' \
+      --pattern '**/*.{ts,tsx,js,jsx,vue,svelte,astro,html,css,scss}' \
+      --ignore '**/node_modules/**,**/dist/**,**/dist-ssr/**,**/.next/**,**/.nuxt/**,**/build/**,**/coverage/**,**/storybook-static/**,**/archive/**,**/.drift/**' \
       >/dev/null 2>&1 || true
     [ -f "$tmp/jscpd_tsx/jscpd-report.json" ] && cp "$tmp/jscpd_tsx/jscpd-report.json" "$tmp/tsx_clone_clusters.json" || true
   fi
@@ -458,6 +923,7 @@ for s in "${DETECTED[@]}"; do
       # shellcheck disable=SC2086
       read -ra _tsx_scope <<<"$TSX_SCOPE"
       scan_tsx "${_tsx_scope[@]}"
+      scan_tsx_unused_canonical "${_tsx_scope[@]}"
       ;;
     swift)
       if [ -n "$USER_SCOPE" ]; then SWIFT_SCOPE="$USER_SCOPE"
@@ -480,12 +946,15 @@ TSX_SPA_FILE="$tmp/tsx_off_scale_spacing.array.json"; jsonl_to_array_file "$tmp/
 TSX_TYP_FILE="$tmp/tsx_off_scale_typography.array.json"; jsonl_to_array_file "$tmp/tsx_off_scale_typography.jsonl" "$TSX_TYP_FILE"
 TSX_INL_FILE="$tmp/tsx_inline_styles.array.json"; jsonl_to_array_file "$tmp/tsx_inline_styles.jsonl" "$TSX_INL_FILE"
 TSX_SOUP_FILE="$tmp/tsx_classname_soup.array.json"; jsonl_to_array_file "$tmp/tsx_classname_soup.jsonl" "$TSX_SOUP_FILE"
+TSX_MOTIF_FILE="$tmp/tsx_component_motifs.array.json"; jsonl_to_array_file "$tmp/tsx_component_motifs.jsonl" "$TSX_MOTIF_FILE"
+TSX_UI_GUIDE_FILE="$tmp/tsx_ui_guideline_violations.array.json"; jsonl_to_array_file "$tmp/tsx_ui_guideline_violations.jsonl" "$TSX_UI_GUIDE_FILE"
 TSX_CLONE_FILE="$tmp/tsx_clone_clusters.json"
 [ -f "$TSX_CLONE_FILE" ] || { TSX_CLONE_FILE="$tmp/_empty_jscpd_tsx.json"; empty_jscpd > "$TSX_CLONE_FILE"; }
 sanitize_clone_file "$TSX_CLONE_FILE"
 TSX_ORPH_FILE="$tmp/tsx_orphan_primitives.json"
 [ -f "$TSX_ORPH_FILE" ] || { TSX_ORPH_FILE="$tmp/_empty_knip.json"; echo '{"files":[],"exports":[]}' > "$TSX_ORPH_FILE"; }
 ensure_json_file_or_empty "$TSX_ORPH_FILE" '{"files":[],"exports":[]}'
+TSX_UNCAN_FILE="$tmp/tsx_unused_canonical.array.json"; jsonl_to_array_file "$tmp/tsx_unused_canonical.jsonl" "$TSX_UNCAN_FILE"
 
 # swift defaults
 SW_ARB_FILE="$tmp/swift_arbitrary_modifiers.array.json"; jsonl_to_array_file "$tmp/swift_arbitrary_modifiers.jsonl" "$SW_ARB_FILE"
@@ -502,7 +971,8 @@ jq -n \
   --arg tw_config "$TW_CONFIG" \
   --arg tsx_scope "$TSX_SCOPE" \
   --arg swift_scope "$SWIFT_SCOPE" \
-  --argjson token_sources "$(printf '%s\n' "${TOKEN_SOURCES_UNIQUE[@]}" | jq -R . | jq -s .)" \
+  --argjson token_sources "$(token_sources_meta_json)" \
+  --argjson tsx_canonical_roots "$(tsx_canonical_roots_json)" \
   --argjson stacks "$(printf '%s\n' "${DETECTED[@]}" | jq -R . | jq -s .)" \
   --slurpfile tsx_tw "$TSX_TW_FILE" \
   --slurpfile tsx_col "$TSX_COL_FILE" \
@@ -510,8 +980,11 @@ jq -n \
   --slurpfile tsx_typ "$TSX_TYP_FILE" \
   --slurpfile tsx_inl "$TSX_INL_FILE" \
   --slurpfile tsx_soup "$TSX_SOUP_FILE" \
+  --slurpfile tsx_motif "$TSX_MOTIF_FILE" \
+  --slurpfile tsx_ui_guide "$TSX_UI_GUIDE_FILE" \
   --slurpfile tsx_clone "$TSX_CLONE_FILE" \
   --slurpfile tsx_orph "$TSX_ORPH_FILE" \
+  --slurpfile tsx_uncan "$TSX_UNCAN_FILE" \
   --slurpfile sw_arb "$SW_ARB_FILE" \
   --slurpfile sw_col "$SW_COL_FILE" \
   --slurpfile sw_typ "$SW_TYP_FILE" \
@@ -525,6 +998,7 @@ jq -n \
       swift_scope: $swift_scope,
       tailwind_config: $tw_config,
       token_sources: $token_sources,
+      tsx_canonical_roots: $tsx_canonical_roots,
       scanned_at: $date
     },
     findings: {
@@ -535,8 +1009,11 @@ jq -n \
         off_scale_typography: $tsx_typ[0],
         inline_styles: $tsx_inl[0],
         classname_soup: $tsx_soup[0],
+        component_motifs: $tsx_motif[0],
+        ui_guideline_violations: $tsx_ui_guide[0],
         clone_clusters: $tsx_clone[0],
-        orphan_primitives: $tsx_orph[0]
+        orphan_primitives: $tsx_orph[0],
+        unused_canonical: $tsx_uncan[0]
       },
       swift: {
         arbitrary_modifiers: $sw_arb[0],
@@ -554,8 +1031,11 @@ jq -n \
         off_scale_typography: ($tsx_typ[0] | length),
         inline_styles: ($tsx_inl[0] | length),
         classname_soup: ($tsx_soup[0] | length),
+        component_motifs: ($tsx_motif[0] | length),
+        ui_guideline_violations: ($tsx_ui_guide[0] | length),
         clone_clusters: ($tsx_clone[0].duplicates | length? // 0),
-        orphan_primitives: (($tsx_orph[0].files | length? // 0) + ($tsx_orph[0].exports | length? // 0))
+        orphan_primitives: (($tsx_orph[0].files | length? // 0) + ($tsx_orph[0].exports | length? // 0)),
+        unused_canonical: ($tsx_uncan[0] | length)
       },
       swift: {
         arbitrary_modifiers: ($sw_arb[0] | length),

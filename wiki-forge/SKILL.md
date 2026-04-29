@@ -32,8 +32,9 @@ Do not change or omit that prefix.
 ## Dependencies
 
 - **wiki** skill (reads concept pages, files findings back)
-- **deep-research-prompt** skill for the final external-reality pass when the
-  concept depends on live outside facts
+- **escalate** skill for the final external-reality gate when the concept
+  depends on live outside facts
+- **deep-research-prompt** skill when `escalate` routes the final pass there
 - **NTM** (`ntm` CLI for spawning agent swarms)
 - At least 2 different agent CLIs: `cc` (Claude Code) + `cod` (Codex) or `gemini`
 - Target vault must have a `CLAUDE.md` schema and 10+ concept pages in `_concepts/`
@@ -197,24 +198,28 @@ If one model scored much higher than the other, note it. The harsher scorer is u
 ## Phase 7b: Final External Reality Pass
 
 If the target concept makes claims about current market structure, regulation,
-competitive motion, buyer behavior, or other live external facts, do a final
-GPT-5 Pro + Deep Research pass after the duel and before the wiki update.
+competitive motion, buyer behavior, or other live external facts, run the final
+external-reality gate after the duel and before the wiki update.
 
 Rules:
 
-1. Use `deep-research-prompt` to build a bounded brief around the concept, the
-   two `/smart` questions, the top duel findings, and the exact premises that
-   could be broken by current external evidence.
-2. If `oracle` is available and authenticated, run the prompt via GPT-5 Pro +
-   Deep Research. Otherwise return the prompt and mark the forge as
-   externally-unverified.
-3. Do not ask Pro to replace the duel. Ask it to stress-test or confirm the
-   duel's synthesis against dated external evidence.
-4. Distill the result to
+1. Invoke `escalate` with `caller: wiki-forge`, the concept, the two `/smart`
+   questions, the top duel findings, and the exact premises that could be
+   broken by current external evidence.
+2. If `escalate` returns `route: deep-research-prompt`, run a bounded brief that
+   stress-tests the duel synthesis against dated facts. Do not ask Pro to
+   replace the duel.
+3. If `escalate` returns `route: thesis-gtm`, use that route only when the
+   forged concept is explicitly a GTM, market, distribution, positioning, or
+   customer thesis.
+4. If `escalate` returns `skip`, cite the skip reason. If it returns
+   `too-broad`, narrow the premise before filing changes. If Oracle execution
+   is unavailable for a selected route, mark the forge as externally-unverified.
+5. Distill any routed result to
    `{vault_path}/_sources/notes/wiki-forge-<concept>-<date>.md`, including the
    Oracle session ID if any, verdict, confirming/disconfirming evidence, and
    affected concepts/articles.
-5. Run `/wiki ingest` on that note before finalizing the concept updates so
+6. Run `/wiki ingest` on that note before finalizing the concept updates so
    the concept layer can cite the note as a source.
 
 ## Phase 8: File Back to Wiki
@@ -257,8 +262,8 @@ After forging, report:
 - Consensus winners from the duel (with scores)
 - What was killed and why
 - The combined program (the synthesis)
-- Whether the final GPT-5 Pro / Deep Research pass ran, what it changed, and
-  the `_sources/notes/` path + Oracle session ID if any
+- Which final `escalate` route was selected, what it changed, and the
+  `_sources/notes/` path + Oracle session ID if any
 - What wiki pages were updated or created
 - Whether the active `focus-sweep` was updated, replaced, or intentionally left alone
 - Which published articles now appear stale or improvable, and why
@@ -273,7 +278,7 @@ After forging, report:
 | Both agents generate identical ideas | Strong independent convergence. Note it. Re-run with --focus on a different angle. |
 | Reveal produces no concessions | Agents were too polite. Nudge: "The other model scored your #1 idea at 280. Defend it or concede." |
 | Synthesis doesn't produce anything the wiki didn't already know | The concept was already well-articulated. Pick a different lever. |
-| Stopping at the duel when the concept is externally gated | Run the final Pro / Deep Research pass and file it to `_sources/notes/` before calling the forge complete. |
+| Stopping at the duel when the concept is externally gated | Run the final `escalate` route and file any resulting note to `_sources/notes/` before calling the forge complete. |
 
 ## Relationship to Other Skills
 
@@ -289,9 +294,9 @@ Before returning, confirm all of the following:
 1. The highest-lever concept was identified with explicit reasoning and the
    user had a chance to redirect before the duel proceeded.
 2. Duel artifacts were produced, read, and synthesized into a final report.
-3. If the concept was externally gated, the final GPT-5 Pro / Deep Research
-   pass either ran and was filed to `_sources/notes/` or was explicitly marked
-   externally-unverified.
+3. If the concept was externally gated, the final `escalate` route either ran
+   and was filed to `_sources/notes/`, returned `skip` / `too-broad`, or was
+   explicitly marked externally-unverified.
 4. Wiki updates are explicit: concept pages, new concepts, log updates,
    focus-sweep changes, and article-drift findings.
 5. `/wiki ingest` status is reported for any note filed from the run.

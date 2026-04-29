@@ -9,8 +9,8 @@ description: >-
   "audit this codebase for build-vs-buy violations", "what can I get from this
   repo", "mine this repo", "prospect this", or when a plan should consider both
   ecosystem fit and the user's current repo portfolio. When the blocker is
-  current external reality rather than local code inspection, escalate to a
-  bounded Deep Research / Oracle pass before finalizing the recommendation.
+  current external reality rather than local code inspection, use `escalate`
+  before finalizing the recommendation.
 ---
 
 # Build Vs Clone
@@ -629,7 +629,7 @@ that miss obvious hard constraints.
 Skip this step when the ask is pure local placement and no external ecosystem
 decision is needed.
 
-#### Tier 5b: Deep Research escalation for externally gated decisions
+#### Tier 5b: External reality gate via `escalate`
 
 Use this only after Tier 1-5 discovery when the remaining blocker is external
 reality rather than missing local inspection. Typical triggers:
@@ -644,16 +644,23 @@ reality rather than missing local inspection. Typical triggers:
 
 When triggered:
 
-1. Use `deep-research-prompt` to build a bounded brief around the exact
-   question: named candidates, target stack, hard constraints, time bounds
+1. Invoke `escalate` with `caller: build-vs-clone`, named candidates, target
+   stack, hard constraints, local evidence already inspected, time bounds
    (prefer 2024-2026), and the required decision format (`ADOPT` / `BORROW` /
    `BUILD` implications plus red-team risks).
-2. If `oracle` is installed and authenticated, run the prompt via GPT-5 Pro +
-   Deep Research. Otherwise hand the prompt back to the user in paste-ready
-   form and say what blocked execution.
-3. Treat the result as discovery/triage, not as final evidence. Re-rank the
-   shortlist, then inspect the actual code for the finalists.
-4. If a wiki vault exists and the run surfaced durable market or placement
+2. If `escalate` returns `route: deep-research-prompt`, run the bounded Oracle
+   handoff for current OSS/package/vendor landscape, maintainer momentum,
+   pricing, funding, or ecosystem fit.
+3. If `escalate` returns `route: thesis-gtm`, run that route only because the
+   build-vs-buy decision changes product positioning, target customer, or
+   whether the thing should exist as a product.
+4. If `escalate` returns `route: web-check`, answer the bounded current fact
+   directly and keep the evidence with the shortlist. If it returns `skip`,
+   cite the skip reason. If it returns `too-broad`, narrow the question before
+   researching.
+5. Treat any external result as discovery/triage, not as final evidence.
+   Re-rank the shortlist, then inspect the actual code for the finalists.
+6. If a wiki vault exists and the run surfaced durable market or placement
    knowledge, distill it to `_sources/notes/build-vs-clone-<topic>-<date>.md`
    and run `/wiki ingest` before finalizing any follow-on strategy docs.
 
@@ -818,8 +825,8 @@ Extraction Candidates Reviewed
 Evidence Inspected
 - local: <CLAUDE.md>, <manifest>, <settings>, <docs>
 - <repo>: <LICENSE>, <manifest>, <implementation file>, <test or CI file>
-- Deep Research: used | skipped — why, prompt file, Oracle session ID if any,
-  and how it changed the shortlist
+- Escalate: route, reason, prompt file / Oracle session ID if any, and how it
+  changed the shortlist
 
 Suggested Path
 - Adopt directly, fork, borrow specific ideas, or build from scratch

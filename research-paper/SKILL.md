@@ -116,10 +116,11 @@ Research-paper follows a fixed order. Do not invert it:
    `wiki-forge` before widening to external research.
 3. **Normal web research** — gather the baseline external evidence with
    WebSearch and primary sources.
-4. **GPT-5 Pro / Deep Research last** — if the remaining uncertainty is
-   external reality (current market structure, regulation, buyer behavior,
-   competitive motion, recent data), run a bounded Oracle / Deep Research pass
-   after the internal framing is already sharp.
+4. **External-reality gate last** — if the remaining uncertainty is external
+   reality (current market structure, regulation, buyer behavior, competitive
+   motion, recent data), invoke `escalate` after the internal framing is already
+   sharp. It may route to `deep-research-prompt`, `thesis-gtm`, `web-check`,
+   `research-paper`, `skip`, or `too-broad`.
 5. **Feed the result back into the wiki** — distill the paper's durable
    findings to `_sources/notes/research-paper-<slug>-<date>.md` and run
    `/wiki ingest` before marking the run complete.
@@ -246,14 +247,23 @@ Use WebSearch to find:
 
 Aim for 5-10 high-quality sources.
 
-If the topic's core claims depend on live external reality, use
-`deep-research-prompt` in Oracle handoff mode after the wiki/context pass and
-the normal WebSearch sweep. GPT-5 Pro + Deep Research is the final external
-pass, not the first move.
+If the topic's core claims depend on live external reality, invoke `escalate`
+with `caller: research-paper` after the wiki/context pass and the normal
+WebSearch sweep. GPT-5 Pro + Deep Research is a final external pass, not the
+first move.
 
 When the internal framing itself is contested, use `wiki-duel` or
-`wiki-forge` before the Deep Research pass so the Oracle prompt is pointed at
-the real unresolved thesis rather than a vague topic area.
+`wiki-forge` before the `escalate` route so any Oracle prompt is pointed at the
+real unresolved thesis rather than a vague topic area.
+
+Route rules:
+
+- Use `deep-research-prompt` when `escalate` selects it for a final bounded
+  outside-world evidence pass.
+- Use `thesis-gtm` only when the paper will justify a product thesis, customer
+  claim, GTM wedge, or README/VISION positioning claim.
+- Use `research-paper` when `escalate` says the right output is the paper
+  itself rather than a separate go/no-go decision.
 
 ## Step 5: Map Findings to Paper Structure
 
@@ -536,12 +546,11 @@ python3 skill-issue/scripts/quick_validate.py research-paper
 Before returning, confirm all of the following:
 
 1. The evidence ladder status is explicit: wiki grounding, duel/forge use,
-   normal web research, and GPT-5 Pro / Deep Research used or intentionally
-   skipped.
+   normal web research, and `escalate` route used or intentionally skipped.
 2. The canonical paper exists and every companion output stays within that
    paper's thesis/evidence base.
-3. If Deep Research ran, the response includes the prompt/session details; if
-   it did not, the response says why not.
+3. If `escalate` routed to Deep Research, the response includes the
+   prompt/session details; if it did not, the response says why not.
 4. If a wiki vault exists, the distilled note in `_sources/notes/` was written
    and `/wiki ingest` was run before closeout.
 5. Validation/post-creation work is reported: type-check or file verification,

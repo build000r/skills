@@ -141,7 +141,7 @@ Invoke the `build-vs-clone` skill as a background subagent with the slice name a
    - **README is current** → no action, report "docs fresh" and continue
    - **README needs update** → invoke the `readme-writing` skill as a subagent, passing it the list of drifted sections and the diff summary. **Wait for readme-writing to complete before returning.**
 
-### Subagent C: External Reality Gate (conditional)
+### Subagent C: External Reality Gate via `escalate` (conditional)
 
 Run this only when the slice's go/no-go depends on current outside facts rather than local repo inspection. Typical triggers:
 
@@ -152,10 +152,24 @@ Run this only when the slice's go/no-go depends on current outside facts rather 
 
 Routing rules:
 
-1. **Thesis-grade question** — if the uncertainty is strategic positioning, ICP, wedge, or GTM, invoke `thesis-gtm` for the affected product with `--skip-vision` so it can run the full wiki → Pro/Deep Research → wiki loop without patching public docs yet.
-2. **Narrow external question** — if the uncertainty is more focused (specific vendor, regulation, platform dependency, or adjacent-market fact), use `deep-research-prompt` in Oracle handoff mode and run GPT-5 Pro + Deep Research directly.
-3. If Oracle is unavailable, hand the prompt back in paste-ready form and mark the plan as externally-unverified rather than pretending the gate passed.
-4. If a wiki vault exists and the gate did not already file through `thesis-gtm`, distill the result to `_sources/notes/domain-planner-<slice>-<date>.md` and run `/wiki ingest` before Phase 0.
+1. Invoke `escalate` with `caller: domain-planner`, the slice name, the decision
+   at risk, internal evidence already checked, and the exact external unknown.
+2. If `escalate` returns `route: thesis-gtm`, run `thesis-gtm --skip-vision`
+   for the affected product. This is forced when the uncertainty is strategic
+   positioning, ICP, wedge, GTM, target buyer, pricing, packaging, or customer
+   promise.
+3. If `escalate` returns `route: deep-research-prompt`, run the bounded Oracle
+   handoff for narrow vendor, regulation, platform, API, or adjacent-market
+   facts.
+4. If `escalate` returns `route: web-check`, answer the bounded question with a
+   short current-source check and cite the result in the plan.
+5. If `escalate` returns `skip`, record the skip reason under pre-planning
+   artifacts and continue. If it returns `too-broad`, narrow the external
+   question before Phase 0.
+6. If a wiki vault exists and the gate did not already file through
+   `thesis-gtm`, distill the result to
+   `_sources/notes/domain-planner-<slice>-<date>.md` and run `/wiki ingest`
+   before Phase 0.
 
 **Wait for Subagent C before proceeding** when it runs. If it invalidates the slice premise, halt planning and surface the contradiction to the user.
 
@@ -693,8 +707,9 @@ See `~/.claude/skills/domain-planner/assets/templates/` — copied automatically
 - **domain-scaffolder** — Generate backend or frontend code from plan using the explicit surface selection
 - **domain-reviewer** — Audit implementation against plan, retire completed slices
 - **divide-and-conquer** — Decompose multi-agent work into independent parallel concerns
-- **thesis-gtm** — Use when the slice premise is really a product-thesis / buyer / GTM question that needs a final Pro/Deep Research pass before planning.
-- **deep-research-prompt** — Use when the slice depends on a narrower live external unknown and you need an Oracle-ready prompt plus execution wrapper.
+- **escalate** — Owns the external-reality gate for Subagent C and routes to `thesis-gtm`, `deep-research-prompt`, `web-check`, or `skip`.
+- **thesis-gtm** — Destination chosen by `escalate` when the slice premise is really a product-thesis / buyer / GTM question.
+- **deep-research-prompt** — Destination chosen by `escalate` for narrower live external unknowns that need an Oracle-ready prompt plus execution wrapper.
 
 ## Verification / Closeout Contract
 
@@ -708,6 +723,6 @@ Before returning, confirm all of the following:
 
 1. The plan path and mode were resolved before planning/orchestration advice.
 2. Pre-planning prerequisites report build-vs-clone, docs freshness, and the external reality gate as used, skipped, or not applicable.
-3. If the external reality gate ran, the response says whether it used `thesis-gtm` or a direct Oracle/Deep Research brief, plus the note/session artifact it produced.
+3. If the external reality gate ran, the response names the `escalate` route (`thesis-gtm`, `deep-research-prompt`, `web-check`, `skip`, or `too-broad`), plus the note/session artifact it produced.
 4. If a wiki vault existed and the gate surfaced durable findings, `_sources/notes/` + `/wiki ingest` status is explicit.
 5. Architectural review (`apr` or fallback) is reported as used, skipped, or unavailable rather than implied.

@@ -88,7 +88,7 @@ Route the blocker to the source that can answer it without interrupting the user
 | **`/wiki query`** | The answer lives in the user's accumulated project knowledge (past decisions, product context, prior research). |
 | **`/wiki-duel`** | Two plausible interpretations and the wiki holds enough prior context to ground an adversarial read between them. |
 | **`/dueling-idea-wizards`** | Cold-context strategic fork (scope, approach, architecture) with no clear winner and no external-reality blocker — let the adversarial pass surface the tradeoffs. |
-| **`/deep-research-prompt` (Oracle/Pro browser or external DR)** | The blocker is current external reality: market facts, library behavior under load, pricing, competitive positioning, API contracts that may have drifted. |
+| **`/escalate`** | The blocker is current external reality: market facts, library behavior under load, pricing, competitive positioning, API contracts that may have drifted. It decides whether to use `web-check`, `deep-research-prompt`, `thesis-gtm`, or skip. |
 | **Ask the human** | Only preference, taste, priority, risk tolerance, or private context the above can't reach. |
 
 Rules:
@@ -274,7 +274,7 @@ Before handing control back, confirm the cascade did its job:
 - In Claude Code, every user-facing choose/confirm/clarify step went through the `AskUserQuestion` tool — not a plain assistant message
 - Every question asked either is strategic-first or was batched with truly independent peers only
 - Every silent assumption that would have been encoded by acting without asking has been named
-- Every blocker routable to code, `/wiki query`, `/wiki-duel`, `/dueling-idea-wizards`, or `/deep-research-prompt` was routed there before touching the human
+- Every blocker routable to code, `/wiki query`, `/wiki-duel`, `/dueling-idea-wizards`, or `/escalate` was routed there before touching the human
 - Every open-ended visual choice was routed through a show-don't-tell picker path, or the reason it was not was explicit
 - No stale pre-planned questions were asked after a strategic answer reframed the tree
 

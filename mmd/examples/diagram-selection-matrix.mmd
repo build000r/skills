@@ -1,0 +1,20 @@
+flowchart TD
+  start{"What job should the diagram do?"}
+
+  start -->|"Show steps or branching"| flow["Process flowchart"]
+  start -->|"Diagnose why a problem happens"| fish["Ishikawa cause map"]
+  start -->|"Show actors talking over time"| seq["Sequence diagram"]
+  start -->|"Show lifecycle or modes"| state["State diagram"]
+  start -->|"Show records and cardinality"| er["ER diagram"]
+  start -->|"Show classes or module API shape"| classDiag["Class diagram"]
+  start -->|"Show dated phases or milestones"| timeline["Gantt or timeline"]
+  start -->|"Prioritize options on two axes"| quadrant["Quadrant chart"]
+  start -->|"Group concepts hierarchically"| mindmap["Mindmap"]
+  start -->|"Explain branch history"| git["Git graph"]
+  start -->|"Map components and boundaries"| arch["Architecture map"]
+  start -->|"Show simple proportions"| pie["Pie chart"]
+
+  fish --> fishNote["Use flowchart LR because Mermaid has no native Ishikawa syntax"]
+  flow --> flowNote["Use only when order or control flow is the point"]
+  seq --> seqNote["Prefer when request/response timing matters"]
+  start --> decision["Choose autonomously, then state rationale"]

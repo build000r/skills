@@ -1,0 +1,8 @@
+{
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "jsdom": "27.2.0",
+    "mermaid": "11.14.0"
+  }
+}

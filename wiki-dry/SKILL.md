@@ -69,6 +69,36 @@ Each operation is the prose analog of a code refactoring move. The audit pass ta
 
 Sub-skill question maps to **compose** (keep separate, make the dependency explicit) or **inline** (absorb if there is no real reuse).
 
+## Decision-Route Composition Pattern
+
+A high-leverage **compose** case appears when several artifacts repeat the same decision gate rather than the same body text. Common skill examples:
+
+- "Should this escalate to Oracle, Deep Research, browser mode, or a local-only path?"
+- "Which downstream skill should run next?"
+- "Does this caller force a route even though the shared policy usually decides?"
+
+In this pattern, centralize the decision contract, not the whole workflow.
+
+The canonical artifact owns:
+
+- Input packet schema: caller, goal, trigger, evidence, forced-route hints, and stop conditions
+- Route table and priority rules
+- Anti-loop guards and "do not escalate" cases
+- Structured result: route, reason, command/next action, confidence, and resume instruction
+
+The caller keeps:
+
+- Topic selection
+- Domain evidence gathering
+- Local grading and acceptance criteria
+- Artifact filing
+- Post-route continuation
+- Target-specific constraints and vocabulary
+
+Bad compose: "all GTM research now lives in escalate." Good compose: "`thesis-gtm` asks `escalate` for the external-reality route, then `thesis-gtm` resumes its wiki/VISION.md flow."
+
+Use this when duplication is a "whether/how/where next" decision. Do not use it when the duplicated material is the domain workflow itself.
+
 ## Decision Rubric
 
 Every candidate is scored on four signals before assignment to an operation. The audit report shows the per-signal scores so the human can override.
@@ -79,6 +109,18 @@ Every candidate is scored on four signals before assignment to an operation. The
 4. **Lookup affordance** — would a reader/agent search for this on its own? Strong affordance pushes toward **promote** or **keep separate**; weak pushes toward **inline**.
 
 Disagreement among the four signals is the trigger for the Phase 4 duel.
+
+### Composition Boundary Checks
+
+For every **compose** candidate, answer these before recommending extraction or caller rewrites:
+
+1. Is the duplicated material a decision gate, transport/mechanics, or a domain workflow?
+2. Can the canonical artifact return a decision/result while callers keep their own continuation?
+3. Does the proposed contract include anti-loop rules so skills do not call each other recursively?
+4. Will a caller-aware route table become a stale registry, or is it small and policy-relevant?
+5. Does centralization remove repeated judgment without hiding the local context that makes the judgment correct?
+
+If the answer points to "shared routing, local continuation," recommend **compose** with a caller packet/result contract. If the answer points to "shared whole workflow," consider **extract** or **promote** instead. If the canonical artifact would need to understand every caller's domain-specific artifacts, it is probably over-centralized.
 
 ## Pre-Flight
 
@@ -111,6 +153,7 @@ Example (wiki):
 
 Example (skills):
 - `compose`: wiki-duel → already composes wiki + dueling-idea-wizards (good model); audit other duel-using skills for the same pattern
+- `compose`: thesis-gtm/power-map/domain-planner → use escalate for external-reality routing; callers keep topic selection, grading, filing, and follow-through
 - `unify`: {codebase-audit, codebase-archaeology} share trigger phrases — confirm or split contracts
 - `inline`: {session-to-tweet} — only 1 invocation pattern, could be a sub-mode of `commit`
 
@@ -153,7 +196,7 @@ Per-operation apply contract:
 
 - **inline** — copy body of A into B at the wikilink site; delete A; rewrite all other backlinks to B; for skills, fold A's instructions into a new section of B and remove A from `SKILLS_COVERAGE.yaml` (status: `excluded`, reason: `inlined into B`)
 - **extract** — create new artifact C with the shared sub-idea; rewrite N parents to reference C; for skills, scaffold C via `init_skill.py` and update `depends_on:` in parents
-- **compose** — replace duplicated body in A with a reference to B (`See [[B]]` or `Use /B for X`); leave A's surrounding contract intact
+- **compose** — replace duplicated body in A with a reference to B (`See [[B]]` or `Use /B for X`); leave A's surrounding contract intact. For decision-route composition, define the caller packet/result contract in B, update A to send the relevant packet fields, and explicitly state how A resumes after B returns.
 - **unify** — pick canonical name (the one with more inbound references wins; tie-broken by clarity), redirect the loser, rewrite backlinks; for skills, mark loser `excluded` in `SKILLS_COVERAGE.yaml` with `reason: unified into <canonical>`
 - **split** — create new artifact A2 from the second job; rewrite A to point at A2 for that concern; for skills, run `init_skill.py` for A2 and trim A's frontmatter description
 - **promote** — extract the section into its own artifact at the top level; rewrite the parent to reference it; for skills, run `init_skill.py` for the new top-level skill and add `depends_on:` from the original parent
@@ -189,6 +232,7 @@ Apply mode reports:
 | Promote churn — promoting then immediately re-inlining when reuse doesn't materialize | Promotion candidates require ≥3 actual reference sites already, not "could be referenced." |
 | User wants to merge but the merger destroys the loser's distinct examples | The unify apply preserves the loser's examples by appending them to the canonical artifact's "Examples" section, not silently dropping. |
 | Wiki autoblog publishes a half-edited concept mid-apply | Apply runs autoblog awareness from `/wiki` first; aborts on any non-gated publication risk. |
+| DRY turns a router into a mega-skill | Centralize policy, route selection, packet schema, and result shape only. Leave domain workflows, artifacts, and post-route work in the callers. |
 
 ## Relationship to Other Skills
 

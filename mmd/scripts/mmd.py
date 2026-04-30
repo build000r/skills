@@ -20,6 +20,7 @@ import zlib
 from pathlib import Path
 from typing import Any
 from urllib import request
+from urllib.parse import urlparse
 
 
 DEFAULT_BASE_URL = "https://buildooor.com/diagrams"
@@ -29,7 +30,7 @@ PARSER_SCRIPT = SCRIPT_DIR / "validate_mermaid.mjs"
 PARSER_PACKAGE = SCRIPT_DIR / "package.json"
 PARSER_MODULE = SCRIPT_DIR / "node_modules" / "mermaid"
 DEFAULT_HANDOFF_HOST = "127.0.0.1"
-DEFAULT_HANDOFF_TTL_SECONDS = 60 * 60
+DEFAULT_HANDOFF_TTL_SECONDS = 10 * 60
 MAX_HANDOFF_BODY_BYTES = 512 * 1024
 
 
@@ -126,6 +127,21 @@ def build_url(fragment: str, *, view: bool = False, base_url: str | None = None)
     return f"{base_url}#{fragment}"
 
 
+def resolve_output_base_url(*, view: bool = False, base_url: str | None = None) -> str:
+    return base_url if base_url is not None else (DEFAULT_VIEW_URL if view else DEFAULT_BASE_URL)
+
+
+def origin_from_url(url: str) -> str:
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError(f"expected an http(s) URL for handoff origin, got: {url}")
+    return f"{parsed.scheme}://{parsed.netloc}"
+
+
+def resolve_handoff_origin(*, explicit_origin: str | None, output_base_url: str) -> str:
+    return origin_from_url((explicit_origin or output_base_url).strip())
+
+
 def open_with_applescript(url: str) -> None:
     script_path = Path(__file__).with_name("open_mermaid_live.applescript")
     if shutil.which("osascript"):
@@ -140,6 +156,7 @@ class HandoffHTTPServer(http.server.ThreadingHTTPServer):
     source_path: str | None
     submit_on_send: bool
     expires_at: float
+    allowed_origin: str
 
 
 class HandoffRequestHandler(http.server.BaseHTTPRequestHandler):
@@ -149,6 +166,8 @@ class HandoffRequestHandler(http.server.BaseHTTPRequestHandler):
         return
 
     def do_OPTIONS(self) -> None:
+        if not self._require_handoff_origin():
+            return
         self.send_response(204)
         self._send_cors_headers()
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
@@ -164,12 +183,12 @@ class HandoffRequestHandler(http.server.BaseHTTPRequestHandler):
             200,
             {
                 "ok": True,
-                "tmuxTarget": self.server.tmux_target,
-                "sourcePath": self.server.source_path,
             },
         )
 
     def do_POST(self) -> None:
+        if not self._require_handoff_origin():
+            return
         if self.path == "/send":
             self._handle_send()
             return
@@ -327,9 +346,20 @@ class HandoffRequestHandler(http.server.BaseHTTPRequestHandler):
             return None
         return Path(self.server.source_path)
 
+    def _require_handoff_origin(self) -> bool:
+        origin = self.headers.get("Origin")
+        if not origin:
+            self._send_json(403, {"ok": False, "error": "missing Origin header"})
+            return False
+        if origin != self.server.allowed_origin:
+            self._send_json(403, {"ok": False, "error": "handoff origin mismatch"})
+            return False
+        return True
+
     def _send_cors_headers(self) -> None:
         origin = self.headers.get("Origin")
-        self.send_header("Access-Control-Allow-Origin", origin or "*")
+        if origin == self.server.allowed_origin:
+            self.send_header("Access-Control-Allow-Origin", self.server.allowed_origin)
         self.send_header("Vary", "Origin")
 
     def _send_json(self, status: int, payload: dict[str, Any]) -> None:
@@ -372,6 +402,7 @@ def run_handoff_server(
     *,
     source_path: str | None,
     submit_on_send: bool,
+    allowed_origin: str,
 ) -> int:
     server = HandoffHTTPServer((host, port), HandoffRequestHandler)
     server.token = token
@@ -379,6 +410,7 @@ def run_handoff_server(
     server.source_path = source_path
     server.submit_on_send = submit_on_send
     server.expires_at = time.time() + ttl_seconds
+    server.allowed_origin = allowed_origin
     server.timeout = 1
 
     while time.time() <= server.expires_at:
@@ -442,6 +474,7 @@ def start_handoff_channel(
     ttl_seconds: int,
     source_path: str | None,
     submit_on_send: bool,
+    allowed_origin: str,
 ) -> dict[str, Any]:
     target = resolve_tmux_target(tmux_target)
     label = describe_tmux_target(target)
@@ -463,6 +496,8 @@ def start_handoff_channel(
             target,
             "--handoff-ttl",
             str(ttl_seconds),
+            "--handoff-origin",
+            allowed_origin,
             *(["--source-path", source_path] if source_path else []),
             *(["--tmux-submit"] if submit_on_send else []),
         ],
@@ -560,6 +595,10 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         default=DEFAULT_HANDOFF_TTL_SECONDS,
         help="seconds before a --tmux handoff channel expires",
     )
+    parser.add_argument(
+        "--handoff-origin",
+        help="browser origin allowed to call the local handoff bridge; defaults to the output URL origin",
+    )
     parser.add_argument("--handoff-server", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--handoff-port", type=int, help=argparse.SUPPRESS)
     parser.add_argument("--handoff-token", help=argparse.SUPPRESS)
@@ -609,6 +648,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.handoff_server:
             if args.handoff_port is None or not args.handoff_token or not args.tmux_target:
                 raise ValueError("--handoff-server requires --handoff-port, --handoff-token, and --tmux-target")
+            allowed_origin = resolve_handoff_origin(
+                explicit_origin=args.handoff_origin,
+                output_base_url=DEFAULT_BASE_URL,
+            )
             return run_handoff_server(
                 args.handoff_host,
                 args.handoff_port,
@@ -617,6 +660,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.handoff_ttl,
                 source_path=args.source_path,
                 submit_on_send=args.tmux_submit,
+                allowed_origin=allowed_origin,
             )
 
         if args.setup_parser:
@@ -648,14 +692,20 @@ def main(argv: list[str] | None = None) -> int:
 
         handoff = None
         source_metadata = None
+        output_base_url = resolve_output_base_url(view=args.view, base_url=args.base_url)
         if args.tmux_handoff:
             source_metadata = build_source_metadata(args.path)
+            allowed_origin = resolve_handoff_origin(
+                explicit_origin=args.handoff_origin,
+                output_base_url=output_base_url,
+            )
             handoff = start_handoff_channel(
                 host=args.handoff_host,
                 tmux_target=args.tmux_target,
                 ttl_seconds=args.handoff_ttl,
                 source_path=source_metadata["path"] if source_metadata else None,
                 submit_on_send=args.tmux_submit,
+                allowed_origin=allowed_origin,
             )
 
         state = build_state(
@@ -669,7 +719,7 @@ def main(argv: list[str] | None = None) -> int:
             source=source_metadata,
         )
         fragment = encode_state(state)
-        output = fragment if args.fragment_only else build_url(fragment, view=args.view, base_url=args.base_url)
+        output = fragment if args.fragment_only else build_url(fragment, base_url=output_base_url)
         print(output)
         if args.open:
             open_with_applescript(output)

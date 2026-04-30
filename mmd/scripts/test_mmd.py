@@ -182,6 +182,25 @@ class MmdTests(unittest.TestCase):
         self.assertEqual(decoded["buildooorHandoff"], handoff)
         self.assertEqual(decoded["buildooorSource"]["path"], str(Path(path).resolve()))
 
+    def test_handoff_default_ttl_is_short_lived(self) -> None:
+        self.assertEqual(mmd.DEFAULT_HANDOFF_TTL_SECONDS, 10 * 60)
+
+    def test_handoff_origin_defaults_to_output_url_origin(self) -> None:
+        self.assertEqual(
+            mmd.resolve_handoff_origin(
+                explicit_origin=None,
+                output_base_url="http://localhost:3000/diagrams",
+            ),
+            "http://localhost:3000",
+        )
+        self.assertEqual(
+            mmd.resolve_handoff_origin(
+                explicit_origin=" https://preview.example/diagrams ",
+                output_base_url="https://buildooor.com/diagrams",
+            ),
+            "https://preview.example",
+        )
+
     def test_start_handoff_channel_adds_launcher_command(self) -> None:
         with (
             patch.object(mmd, "resolve_tmux_target", return_value="%12"),
@@ -198,12 +217,16 @@ class MmdTests(unittest.TestCase):
                 ttl_seconds=60,
                 source_path="/workspace/demo/diagram.mmd",
                 submit_on_send=True,
+                allowed_origin="https://buildooor.com",
             )
 
         self.assertEqual(handoff["mmdCommand"], f"/usr/bin/python3 {mmd.shlex.quote(str(Path(mmd.__file__).resolve()))}")
         self.assertTrue(handoff["sourceEditable"])
         self.assertTrue(handoff["submitOnSend"])
         popen.assert_called_once()
+        popen_args = popen.call_args.args[0]
+        self.assertIn("--handoff-origin", popen_args)
+        self.assertIn("https://buildooor.com", popen_args)
 
     def test_handoff_post_sends_prompt_to_tmux(self) -> None:
         with patch.object(mmd, "send_prompt_to_tmux") as send_prompt:
@@ -227,6 +250,39 @@ class MmdTests(unittest.TestCase):
 
         self.assertEqual(status, 403)
         self.assertEqual(body["error"], "handoff token mismatch")
+
+    def test_handoff_post_rejects_wrong_origin_before_token(self) -> None:
+        status, body = post_handoff_json(
+            {"token": "secret-token", "prompt": "hello"},
+            origin="https://evil.example",
+        )
+
+        self.assertEqual(status, 403)
+        self.assertEqual(body["error"], "handoff origin mismatch")
+
+    def test_handoff_post_rejects_missing_origin(self) -> None:
+        status, body = post_handoff_json(
+            {"token": "secret-token", "prompt": "hello"},
+            origin=None,
+        )
+
+        self.assertEqual(status, 403)
+        self.assertEqual(body["error"], "missing Origin header")
+
+    def test_handoff_preflight_pins_allowed_origin(self) -> None:
+        status, headers, body = options_handoff_response(origin="https://buildooor.com")
+
+        self.assertEqual(status, 204)
+        self.assertEqual(body, "")
+        self.assertEqual(headers.get("Access-Control-Allow-Origin"), "https://buildooor.com")
+        self.assertEqual(headers.get("Access-Control-Allow-Private-Network"), "true")
+
+    def test_handoff_preflight_rejects_wrong_origin(self) -> None:
+        status, headers, body = options_handoff_response(origin="https://evil.example")
+
+        self.assertEqual(status, 403)
+        self.assertNotIn("Access-Control-Allow-Origin", headers)
+        self.assertEqual(mmd.json.loads(body)["error"], "handoff origin mismatch")
 
     def test_handoff_post_rejects_missing_prompt(self) -> None:
         status, body = post_handoff_json({"token": "secret-token", "prompt": "   "})
@@ -348,29 +404,83 @@ def post_handoff_json(
     path: str = "/send",
     source_path: str | None = None,
     submit_on_send: bool = False,
+    origin: str | None = "https://buildooor.com",
 ) -> tuple[int, dict[str, object]]:
+    status, _headers, body = post_handoff_json_response(
+        payload,
+        path=path,
+        source_path=source_path,
+        submit_on_send=submit_on_send,
+        origin=origin,
+    )
+    return status, body
+
+
+def post_handoff_json_response(
+    payload: dict[str, object],
+    *,
+    path: str = "/send",
+    source_path: str | None = None,
+    submit_on_send: bool = False,
+    origin: str | None = "https://buildooor.com",
+) -> tuple[int, dict[str, str], dict[str, object]]:
     server = mmd.HandoffHTTPServer(("127.0.0.1", 0), mmd.HandoffRequestHandler)
     server.token = "secret-token"
     server.tmux_target = "%12"
     server.source_path = source_path
     server.submit_on_send = submit_on_send
     server.expires_at = time.time() + 10
+    server.allowed_origin = "https://buildooor.com"
     thread = threading.Thread(target=server.handle_request)
     thread.start()
 
     try:
         endpoint = f"http://127.0.0.1:{server.server_address[1]}{path}"
+        headers = {"Content-Type": "application/json"}
+        if origin is not None:
+            headers["Origin"] = origin
         req = request.Request(
             endpoint,
             data=mmd.json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
+            headers=headers,
             method="POST",
         )
         try:
             with request.urlopen(req, timeout=2) as response:
-                return response.status, mmd.json.loads(response.read().decode("utf-8"))
+                return response.status, dict(response.headers), mmd.json.loads(response.read().decode("utf-8"))
         except error.HTTPError as exc:
-            return exc.code, mmd.json.loads(exc.read().decode("utf-8"))
+            return exc.code, dict(exc.headers), mmd.json.loads(exc.read().decode("utf-8"))
+    finally:
+        thread.join(timeout=2)
+        server.server_close()
+
+
+def options_handoff_response(
+    *,
+    origin: str | None = "https://buildooor.com",
+) -> tuple[int, dict[str, str], str]:
+    server = mmd.HandoffHTTPServer(("127.0.0.1", 0), mmd.HandoffRequestHandler)
+    server.token = "secret-token"
+    server.tmux_target = "%12"
+    server.source_path = None
+    server.submit_on_send = False
+    server.expires_at = time.time() + 10
+    server.allowed_origin = "https://buildooor.com"
+    thread = threading.Thread(target=server.handle_request)
+    thread.start()
+
+    try:
+        endpoint = f"http://127.0.0.1:{server.server_address[1]}/send"
+        headers = {}
+        if origin is not None:
+            headers["Origin"] = origin
+            headers["Access-Control-Request-Private-Network"] = "true"
+        req = request.Request(endpoint, headers=headers, method="OPTIONS")
+        try:
+            with request.urlopen(req, timeout=2) as response:
+                return response.status, dict(response.headers), response.read().decode("utf-8")
+        except error.HTTPError as exc:
+            return exc.code, dict(exc.headers), exc.read().decode("utf-8")
     finally:
         thread.join(timeout=2)
         server.server_close()

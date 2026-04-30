@@ -66,6 +66,63 @@ class MmdTests(unittest.TestCase):
         self.assertEqual(decoded["buildooorSource"]["kind"], "file")
         self.assertEqual(decoded["buildooorSource"]["path"], str(Path(__file__).resolve()))
 
+    def test_builds_mmdx_document_from_markdown_charts(self) -> None:
+        document = mmd.build_mmdx_document(
+            """<!-- mmdx
+{"entry":"main","links":[{"from":"main","label":"Open detail","to":"detail"}]}
+-->
+## chart main Main Chart
+```mermaid
+flowchart TD
+  A[Open detail] --> B[Next]
+```
+
+## chart detail Detail Chart
+```mermaid
+sequenceDiagram
+  A->>B: detail
+```
+"""
+        )
+
+        self.assertEqual(document["entry"], "main")
+        self.assertEqual([chart["id"] for chart in document["charts"]], ["main", "detail"])
+        self.assertEqual(document["links"][0]["to"], "detail")
+
+    def test_main_encodes_mmdx_document_with_entry_chart(self) -> None:
+        with tempfile.NamedTemporaryFile("w", suffix=".mmdx", delete=False) as handle:
+            handle.write(
+                """<!-- mmdx
+{"entry":"main","links":[{"from":"main","label":"Open detail","to":"detail"}]}
+-->
+## chart main Main Chart
+```mermaid
+flowchart TD
+  A[Open detail] --> B[Next]
+```
+
+## chart detail Detail Chart
+```mermaid
+flowchart TD
+  C[Detail] --> D[Done]
+```
+"""
+            )
+            path = handle.name
+        stdout = StringIO()
+
+        try:
+            with redirect_stdout(stdout):
+                exit_code = mmd.main([path, "--fragment-only", "--no-preflight"])
+        finally:
+            Path(path).unlink(missing_ok=True)
+
+        decoded = mmd.decode_state(stdout.getvalue().strip())
+        self.assertEqual(exit_code, 0)
+        self.assertIn("Open detail", decoded["code"])
+        self.assertEqual(decoded["buildooorMmdx"]["entry"], "main")
+        self.assertEqual(len(decoded["buildooorMmdx"]["charts"]), 2)
+
     def test_stdin_has_no_source_metadata(self) -> None:
         self.assertIsNone(mmd.build_source_metadata("-"))
 
@@ -145,7 +202,7 @@ class MmdTests(unittest.TestCase):
             exit_code = mmd.main([])
 
         self.assertEqual(exit_code, 1)
-        self.assertIn("missing .mmd path", stderr.getvalue())
+        self.assertIn("missing .mmd/.mmdx path", stderr.getvalue())
 
     def test_main_validates_handoff_server_arguments(self) -> None:
         stderr = StringIO()
@@ -181,6 +238,49 @@ class MmdTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertEqual(decoded["buildooorHandoff"], handoff)
         self.assertEqual(decoded["buildooorSource"]["path"], str(Path(path).resolve()))
+
+    def test_main_skips_source_metadata_for_mmdx_tmux_input(self) -> None:
+        with tempfile.NamedTemporaryFile("w", suffix=".mmdx", delete=False) as handle:
+            handle.write(
+                """<!-- mmdx
+{"entry":"main","links":[{"from":"main","label":"Open detail","to":"detail"}]}
+-->
+## chart main Main Chart
+```mermaid
+flowchart TD
+  A[Open detail] --> B[Next]
+```
+
+## chart detail Detail Chart
+```mermaid
+flowchart TD
+  C[Detail] --> D[Done]
+```
+"""
+            )
+            path = handle.name
+        stdout = StringIO()
+        handoff = {
+            "version": 1,
+            "endpoint": "http://127.0.0.1:49152/send",
+            "token": "secret-token",
+            "tmuxTarget": "%12",
+            "mmdCommand": "python3 '/opt/mmd/scripts/mmd.py'",
+            "sourceEditable": False,
+        }
+
+        try:
+            with patch.object(mmd, "start_handoff_channel", return_value=handoff) as start_handoff:
+                with redirect_stdout(stdout):
+                    exit_code = mmd.main([path, "--fragment-only", "--tmux", "--no-preflight"])
+        finally:
+            Path(path).unlink(missing_ok=True)
+
+        decoded = mmd.decode_state(stdout.getvalue().strip())
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(decoded["buildooorHandoff"], handoff)
+        self.assertNotIn("buildooorSource", decoded)
+        self.assertIsNone(start_handoff.call_args.kwargs["source_path"])
 
     def test_handoff_default_ttl_is_short_lived(self) -> None:
         self.assertEqual(mmd.DEFAULT_HANDOFF_TTL_SECONDS, 10 * 60)

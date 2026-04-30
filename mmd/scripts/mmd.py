@@ -8,6 +8,7 @@ import base64
 import http.server
 import json
 import os
+import re
 import secrets
 import shlex
 import shutil
@@ -63,6 +64,7 @@ def build_state(
     update_diagram: bool = True,
     handoff: dict[str, Any] | None = None,
     source: dict[str, Any] | None = None,
+    mmdx: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     state = {
         "code": code,
@@ -76,6 +78,8 @@ def build_state(
         state["buildooorHandoff"] = handoff
     if source is not None:
         state["buildooorSource"] = source
+    if mmdx is not None:
+        state["buildooorMmdx"] = mmdx
     return state
 
 
@@ -90,6 +94,98 @@ def build_source_metadata(path: str) -> dict[str, Any] | None:
         "path": str(source_path.resolve(strict=False)),
         "cwd": str(Path.cwd()),
     }
+
+
+def is_mmdx_input(path: str, code: str) -> bool:
+    return (path != "-" and Path(path).suffix.lower() == ".mmdx") or "<!-- mmdx" in code
+
+
+def build_mmdx_document(markdown: str) -> dict[str, Any]:
+    metadata = _parse_mmdx_metadata(markdown)
+    charts = _parse_mmdx_charts(markdown)
+    if not charts:
+        raise ValueError("MMDX document must contain at least one '## chart <id>' Mermaid fence")
+
+    chart_ids = {chart["id"] for chart in charts}
+    entry = str(metadata.get("entry") or charts[0]["id"])
+    if entry not in chart_ids:
+        raise ValueError(f"MMDX entry chart {entry!r} was not found")
+
+    links = []
+    for item in metadata.get("links", []):
+        if not isinstance(item, dict):
+            raise ValueError("MMDX links must be objects")
+        from_chart = str(item.get("from", "")).strip()
+        label = str(item.get("label", "")).strip()
+        to_chart = str(item.get("to", "")).strip()
+        if not from_chart or not label or not to_chart:
+            raise ValueError("MMDX links require from, label, and to")
+        if from_chart not in chart_ids:
+            raise ValueError(f"MMDX link source chart {from_chart!r} was not found")
+        if to_chart not in chart_ids:
+            raise ValueError(f"MMDX link target chart {to_chart!r} was not found")
+        link = {
+            "from": from_chart,
+            "label": label,
+            "to": to_chart,
+        }
+        if isinstance(item.get("title"), str) and item["title"].strip():
+            link["title"] = item["title"].strip()
+        links.append(link)
+
+    return {
+        "version": 1,
+        "entry": entry,
+        "charts": charts,
+        "links": links,
+    }
+
+
+def get_mmdx_entry_code(document: dict[str, Any]) -> str:
+    entry = document["entry"]
+    for chart in document["charts"]:
+        if chart["id"] == entry:
+            return chart["code"]
+    raise ValueError(f"MMDX entry chart {entry!r} was not found")
+
+
+def preflight_mmdx_document(document: dict[str, Any], *, auto_install: bool = True) -> list[dict[str, Any]]:
+    results = []
+    for chart in document["charts"]:
+        try:
+            result = preflight_mermaid(chart["code"], auto_install=auto_install)
+        except (OSError, RuntimeError, ValueError, subprocess.CalledProcessError) as exc:
+            raise ValueError(f"MMDX chart {chart['id']!r} failed Mermaid preflight: {exc}") from exc
+        results.append({"id": chart["id"], **result})
+    return results
+
+
+def _parse_mmdx_metadata(markdown: str) -> dict[str, Any]:
+    match = re.search(r"<!--\s*mmdx\s*(\{.*?\})\s*-->", markdown, flags=re.DOTALL)
+    if not match:
+        return {}
+    metadata = json.loads(match.group(1))
+    if not isinstance(metadata, dict):
+        raise ValueError("MMDX metadata must be a JSON object")
+    return metadata
+
+
+def _parse_mmdx_charts(markdown: str) -> list[dict[str, Any]]:
+    pattern = re.compile(
+        r"^##\s+chart\s+([A-Za-z0-9_-]+)(?:\s+(.+?))?\s*\n```mermaid\s*\n(.*?)\n```",
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    charts = []
+    for match in pattern.finditer(markdown):
+        chart = {
+            "id": match.group(1),
+            "code": match.group(3).rstrip() + "\n",
+        }
+        title = (match.group(2) or "").strip()
+        if title:
+            chart["title"] = title
+        charts.append(chart)
+    return charts
 
 
 def build_mmd_command() -> str:
@@ -564,9 +660,9 @@ def preflight_mermaid(code: str, *, auto_install: bool = True) -> dict[str, Any]
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Generate buildooor diagrams pako URLs from .mmd source files."
+        description="Generate buildooor diagrams pako URLs from .mmd or .mmdx source files."
     )
-    parser.add_argument("path", nargs="?", help="Mermaid .mmd file path, or '-' for stdin")
+    parser.add_argument("path", nargs="?", help="Mermaid .mmd/.mmdx file path, or '-' for stdin")
     parser.add_argument("--open", action="store_true", help="open the generated URL in a browser")
     parser.add_argument("--view", action="store_true", help="accepted for compatibility; buildooor diagrams uses one URL")
     parser.add_argument("--fragment-only", action="store_true", help="print only the pako: fragment")
@@ -678,14 +774,22 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         if not args.path:
-            raise ValueError("missing .mmd path; pass a file path, '-' for stdin, or --decode")
+            raise ValueError("missing .mmd/.mmdx path; pass a file path, '-' for stdin, or --decode")
 
         code = _read_text(args.path)
+        mmdx_document = build_mmdx_document(code) if is_mmdx_input(args.path, code) else None
+        diagram_code = get_mmdx_entry_code(mmdx_document) if mmdx_document else code
         if not args.no_preflight:
-            parse_result = preflight_mermaid(code, auto_install=not args.no_parser_install)
+            if mmdx_document:
+                parse_results = preflight_mmdx_document(mmdx_document, auto_install=not args.no_parser_install)
+            else:
+                parse_results = [preflight_mermaid(code, auto_install=not args.no_parser_install)]
             if args.preflight_only:
-                diagram_type = parse_result.get("diagramType", "unknown")
-                print(f"Mermaid preflight OK: {diagram_type}")
+                if mmdx_document:
+                    print(f"MMDX preflight OK: {len(parse_results)} charts")
+                else:
+                    diagram_type = parse_results[0].get("diagramType", "unknown")
+                    print(f"Mermaid preflight OK: {diagram_type}")
                 return 0
         elif args.preflight_only:
             raise ValueError("--preflight-only cannot be combined with --no-preflight")
@@ -694,7 +798,7 @@ def main(argv: list[str] | None = None) -> int:
         source_metadata = None
         output_base_url = resolve_output_base_url(view=args.view, base_url=args.base_url)
         if args.tmux_handoff:
-            source_metadata = build_source_metadata(args.path)
+            source_metadata = None if mmdx_document else build_source_metadata(args.path)
             allowed_origin = resolve_handoff_origin(
                 explicit_origin=args.handoff_origin,
                 output_base_url=output_base_url,
@@ -709,7 +813,7 @@ def main(argv: list[str] | None = None) -> int:
             )
 
         state = build_state(
-            code,
+            diagram_code,
             config=args.config,
             theme=args.theme,
             grid=not args.no_grid,
@@ -717,6 +821,7 @@ def main(argv: list[str] | None = None) -> int:
             rough=args.rough,
             handoff=handoff,
             source=source_metadata,
+            mmdx=mmdx_document,
         )
         fragment = encode_state(state)
         output = fragment if args.fragment_only else build_url(fragment, base_url=output_base_url)

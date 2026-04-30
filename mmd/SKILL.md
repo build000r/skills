@@ -1,6 +1,6 @@
 ---
 name: mmd
-description: Choose, author, encode, and open Mermaid diagrams. Use when the user invokes /mmd or $mmd, asks for the best .mmd/diagram type for a context, wants a Mermaid diagram created from prose, needs a mermaid.live/edit pako URL, asks to preview a .mmd file, or wants to decode/check Mermaid Live URL fragments.
+description: Choose, author, encode, stack, and open Mermaid diagrams. Use when the user invokes /mmd or $mmd, asks for the best .mmd/.mmdx diagram type for a context, wants a Mermaid diagram created from prose, needs a mermaid.live/edit pako URL, asks to preview a .mmd file, asks for chart drilldown/stacking, or wants to decode/check Mermaid Live URL fragments.
 ---
 
 # Buildooor Diagrams Links
@@ -19,6 +19,12 @@ Open a Mermaid source file in the buildooor diagrams viewer:
 
 ```bash
 python3 {{SKILL_DIR}}/scripts/mmd.py path/to/diagram.mmd --open
+```
+
+Open an MMDX chart stack in the buildooor diagrams viewer:
+
+```bash
+python3 {{SKILL_DIR}}/scripts/mmd.py path/to/stack.mmdx --open
 ```
 
 Open with a local tmux handoff channel so the viewer can send selected notes back to the pane that launched it:
@@ -61,6 +67,7 @@ python3 {{SKILL_DIR}}/scripts/mmd.py --decode 'https://mermaid.live/edit#pako:..
 
 - Existing file path or stdin: encode/open that source directly.
 - Mermaid Live URL, buildooor diagrams URL, or `pako:`/`base64:` fragment: decode it.
+- `.mmdx` file path or prose asking for chart stacking/drilldown: create or open an MMDX chart stack.
 - Natural-language brief: choose the diagram type, create a `.mmd`, then open it.
 - Requests for "best", "what diagram", "matrix", "root cause", "timeline", "sequence", "schema", or "architecture": treat as a diagram-selection task, not a generic flowchart task.
 
@@ -104,6 +111,89 @@ When the prompt asks for the "best" diagram, also choose the best visual grammar
 I chose an Ishikawa cause map with stoplight severity because the prompt is about diagnosing what blocks useful decisions.
 ```
 
+## Chart Stacking With MMDX
+
+Use MMDX when a single chart is too dense and the user needs progressive disclosure:
+a top-level decision chart, plus one or more linked subtype/detail charts. This is a
+thin wrapper around Mermaid, not a Mermaid fork. Each chart remains ordinary Mermaid;
+MMDX adds names, an entry chart, and label-to-chart links.
+
+Good MMDX triggers:
+
+- "click into this option"
+- "infinite load"
+- "drill down"
+- "subchart"
+- "chart stacking"
+- "show more detail for this point"
+- a quadrant/matrix/roadmap item needs a second chart of a different type
+
+Default chart-stacking methodology:
+
+- Make the entry chart the decision surface, not an index page.
+- Link only the high-leverage elements first; avoid turning every label into a link.
+- Let child charts change type. For example, a quadrant point can open a flowchart,
+  sequence, Gantt, Ishikawa, state diagram, or another quadrant.
+- Keep link labels short, unique, and exactly visible on the source chart.
+- Prefer one or two stack levels until the user proves they need more.
+- Do not render a side menu of child links. Linked elements should be clicked on the
+  chart itself; the side UI is for "back" after drilldown.
+- Use the child chart to answer "why, what next, or what blocks it", not to repeat the
+  parent label at larger size.
+
+MMDX file shape:
+
+````markdown
+<!-- mmdx
+{
+  "entry": "main",
+  "links": [
+    {
+      "from": "main",
+      "label": "P1 Fix runtime drift",
+      "to": "runtime-drift-detail",
+      "title": "Open runtime drift detail"
+    }
+  ]
+}
+-->
+
+## chart main Runtime Drift Priority
+```mermaid
+quadrantChart
+  title Runtime Drift Drilldown
+  x-axis Simple cleanup --> Needs decision
+  y-axis Cosmetic drift --> Blocks readiness
+  "P1 Fix runtime drift": [0.18, 0.92]
+```
+
+## chart runtime-drift-detail Runtime Drift Detail
+```mermaid
+flowchart TD
+  drift["Runtime drift blocks local readiness"]
+  sync["run scoped runtime sync"]
+  verify["rerun make doctor + make dev-sanity"]
+  drift --> sync --> verify
+```
+````
+
+Open it locally:
+
+```bash
+python3 {{SKILL_DIR}}/scripts/mmd.py path/to/stack.mmdx --open
+```
+
+Validate every chart in the stack:
+
+```bash
+python3 {{SKILL_DIR}}/scripts/mmd.py path/to/stack.mmdx --preflight-only
+```
+
+Current boundary: MMDX is encoded into the pako state and rendered by buildooor
+`/diagrams`. The local tmux handoff can still send selected notes back to the
+agent pane, but `.mmdx` files are not attached for source read/write yet because
+the source bridge currently edits plain Mermaid source.
+
 ## Encoding Contract
 
 Mermaid Live Editor serializes state as:
@@ -115,7 +205,7 @@ Mermaid Live Editor serializes state as:
 5. URL-safe base64 encode the compressed bytes without padding.
 6. Prefix the fragment with `pako:`.
 
-The bundled script implements that path with Python standard-library `json`, `zlib`, and `base64`, then opens the `https://buildooor.com/diagrams#pako:...` URL through `osascript`.
+The bundled script implements that path with Python standard-library `json`, `zlib`, and `base64`, then opens the `https://buildooor.com/diagrams#pako:...` URL through `osascript`. For `.mmdx`, the state `code` is the entry chart and the private `buildooorMmdx` field carries the named chart stack and links.
 
 When `--tmux` is passed, the script also starts an ephemeral localhost handoff server and adds a `buildooorHandoff` object to the compressed state, including the launcher command the browser should place in reopen instructions. For file inputs, it also adds `buildooorSource` with the resolved `.mmd` path. The browser reads that private hash metadata and shows `send to <tmux target>` instead of relying on clipboard copy. In handoff mode, the prompt panel previews the exact agent edit packet that will be sent. The server validates an unguessable token, accepts bridge calls only from the output URL origin, expires by TTL, and pastes an edit packet into the target tmux pane without pressing Enter by default. If `--tmux-submit` is also passed, Send pastes the edit packet and then presses Enter in the target pane. If the localhost handoff is unavailable when the user presses Send, the app copies the same agent edit packet to the clipboard as a recovery path.
 
@@ -152,7 +242,7 @@ If preflight fails, fix the `.mmd` before opening Mermaid Live unless the user e
 - `--open`: open the generated URL with the bundled AppleScript launcher.
 - `--view`: accepted for compatibility; buildooor diagrams uses one URL.
 - `--fragment-only`: print only `pako:...`.
-- `--tmux` / `--tmux-handoff`: attach a local handoff channel for the diagrams viewer's Send button.
+- `--tmux` / `--tmux-handoff`: attach a local handoff channel for the diagrams viewer's Send button. For `.mmdx`, this does not attach source-edit metadata yet.
 - `--tmux-target <target>`: override the tmux target pane; defaults to the current pane.
 - `--tmux-submit`: after Send pastes into the target pane, press Enter automatically.
 - `--handoff-ttl <seconds>`: lifetime for the local handoff channel, default 600.
@@ -170,6 +260,13 @@ After changes to the script, run:
 ```bash
 python3 {{SKILL_DIR}}/scripts/test_mmd.py
 python3 {{SKILL_DIR}}/scripts/mmd.py {{SKILL_DIR}}/examples/ishikawa-stoplight.mmd --preflight-only
+```
+
+For MMDX/chart-stacking changes, also run:
+
+```bash
+python3 {{SKILL_DIR}}/scripts/mmd.py path/to/stack.mmdx --preflight-only
+python3 {{SKILL_DIR}}/scripts/mmd.py path/to/stack.mmdx --fragment-only --no-preflight
 ```
 
 For a numeric `/crap` score on the bridge, generate a temporary coverage artifact first:

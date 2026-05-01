@@ -1,9 +1,9 @@
 ---
-name: mmd
-description: Choose, author, encode, stack, and open Mermaid diagrams. Use when the user invokes /mmd or $mmd, asks for the best .mmd/.mmdx diagram type for a context, wants a Mermaid diagram created from prose, needs a mermaid.live/edit pako URL, asks to preview a .mmd file, asks for chart drilldown/stacking, or wants to decode/check Mermaid Live URL fragments.
+name: mmdx
+description: Choose, author, encode, stack, and open Mermaid/MMDX diagrams. Use when the user invokes /mmdx or $mmdx, asks for the best .mmd/.mmdx diagram type for a context, wants a Mermaid diagram created from prose, needs a mermaid.live/edit pako URL, asks to preview a .mmd file, asks for chart drilldown/stacking, or wants to decode/check Mermaid Live URL fragments.
 ---
 
-# Buildooor Diagrams Links
+# Buildooor MMDX Diagram Links
 
 ## Quick Start
 
@@ -126,6 +126,8 @@ Good MMDX triggers:
 - "subchart"
 - "chart stacking"
 - "show more detail for this point"
+- "unblock me" when the blocker is a mix of command-proof and human-only gates
+- release, deploy, TestFlight, App Store, or beta timelines with linked proof
 - a quadrant/matrix/roadmap item needs a second chart of a different type
 
 Default chart-stacking methodology:
@@ -140,6 +142,12 @@ Default chart-stacking methodology:
   chart itself; the side UI is for "back" after drilldown.
 - Use the child chart to answer "why, what next, or what blocks it", not to repeat the
   parent label at larger size.
+- For release plans, make the entry chart a Gantt or state chart, then link only the gates
+  whose evidence or owner is not obvious.
+
+For release or beta operations, prefer a Gantt entry chart plus child charts for proof,
+manual gates, rollback, and next action. Use [references/release-gantt-mmdx.md](references/release-gantt-mmdx.md)
+and [examples/release-gantt-stack.mmdx](examples/release-gantt-stack.mmdx) as the pattern.
 
 MMDX file shape:
 
@@ -215,7 +223,7 @@ The localhost handoff server belongs to this skill, not to the buildooor app. `s
 
 The bridge CORS policy is origin-pinned. By default, the allowed origin is derived from the output URL (`https://buildooor.com` for the hosted viewer, or the origin of `--base-url` for local development). Use `--handoff-origin` only when the browser origin cannot be inferred from the output URL.
 
-The buildooor `/diagrams` page is the browser client for that bridge. It may render selection UI, notes, packet previews, source-edit controls, and send/submit buttons, but it should discover local capabilities from the pako state and call the MMD bridge. Do not add buildooor Next API routes for local `.mmd` file reads, writes, preflight, file watching, or tmux submission.
+The buildooor `/diagrams` page is the browser client for that bridge. It may render selection UI, notes, packet previews, source-edit controls, and send/submit buttons, but it should discover local capabilities from the pako state and call the MMDX bridge. Do not add buildooor Next API routes for local `.mmd` file reads, writes, preflight, file watching, or tmux submission.
 
 Direct-edit behavior must extend the token-gated MMD bridge first, then add browser UI that consumes those endpoints. The bridge currently supports:
 
@@ -267,6 +275,7 @@ For MMDX/chart-stacking changes, also run:
 ```bash
 python3 {{SKILL_DIR}}/scripts/mmd.py path/to/stack.mmdx --preflight-only
 python3 {{SKILL_DIR}}/scripts/mmd.py path/to/stack.mmdx --fragment-only --no-preflight
+python3 {{SKILL_DIR}}/scripts/mmd.py {{SKILL_DIR}}/examples/release-gantt-stack.mmdx --preflight-only
 ```
 
 For a numeric `/crap` score on the bridge, generate a temporary coverage artifact first:

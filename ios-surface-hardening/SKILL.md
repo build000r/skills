@@ -23,6 +23,7 @@ The hardening batch should usually produce all of these:
 - consistent auth/onboarding/home styling
 - a repo-owned analytics contract for the touched funnel
 - validation that proves the first-run flow still works
+- release-context notes when the touched surface is on the path to TestFlight or App Store submission
 
 ## Workflow
 
@@ -32,11 +33,16 @@ Before editing anything, inspect:
 
 - `README.md`
 - any product vision or style guide docs
+- any release, TestFlight, App Store, or beta runbooks
+- `AGENTS.md` / `CLAUDE.md` command notes
 - the strongest existing screen in code
 - the weaker screen(s) that need to inherit that language
 - current UI tests for auth/onboarding/home
+- current Makefile or `xcodebuild` lanes for simulator, fixture, and physical-device smoke
 
 Do not invent a new design language if the app already has one.
+
+If the hardening work is release-coupled, also read [references/deployment-context.md](references/deployment-context.md) before editing.
 
 ### 2. Identify The Visual Source Of Truth
 
@@ -103,11 +109,22 @@ Never include email, name, or other PII in analytics params.
 1. Build the app.
 2. Run the unit tests that cover the analytics contract.
 3. Run the auth/onboarding/home fixture UI slices.
-4. Only then consider broader acceptance runs.
+4. Run any deterministic screenshot or preview-catalog capture that covers the changed surfaces.
+5. Only then consider broader acceptance runs.
 
 If the repo already has targeted make targets or xcodebuild invocations, use those instead of inventing new ones.
 
 Use [references/verification-checklist.md](references/verification-checklist.md) as the closeout checklist.
+
+### 7. Preserve Release Gates
+
+When the app is already moving toward TestFlight/App Store, do not let a visual hardening pass erase release evidence:
+
+- keep explicit device lanes separate (`device-local`, `device-fixtures`, `device-prod`/`device-beta`) instead of hiding runtime choice behind overrides
+- keep fixture proofs distinct from TestFlight physical-device smoke
+- preserve App Store screenshot identifiers and dimensions when changing screenshot surfaces
+- update any release-readiness wrapper if the surface changes privacy data, metadata claims, entitlements, or supported device families
+- leave Apple UI touchpoints as short operator tasks with exact resume conditions, and keep working around them
 
 ## Output Contract
 
@@ -118,4 +135,5 @@ When you use this skill, the closeout should usually include:
 - which screens were rebuilt on top of them
 - where the analytics contract lives
 - which tests/build commands proved the patch
+- which release/TestFlight gates were affected, if any
 - any residual trust gaps you did not fix

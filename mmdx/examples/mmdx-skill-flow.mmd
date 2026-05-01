@@ -1,6 +1,6 @@
 flowchart TD
-  request["User: /mmd diagram.mmd"] --> command["Claude command wrapper"]
-  command --> skill["mmd skill instructions"]
+  request["User: /mmdx diagram.mmd"] --> command["Claude command wrapper"]
+  command --> skill["mmdx skill instructions"]
   skill --> script["scripts/mmd.py"]
 
   script --> read["Read Mermaid source"]
@@ -19,6 +19,6 @@ flowchart TD
   browser --> improve{"Next improvements"}
   improve --> validate["Validate Mermaid syntax before opening"]
   improve --> clipboard["Copy generated URL to clipboard"]
-  improve --> args["Make /mmd flags first-class"]
+  improve --> args["Make /mmdx flags first-class"]
   improve --> shim["Add shorter executable shim"]
   improve --> drift["Check upstream serializer drift"]

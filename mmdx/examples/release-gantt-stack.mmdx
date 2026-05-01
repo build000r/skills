@@ -1,0 +1,102 @@
+<!-- mmdx
+{
+  "entry": "main",
+  "links": [
+    {
+      "from": "main",
+      "label": "P0 Local proof",
+      "to": "local-proof",
+      "title": "Open local proof detail"
+    },
+    {
+      "from": "main",
+      "label": "P0 Human Apple step",
+      "to": "human-apple-step",
+      "title": "Open human Apple step"
+    },
+    {
+      "from": "main",
+      "label": "P0 Physical smoke",
+      "to": "physical-smoke",
+      "title": "Open physical smoke detail"
+    },
+    {
+      "from": "main",
+      "label": "P1 Rollback",
+      "to": "rollback",
+      "title": "Open rollback detail"
+    }
+  ]
+}
+-->
+
+## chart main iOS Release Gate Map
+```mermaid
+gantt
+  title iOS Release Gate Map
+  dateFormat  YYYY-MM-DD
+  axisFormat  %b %d
+
+  section P0 Proof
+  P0 Local proof          :done, local-proof, 2026-05-01, 1d
+  P0 Physical smoke       :crit, physical-smoke, 2026-05-01, 1d
+
+  section P0 Human Gates
+  P0 Human Apple step     :crit, apple-step, 2026-05-01, 1d
+
+  section P1 Distribution
+  Beta review             :review, after physical-smoke, 2d
+  Public link cap         :cap, after review, 1d
+  P1 Rollback             :done, rollback, 2026-05-01, 1d
+  External invite         :milestone, invite, after cap, 0d
+```
+
+## chart local-proof Local Proof
+```mermaid
+flowchart TD
+  build["OK: build passes"]
+  fixtures["OK: fixture acceptance passes"]
+  screenshots["OK: screenshot dimensions valid"]
+  ready["READY: physical smoke can start"]
+
+  build --> fixtures --> screenshots --> ready
+```
+
+## chart human-apple-step Human Apple Step
+```mermaid
+flowchart TD
+  need["MANDATORY HUMAN: Apple UI"]
+  action["Action: accept agreements / configure ASC fields"]
+  proof["Proof: screenshot or checklist tick"]
+  resume["Resume: rerun release readiness + attach build"]
+
+  need --> action --> proof --> resume
+```
+
+## chart physical-smoke Physical Smoke
+```mermaid
+sequenceDiagram
+  autonumber
+  actor Operator
+  participant Phone
+  participant App
+  participant API
+
+  Operator->>Phone: Unlock device and install TestFlight build
+  Operator->>App: Sign in with seeded account
+  App->>API: Fetch bootstrap / entitlement / current state
+  API-->>App: Return release-state payload
+  App-->>Operator: Golden path visible
+```
+
+## chart rollback Rollback
+```mermaid
+flowchart TD
+  bad["Bad build detected"]
+  disable["Disable public link"]
+  remove["Remove build from external group"]
+  notify["Notify testers with build number"]
+  repair["Repair data or ship fixed build"]
+
+  bad --> disable --> remove --> notify --> repair
+```

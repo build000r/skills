@@ -34,10 +34,9 @@ Environment knobs:
 - `ORACLE_CDP_PORT` (default `9222`)
 - `DEEP_RESEARCH_VERBOSE=1` for stderr tracing
 
-The helper uses WebSockets — it has a dependency on the `ws` npm module. It's
-already available globally via `@steipete/oracle`'s node_modules on this
-machine; if this script is used on a fresh box, `npm install -g ws` or point
-`NODE_PATH` at the oracle install.
+The helper uses WebSockets over CDP. On current Node versions it uses the
+built-in `WebSocket`; on older Node versions it falls back to the `ws` npm
+module if available.
 
 ## How the skill wires this into an Oracle run
 

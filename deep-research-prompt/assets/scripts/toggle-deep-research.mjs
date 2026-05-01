@@ -46,16 +46,17 @@ function pickChatGPTTarget(targets) {
 }
 
 async function cdpEval(wsUrl, expression) {
-  const WebSocket = (await import('ws')).default;
+  const WebSocketClient =
+    globalThis.WebSocket ?? (await import('ws')).default;
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(wsUrl);
+    const ws = new WebSocketClient(wsUrl);
     const messageId = 1;
     const timer = setTimeout(() => {
       ws.close();
       reject(new Error('CDP eval timed out'));
     }, 15000);
 
-    ws.on('open', () => {
+    const onOpen = () => {
       ws.send(
         JSON.stringify({
           id: messageId,
@@ -67,22 +68,35 @@ async function cdpEval(wsUrl, expression) {
           },
         }),
       );
-    });
+    };
 
-    ws.on('message', (raw) => {
-      const msg = JSON.parse(raw.toString());
+    const onMessage = (raw) => {
+      const data = raw?.data ?? raw;
+      const msg = JSON.parse(
+        typeof data === 'string' ? data : Buffer.from(data).toString(),
+      );
       if (msg.id === messageId) {
         clearTimeout(timer);
         ws.close();
         if (msg.error) return reject(new Error(msg.error.message));
         resolve(msg.result?.result?.value);
       }
-    });
+    };
 
-    ws.on('error', (err) => {
+    const onError = (err) => {
       clearTimeout(timer);
-      reject(err);
-    });
+      reject(err?.error ?? err);
+    };
+
+    if (typeof ws.addEventListener === 'function') {
+      ws.addEventListener('open', onOpen);
+      ws.addEventListener('message', onMessage);
+      ws.addEventListener('error', onError);
+    } else {
+      ws.on('open', onOpen);
+      ws.on('message', onMessage);
+      ws.on('error', onError);
+    }
   });
 }
 
@@ -192,7 +206,7 @@ function pageScript() {
 
     // Find the Deep research menu item.
     let target = null;
-    for (const item of menu.querySelectorAll('[role="menuitem"], [role="menuitemcheckbox"], button, li')) {
+    for (const item of menu.querySelectorAll('[role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], button, li')) {
       const text = normalize(item.textContent);
       if (text.includes('deep research')) {
         target = item;

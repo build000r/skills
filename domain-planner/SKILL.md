@@ -188,6 +188,7 @@ Routing rules:
 {plan_root}/
 ├── {slice}/
 │   ├── plan.md, shared.md, backend.md, frontend.md, flows.md, schema.mmd
+│   ├── review.mmdx
 │   └── WORKGRAPH.md
 └── ...
 
@@ -198,6 +199,7 @@ Routing rules:
 `{plan_root}`, `{plan_draft}`, and `{plan_index}` come from the skillbox client overlay's `context.yaml`.
 
 **schema.mmd is REQUIRED** — without it, the slice won't appear in indexes or ERD views.
+**review.mmdx is REQUIRED at human checkpoints** — generate it from the current plan when a human is being asked to approve, revise, block, or choose save location. It is a checkpoint mirror, not a canonical plan file.
 
 ## Critical Rules
 
@@ -214,6 +216,7 @@ Routing rules:
 11. **Separate DB transition planning from API planning** — Only add a DB transition section when production data is at risk. Keep it operationally focused: backup, transactional/idempotent raw SQL execution, verification, and rollback.
 12. **Core Value Gate is binding** — Before Phase 1 Discovery, define the primary actor, single user-visible outcome, minimum winning slice, explicit non-goals, and debt avoided by deferring them. If a story does not materially improve that outcome, defer it unless it is required for safety/risk containment or the user explicitly widens scope.
 13. **`WORKGRAPH.md` is post-plan only** — It is an execution handoff artifact created after the 6 plan files are accepted. It may include `writes`, dependency edges, validation commands, and risk gates. Do not mix those execution details back into the plan files.
+14. **`review.mmdx` is the human checkpoint surface** — Before any human sign-off, build/update `review.mmdx` from all current plan files using the `mmdx` skill's chart-stacking contract and the opinionated structure in [references/mmdx-review-checkpoint.md](~/.claude/skills/domain-planner/references/mmdx-review-checkpoint.md). The MMDX must expose every decision-grade detail through linked charts: core value, stories, endpoints, errors, schema, backend rules, frontend states, flows, decisions, non-goals, risks, open questions, performance envelopes, and WORKGRAPH nodes when present.
 
 ## Questioning Strategy
 
@@ -261,7 +264,7 @@ Use Phases 0-6 below for spec creation, including the binding Phase 0.5 Core Val
 | 4. Frontend | Screens & interactions | frontend.md + flows.md | Read client's frontend patterns |
 | 5. Strategy | Trade-offs & justifications | plan.md | Document "why", alternatives, rejected approaches |
 | 5.5 Deep Review | Iterative refinement via `apr` | Revised plan files | Multi-round GPT Pro review until steady-state |
-| 6. Sign-off | Create files | All files | released/ or planned/? |
+| 6. Sign-off | Create files + human checkpoint | All files + review.mmdx | Quality loop, MMDX drilldown, released/ or planned/? |
 
 ---
 
@@ -562,11 +565,34 @@ Assess (subagent or inline) → Parse score
 
 After the loop, report the final score before proceeding.
 
-#### 6c. Save Location
+#### 6c. Human Checkpoint MMDX Review
+
+Before asking a human to approve, revise, block, or choose the save location,
+create/update `{plan_root}/{slice}/review.mmdx` as the review surface. Use the
+`mmdx` skill, specifically its chart-stacking guidance,
+`references/diagram-selection.md`, and `references/visual-grammar.md`.
+
+Use [references/mmdx-review-checkpoint.md](~/.claude/skills/domain-planner/references/mmdx-review-checkpoint.md)
+as the required structure. The MMDX entry chart must be a decision surface
+with a visible `READY`, `REVISE`, or `BLOCKED` conclusion; linked child charts
+must carry every decision-grade detail from the six plan files; and the visual
+grammar must preserve chart-crimes-style honesty with source disclosure,
+status labels, visible caveats, and no color-only meaning.
+
+```bash
+cp ~/.claude/skills/domain-planner/assets/templates/review.mmdx {plan_root}/{slice}/review.mmdx
+python3 ~/.claude/skills/mmdx/scripts/mmd.py {plan_root}/{slice}/review.mmdx --preflight-only
+python3 ~/.claude/skills/mmdx/scripts/mmd.py {plan_root}/{slice}/review.mmdx --open
+```
+
+Do not continue to save-location sign-off until the MMDX preflight passes and
+the human checkpoint is presented with the path/URL.
+
+#### 6d. Save Location
 
 Ask: "Save to released/ (locked) or planned/ (draft)?"
 
-#### 6d. Synthesize `WORKGRAPH.md`
+#### 6e. Synthesize `WORKGRAPH.md`
 
 After the 6 plan files are accepted and saved, populate `WORKGRAPH.md` as the
 execution handoff for downstream orchestration. This file is intentionally
@@ -593,7 +619,7 @@ The goal is independently executable briefs, not a task index that requires cros
 
 **README update node:** If the Pre-Planning Prerequisites phase determined this slice changes the project's feature set or competitive positioning, add a final-wave `readme-update` node with no implementation dependencies blocked on it. Its `context` should summarize what changed, and its execution should invoke the `readme-writing` skill. This ensures documentation stays current after implementation, not just before planning.
 
-#### 6e. Handoff
+#### 6f. Handoff
 
 Handoff: "Ready to implement? Run the domain-planner skill and select 'Implement it'"
 
@@ -699,7 +725,9 @@ See [references/orchestration-workflow.md](~/.claude/skills/domain-planner/refer
 
 ## Templates
 
-See `~/.claude/skills/domain-planner/assets/templates/` — copied automatically by `~/.claude/skills/domain-planner/scripts/init_slice.py`.
+See `~/.claude/skills/domain-planner/assets/templates/`. Initial plan templates
+are copied automatically by `~/.claude/skills/domain-planner/scripts/init_slice.py`;
+`review.mmdx` is copied/filled during the Phase 6c human checkpoint.
 
 ## Related Skills
 
@@ -710,6 +738,8 @@ See `~/.claude/skills/domain-planner/assets/templates/` — copied automatically
 - **escalate** — Owns the external-reality gate for Subagent C and routes to `thesis-gtm`, `deep-research-prompt`, `web-check`, or `skip`.
 - **thesis-gtm** — Destination chosen by `escalate` when the slice premise is really a product-thesis / buyer / GTM question.
 - **deep-research-prompt** — Destination chosen by `escalate` for narrower live external unknowns that need an Oracle-ready prompt plus execution wrapper.
+- **mmdx** — Owns Mermaid/MMDX chart-stack authoring, preflight, encoding, and opening for the human checkpoint review surface.
+- **chart-crimes** — Supplies the persuasive-but-truthful visual grammar for decision-grade review charts: verdict titles, direct labels, status color, source disclosure, and caveats.
 
 ## Verification / Closeout Contract
 
@@ -726,3 +756,4 @@ Before returning, confirm all of the following:
 3. If the external reality gate ran, the response names the `escalate` route (`thesis-gtm`, `deep-research-prompt`, `web-check`, `skip`, or `too-broad`), plus the note/session artifact it produced.
 4. If a wiki vault existed and the gate surfaced durable findings, `_sources/notes/` + `/wiki ingest` status is explicit.
 5. Architectural review (`apr` or fallback) is reported as used, skipped, or unavailable rather than implied.
+6. For any human checkpoint, `review.mmdx` is generated/updated, validated with the `mmdx` preflight command, and presented as the review drilldown artifact.

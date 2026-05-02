@@ -1,0 +1,149 @@
+<!-- mmdx
+{
+  "entry": "main",
+  "links": [
+    {
+      "from": "main",
+      "label": "Core win and scope",
+      "to": "core-scope",
+      "title": "Open core win and scope detail"
+    },
+    {
+      "from": "main",
+      "label": "Contract and data",
+      "to": "contract-data",
+      "title": "Open contract and data detail"
+    },
+    {
+      "from": "main",
+      "label": "Runtime behavior",
+      "to": "runtime-behavior",
+      "title": "Open runtime behavior detail"
+    },
+    {
+      "from": "main",
+      "label": "Decision and risk",
+      "to": "decision-risk",
+      "title": "Open decision and risk detail"
+    },
+    {
+      "from": "main",
+      "label": "Execution handoff",
+      "to": "execution-handoff",
+      "title": "Open execution handoff detail"
+    }
+  ]
+}
+-->
+
+<!-- honesty-ledger
+Source: plan.md, shared.md, backend.md, frontend.md, flows.md, schema.mmd, WORKGRAPH.md if present
+Unit and denominator: decision-grade plan details; all canonical plan files included
+Transform: plan details mirrored into linked Mermaid charts for review
+Filter or category selection: only implementation code and file-tree details omitted by spec boundary
+Axis/domain: risk charts use confidence x blocking effect; execution charts use dependency order
+Caveat: review.mmdx is a checkpoint mirror, not the source of truth
+-->
+
+## chart main Slice Plan Review Decision Surface
+```mermaid
+flowchart LR
+  source["Source: 6 plan files + WORKGRAPH if present"]
+  verdict["UNKNOWN: replace with READY, REVISE, or BLOCKED"]
+  core["Core win and scope"]
+  contract["Contract and data"]
+  runtime["Runtime behavior"]
+  risk["Decision and risk"]
+  exec["Execution handoff"]
+  action["Human action: approve / revise / block"]
+
+  source --> verdict
+  verdict --> core
+  verdict --> contract
+  verdict --> runtime
+  verdict --> risk
+  verdict --> exec
+  core --> action
+  contract --> action
+  runtime --> action
+  risk --> action
+  exec --> action
+
+  classDef high fill:#fee2e2,stroke:#dc2626,color:#7f1d1d,stroke-width:2px
+  classDef med fill:#fef3c7,stroke:#d97706,color:#78350f,stroke-width:2px
+  classDef ok fill:#dcfce7,stroke:#16a34a,color:#14532d,stroke-width:2px
+  classDef unknown fill:#f3f4f6,stroke:#6b7280,color:#111827,stroke-dasharray: 4 3
+  classDef neutral fill:#f8fafc,stroke:#64748b,color:#0f172a
+  classDef decision fill:#ede9fe,stroke:#7c3aed,color:#3b0764,stroke-width:2px
+  classDef recommended fill:#d1fae5,stroke:#059669,color:#064e3b,stroke-width:3px
+  class source,core,contract,runtime,risk,exec neutral
+  class verdict unknown
+  class action decision
+```
+
+## chart core-scope Core Win And Scope
+```mermaid
+flowchart TD
+  actor["UNKNOWN: primary actor"]
+  outcome["UNKNOWN: single user-visible outcome"]
+  minimum["UNKNOWN: minimum winning slice"]
+  stories["UNKNOWN: all user stories + acceptance coverage"]
+  nongoals["UNKNOWN: explicit non-goals"]
+  debt["UNKNOWN: debt avoided by deferring scope"]
+
+  actor --> outcome --> minimum --> stories
+  minimum --> nongoals --> debt
+```
+
+## chart contract-data Contract And Data
+```mermaid
+flowchart TD
+  endpoints["UNKNOWN: every endpoint and auth requirement"]
+  shapes["UNKNOWN: request and response shape families"]
+  errors["UNKNOWN: every error code"]
+  runtime["UNKNOWN: runtime and backpressure contract"]
+  schema["UNKNOWN: every entity and relationship from schema.mmd"]
+  siblings["UNKNOWN: sibling FKs or owned entities"]
+
+  endpoints --> shapes --> errors
+  endpoints --> runtime
+  shapes --> schema --> siblings
+```
+
+## chart runtime-behavior Runtime Behavior
+```mermaid
+flowchart TD
+  flows["UNKNOWN: every user journey and failure path"]
+  backend["UNKNOWN: backend rules, permissions, jobs, edge cases"]
+  frontend["UNKNOWN: screens, roles, states, interactions"]
+  perf["UNKNOWN: SLOs, load assumptions, verification"]
+  db["UNKNOWN: DB transition plan if production data is affected"]
+
+  flows --> backend
+  flows --> frontend
+  backend --> perf
+  frontend --> perf
+  perf --> db
+```
+
+## chart decision-risk Decision And Risk
+```mermaid
+quadrantChart
+  title Decision And Risk Review
+  x-axis High confidence --> Low confidence
+  y-axis Low blocking effect --> High blocking effect
+  "UNKNOWN: replace with top blocker": [0.80, 0.85]
+  "OK: replace with accepted decision": [0.20, 0.20]
+```
+
+## chart execution-handoff Execution Handoff
+```mermaid
+flowchart TD
+  wg["UNKNOWN: WORKGRAPH nodes if present"]
+  deps["UNKNOWN: dependency edges"]
+  writes["UNKNOWN: writes ownership"]
+  checks["UNKNOWN: validation commands"]
+  gates["UNKNOWN: risk gates and human-only steps"]
+
+  wg --> deps --> writes --> checks --> gates
+```

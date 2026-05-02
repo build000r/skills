@@ -109,4 +109,5 @@
 - [shared.md](./shared.md) - API contract
 - [backend.md](./backend.md) - Backend spec
 - [frontend.md](./frontend.md) - Frontend spec
+- [review.mmdx](./review.mmdx) - Human checkpoint review stack (generated/updated before sign-off)
 - [WORKGRAPH.md](./WORKGRAPH.md) - Post-sign-off execution handoff (created after plan acceptance)

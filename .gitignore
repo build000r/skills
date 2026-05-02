@@ -3,6 +3,7 @@ __pycache__/
 *.skill
 *.zip
 .DS_Store
+mmdx/INDEX.mmdx
 dist/
 .apr/
 __DOT_SWIMMERS__/

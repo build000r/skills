@@ -29,7 +29,7 @@
 ```
 skill-name/
 ├── SKILL.md (required)
-│   ├── YAML frontmatter (name, description)
+│   ├── YAML frontmatter (name, description, optional depends_on)
 │   └── Markdown instructions
 └── Bundled Resources (optional)
     ├── scripts/          - Executable code (Python/Bash/etc.)
@@ -39,7 +39,7 @@ skill-name/
 
 ### SKILL.md
 
-- **Frontmatter** (YAML): Required `name` and `description`, plus optional `license`, `allowed-tools`, `metadata`. The `name` and `description` determine when the skill triggers — be clear and comprehensive.
+- **Frontmatter** (YAML): Required `name` and `description`, plus optional `license`, `allowed-tools`, `metadata`, and `depends_on`. The `name` and `description` determine when the skill triggers — be clear and comprehensive. Use `depends_on` as a YAML list of skill ids when this skill has an explicit cross-skill contract.
 - **Body** (Markdown): Instructions and guidance. Only loaded AFTER the skill triggers.
 
 ### Scripts (`scripts/`)

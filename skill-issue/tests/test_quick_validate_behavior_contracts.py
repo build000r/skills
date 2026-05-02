@@ -49,6 +49,32 @@ class QuickValidateBehaviorContractTests(unittest.TestCase):
         self.assertTrue(valid)
         self.assertEqual(message, "Skill is valid!")
 
+    def test_depends_on_frontmatter_list_is_allowed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            skill_dir = Path(tmpdir) / "sample-skill"
+            skill_dir.mkdir(parents=True, exist_ok=True)
+            (skill_dir / "SKILL.md").write_text(
+                "\n".join(
+                    [
+                        "---",
+                        "name: sample-skill",
+                        'description: "Package a sample skill for tests and validate dependency metadata."',
+                        "depends_on:",
+                        "  - mmdx",
+                        "---",
+                        "",
+                        "# Sample Skill",
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            valid, message = VALIDATE_MODULE.validate_skill(skill_dir)
+
+        self.assertTrue(valid)
+        self.assertEqual(message, "Skill is valid!")
+
     def test_analysis_skill_requires_stable_marker_and_verification_contract(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             skill_dir = self.write_skill(

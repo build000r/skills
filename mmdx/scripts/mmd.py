@@ -160,6 +160,20 @@ def preflight_mmdx_document(document: dict[str, Any], *, auto_install: bool = Tr
     return results
 
 
+def preflight_source_code(code: str, source_path: str | Path | None, *, auto_install: bool = True) -> dict[str, Any]:
+    source_name = str(source_path or "-")
+    if is_mmdx_input(source_name, code):
+        document = build_mmdx_document(code)
+        results = preflight_mmdx_document(document, auto_install=auto_install)
+        return {
+            "kind": "mmdx",
+            "entry": document["entry"],
+            "chartCount": len(document["charts"]),
+            "charts": results,
+        }
+    return preflight_mermaid(code, auto_install=auto_install)
+
+
 def _parse_mmdx_metadata(markdown: str) -> dict[str, Any]:
     match = re.search(r"<!--\s*mmdx\s*(\{.*?\})\s*-->", markdown, flags=re.DOTALL)
     if not match:
@@ -360,7 +374,7 @@ class HandoffRequestHandler(http.server.BaseHTTPRequestHandler):
             return
 
         try:
-            result = preflight_mermaid(code)
+            result = preflight_source_code(code, source_path)
         except (OSError, RuntimeError, ValueError, subprocess.CalledProcessError) as exc:
             self._send_json(422, {"ok": False, "error": str(exc)})
             return
@@ -381,7 +395,7 @@ class HandoffRequestHandler(http.server.BaseHTTPRequestHandler):
             return
 
         try:
-            result = preflight_mermaid(code)
+            result = preflight_source_code(code, source_path)
         except (OSError, RuntimeError, ValueError, subprocess.CalledProcessError) as exc:
             self._send_json(422, {"ok": False, "error": str(exc)})
             return
@@ -798,7 +812,7 @@ def main(argv: list[str] | None = None) -> int:
         source_metadata = None
         output_base_url = resolve_output_base_url(view=args.view, base_url=args.base_url)
         if args.tmux_handoff:
-            source_metadata = None if mmdx_document else build_source_metadata(args.path)
+            source_metadata = build_source_metadata(args.path)
             allowed_origin = resolve_handoff_origin(
                 explicit_origin=args.handoff_origin,
                 output_base_url=output_base_url,

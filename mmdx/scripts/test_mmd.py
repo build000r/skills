@@ -239,7 +239,7 @@ flowchart TD
         self.assertEqual(decoded["buildooorHandoff"], handoff)
         self.assertEqual(decoded["buildooorSource"]["path"], str(Path(path).resolve()))
 
-    def test_main_skips_source_metadata_for_mmdx_tmux_input(self) -> None:
+    def test_main_adds_source_metadata_for_mmdx_tmux_input(self) -> None:
         with tempfile.NamedTemporaryFile("w", suffix=".mmdx", delete=False) as handle:
             handle.write(
                 """<!-- mmdx
@@ -266,7 +266,7 @@ flowchart TD
             "token": "secret-token",
             "tmuxTarget": "%12",
             "mmdCommand": "python3 '/opt/mmd/scripts/mmd.py'",
-            "sourceEditable": False,
+            "sourceEditable": True,
         }
 
         try:
@@ -279,8 +279,8 @@ flowchart TD
         decoded = mmd.decode_state(stdout.getvalue().strip())
         self.assertEqual(exit_code, 0)
         self.assertEqual(decoded["buildooorHandoff"], handoff)
-        self.assertNotIn("buildooorSource", decoded)
-        self.assertIsNone(start_handoff.call_args.kwargs["source_path"])
+        self.assertEqual(decoded["buildooorSource"]["path"], str(Path(path).resolve()))
+        self.assertEqual(start_handoff.call_args.kwargs["source_path"], str(Path(path).resolve()))
 
     def test_handoff_default_ttl_is_short_lived(self) -> None:
         self.assertEqual(mmd.DEFAULT_HANDOFF_TTL_SECONDS, 10 * 60)
@@ -421,7 +421,45 @@ flowchart TD
 
         self.assertEqual(status, 200)
         self.assertEqual(body["preflight"]["diagramType"], "flowchart-v2")
-        preflight.assert_called_once_with("flowchart TD\n  A --> C\n")
+        preflight.assert_called_once_with("flowchart TD\n  A --> C\n", auto_install=True)
+
+    def test_handoff_source_preflight_validates_mmdx_stack(self) -> None:
+        with tempfile.NamedTemporaryFile("w", suffix=".mmdx", delete=False) as handle:
+            handle.write(
+                """<!-- mmdx
+{"entry":"main","links":[{"from":"main","label":"Open detail","to":"detail"}]}
+-->
+## chart main Main Chart
+```mermaid
+flowchart TD
+  A[Open detail] --> B[Next]
+```
+
+## chart detail Detail Chart
+```mermaid
+flowchart TD
+  C[Detail] --> D[Done]
+```
+"""
+            )
+            path = handle.name
+
+        try:
+            with patch.object(mmd, "preflight_mermaid", return_value={"diagramType": "flowchart-v2"}) as preflight:
+                status, body = post_handoff_json(
+                    {"token": "secret-token"},
+                    path="/source/preflight",
+                    source_path=path,
+                )
+        finally:
+            Path(path).unlink(missing_ok=True)
+
+        self.assertEqual(status, 200)
+        self.assertEqual(body["preflight"]["kind"], "mmdx")
+        self.assertEqual(body["preflight"]["entry"], "main")
+        self.assertEqual(body["preflight"]["chartCount"], 2)
+        self.assertEqual(len(body["preflight"]["charts"]), 2)
+        self.assertEqual(preflight.call_count, 2)
 
     def test_handoff_source_write_validates_before_saving(self) -> None:
         with tempfile.NamedTemporaryFile("w", suffix=".mmd", delete=False) as handle:
@@ -442,6 +480,52 @@ flowchart TD
 
         self.assertEqual(status, 200)
         self.assertEqual(body["preflight"]["diagramType"], "flowchart-v2")
+        self.assertEqual(saved, updated)
+
+    def test_handoff_source_write_validates_mmdx_before_saving(self) -> None:
+        original = """<!-- mmdx
+{"entry":"main","links":[]}
+-->
+## chart main Main Chart
+```mermaid
+flowchart TD
+  A[Old] --> B[Next]
+```
+"""
+        updated = """<!-- mmdx
+{"entry":"main","links":[{"from":"main","label":"Open detail","to":"detail"}]}
+-->
+## chart main Main Chart
+```mermaid
+flowchart TD
+  A[Open detail] --> B[Next]
+```
+
+## chart detail Detail Chart
+```mermaid
+flowchart TD
+  C[Detail] --> D[Done]
+```
+"""
+        with tempfile.NamedTemporaryFile("w", suffix=".mmdx", delete=False) as handle:
+            handle.write(original)
+            path = handle.name
+
+        try:
+            with patch.object(mmd, "preflight_mermaid", return_value={"diagramType": "flowchart-v2"}) as preflight:
+                status, body = post_handoff_json(
+                    {"token": "secret-token", "code": updated},
+                    path="/source/write",
+                    source_path=path,
+                )
+            saved = Path(path).read_text(encoding="utf-8")
+        finally:
+            Path(path).unlink(missing_ok=True)
+
+        self.assertEqual(status, 200)
+        self.assertEqual(body["preflight"]["kind"], "mmdx")
+        self.assertEqual(body["preflight"]["chartCount"], 2)
+        self.assertEqual(preflight.call_count, 2)
         self.assertEqual(saved, updated)
 
     def test_handoff_source_write_does_not_save_invalid_code(self) -> None:

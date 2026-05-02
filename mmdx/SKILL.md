@@ -63,6 +63,17 @@ Decode an existing Mermaid Live/buildooor diagrams fragment or URL:
 python3 {{SKILL_DIR}}/scripts/mmd.py --decode 'https://mermaid.live/edit#pako:...'
 ```
 
+## MMDX Directory Index
+
+`INDEX.mmdx` at the skill root is a machine-wide directory of every `.mmdx`. It renders as a Gantt chart — sections by repo, bars by file, positioned by edit date. Each bar `click`s through to the actual `.mmdx` opened in the buildooor diagrams viewer (pako-encoded). Status colors: `crit` = edited in last 24h, `active` = last 7d, `done` = older.
+
+**Always refresh before opening** — file mtimes change as the user works:
+
+```bash
+python3 {{SKILL_DIR}}/scripts/mmdx_index.py
+python3 {{SKILL_DIR}}/scripts/mmd.py {{SKILL_DIR}}/INDEX.mmdx --open
+```
+
 ## Invocation Routing
 
 - Existing file path or stdin: encode/open that source directly.
@@ -70,6 +81,7 @@ python3 {{SKILL_DIR}}/scripts/mmd.py --decode 'https://mermaid.live/edit#pako:..
 - `.mmdx` file path or prose asking for chart stacking/drilldown: create or open an MMDX chart stack.
 - Natural-language brief: choose the diagram type, create a `.mmd`, then open it.
 - Requests for "best", "what diagram", "matrix", "root cause", "timeline", "sequence", "schema", or "architecture": treat as a diagram-selection task, not a generic flowchart task.
+- **Index/directory requests** ("show me my mmdx", "all the mmdx I have", "mmdx index", "directory of diagrams", "what mmdx exist", "open the index", "refresh the index"): always run `mmdx_index.py` first to refresh, then open `INDEX.mmdx`. Do not show a stale index.
 
 ## Diagram Selection
 
@@ -142,6 +154,20 @@ Default chart-stacking methodology:
   chart itself; the side UI is for "back" after drilldown.
 - Use the child chart to answer "why, what next, or what blocks it", not to repeat the
   parent label at larger size.
+- For `/diagrams` wand drilldown packets, treat the request as a same-agent continuation
+  from the creator pane that opened the chart. Use the already-invoked MMDX skill,
+  the attached source path, the active chart id/title, selected label, nearby Mermaid
+  context, and local repo context. Do not ask the user for more context unless the
+  source is unreadable or the repo grounding is genuinely unavailable.
+- For `/diagrams` wand clipboard packets, assume the receiving agent may be a fresh
+  session with no creator-pane state. Ground in the embedded MMDX skill reference,
+  source path, active chart id/title, selected label, and included Mermaid context
+  before patching. Treat a copied packet as successful clipboard mode, not as a
+  failed bridge handoff.
+- A wand request creates exactly one high-leverage child chart. Consider several chart
+  families first, pick the most accretive one, patch the `.mmdx` source and link, validate
+  every chart, reopen the stack, then briefly say which child chart you picked and why.
+  If a close alternative was plausible, name it as an optional change after the rationale.
 - For release plans, make the entry chart a Gantt or state chart, then link only the gates
   whose evidence or owner is not obvious.
 
@@ -197,10 +223,10 @@ Validate every chart in the stack:
 python3 {{SKILL_DIR}}/scripts/mmd.py path/to/stack.mmdx --preflight-only
 ```
 
-Current boundary: MMDX is encoded into the pako state and rendered by buildooor
-`/diagrams`. The local tmux handoff can still send selected notes back to the
-agent pane, but `.mmdx` files are not attached for source read/write yet because
-the source bridge currently edits plain Mermaid source.
+MMDX is encoded into the pako state and rendered by buildooor `/diagrams`.
+When `.mmdx` files are opened with `--tmux`, the source path is attached and
+the local bridge validates source reads/writes as full MMDX documents. This is
+what lets a wand click patch the original stack rather than only copying a prompt.
 
 ## Encoding Contract
 
@@ -215,7 +241,7 @@ Mermaid Live Editor serializes state as:
 
 The bundled script implements that path with Python standard-library `json`, `zlib`, and `base64`, then opens the `https://buildooor.com/diagrams#pako:...` URL through `osascript`. For `.mmdx`, the state `code` is the entry chart and the private `buildooorMmdx` field carries the named chart stack and links.
 
-When `--tmux` is passed, the script also starts an ephemeral localhost handoff server and adds a `buildooorHandoff` object to the compressed state, including the launcher command the browser should place in reopen instructions. For file inputs, it also adds `buildooorSource` with the resolved `.mmd` path. The browser reads that private hash metadata and shows `send to <tmux target>` instead of relying on clipboard copy. In handoff mode, the prompt panel previews the exact agent edit packet that will be sent. The server validates an unguessable token, accepts bridge calls only from the output URL origin, expires by TTL, and pastes an edit packet into the target tmux pane without pressing Enter by default. If `--tmux-submit` is also passed, Send pastes the edit packet and then presses Enter in the target pane. If the localhost handoff is unavailable when the user presses Send, the app copies the same agent edit packet to the clipboard as a recovery path.
+When `--tmux` is passed, the script also starts an ephemeral localhost handoff server and adds a `buildooorHandoff` object to the compressed state, including the launcher command the browser should place in reopen instructions. For file inputs, including `.mmdx`, it also adds `buildooorSource` with the resolved source path. The browser reads that private hash metadata and shows `send to <tmux target>` instead of relying on clipboard copy. In handoff mode, the prompt panel previews the exact agent edit packet that will be sent. The server validates an unguessable token, accepts bridge calls only from the output URL origin, expires by TTL, and pastes an edit packet into the target tmux pane without pressing Enter by default. If `--tmux-submit` is also passed, Send pastes the edit packet and then presses Enter in the target pane. If the localhost handoff is unavailable when the user presses Send, the app copies the same agent edit packet to the clipboard as a recovery path. If a wand drilldown has no bridge, or the bridge fails, the app copies a fresh-session wand packet with an embedded MMDX skill reference so another agent can load the workflow, patch the stack, validate it, and reopen it without prior tmux context.
 
 ## Local Bridge Ownership
 
@@ -227,9 +253,9 @@ The buildooor `/diagrams` page is the browser client for that bridge. It may ren
 
 Direct-edit behavior must extend the token-gated MMD bridge first, then add browser UI that consumes those endpoints. The bridge currently supports:
 
-- `POST /source/read`: return the attached `.mmd` source file.
-- `POST /source/preflight`: validate submitted code, or the attached file when no code is supplied.
-- `POST /source/write`: validate submitted code with Mermaid preflight, then save it to the attached `.mmd` file only if validation succeeds.
+- `POST /source/read`: return the attached `.mmd` or `.mmdx` source file.
+- `POST /source/preflight`: validate submitted code, or the attached file when no code is supplied. `.mmdx` sources validate every chart in the stack.
+- `POST /source/write`: validate submitted code first, then save it to the attached `.mmd` or `.mmdx` file only if validation succeeds.
 
 The browser must not choose arbitrary filesystem paths. It can only operate on the source file attached by `scripts/mmd.py --tmux`. Future bridge additions should follow the same pattern for file status/watch and explicit submit.
 
@@ -250,7 +276,7 @@ If preflight fails, fix the `.mmd` before opening Mermaid Live unless the user e
 - `--open`: open the generated URL with the bundled AppleScript launcher.
 - `--view`: accepted for compatibility; buildooor diagrams uses one URL.
 - `--fragment-only`: print only `pako:...`.
-- `--tmux` / `--tmux-handoff`: attach a local handoff channel for the diagrams viewer's Send button. For `.mmdx`, this does not attach source-edit metadata yet.
+- `--tmux` / `--tmux-handoff`: attach a local handoff channel for the diagrams viewer's Send and wand buttons. For `.mmdx`, this attaches source-edit metadata so the creator agent can patch and reopen the stack.
 - `--tmux-target <target>`: override the tmux target pane; defaults to the current pane.
 - `--tmux-submit`: after Send pastes into the target pane, press Enter automatically.
 - `--handoff-ttl <seconds>`: lifetime for the local handoff channel, default 600.

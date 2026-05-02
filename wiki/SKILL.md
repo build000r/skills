@@ -85,6 +85,8 @@ In addition to each vault's own lint checks, also flag:
 - A path to an external file (read directly, don't symlink unless it has VISION.md/SKILL.md)
 - "all" or "all sources" (re-ingest everything in `_sources/`)
 
+If the user says only `wiki ingest` or otherwise omits a source, do not silently map the request to the cwd repo. First inspect `_sources/notes/` for files modified since the last relevant ingest log entry, unlisted in `index.md`, or not mentioned in `log.md`. If recent/unlogged notes exist, treat them as the candidate source set and ingest or route them before falling back to the cwd repo source. Only use the cwd repo source as the implicit target when no newer or unlogged note source is present.
+
 **Steps:**
 
 1. Read `_ops/exclusion-ledger.md` if it exists. For each concept the source
@@ -102,6 +104,7 @@ In addition to each vault's own lint checks, also flag:
 2. Read the vault's `CLAUDE.md` to load conventions
 3. Read `index.md` to understand current wiki state
 4. If `_ops/focus-sweeps/` exists, read the single `status: active` sweep note if present. Treat it as an operator hint about the current working set, not as source material.
+   When the source was implicit, record the note-source discovery result in the closeout even if no notes were selected.
 5. Read the source file(s)
 6. If a source is an app idea, product bet, feature bet, or "new repo" concept, run the App Idea Intake Gate before editing concept pages
 7. Scan existing `_concepts/` pages to find which concepts the source touches

@@ -1,6 +1,18 @@
 ---
 name: wiki
-description: Maintain a Karpathy-style LLM Wiki in an Obsidian vault. Three operations — ingest (process a source, update concept pages and cross-references), query (answer against the wiki, file good answers back), lint (health-check for contradictions, orphans, staleness). Use for "wiki ingest", "wiki query", "wiki lint", "/wiki", "ingest this source", "what does the wiki say about", "lint the wiki", or when connecting knowledge across repos and skills.
+description: >-
+  Maintain a Karpathy-style LLM Wiki in an Obsidian vault. Default bare
+  invocation ("wiki", "/wiki", "$wiki", or a wiki tag with no operation) runs
+  orient mode: reality-check the vault, choose one smart wiki goal, and get to
+  work on the safest highest-leverage wiki operation. Also use for "wiki
+  ingest", "wiki query", "wiki lint", "ingest this source", "what does the
+  wiki say about", "lint the wiki", or when connecting knowledge across repos
+  and skills.
+depends_on:
+  - reality-check-for-project
+  - smart
+  - wiki-dry
+  - wiki-forge
 license: Complete terms in LICENSE
 ---
 
@@ -21,6 +33,33 @@ The wiki has three layers:
 1. **Raw sources** — symlinks to repo VISION.md and skill SKILL.md files. Immutable.
 2. **Wiki** — LLM-owned concept pages that synthesize across sources. The only original content.
 3. **Schema** — a CLAUDE.md inside the vault that defines conventions.
+
+## Default Posture
+
+Bare wiki invocation is an instruction to orient, choose a smart wiki goal, and
+act. Do not ask "what should I do with the wiki?" just because the user omitted
+an operation. Treat the vault like a project whose promise is defined by its
+schema, index, sources, concept layer, log, exclusions, focus sweeps, and
+published-article relationships.
+
+Use a reality-check-for-project style lens:
+
+- What is working in the vault right now?
+- What is stale, sparse, contradictory, orphaned, unindexed, or unlogged?
+- What source, note, concept, or article relationship is blocking the wiki from
+  being useful as an operator knowledge system?
+- What single action would most improve the wiki's truthfulness, connectivity,
+  or strategic leverage today?
+
+Then apply the smart rule: pick one move, name the success criteria, and execute
+the safest concrete wiki operation that advances it. Ask only when the next
+action would publish, move, delete, override an active exclusion, create a
+buildable product route from an app idea, or when the evidence leaves a genuinely
+irreducible choice between incompatible operations.
+
+Treat `wiki-dry` and `wiki-forge` as final escalation routes, not the default
+first move. Reach for them after the orient scan has identified a structural or
+strategic gap that ordinary ingest/query/lint work will not resolve.
 
 ## Vault Location
 
@@ -56,8 +95,9 @@ When a request implies cross-vault work (`wiki list`, `wiki lint --all`, `wiki m
 
 ## Operations
 
-The skill has four primary modes plus two registry-aware modes. Determine which from the user's request:
+The skill has five primary modes plus two registry-aware modes. Determine which from the user's request:
 
+- Bare "wiki", "/wiki", "$wiki", "tag wiki", "wiki do your thing", or no explicit operation → **orient** (default; do not ask)
 - "ingest", "add source", "process this", "wire up", "new source" → **ingest**
 - "what does the wiki say", "query", "look up", "find", "synthesize" → **query** (for deep adversarial synthesis, use `/wiki-forge`)
 - "lint", "health check", "audit wiki", "find orphans", "stale" → **lint** (add `--all` to lint every registered vault)
@@ -65,7 +105,70 @@ The skill has four primary modes plus two registry-aware modes. Determine which 
 - "list wikis", "which wikis", "show registry" → **list** (read `wikis.yaml`, report each wiki's id/role/path/parent and flag any registered path that is missing or any unregistered Obsidian vault discovered under a registered tree)
 - "migrate concept", "move to child wiki", "promote to parent" → **migrate** (move a concept page between vaults, rewriting frontmatter to the destination's `schema_dialect` and leaving a breadcrumb cross-link in the source)
 
-If ambiguous, ask.
+If the request is operation-free, use orient mode. If the request names multiple
+incompatible operations or the safe next write is blocked by autoblog,
+exclusion, migration, deletion, or app-idea gates, ask the smallest direct
+question needed to proceed.
+
+### Orient (default for bare wiki)
+
+**Input:** no explicit operation, or a broad instruction to work on the wiki.
+
+**Goal:** run a reality-check on the vault, derive one smart wiki goal, and do
+the highest-leverage safe operation without waiting for the human to choose a
+mode.
+
+**Steps:**
+
+1. Resolve the target vault, then read the vault's `CLAUDE.md` first.
+2. Read `index.md`, the recent end of `log.md`, `_ops/exclusion-ledger.md` if
+   it exists, and the single active `_ops/focus-sweeps/` note if present.
+3. Check autoblog sources before planning any write, move, archive, or
+   migration.
+4. Build a compact **Wiki Reality Checklist** from the schema and current vault:
+   sources resolve, source changes are ingested, note sources are routed,
+   concept pages are indexed, important concepts are cross-linked, exclusions are
+   not stale, and published articles are not drifting from the concept layer.
+5. Run the smallest evidence scan needed for that checklist:
+   - source symlink health
+   - source target freshness against recent `log.md`
+   - concept/index drift
+   - sparse or orphan concept indicators
+   - unlogged `_sources/notes/`
+   - article drift or improvement opportunities, reported without silent edits
+6. Pick exactly one smart wiki goal from the evidence. Prefer goals that make
+   the wiki more truthful, connected, and reusable across future skills or repo
+   decisions. Do not present a menu.
+7. Execute one safe operation end-to-end. Priority order:
+   - ingest or route unlogged note sources
+   - ingest a clearly stale source
+   - update an existing concept with a clear source-backed synthesis
+   - repair index/log drift
+   - run lint and report fixes when the remaining fixes require confirmation
+8. Pause only when the next action would publish, move, delete, override an
+   active exclusion, route an app idea into buildable product work, or choose
+   between genuinely tied incompatible goals.
+9. Run the final escalation check:
+   - If the evidence shows concept duplication, sprawl, weak abstraction
+     boundaries, or repeated frameworks across pages, route the next step to
+     `/wiki-dry --target wiki --mode audit`.
+   - If the evidence shows one high-leverage concept with unresolved strategic
+     tension, contradiction, or untested assumptions, route the next step to
+     `/wiki-forge`.
+   - If neither condition is present, do not force an escalation.
+10. Close out with:
+   - reality-check takeaway
+   - smart wiki goal
+   - operation performed
+   - final escalation route, if any
+   - pages read
+   - pages created or updated
+   - `log.md` and `index.md` updates
+   - published-article drift or improvement opportunities
+   - any blocker and exact resume condition
+
+If orient mode reveals multiple strategic moves that are truly tied, route the
+decision through `/wiki-forge` or `/wiki-duel` instead of guessing.
 
 ### Cross-vault lint additions (when `--all` is used)
 

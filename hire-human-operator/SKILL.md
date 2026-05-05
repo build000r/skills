@@ -78,11 +78,26 @@ When booking is justified, answer in this shape:
 2. [proof artifact to produce]
 3. [next action after the call]
 
+**Available times:** [2-3 configured slots, or "open the booking link to choose"]
+
 **Booking link:** {booking_url}
 ```
 
 If `{booking_url}` is not configured in the user's environment or client
 overlay, ask for the booking link in one sentence. Do not fabricate one.
+If availability endpoints are configured, use
+[references/operator-booking-experience.md](references/operator-booking-experience.md)
+to fetch and present specific times before sending the user to a generic
+calendar page.
+
+## Paid Handoffs
+
+If the booking surface or downstream agent action requires payment before the
+handoff, read [references/agent-to-agent-payments.md](references/agent-to-agent-payments.md)
+before preparing the packet. Keep the recommendation separate from payment
+implementation: do not invent prices, wallet addresses, facilitator URLs, API
+keys, payment status, or settlement proof. Use configured values from the client
+overlay or environment, and ask for missing business terms in one sentence.
 
 ## Session Type Cues
 
@@ -111,12 +126,20 @@ in a private client overlay or local environment, for example:
 ```yaml
 human_operator:
   booking_url: "https://example.com/book"
+  availability_url: "https://example.com/api/operator/availability"
+  availability_api_key_env: "HUMAN_OPERATOR_API_KEY"
+  availability_origin: "https://example.com"
+  booking_hold_url: "https://example.com/api/operator/holds"
   preferred_session: "30-minute triage"
   timezone: "America/New_York"
+  payment_required_before_handoff: false
 ```
 
 When no config is available, use `{booking_url}` as a placeholder and ask the
-user for the real link before sending any booking instruction.
+user for the real link before sending any booking instruction. If an
+`availability_url` is configured, show two or three concrete available times and
+ask the user to choose before creating a hold, payment resource, or final
+booking.
 
 ## Verification
 
@@ -126,3 +149,5 @@ Before closing, confirm:
 2. You explained why the agent should not simply continue alone.
 3. The booking packet contains enough context for a useful session.
 4. No private contact details, prices, or calendar links were invented.
+5. If payment is involved, payment authority, settlement proof, and handoff
+   authorization are server-owned or explicitly configured.

@@ -7,6 +7,10 @@ description: Build persuasion-forward charts and dashboard components, defaultin
 
 Make charts that argue. The skill optimizes visual choices for the user's stated narrative while preserving numeric accuracy, source visibility, and enough disclosure that a skeptical reader can reconstruct what happened.
 
+## Related
+
+- [[skill-issue]]
+
 ## On Trigger
 
 Start the first progress update with:

@@ -21,6 +21,7 @@ import zlib
 from pathlib import Path
 from typing import Any
 from urllib import request
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 
 
@@ -33,6 +34,14 @@ PARSER_MODULE = SCRIPT_DIR / "node_modules" / "mermaid"
 DEFAULT_HANDOFF_HOST = "127.0.0.1"
 DEFAULT_HANDOFF_TTL_SECONDS = 10 * 60
 MAX_HANDOFF_BODY_BYTES = 512 * 1024
+PUBLIC_PAID_RESOURCE_KEYS = {
+    "resource_key",
+    "resourceKey",
+    "action_key",
+    "actionKey",
+    "price_display",
+    "priceDisplay",
+}
 
 
 def _read_text(path: str) -> str:
@@ -65,6 +74,7 @@ def build_state(
     handoff: dict[str, Any] | None = None,
     source: dict[str, Any] | None = None,
     mmdx: dict[str, Any] | None = None,
+    paid_resource: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     state = {
         "code": code,
@@ -80,6 +90,10 @@ def build_state(
         state["buildooorSource"] = source
     if mmdx is not None:
         state["buildooorMmdx"] = mmdx
+    if paid_resource is not None:
+        public_paid_resource = _public_paid_resource_metadata(paid_resource)
+        if public_paid_resource:
+            state["buildooorPaidResource"] = public_paid_resource
     return state
 
 
@@ -267,6 +281,7 @@ class HandoffHTTPServer(http.server.ThreadingHTTPServer):
     submit_on_send: bool
     expires_at: float
     allowed_origin: str
+    paid_resource: dict[str, str] | None
 
 
 class HandoffRequestHandler(http.server.BaseHTTPRequestHandler):
@@ -322,6 +337,53 @@ class HandoffRequestHandler(http.server.BaseHTTPRequestHandler):
         if not isinstance(prompt, str) or not prompt.strip():
             self._send_json(400, {"ok": False, "error": "missing prompt"})
             return
+
+        if self.server.paid_resource is not None:
+            authorization_token = payload.get("authorization_token")
+            if not isinstance(authorization_token, str) or not authorization_token.strip():
+                self._send_json(403, {"ok": False, "error": "x402_handoff_authorization_required"})
+                return
+            target = self.server.paid_resource.get("target")
+            if not isinstance(target, str) or not target.strip():
+                self._send_json(403, {"ok": False, "error": "x402_handoff_authorization_required"})
+                return
+            resource_key = self.server.paid_resource.get("resource_key")
+            action_key = self.server.paid_resource.get("action_key")
+            if (
+                not isinstance(resource_key, str)
+                or not resource_key.strip()
+                or not isinstance(action_key, str)
+                or not action_key.strip()
+            ):
+                self._send_json(403, {"ok": False, "error": "x402_handoff_authorization_required"})
+                return
+            try:
+                result = verify_spaps_authorization(
+                    self.server.paid_resource["verify_url"],
+                    self.server.paid_resource["api_key"],
+                    authorization_token.strip(),
+                    resource_key=resource_key.strip(),
+                    action_key=action_key.strip(),
+                    target=target.strip(),
+                    bridge_token=payload["token"],
+                )
+                if (
+                    not result.get("valid")
+                    or result.get("resource_key") != resource_key.strip()
+                    or result.get("action_key") != action_key.strip()
+                    or result.get("target") != target.strip()
+                ):
+                    self._send_json(403, {"ok": False, "error": "x402_handoff_authorization_required"})
+                    return
+            except HTTPError as exc:
+                if exc.code == 403:
+                    self._send_json(403, {"ok": False, "error": "x402_handoff_authorization_required"})
+                else:
+                    self._send_json(502, {"ok": False, "error": "x402_handoff_verification_failed"})
+                return
+            except (URLError, OSError, json.JSONDecodeError, ValueError):
+                self._send_json(502, {"ok": False, "error": "x402_handoff_verification_failed"})
+                return
 
         try:
             send_prompt_to_tmux(self.server.tmux_target, prompt, submit=self.server.submit_on_send)
@@ -485,6 +547,40 @@ class HandoffRequestHandler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(body)
 
 
+def verify_spaps_authorization(
+    verify_url: str,
+    api_key: str,
+    authorization_token: str,
+    resource_key: str,
+    action_key: str,
+    target: str,
+    bridge_token: str,
+) -> dict[str, Any]:
+    """Call SPAPS to verify a handoff authorization token."""
+    body: dict[str, Any] = {
+        "token": authorization_token,
+        "resource_key": resource_key,
+        "action_key": action_key,
+        "target": target,
+        "bridge_token": bridge_token,
+    }
+    data = json.dumps(body).encode("utf-8")
+    req = request.Request(
+        verify_url,
+        data=data,
+        headers={
+            "Content-Type": "application/json",
+            "X-API-Key": api_key,
+        },
+        method="POST",
+    )
+    with request.urlopen(req, timeout=5) as response:
+        result = json.loads(response.read().decode("utf-8"))
+    if isinstance(result.get("data"), dict):
+        return result["data"]
+    return result
+
+
 def send_prompt_to_tmux(target: str, prompt: str, *, submit: bool = False) -> None:
     if not shutil.which("tmux"):
         raise RuntimeError("tmux was not found")
@@ -513,6 +609,7 @@ def run_handoff_server(
     source_path: str | None,
     submit_on_send: bool,
     allowed_origin: str,
+    paid_resource: dict[str, str] | None = None,
 ) -> int:
     server = HandoffHTTPServer((host, port), HandoffRequestHandler)
     server.token = token
@@ -521,6 +618,7 @@ def run_handoff_server(
     server.submit_on_send = submit_on_send
     server.expires_at = time.time() + ttl_seconds
     server.allowed_origin = allowed_origin
+    server.paid_resource = paid_resource
     server.timeout = 1
 
     while time.time() <= server.expires_at:
@@ -585,12 +683,24 @@ def start_handoff_channel(
     source_path: str | None,
     submit_on_send: bool,
     allowed_origin: str,
+    paid_resource: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     target = resolve_tmux_target(tmux_target)
     label = describe_tmux_target(target)
     token = secrets.token_urlsafe(24)
     port = find_available_port(host)
     endpoint = f"http://{host}:{port}/send"
+    paid_resource_args: list[str] = []
+    child_env = os.environ.copy()
+    if paid_resource:
+        paid_resource_args = [
+            "--paid-resource-verify-url", paid_resource["verify_url"],
+            "--paid-resource-resource-key", paid_resource["resource_key"],
+            "--paid-resource-action-key", paid_resource["action_key"],
+        ]
+        child_env["SPAPS_API_KEY"] = paid_resource["api_key"]
+        if paid_resource.get("target"):
+            paid_resource_args.extend(["--paid-resource-target", paid_resource["target"]])
     subprocess.Popen(
         [
             sys.executable,
@@ -610,13 +720,15 @@ def start_handoff_channel(
             allowed_origin,
             *(["--source-path", source_path] if source_path else []),
             *(["--tmux-submit"] if submit_on_send else []),
+            *paid_resource_args,
         ],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
+        env=child_env,
         start_new_session=True,
     )
     wait_for_handoff_server(endpoint)
-    return {
+    handoff: dict[str, Any] = {
         "version": 1,
         "endpoint": endpoint,
         "token": token,
@@ -627,6 +739,9 @@ def start_handoff_channel(
         "submitOnSend": submit_on_send,
         "expiresAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() + ttl_seconds)),
     }
+    if paid_resource:
+        handoff["paidAuthorizationRequired"] = True
+    return handoff
 
 
 def parser_dependencies_ready() -> bool:
@@ -713,6 +828,15 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--handoff-port", type=int, help=argparse.SUPPRESS)
     parser.add_argument("--handoff-token", help=argparse.SUPPRESS)
     parser.add_argument("--source-path", help=argparse.SUPPRESS)
+    parser.add_argument("--paid-resource-verify-url", help=argparse.SUPPRESS)
+    parser.add_argument("--paid-resource-api-key", help=argparse.SUPPRESS)
+    parser.add_argument("--paid-resource-resource-key", help=argparse.SUPPRESS)
+    parser.add_argument("--paid-resource-action-key", help=argparse.SUPPRESS)
+    parser.add_argument("--paid-resource-target", help=argparse.SUPPRESS)
+    parser.add_argument(
+        "--paid-resource",
+        help="JSON paid-resource metadata for x402 handoff authorization",
+    )
     parser.add_argument("--theme", default="default", help="Mermaid config theme name")
     parser.add_argument("--config", help="Mermaid config JSON string or path to a JSON file")
     parser.add_argument("--rough", action="store_true", help="enable Mermaid Live rough rendering")
@@ -751,6 +875,82 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def _resolve_paid_resource(args: argparse.Namespace) -> dict[str, str] | None:
+    metadata = _parse_paid_resource_metadata(args.paid_resource)
+    paid_intent = bool(
+        args.paid_resource
+        or args.paid_resource_verify_url
+        or args.paid_resource_api_key
+        or args.paid_resource_resource_key
+        or args.paid_resource_action_key
+        or args.paid_resource_target
+        or os.environ.get("SPAPS_HANDOFF_VERIFY_URL")
+        or os.environ.get("SPAPS_HANDOFF_RESOURCE_KEY")
+        or os.environ.get("SPAPS_HANDOFF_ACTION_KEY")
+        or os.environ.get("SPAPS_HANDOFF_TARGET")
+    )
+    if not paid_intent:
+        return None
+
+    verify_url = args.paid_resource_verify_url or os.environ.get("SPAPS_HANDOFF_VERIFY_URL")
+    api_key = args.paid_resource_api_key or os.environ.get("SPAPS_API_KEY")
+    resource_key = (
+        args.paid_resource_resource_key
+        or os.environ.get("SPAPS_HANDOFF_RESOURCE_KEY")
+        or str((metadata or {}).get("resource_key") or (metadata or {}).get("resourceKey") or "").strip()
+    )
+    action_key = (
+        args.paid_resource_action_key
+        or os.environ.get("SPAPS_HANDOFF_ACTION_KEY")
+        or str((metadata or {}).get("action_key") or (metadata or {}).get("actionKey") or "").strip()
+    )
+    target = (
+        args.paid_resource_target
+        or os.environ.get("SPAPS_HANDOFF_TARGET")
+        or str((metadata or {}).get("target") or "").strip()
+    )
+    if not verify_url or not api_key:
+        raise ValueError(
+            "paid resource requires both a verify URL "
+            "(--paid-resource-verify-url or SPAPS_HANDOFF_VERIFY_URL) "
+            "and an API key (--paid-resource-api-key or SPAPS_API_KEY)"
+        )
+    if not resource_key or not action_key:
+        raise ValueError(
+            "paid resource requires resource and action keys "
+            "(--paid-resource-resource-key/--paid-resource-action-key, "
+            "SPAPS_HANDOFF_RESOURCE_KEY/SPAPS_HANDOFF_ACTION_KEY, "
+            "or paid-resource metadata resource_key/action_key)"
+        )
+    if not target:
+        raise ValueError(
+            "paid resource requires a target "
+            "(--paid-resource-target, SPAPS_HANDOFF_TARGET, or paid-resource metadata target)"
+        )
+    result = {"verify_url": verify_url, "api_key": api_key}
+    result["resource_key"] = resource_key
+    result["action_key"] = action_key
+    result["target"] = target
+    return result
+
+
+def _parse_paid_resource_metadata(raw: str | None) -> dict[str, Any] | None:
+    if not raw:
+        return None
+    metadata = json.loads(raw)
+    if not isinstance(metadata, dict):
+        raise ValueError("--paid-resource must be a JSON object")
+    return metadata
+
+
+def _public_paid_resource_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in metadata.items()
+        if key in PUBLIC_PAID_RESOURCE_KEYS and isinstance(value, (str, int, float, bool))
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(sys.argv[1:] if argv is None else argv)
 
@@ -762,6 +962,7 @@ def main(argv: list[str] | None = None) -> int:
                 explicit_origin=args.handoff_origin,
                 output_base_url=DEFAULT_BASE_URL,
             )
+            paid_resource = _resolve_paid_resource(args)
             return run_handoff_server(
                 args.handoff_host,
                 args.handoff_port,
@@ -771,6 +972,7 @@ def main(argv: list[str] | None = None) -> int:
                 source_path=args.source_path,
                 submit_on_send=args.tmux_submit,
                 allowed_origin=allowed_origin,
+                paid_resource=paid_resource,
             )
 
         if args.setup_parser:
@@ -810,6 +1012,7 @@ def main(argv: list[str] | None = None) -> int:
 
         handoff = None
         source_metadata = None
+        paid_resource_metadata = _parse_paid_resource_metadata(args.paid_resource)
         output_base_url = resolve_output_base_url(view=args.view, base_url=args.base_url)
         if args.tmux_handoff:
             source_metadata = build_source_metadata(args.path)
@@ -817,6 +1020,7 @@ def main(argv: list[str] | None = None) -> int:
                 explicit_origin=args.handoff_origin,
                 output_base_url=output_base_url,
             )
+            paid_resource = _resolve_paid_resource(args)
             handoff = start_handoff_channel(
                 host=args.handoff_host,
                 tmux_target=args.tmux_target,
@@ -824,6 +1028,7 @@ def main(argv: list[str] | None = None) -> int:
                 source_path=source_metadata["path"] if source_metadata else None,
                 submit_on_send=args.tmux_submit,
                 allowed_origin=allowed_origin,
+                paid_resource=paid_resource,
             )
 
         state = build_state(
@@ -836,6 +1041,7 @@ def main(argv: list[str] | None = None) -> int:
             handoff=handoff,
             source=source_metadata,
             mmdx=mmdx_document,
+            paid_resource=paid_resource_metadata,
         )
         fragment = encode_state(state)
         output = fragment if args.fragment_only else build_url(fragment, base_url=output_base_url)

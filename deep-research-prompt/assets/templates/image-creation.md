@@ -62,12 +62,20 @@ Do NOT mix mediums unless the mix is the point.]
 - "No text, letters, numerals, watermarks, signatures, or logos in the image."
 - Or: exact text in double quotes, with placement, language, and typographic intent (serif / sans / display / hand-lettered, weight, size relative to frame).]
 
+# Source visual assets
+[Use this section only when the request depends on visual references. List attached source image files first. Put source URLs, Midjourney `/styles/...` links, or `--sref` values under metadata only; do not rely on those links as the visual source.]
+
+- Attached source images: [file names/paths that are attached in this same image-mode message, or "none"]
+- Source metadata: [original URL, Midjourney style URL, `/styles/...`, `--sref`, or "none"]
+- How to use the source: [derive composition/palette/texture/shape logic from the attached images; do not copy literal motifs unless explicitly requested]
+
 # Hard constraints
 - Do NOT include: watermarks, signatures, logos, captions, borders, or stock-photo overlays unless explicitly specified above.
 - Do NOT default to: [enumerate the generic drift modes for this subject — e.g., "smiling stock-photo poses," "lens flares as a substitute for atmosphere," "extra fingers or malformed hands," "AI-uncanny symmetric faces"].
 - Stay within the named style. Do not blend with [ADJACENT STYLE THAT WOULD DILUTE IT].
 - For unspecified regions, default to clean negative space or natural background extension. Do not invent additional subjects, props, or focal points beyond the spec.
 - Anatomy and physics must be plausible unless the style explicitly permits stylization (and even then, name the stylization).
+- If source visual assets are listed, use the attached images as the source of visual evidence. Do not assume a URL or Midjourney reference can be opened or remembered.
 
 # What to return
 The image, plus a short caption (3-5 sentences) describing what was actually generated so I can verify it matched the spec. If any element of the spec was impossible or had to be approximated, name it explicitly in the caption — do not silently substitute.
@@ -82,4 +90,4 @@ The image, plus a short caption (3-5 sentences) describing what was actually gen
 3. If a section genuinely does not apply to the subject (e.g., "Text in image" for a pure landscape), still keep the section and write "Not applicable — pure landscape, no text expected" rather than deleting it. The structural completeness is part of what makes the prompt land.
 4. Read the filled-in prompt top-to-bottom and check the validation list in `SKILL.md`. Fix anything that fails.
 5. Wrap with copy instructions above the block and post-block notes below.
-6. If shipping as Image creation handoff mode, also attach the Oracle wrapper (prompt file path, run command, verification note) outside the block.
+6. If shipping as Image creation handoff mode, also attach the Oracle wrapper (prompt file path, source image `--file` flags when applicable, run command, verification note) outside the block.

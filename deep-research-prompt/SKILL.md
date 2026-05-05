@@ -81,15 +81,23 @@ Only reached when `oracle` is missing, the user said `paste-only`, or the target
 Sibling of Oracle execute mode. Same shape, different composer tool, different Oracle timeout.
 
 1. Compose the standalone image-spec block using `assets/templates/image-creation.md` (self-announcing first line, layered fields, image-drift hard constraints, verification-caption requirement).
-2. Write it to `/tmp/<slug>-image-<date>.md`.
-3. Run a sizing check: `oracle --dry-run summary --file /tmp/<slug>-image-<date>.md`. If oversized, tighten the spec and retry.
-4. Make sure a Chrome instance is running on the DevTools port (default `127.0.0.1:9222`) using the user's logged-in ChatGPT profile, with a `chatgpt.com` tab open. If a Chrome was launched earlier in the session for Deep research, reuse it — but first ensure the Deep research toggle is **off** (Image and Deep research are mutually exclusive composer tools).
-5. Toggle Create image on:
+2. If the image request depends on visual source material, materialize and attach
+   the source images. URLs, Midjourney `/styles/...` links, and `--sref` values
+   are metadata only; they are not a substitute for pasted/attached source
+   pixels. Copy local images or downloaded/cached reference images under
+   `/tmp/<slug>-source/`, list them in the spec under `# Source visual assets`,
+   and pass each file with `--file`. If the actual source images are not
+   available, stop and ask for an upload/export instead of launching with only
+   links.
+3. Write it to `/tmp/<slug>-image-<date>.md`.
+4. Run a sizing check: `oracle --dry-run summary --file /tmp/<slug>-image-<date>.md`. If oversized, tighten the spec and retry.
+5. Make sure a Chrome instance is running on the DevTools port (default `127.0.0.1:9222`) using the user's logged-in ChatGPT profile, with a `chatgpt.com` tab open. If a Chrome was launched earlier in the session for Deep research, reuse it — but first ensure the Deep research toggle is **off** (Image and Deep research are mutually exclusive composer tools).
+6. Toggle Create image on:
    ```
    node "${HOME}/.claude/skills/deep-research-prompt/assets/scripts/toggle-chatgpt-image.mjs"
    ```
    Non-zero exit means stop and surface the reason — **do not** silently fall back to paste mode. See `references/chatgpt-image-toggle.md` for exit codes and DOM-fragility notes.
-6. Invoke Oracle against the same Chrome:
+7. Invoke Oracle against the same Chrome:
    ```
    oracle \
      --engine browser \
@@ -97,12 +105,14 @@ Sibling of Oracle execute mode. Same shape, different composer tool, different O
      --browser-model-strategy current \
      --browser-timeout 15m \
      --slug <slug> \
+     --file /tmp/<slug>-source/<reference-image>.<ext> \
      -p "$(cat /tmp/<slug>-image-<date>.md)"
    ```
-   Image mode is already on from step 5, so Oracle just submits the spec.
-7. Surface the session slug for reattach (`oracle session <slug>`), and tell the user where the generated image file will be saved. Do **not** print the image-spec block back into chat.
+   Omit `--file` only when the request has no visual source material. Image mode
+   is already on from step 6, so Oracle just submits the spec.
+8. Surface the session slug for reattach (`oracle session <slug>`), and tell the user where the generated image file will be saved. Do **not** print the image-spec block back into chat.
 
-If any of steps 3–6 fail, report the failure plainly and ask the user whether to retry, patch the toggle helper, or fall back to Image paste mode.
+If any of steps 4–7 fail, report the failure plainly and ask the user whether to retry, patch the toggle helper, or fall back to Image paste mode.
 
 ### Image paste-mode fallback contract
 
@@ -180,8 +190,9 @@ Fill in the chosen skeleton with task-specific content.
 9. **Detail and texture.**
 10. **Aspect ratio and orientation.**
 11. **Text in image** — explicit "no text" or exact text in quotes.
-12. **Hard constraints** — drift items to avoid, style boundary, behavior for unspecified regions, anatomy/physics expectations.
-13. **What to return** — the image plus a 3-5 sentence verification caption naming any deviation from spec.
+12. **Source visual assets** — only when the request uses visual references; list attached/copied source images first and put URLs or Midjourney references under metadata. Do not rely on links alone.
+13. **Hard constraints** — drift items to avoid, style boundary, behavior for unspecified regions, anatomy/physics expectations.
+14. **What to return** — the image plus a 3-5 sentence verification caption naming any deviation from spec.
 
 The image template at `assets/templates/image-creation.md` already lays this out — start there.
 
@@ -241,7 +252,7 @@ Do not put shell commands inside the prompt block. They are operator instruction
 
 ### 5c. Image execute mode (default for image requests when Oracle is on PATH)
 
-Do **not** print the spec as a fenced code block in chat. Write it to `/tmp/<slug>-image-<date>.md` and run the Image execute mode contract above (sizing check → toggle Create image via the CDP helper → invoke Oracle with `--remote-chrome`).
+Do **not** print the spec as a fenced code block in chat. Write it to `/tmp/<slug>-image-<date>.md` and run the Image execute mode contract above (source-image materialization when applicable → sizing check → toggle Create image via the CDP helper → invoke Oracle with `--remote-chrome` and `--file` attachments).
 
 In chat, print only: the one-line mode declaration, the slug, the spec file path, the toggle helper's status (e.g. "Create image: turned on" or the exit-code reason), the Oracle session slug once launched, and the `oracle session <slug>` reattach command. No spec block. No copy instruction.
 
@@ -300,6 +311,10 @@ Do not summarize the prompt content in prose after the block. The user will read
 - A Chrome on the DevTools port has a `chatgpt.com` tab open
 - `assets/scripts/toggle-chatgpt-image.mjs` was invoked and the exit status is logged in the chat reply (e.g. "Create image: turned on" or the failure reason)
 - The real Oracle invocation includes `--remote-chrome`, `--browser-model-strategy current`, the slug, and the spec file
+- If visual source material was part of the request, the source images were
+  copied/downloaded/cached under `/tmp/<slug>-source/` and attached with
+  `--file`; URLs, Midjourney `/styles/...` links, and `--sref` values were
+  treated as metadata only
 - The chat reply contains no spec code block and no "paste this" instruction
 - Oracle session slug is surfaced for reattach
 - The verification reminder explicitly tells the user to confirm an image (not text) came back

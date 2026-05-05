@@ -1,0 +1,610 @@
+<!-- mmdx
+{
+  "entry": "main",
+  "links": [
+    {
+      "from": "main",
+      "label": "Source contract",
+      "to": "source-contract",
+      "title": "Open the MMDX source contract"
+    },
+    {
+      "from": "main",
+      "label": "Encoding contract",
+      "to": "encoding-contract",
+      "title": "Open the pako encoding contract"
+    },
+    {
+      "from": "main",
+      "label": "Viewer runtime",
+      "to": "viewer-runtime",
+      "title": "Open the browser runtime"
+    },
+    {
+      "from": "main",
+      "label": "Local bridge",
+      "to": "local-bridge",
+      "title": "Open the localhost handoff bridge"
+    },
+    {
+      "from": "main",
+      "label": "Failure map",
+      "to": "failure-map",
+      "title": "Open the failure-mode fishbone"
+    },
+    {
+      "from": "main",
+      "label": "Use threshold",
+      "to": "use-threshold",
+      "title": "Open when MMDX pays off"
+    },
+    {
+      "from": "main",
+      "label": "Authoring cadence",
+      "to": "authoring-cadence",
+      "title": "Open the authoring cadence"
+    },
+    {
+      "from": "main",
+      "label": "Not a Mermaid fork",
+      "to": "not-a-fork",
+      "title": "Open why MMDX is a wrapper"
+    },
+    {
+      "from": "source-contract",
+      "label": "CHART",
+      "to": "chart-contract",
+      "title": "Open the chart object contract"
+    },
+    {
+      "from": "source-contract",
+      "label": "LINK",
+      "to": "link-resolution",
+      "title": "Open label-to-chart resolution"
+    },
+    {
+      "from": "source-contract",
+      "label": "METADATA",
+      "to": "payload-fields",
+      "title": "Open payload field responsibilities"
+    },
+    {
+      "from": "chart-contract",
+      "label": "MmdxLink",
+      "to": "link-resolution",
+      "title": "Open the link matching rules"
+    },
+    {
+      "from": "chart-contract",
+      "label": "MermaidChart",
+      "to": "chart-type-selector",
+      "title": "Open the chart type selector"
+    },
+    {
+      "from": "encoding-contract",
+      "label": "buildooorMmdx = stack",
+      "to": "payload-fields",
+      "title": "Open the private MMDX state fields"
+    },
+    {
+      "from": "encoding-contract",
+      "label": "pako: fragment",
+      "to": "byte-pipeline",
+      "title": "Open the byte-level encoding pipeline"
+    },
+    {
+      "from": "byte-pipeline",
+      "label": "buildooorMmdx",
+      "to": "payload-fields",
+      "title": "Open what the MMDX payload carries"
+    },
+    {
+      "from": "payload-fields",
+      "label": "BuildooorMmdx",
+      "to": "chart-contract",
+      "title": "Open the stack data model"
+    },
+    {
+      "from": "viewer-runtime",
+      "label": "Linked label",
+      "to": "link-resolution",
+      "title": "Open click resolution"
+    },
+    {
+      "from": "viewer-runtime",
+      "label": "Source edit mode",
+      "to": "local-bridge",
+      "title": "Open source editing through the bridge"
+    },
+    {
+      "from": "viewer-runtime",
+      "label": "Wand drilldown packet",
+      "to": "authoring-cadence",
+      "title": "Open the authoring loop"
+    },
+    {
+      "from": "local-bridge",
+      "label": "POST /source/write",
+      "to": "source-write-gates",
+      "title": "Open write safety gates"
+    },
+    {
+      "from": "source-write-gates",
+      "label": "Preflight failed",
+      "to": "failure-map",
+      "title": "Open validation failure modes"
+    },
+    {
+      "from": "failure-map",
+      "label": "HIGH: label mismatch",
+      "to": "link-resolution",
+      "title": "Open label matching detail"
+    },
+    {
+      "from": "failure-map",
+      "label": "HIGH: no preflight",
+      "to": "authoring-cadence",
+      "title": "Open the validation cadence"
+    },
+    {
+      "from": "failure-map",
+      "label": "MED: handoff expired",
+      "to": "local-bridge",
+      "title": "Open the bridge lifecycle"
+    },
+    {
+      "from": "use-threshold",
+      "label": "MMDX pays off",
+      "to": "stack-design",
+      "title": "Open stack design principles"
+    },
+    {
+      "from": "authoring-cadence",
+      "label": "Validate every chart",
+      "to": "source-write-gates",
+      "title": "Open validation gates"
+    },
+    {
+      "from": "stack-design",
+      "label": "Child chart changes type",
+      "to": "chart-type-selector",
+      "title": "Open diagram type selection"
+    },
+    {
+      "from": "chart-type-selector",
+      "label": "Interactions over time",
+      "to": "encoding-contract",
+      "title": "Open the sequence view"
+    },
+    {
+      "from": "chart-type-selector",
+      "label": "Lifecycle",
+      "to": "viewer-runtime",
+      "title": "Open the state view"
+    },
+    {
+      "from": "chart-type-selector",
+      "label": "Failure causes",
+      "to": "failure-map",
+      "title": "Open the fishbone view"
+    },
+    {
+      "from": "chart-type-selector",
+      "label": "Source schema",
+      "to": "source-contract",
+      "title": "Open the ER view"
+    }
+  ]
+}
+-->
+
+## chart main MMDX Concept Map
+```mermaid
+flowchart TD
+  crowded["Plain Mermaid gets crowded"]
+  wrapper["MMDX: ordinary Mermaid charts plus metadata links"]
+  source["Source contract"]
+  encode["Encoding contract"]
+  viewer["Viewer runtime"]
+  bridge["Local bridge"]
+  failure["Failure map"]
+  threshold["Use threshold"]
+  cadence["Authoring cadence"]
+  fork["Not a Mermaid fork"]
+  outcome["Clickable drilldown without cloning syntax"]
+
+  crowded --> wrapper
+  wrapper --> source
+  wrapper --> encode
+  wrapper --> viewer
+  viewer --> bridge
+  wrapper --> failure
+  wrapper --> threshold
+  wrapper --> cadence
+  wrapper --> fork
+  source --> outcome
+  encode --> outcome
+  viewer --> outcome
+  bridge --> outcome
+  threshold --> outcome
+  cadence --> outcome
+  failure -. protects .-> outcome
+  fork -. keeps charts portable .-> outcome
+
+  classDef problem fill:#fee2e2,stroke:#dc2626,color:#7f1d1d,stroke-width:2px
+  classDef contract fill:#e0f2fe,stroke:#0284c7,color:#0c4a6e,stroke-width:2px
+  classDef runtime fill:#dcfce7,stroke:#16a34a,color:#14532d,stroke-width:2px
+  classDef analysis fill:#fef3c7,stroke:#d97706,color:#78350f,stroke-width:2px
+  classDef principle fill:#ede9fe,stroke:#7c3aed,color:#3b0764,stroke-width:2px
+  classDef result fill:#d1fae5,stroke:#059669,color:#064e3b,stroke-width:3px
+
+  class crowded problem
+  class source,encode contract
+  class viewer,bridge runtime
+  class failure,threshold,cadence analysis
+  class wrapper,fork principle
+  class outcome result
+```
+
+## chart source-contract MMDX Source Contract
+```mermaid
+erDiagram
+  MMDX_DOCUMENT ||--|| METADATA : "declares entry"
+  MMDX_DOCUMENT ||--|{ CHART : "contains"
+  METADATA ||--o{ LINK : "declares"
+  LINK }o--|| CHART : "from chart"
+  LINK }o--|| CHART : "to chart"
+
+  MMDX_DOCUMENT {
+    string path
+    string markdown
+  }
+
+  METADATA {
+    string entry
+    array links
+  }
+
+  CHART {
+    string id PK
+    string title
+    string mermaid_code
+  }
+
+  LINK {
+    string from FK
+    string label
+    string to FK
+    string title
+  }
+```
+
+## chart chart-contract Chart Object Contract
+```mermaid
+classDiagram
+  class MMDXDocument {
+    +int version
+    +string entry
+    +MermaidChart[] charts
+    +MmdxLink[] links
+  }
+
+  class MermaidChart {
+    +string id
+    +string title
+    +string code
+  }
+
+  class MmdxLink {
+    +string from
+    +string label
+    +string to
+    +string title
+  }
+
+  class MermaidParser {
+    +preflight(code)
+    +detectDiagramType(code)
+  }
+
+  MMDXDocument "1" *-- "*" MermaidChart : carries
+  MMDXDocument "1" *-- "*" MmdxLink : wires
+  MermaidParser ..> MermaidChart : validates code
+  MmdxLink ..> MermaidChart : from and to ids
+```
+
+## chart encoding-contract Encoding Contract Over Time
+```mermaid
+sequenceDiagram
+  autonumber
+  actor Author
+  participant Script as mmd.py
+  participant Parser as Mermaid parser
+  participant State as URL state
+  participant Viewer as buildooor /diagrams
+
+  Author->>Script: pass .mmdx source
+  Script->>Script: parse metadata and chart fences
+  Script->>Parser: preflight every chart
+  Parser-->>Script: diagram types OK
+  Script->>State: code = entry chart
+  Script->>State: buildooorMmdx = stack
+  Script->>State: pako: fragment
+  State-->>Viewer: open /diagrams#pako...
+  Viewer->>Viewer: decode entry and private stack
+```
+
+## chart byte-pipeline Byte Pipeline
+```mermaid
+flowchart LR
+  state["State object"]
+  code["code: entry chart"]
+  mmdx["buildooorMmdx"]
+  config["mermaid config"]
+  handoff["optional handoff and source metadata"]
+  json["JSON stringify with compact separators"]
+  utf8["UTF-8 bytes"]
+  deflate["zlib DEFLATE level 9"]
+  b64["URL-safe base64 without padding"]
+  pako["pako: fragment"]
+
+  state --> code
+  state --> mmdx
+  state --> config
+  state --> handoff
+  state --> json --> utf8 --> deflate --> b64 --> pako
+
+  classDef payload fill:#ede9fe,stroke:#7c3aed,color:#3b0764,stroke-width:2px
+  classDef transform fill:#e0f2fe,stroke:#0284c7,color:#0c4a6e,stroke-width:2px
+  classDef output fill:#d1fae5,stroke:#059669,color:#064e3b,stroke-width:3px
+  class state,code,mmdx,config,handoff payload
+  class json,utf8,deflate,b64 transform
+  class pako output
+```
+
+## chart payload-fields URL State Field Responsibilities
+```mermaid
+classDiagram
+  class MermaidLiveState {
+    +string code
+    +string mermaid
+    +bool grid
+    +bool panZoom
+    +bool rough
+    +bool updateDiagram
+    +BuildooorMmdx buildooorMmdx
+    +BuildooorHandoff buildooorHandoff
+    +BuildooorSource buildooorSource
+  }
+
+  class BuildooorMmdx {
+    +int version
+    +string entry
+    +Chart[] charts
+    +Link[] links
+  }
+
+  class BuildooorSource {
+    +string path
+    +string cwd
+  }
+
+  class BuildooorHandoff {
+    +string endpoint
+    +string token
+    +string tmuxTarget
+    +string[] capabilities
+  }
+
+  MermaidLiveState *-- BuildooorMmdx : carries stack
+  MermaidLiveState o-- BuildooorSource : optional file identity
+  MermaidLiveState o-- BuildooorHandoff : optional edit channel
+```
+
+## chart viewer-runtime Browser Runtime State Machine
+```mermaid
+stateDiagram-v2
+  state "Entry chart" as EntryChart
+  state "Linked label" as LinkedLabel
+  state "Child chart" as ChildChart
+  state "Back" as Back
+  state "Source edit mode" as SourceEdit
+  state "Wand drilldown packet" as WandPacket
+
+  [*] --> EntryChart
+  EntryChart --> LinkedLabel: click marked text
+  LinkedLabel --> ChildChart: resolve metadata target
+  ChildChart --> Back: inspect detail
+  Back --> EntryChart: return
+  EntryChart --> SourceEdit: bridge metadata present
+  SourceEdit --> WandPacket: ask for one useful child
+  WandPacket --> EntryChart: reopen patched stack
+```
+
+## chart link-resolution Link Resolution Detail
+```mermaid
+flowchart TD
+  link["MmdxLink: from + label + to"]
+  source["Active chart id equals from"]
+  render["Viewer renders Mermaid SVG"]
+  scan["Find visible SVG text exactly matching label"]
+  clickable["Attach click handler and title"]
+  target["Load target chart id"]
+  mismatch["MISMATCH: no clickable target"]
+
+  link --> source --> render --> scan
+  scan --> clickable --> target
+  scan -. no exact text .-> mismatch
+
+  classDef contract fill:#ede9fe,stroke:#7c3aed,color:#3b0764,stroke-width:2px
+  classDef runtime fill:#dcfce7,stroke:#16a34a,color:#14532d,stroke-width:2px
+  classDef error fill:#fee2e2,stroke:#dc2626,color:#7f1d1d,stroke-width:2px
+
+  class link,source contract
+  class render,scan,clickable,target runtime
+  class mismatch error
+```
+
+## chart local-bridge Local Bridge Handoff
+```mermaid
+sequenceDiagram
+  autonumber
+  actor User
+  participant Viewer as buildooor /diagrams
+  participant Bridge as localhost bridge
+  participant File as attached .mmdx file
+  participant Tmux as tmux pane
+
+  User->>Viewer: select notes, send, or wand
+  Viewer->>Bridge: token and origin check
+  Viewer->>Bridge: POST /source/read
+  Bridge->>File: read attached path only
+  File-->>Bridge: full MMDX document
+  Bridge-->>Viewer: source text
+  Viewer->>Bridge: POST /source/write
+  Bridge->>Bridge: preflight submitted stack
+  Bridge->>File: write only if valid
+  Viewer->>Bridge: send edit packet
+  Bridge->>Tmux: paste into target pane
+```
+
+## chart source-write-gates Source Write Gates
+```mermaid
+stateDiagram-v2
+  state "Submitted code" as SubmittedCode
+  state "Origin and token OK" as TokenOk
+  state "Preflight every chart" as PreflightEveryChart
+  state "Preflight failed" as PreflightFailed
+  state "Write attached source" as WriteAttachedSource
+  state "Reopen stack" as ReopenStack
+
+  [*] --> SubmittedCode
+  SubmittedCode --> TokenOk
+  TokenOk --> PreflightEveryChart
+  PreflightEveryChart --> PreflightFailed: parser error
+  PreflightEveryChart --> WriteAttachedSource: OK
+  WriteAttachedSource --> ReopenStack
+  PreflightFailed --> SubmittedCode: patch source
+```
+
+## chart failure-map MMDX Drilldown Failure Map
+```mermaid
+ishikawa-beta
+  MMDX drilldown fails
+    Source
+      HIGH: malformed metadata JSON
+      HIGH: chart id missing
+      MED: entry points to wrong chart
+    Link matching
+      HIGH: label mismatch
+      MED: duplicate visible labels
+      MED: link points to the right chart but wrong concept
+    Validation
+      HIGH: no preflight
+      MED: unsupported Mermaid syntax
+      UNKNOWN: renderer behavior differs from parser
+    Browser
+      MED: selected SVG text is split
+      LOW: pan zoom hides context
+    Bridge
+      MED: handoff expired
+      HIGH: source path not attached
+    Design
+      MED: child repeats parent
+      HIGH: every label becomes a link
+```
+
+## chart use-threshold MMDX Use Threshold
+```mermaid
+quadrantChart
+  title When MMDX Beats One Mermaid Chart
+  x-axis Simple story --> Many lenses
+  y-axis Low consequence --> Decision leverage
+  quadrant-1 MMDX zone
+  quadrant-2 Maybe split
+  quadrant-3 One chart
+  quadrant-4 Appendix
+  "Use one .mmd": [0.18, 0.22]
+  "Maybe split later": [0.37, 0.64]
+  "MMDX pays off": [0.82, 0.88]
+  "Docs appendix only": [0.72, 0.32]
+```
+
+## chart authoring-cadence MMDX Authoring Cadence
+```mermaid
+gantt
+  title MMDX Authoring Cadence
+  dateFormat  YYYY-MM-DD
+  axisFormat  %b %d
+
+  section Shape
+  Choose entry decision surface :done, choose, 2026-05-02, 1d
+  Pick child chart families     :active, families, after choose, 1d
+
+  section Source
+  Write named chart fences      :write, after families, 1d
+  Add exact visible links       :links, after write, 1d
+
+  section Proof
+  Validate every chart          :crit, validate, after links, 1d
+  Open and inspect              :inspect, after validate, 1d
+  Patch one child               :milestone, patch, after inspect, 0d
+```
+
+## chart stack-design Stack Design Principles
+```mermaid
+mindmap
+  root((Stack design))
+    Entry chart
+      Decision surface
+      Not an index
+    Link policy
+      Few labels
+      Exact visible text
+      High leverage only
+    Child charts
+      Child chart changes type
+      Answer why
+      Answer what next
+      Answer what blocks it
+    Depth
+      Start with one or two levels
+      Add a child when the question changes
+```
+
+## chart chart-type-selector Question To Chart Selector
+```mermaid
+mindmap
+  root((Question changes))
+    Source schema
+      ER diagram
+    Object contract
+      Class diagram
+    Interactions over time
+      Sequence diagram
+    Lifecycle
+      State diagram
+    Failure causes
+      Ishikawa
+    Priority threshold
+      Quadrant chart
+    Work cadence
+      Gantt
+    Wrapper vs fork
+      Git graph
+```
+
+## chart not-a-fork MMDX Is A Wrapper
+```mermaid
+gitGraph
+  commit id: "Mermaid syntax"
+  commit id: "Ordinary chart fences"
+  branch mmdx-wrapper
+  checkout mmdx-wrapper
+  commit id: "metadata comment"
+  commit id: "named charts"
+  commit id: "label links"
+  checkout main
+  commit id: "Charts still parse"
+  merge mmdx-wrapper id: "Viewer reads extra state"
+```

@@ -126,7 +126,7 @@ Before finalizing a graph, verify:
 - [ ] Each node has all context it needs in its prompt
 - [ ] Read-only nodes declare empty writes
 - [ ] Writer nodes own concrete write scopes
-- [ ] Explicit model selection uses `gpt-5.4`, with reasoning chosen from `medium|high|xhigh`
+- [ ] Explicit Codex model selection uses `gpt-5.5`, with reasoning chosen from `medium|high|xhigh`
 - [ ] The whole ready frontier can launch in one wave without conflict
 - [ ] The orchestrator can independently validate each node after collection
 - [ ] Recombining results requires no merge arbitration

@@ -328,6 +328,44 @@ flowchart TD
         self.assertIn("--handoff-origin", popen_args)
         self.assertIn("https://buildooor.com", popen_args)
 
+    def test_start_handoff_channel_passes_paid_resource_config_without_leaking_key(self) -> None:
+        with (
+            patch.object(mmd, "resolve_tmux_target", return_value="%12"),
+            patch.object(mmd, "describe_tmux_target", return_value="work:1.2"),
+            patch.object(mmd.secrets, "token_urlsafe", return_value="secret-token"),
+            patch.object(mmd, "find_available_port", return_value=49152),
+            patch.object(mmd, "wait_for_handoff_server"),
+            patch.object(mmd.subprocess, "Popen") as popen,
+        ):
+            handoff = mmd.start_handoff_channel(
+                host="127.0.0.1",
+                tmux_target=None,
+                ttl_seconds=60,
+                source_path=None,
+                submit_on_send=False,
+                allowed_origin="https://buildooor.com",
+                paid_resource={
+                    "verify_url": "https://spaps.example/api/x402/handoff/verify",
+                    "api_key": "pk_test",
+                    "resource_key": "handoff-send",
+                    "action_key": "handoff-send",
+                    "target": "mmdx-send",
+                },
+            )
+
+        popen_args = popen.call_args.args[0]
+        self.assertTrue(handoff["paidAuthorizationRequired"])
+        self.assertNotIn("pk_test", str(handoff))
+        self.assertIn("--paid-resource-verify-url", popen_args)
+        self.assertIn("--paid-resource-resource-key", popen_args)
+        self.assertIn("--paid-resource-action-key", popen_args)
+        self.assertIn("handoff-send", popen_args)
+        self.assertNotIn("--paid-resource-api-key", popen_args)
+        self.assertNotIn("pk_test", popen_args)
+        self.assertEqual(popen.call_args.kwargs["env"]["SPAPS_API_KEY"], "pk_test")
+        self.assertIn("--paid-resource-target", popen_args)
+        self.assertIn("mmdx-send", popen_args)
+
     def test_handoff_post_sends_prompt_to_tmux(self) -> None:
         with patch.object(mmd, "send_prompt_to_tmux") as send_prompt:
             status, body = post_handoff_json({"token": "secret-token", "prompt": "hello"})
@@ -344,6 +382,271 @@ flowchart TD
         self.assertEqual(status, 200)
         self.assertTrue(body["submitOnSend"])
         send_prompt.assert_called_once_with("%12", "hello", submit=True)
+
+    def test_paid_handoff_requires_authorization_before_tmux(self) -> None:
+        with patch.object(mmd, "send_prompt_to_tmux") as send_prompt:
+            status, body = post_handoff_json(
+                {"token": "secret-token", "prompt": "hello"},
+                paid_resource={
+                    "verify_url": "https://spaps.example/api/x402/handoff/verify",
+                    "api_key": "pk_test",
+                    "target": "mmdx-send",
+                },
+            )
+
+        self.assertEqual(status, 403)
+        self.assertEqual(body["error"], "x402_handoff_authorization_required")
+        send_prompt.assert_not_called()
+
+    def test_paid_handoff_verifies_authorization_with_configured_target(self) -> None:
+        paid_resource = {
+            "verify_url": "https://spaps.example/api/x402/handoff/verify",
+            "api_key": "pk_test",
+            "resource_key": "handoff-send",
+            "action_key": "handoff-send",
+            "target": "mmdx-send",
+        }
+        with (
+            patch.object(
+                mmd,
+                "verify_spaps_authorization",
+                return_value={
+                    "valid": True,
+                    "resource_key": "handoff-send",
+                    "action_key": "handoff-send",
+                    "target": "mmdx-send",
+                },
+            ) as verify,
+            patch.object(mmd, "send_prompt_to_tmux") as send_prompt,
+        ):
+            status, body = post_handoff_json(
+                {
+                    "token": "secret-token",
+                    "prompt": "hello",
+                    "authorization_token": "opaque-handoff-token",
+                },
+                paid_resource=paid_resource,
+            )
+
+        self.assertEqual(status, 200)
+        self.assertTrue(body["ok"])
+        verify.assert_called_once_with(
+            paid_resource["verify_url"],
+            paid_resource["api_key"],
+            "opaque-handoff-token",
+            resource_key="handoff-send",
+            action_key="handoff-send",
+            target="mmdx-send",
+            bridge_token="secret-token",
+        )
+        send_prompt.assert_called_once_with("%12", "hello", submit=False)
+
+    def test_paid_handoff_ignores_payload_target_override(self) -> None:
+        paid_resource = {
+            "verify_url": "https://spaps.example/api/x402/handoff/verify",
+            "api_key": "pk_test",
+            "resource_key": "handoff-send",
+            "action_key": "handoff-send",
+            "target": "mmdx-send",
+        }
+        with (
+            patch.object(
+                mmd,
+                "verify_spaps_authorization",
+                return_value={
+                    "valid": True,
+                    "resource_key": "handoff-send",
+                    "action_key": "handoff-send",
+                    "target": "mmdx-send",
+                },
+            ) as verify,
+            patch.object(mmd, "send_prompt_to_tmux"),
+        ):
+            status, body = post_handoff_json(
+                {
+                    "token": "secret-token",
+                    "prompt": "hello",
+                    "authorization_token": "opaque-handoff-token",
+                    "target": "custom-target",
+                },
+                paid_resource=paid_resource,
+            )
+
+        self.assertEqual(status, 200)
+        self.assertTrue(body["ok"])
+        self.assertEqual(verify.call_args.kwargs["resource_key"], "handoff-send")
+        self.assertEqual(verify.call_args.kwargs["action_key"], "handoff-send")
+        self.assertEqual(verify.call_args.kwargs["target"], "mmdx-send")
+        self.assertEqual(verify.call_args.kwargs["bridge_token"], "secret-token")
+
+    def test_paid_handoff_rejects_authorization_for_other_resource(self) -> None:
+        paid_resource = {
+            "verify_url": "https://spaps.example/api/x402/handoff/verify",
+            "api_key": "pk_test",
+            "resource_key": "handoff-send",
+            "action_key": "handoff-send",
+            "target": "mmdx-send",
+        }
+        with (
+            patch.object(
+                mmd,
+                "verify_spaps_authorization",
+                return_value={
+                    "valid": True,
+                    "resource_key": "other-resource",
+                    "action_key": "handoff-send",
+                    "target": "mmdx-send",
+                },
+            ),
+            patch.object(mmd, "send_prompt_to_tmux") as send_prompt,
+        ):
+            status, body = post_handoff_json(
+                {
+                    "token": "secret-token",
+                    "prompt": "hello",
+                    "authorization_token": "opaque-handoff-token",
+                },
+                paid_resource=paid_resource,
+            )
+
+        self.assertEqual(status, 403)
+        self.assertEqual(body["error"], "x402_handoff_authorization_required")
+        send_prompt.assert_not_called()
+
+    def test_paid_handoff_rejects_authorization_for_other_action(self) -> None:
+        paid_resource = {
+            "verify_url": "https://spaps.example/api/x402/handoff/verify",
+            "api_key": "pk_test",
+            "resource_key": "handoff-send",
+            "action_key": "handoff-send",
+            "target": "mmdx-send",
+        }
+        with (
+            patch.object(
+                mmd,
+                "verify_spaps_authorization",
+                return_value={
+                    "valid": True,
+                    "resource_key": "handoff-send",
+                    "action_key": "other-action",
+                    "target": "mmdx-send",
+                },
+            ),
+            patch.object(mmd, "send_prompt_to_tmux") as send_prompt,
+        ):
+            status, body = post_handoff_json(
+                {
+                    "token": "secret-token",
+                    "prompt": "hello",
+                    "authorization_token": "opaque-handoff-token",
+                },
+                paid_resource=paid_resource,
+            )
+
+        self.assertEqual(status, 403)
+        self.assertEqual(body["error"], "x402_handoff_authorization_required")
+        send_prompt.assert_not_called()
+
+    def test_paid_handoff_rejects_authorization_for_other_target(self) -> None:
+        paid_resource = {
+            "verify_url": "https://spaps.example/api/x402/handoff/verify",
+            "api_key": "pk_test",
+            "resource_key": "handoff-send",
+            "action_key": "handoff-send",
+            "target": "mmdx-send",
+        }
+        with (
+            patch.object(
+                mmd,
+                "verify_spaps_authorization",
+                return_value={
+                    "valid": True,
+                    "resource_key": "handoff-send",
+                    "action_key": "handoff-send",
+                    "target": "other-target",
+                },
+            ),
+            patch.object(mmd, "send_prompt_to_tmux") as send_prompt,
+        ):
+            status, body = post_handoff_json(
+                {
+                    "token": "secret-token",
+                    "prompt": "hello",
+                    "authorization_token": "opaque-handoff-token",
+                },
+                paid_resource=paid_resource,
+            )
+
+        self.assertEqual(status, 403)
+        self.assertEqual(body["error"], "x402_handoff_authorization_required")
+        send_prompt.assert_not_called()
+
+    def test_paid_handoff_requires_configured_target(self) -> None:
+        paid_resource = {
+            "verify_url": "https://spaps.example/api/x402/handoff/verify",
+            "api_key": "pk_test",
+            "resource_key": "handoff-send",
+            "action_key": "handoff-send",
+        }
+        with (
+            patch.object(mmd, "verify_spaps_authorization") as verify,
+            patch.object(mmd, "send_prompt_to_tmux") as send_prompt,
+        ):
+            status, body = post_handoff_json(
+                {
+                    "token": "secret-token",
+                    "prompt": "hello",
+                    "authorization_token": "opaque-handoff-token",
+                },
+                paid_resource=paid_resource,
+            )
+
+        self.assertEqual(status, 403)
+        self.assertEqual(body["error"], "x402_handoff_authorization_required")
+        verify.assert_not_called()
+        send_prompt.assert_not_called()
+
+    def test_verify_spaps_authorization_unwraps_response_envelope(self) -> None:
+        class FakeResponse:
+            def __enter__(self):
+                self.status = 200
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def read(self) -> bytes:
+                return mmd.json.dumps(
+                    {
+                        "success": True,
+                        "data": {
+                            "valid": True,
+                            "receipt_id": "rcpt_123",
+                            "entitlement_id": None,
+                            "resource_key": "handoff-send",
+                            "action_key": "handoff-send",
+                        },
+                    }
+                ).encode("utf-8")
+
+        with patch.object(mmd.request, "urlopen", return_value=FakeResponse()) as urlopen:
+            result = mmd.verify_spaps_authorization(
+                "https://spaps.example/api/x402/handoff/verify",
+                "pk_test",
+                "opaque-handoff-token",
+                resource_key="handoff-send",
+                action_key="handoff-send",
+                target="mmdx-send",
+                bridge_token="local-bridge-token",
+            )
+
+        sent = mmd.json.loads(urlopen.call_args.args[0].data.decode("utf-8"))
+        self.assertEqual(result["valid"], True)
+        self.assertEqual(sent["token"], "opaque-handoff-token")
+        self.assertEqual(sent["resource_key"], "handoff-send")
+        self.assertEqual(sent["action_key"], "handoff-send")
+        self.assertEqual(sent["target"], "mmdx-send")
+        self.assertEqual(sent["bridge_token"], "local-bridge-token")
 
     def test_handoff_post_rejects_bad_token(self) -> None:
         status, body = post_handoff_json({"token": "wrong", "prompt": "hello"})
@@ -565,6 +868,35 @@ flowchart TD
         self.assertTrue(url.startswith("https://buildooor.com/diagrams#pako:"))
         self.assertNotIn("mermaid.live", url)
 
+    def test_paid_resource_public_state_strips_private_fields(self) -> None:
+        state = mmd.build_state(
+            "flowchart TD\n  A --> B\n",
+            paid_resource={
+                "resource_key": "devnet-smoke-handoff",
+                "action_key": "handoff-send",
+                "target": "mmdx-send",
+                "verify_url": "https://spaps.example/api/x402/handoff/verify",
+                "api_key": "spaps_sec_leak",
+                "bridge_token": "local-bridge-token",
+                "bridgeToken": "local-bridge-token",
+            },
+        )
+
+        paid_state = state["buildooorPaidResource"]
+        self.assertEqual(paid_state["resource_key"], "devnet-smoke-handoff")
+        self.assertEqual(paid_state["action_key"], "handoff-send")
+        self.assertNotIn("target", paid_state)
+        self.assertNotIn("verify_url", paid_state)
+        self.assertNotIn("api_key", paid_state)
+        self.assertNotIn("bridge_token", paid_state)
+        self.assertNotIn("bridgeToken", paid_state)
+
+    def test_ambient_spaps_api_key_does_not_enable_paid_handoff(self) -> None:
+        args = mmd.parse_args(["diagram.mmd"])
+
+        with patch.dict(mmd.os.environ, {"SPAPS_API_KEY": "spaps_sec_ambient"}, clear=True):
+            self.assertIsNone(mmd._resolve_paid_resource(args))
+
     def test_base_url_override_still_works(self) -> None:
         fragment = mmd.encode_state(mmd.build_state("flowchart TD\n  A --> B\n"))
         self.assertEqual(
@@ -589,6 +921,7 @@ def post_handoff_json(
     source_path: str | None = None,
     submit_on_send: bool = False,
     origin: str | None = "https://buildooor.com",
+    paid_resource: dict[str, str] | None = None,
 ) -> tuple[int, dict[str, object]]:
     status, _headers, body = post_handoff_json_response(
         payload,
@@ -596,6 +929,7 @@ def post_handoff_json(
         source_path=source_path,
         submit_on_send=submit_on_send,
         origin=origin,
+        paid_resource=paid_resource,
     )
     return status, body
 
@@ -607,6 +941,7 @@ def post_handoff_json_response(
     source_path: str | None = None,
     submit_on_send: bool = False,
     origin: str | None = "https://buildooor.com",
+    paid_resource: dict[str, str] | None = None,
 ) -> tuple[int, dict[str, str], dict[str, object]]:
     server = mmd.HandoffHTTPServer(("127.0.0.1", 0), mmd.HandoffRequestHandler)
     server.token = "secret-token"
@@ -615,6 +950,7 @@ def post_handoff_json_response(
     server.submit_on_send = submit_on_send
     server.expires_at = time.time() + 10
     server.allowed_origin = "https://buildooor.com"
+    server.paid_resource = paid_resource
     thread = threading.Thread(target=server.handle_request)
     thread.start()
 
@@ -650,6 +986,7 @@ def options_handoff_response(
     server.submit_on_send = False
     server.expires_at = time.time() + 10
     server.allowed_origin = "https://buildooor.com"
+    server.paid_resource = None
     thread = threading.Thread(target=server.handle_request)
     thread.start()
 

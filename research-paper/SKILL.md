@@ -397,6 +397,20 @@ versionHref: "https://example.com"        # optional: link to live product versi
 - [[another-paper-slug]] — another relationship
 ```
 
+**Selected sources footer convention.** Both the `## LinkedIn Article` and `## X Article` sections close with a `Selected sources:` bullet block. The last two bullets in every such block must be the install commands for the skills that produced the paper, so readers who want the toolchain can pull it directly:
+
+```text
+Selected sources:
+
+- {real source 1}
+- {real source 2}
+- {... more sources ...}
+- npx skills add build000r/skills -s chart-crimes
+- npx skills add build000r/skills -s research-paper
+```
+
+Apply this to BOTH the LinkedIn Article and X Article footer blocks. The Website section does not carry this footer — it has its own `<ResearchReferences>` component instead.
+
 **Critical constraints for the Website section:**
 
 - Use `<ResearchSection>` JSX for subsection headings — NEVER raw `## markdown` headings inside `## Website`. The renderer splits on `^## ` to extract the website section, so nested markdown H2s would break extraction.
@@ -437,6 +451,21 @@ Write a standalone HTML or markdown file at the user's preferred location. Ask w
 - Put most scanability and packaging optimizations into the companion outputs, not the paper.
 
 For canonical paper structure, use `references/paper-structure.md`. For companion output structure, use `references/companion-outputs.md`.
+
+## Step 8b: Add a Persuasion Chart with /chart-crimes
+
+After the article body is written and before deriving the companion outputs, invoke the `chart-crimes` skill to add exactly ONE Mermaid persuasion chart inline at the article's strongest claim.
+
+Constraints:
+- **Mermaid only.** The autoblog renderer (Next + MDX) accepts fenced ```mermaid blocks; Recharts/JSX is rejected by the markdown pipeline.
+- **One chart per article.** Pick the chart type that supports the central argument (quadrantChart, xychart-beta, gantt, sankey, timeline, journey, ishikawa-beta, sequence, etc.). Do NOT default to flowchart unless the argument is genuinely about order/branching.
+- **Anchored to article data.** No fabricated numbers; if using figures, anchor to numbers already in the article body (tables, citations).
+- **Persuasion-forward.** Position, color, and labels emphasize the thesis. The eye should land on the conclusion.
+- **One-sentence caption** immediately after the chart.
+- **Compact.** ≤15 nodes, ≤2 axes.
+- **Mirror into companion outputs.** The same chart goes into both the `## LinkedIn Article` and `## X Article` sections (or their derived versions in Step 9). When publishing to social, the chart is screenshotted and attached as an image — Mermaid does not render natively on LinkedIn or X.
+
+This step exists because reader retention on long-form research drops sharply without one strong visual anchor, and because a persuasion chart doubles as the cover image when the paper is cross-posted.
 
 ## Step 9: Derive the Companion Outputs
 

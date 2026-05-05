@@ -17,7 +17,7 @@ cwd_match: ~/repos/{project-name}
 
 - **Preferred worker mix**: read-only heavy | balanced | write-heavy
 - **Max workers per wave**: 3-5 (adjust based on project complexity)
-- **Default model strategy**: use `gpt-5.4`; default to `high`, reserve `medium` for clearly bounded read-only work, use `xhigh` for review or ambiguity, and round up when unsure
+- **Default model strategy**: use `gpt-5.5` for Codex panes; default to `high`, reserve `medium` for clearly bounded read-only work, use `xhigh` for review or ambiguity, and round up when unsure
 - **Wave naming**: `dac-{project}-wave-{nn}`
 - **Review wave**: 1 worker | 2 workers
 - **Artifact root override**: `workflow_builder.invocation_root` | `client_dir/invocations` | leave unset to use the shared default resolution

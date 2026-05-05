@@ -118,7 +118,7 @@ execution.
 |----------|---------|-------------|
 | `--project=NAME` | derived from cwd + wave id | NTM swarm project name |
 | `--cc=N` | auto | Claude Code panes for the current wave |
-| `--cod=N` | auto | Codex panes for the current wave |
+| `--cod=N:gpt-5.5` | auto | Codex panes for the current wave |
 | `--gmi=N` | 0 | Optional Gemini panes |
 | `--max-workers=N` | 10 | Hard cap per wave |
 | `--wave-timeout-min=N` | 45 | Hard timeout for a wave before collect-and-triage |
@@ -131,7 +131,9 @@ execution.
 - If the frontier exceeds `--max-workers`, split it into multiple subwaves
 - Bias Codex panes toward write-heavy waves and Claude panes toward ambiguity,
   research, or integration-heavy waves
-- Use `gpt-5.4` whenever you set a model explicitly
+- Use `gpt-5.5` whenever you set a Codex model explicitly
+- Fall back to `gpt-5.4` or `gpt-5.3-codex` only when the runtime rejects 5.5,
+  quota/account limits require it, or the user asks for a cheaper/lower model
 - Default to `high`; use `medium` only for clearly bounded read-only nodes and
   `xhigh` for integration review or ambiguous repairs
 
@@ -217,7 +219,7 @@ For each ready frontier wave, launch an NTM swarm sized to that wave.
 frontier_json="$(python3 ~/.claude/skills/divide-and-conquer/scripts/workgraph_ready.py --file "$WORKGRAPH")"
 
 ntm spawn "$WAVE_PROJECT" \
-  --cc="$NUM_CC" --cod="$NUM_COD" \
+  --cc="$NUM_CC" --cod="${NUM_COD}:gpt-5.5" \
   --no-user \
   --stagger-mode=smart
 ```
@@ -427,7 +429,7 @@ the same swarm runtime. Do not default to `/codex:rescue`.
 Spawn a small review swarm, usually 1-2 workers:
 
 ```bash
-ntm spawn "$REVIEW_PROJECT" --cc=1 --cod=1 --no-user --stagger-mode=smart
+ntm spawn "$REVIEW_PROJECT" --cc=1 --cod=1:gpt-5.5 --no-user --stagger-mode=smart
 ntm --robot-wait="$REVIEW_PROJECT" --condition=idle --timeout=120
 ```
 

@@ -78,17 +78,22 @@ When booking is justified, answer in this shape:
 2. [proof artifact to produce]
 3. [next action after the call]
 
-**Available times:** [2-3 configured slots, or "open the booking link to choose"]
-
-**Booking link:** {booking_url}
 ```
 
-If `{booking_url}` is not configured in the user's environment or client
-overlay, ask for the booking link in one sentence. Do not fabricate one.
-If availability endpoints are configured, use
+Add booking fields only when they are backed by configured data:
+
+1. If availability config exists, use
 [references/operator-booking-experience.md](references/operator-booking-experience.md)
-to fetch and present specific times before sending the user to a generic
-calendar page.
+   to fetch and present two or three real slots, then ask the user to choose one.
+2. If no availability config exists but `booking_url` is configured, include
+   `**Booking link:** {configured_url}`.
+3. If neither live availability nor a booking URL is configured, ask for the
+   missing booking link in one sentence and omit `Available times` and
+   `Booking link` from the packet.
+
+Never print the literal `{booking_url}` placeholder, invent available times, or
+imply a hold/payment exists before the user chooses a specific slot and the
+configured service confirms it.
 
 ## Paid Handoffs
 

@@ -127,21 +127,21 @@ When the plugin is loaded, delegate workers directly from Claude Code:
 
 ```
 # Audit worker
-/codex:rescue --model gpt-5.4 --effort xhigh \
+/codex:rescue --model gpt-5.5 --effort xhigh \
   Audit the agent_billing slice implementation against its plan. \
   [paste audit worker prompt from above with paths substituted]
 
 # Fix workers (parallel when scopes are disjoint)
-/codex:rescue --background --model gpt-5.4 --effort medium \
+/codex:rescue --background --model gpt-5.5 --effort xhigh \
   Apply backend fixes for agent_billing from handoff block: \
   [paste backend handoff block from AUDIT_REPORT.md]
 
-/codex:rescue --background --model gpt-5.4 --effort medium \
+/codex:rescue --background --model gpt-5.5 --effort xhigh \
   Apply frontend fixes for agent_billing from handoff block: \
   [paste frontend handoff block from AUDIT_REPORT.md]
 
 # Re-review worker
-/codex:rescue --model gpt-5.4 --effort xhigh \
+/codex:rescue --model gpt-5.5 --effort xhigh \
   Re-review agent_billing after fixes (re-review #1). \
   [paste re-review worker prompt from above]
 ```

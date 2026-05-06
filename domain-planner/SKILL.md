@@ -471,7 +471,7 @@ A thin Phase 5 that says "we chose X" without saying "because Y, not Z" is incom
      readme: "{plan_root}/{slice}/.apr-readme.md"  # docs/vision.md + README.md concatenated
      spec: "{plan_root}/{slice}/.apr-bundle.md"    # all slice files concatenated
    oracle:
-     model: gpt-5.4-pro
+     model: gpt-5.5
      thinking_time: heavy
    rounds:
      output_dir: ".apr/rounds/{slice}"
@@ -523,7 +523,7 @@ A thin Phase 5 that says "we chose X" without saying "because Y, not Z" is incom
 If `apr` is unavailable but the `codex-plugin-cc` plugin is loaded, use `/codex:rescue` to get architectural review with your own prompt:
 
 ```
-/codex:rescue --background --model gpt-5.4 --effort xhigh \
+/codex:rescue --background --model gpt-5.5 --effort xhigh \
   Review the {slice} plan files in {plan_root}/{slice}/ for architectural quality. \
   Focus on: API contract design, failure modes, entity relationships, missing edge cases, \
   and whether better patterns exist. Read all 6 plan files. \
@@ -625,7 +625,7 @@ Handoff: "Ready to implement? Run the domain-planner skill and select 'Implement
 
 > **External review (optional):** Use `/codex:rescue` to get an independent second opinion after the quality loop passes:
 > ```
-> /codex:rescue --background --model gpt-5.4 --effort xhigh \
+> /codex:rescue --background --model gpt-5.5 --effort xhigh \
 >   Review the {slice_name} plan in {plan_root}/{slice_name}/ against \
 >   the rubric at ~/.claude/skills/domain-planner/references/plan-quality-rubric.md. \
 >   Score all 10 dimensions (10 pts each, 100 total). \

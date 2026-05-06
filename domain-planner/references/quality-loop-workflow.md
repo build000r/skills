@@ -36,7 +36,7 @@ Like domain-reviewer, this workflow is agent-platform neutral:
 When the `codex-plugin-cc` plugin is loaded, delegate the assessor prompt to Codex:
 
 ```
-/codex:rescue --model gpt-5.4 --effort xhigh \
+/codex:rescue --model gpt-5.5 --effort xhigh \
   Assess the {slice} plan against the plan quality rubric. \
   Read the rubric: {skill_root}/references/plan-quality-rubric.md \
   Read all 6 plan files in {plan_dir}/. \

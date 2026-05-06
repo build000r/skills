@@ -2,7 +2,7 @@
 """
 Critical review of a domain plan before sign-off.
 
-Launches a Codex worker (gpt-5.3-codex, xhigh reasoning) to review all 6 plan
+Launches a Codex worker (gpt-5.5, xhigh reasoning) to review all 6 plan
 files against the plan quality rubric, sibling slices, and mode context.
 Produces a REVIEW.md with per-dimension scores, concerns, and suggested upgrades.
 
@@ -14,7 +14,7 @@ Usage:
     python3 scripts/review_plan.py --slice agent_billing --execute
 
     # Override model/effort
-    python3 scripts/review_plan.py --slice agent_billing --execute --model gpt-5.2-codex --reasoning-effort high
+    python3 scripts/review_plan.py --slice agent_billing --execute --model gpt-5.5 --reasoning-effort xhigh
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ from textwrap import dedent
 
 DEFAULT_PLAN_ROOT = None  # Set via --plan-root or mode config (plan_root)
 DEFAULT_PLAN_INDEX = None  # Set via --plan-index or mode config (plan_index)
-DEFAULT_MODEL = "gpt-5.3-codex"
+DEFAULT_MODEL = "gpt-5.5"
 DEFAULT_REASONING_EFFORT = "xhigh"
 
 PLAN_FILES = ["plan.md", "shared.md", "backend.md", "frontend.md", "flows.md", "schema.mmd"]

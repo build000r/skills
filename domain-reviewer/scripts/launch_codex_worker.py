@@ -29,13 +29,14 @@ DEFAULT_SESSION_PLAN_INDEX = None  # Set via --session-plan-index or mode config
 
 # Default model + reasoning effort per worker type.
 # Override with --model and/or --reasoning-effort on the CLI.
-DEFAULT_MODEL = "gpt-5.3-codex"
+DEFAULT_MODEL = "gpt-5.5"
+DEFAULT_REASONING_EFFORT = "xhigh"
 WORKER_DEFAULTS: dict[str, dict[str, str]] = {
-    "audit":        {"model": DEFAULT_MODEL, "reasoning_effort": "xhigh"},
-    "re-review":    {"model": DEFAULT_MODEL, "reasoning_effort": "xhigh"},
-    "fix-backend":  {"model": DEFAULT_MODEL, "reasoning_effort": "medium"},
-    "fix-frontend": {"model": DEFAULT_MODEL, "reasoning_effort": "medium"},
-    "retire":       {"model": DEFAULT_MODEL, "reasoning_effort": "medium"},
+    "audit":        {"model": DEFAULT_MODEL, "reasoning_effort": DEFAULT_REASONING_EFFORT},
+    "re-review":    {"model": DEFAULT_MODEL, "reasoning_effort": DEFAULT_REASONING_EFFORT},
+    "fix-backend":  {"model": DEFAULT_MODEL, "reasoning_effort": DEFAULT_REASONING_EFFORT},
+    "fix-frontend": {"model": DEFAULT_MODEL, "reasoning_effort": DEFAULT_REASONING_EFFORT},
+    "retire":       {"model": DEFAULT_MODEL, "reasoning_effort": DEFAULT_REASONING_EFFORT},
 }
 
 
@@ -290,7 +291,7 @@ def resolve_model_config(
     effort_override: str | None = None,
 ) -> tuple[str, str]:
     """Return (model, reasoning_effort) for a worker type."""
-    defaults = WORKER_DEFAULTS.get(worker, {"model": DEFAULT_MODEL, "reasoning_effort": "medium"})
+    defaults = WORKER_DEFAULTS.get(worker, {"model": DEFAULT_MODEL, "reasoning_effort": DEFAULT_REASONING_EFFORT})
     model = model_override or defaults["model"]
     effort = effort_override or defaults["reasoning_effort"]
     return model, effort
@@ -389,7 +390,7 @@ def launch_detached(
     repo: Path,
     codex_bin: str,
     model: str = DEFAULT_MODEL,
-    reasoning_effort: str = "medium",
+    reasoning_effort: str = DEFAULT_REASONING_EFFORT,
     log_dir: Path | None = None,
     worker_label: str = "worker",
     plan_root: str | None = None,
@@ -501,7 +502,7 @@ def run_codex_bg(
     repo: Path,
     codex_bin: str,
     model: str = DEFAULT_MODEL,
-    reasoning_effort: str = "medium",
+    reasoning_effort: str = DEFAULT_REASONING_EFFORT,
     log_dir: Path | None = None,
     worker_label: str = "worker",
     on_done: callable | None = None,
@@ -543,7 +544,7 @@ def run_codex(
     repo: Path,
     codex_bin: str,
     model: str = DEFAULT_MODEL,
-    reasoning_effort: str = "medium",
+    reasoning_effort: str = DEFAULT_REASONING_EFFORT,
     log_dir: Path | None = None,
     worker_label: str = "worker",
     extra_writable_dirs: list[str] | None = None,

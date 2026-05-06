@@ -81,17 +81,17 @@ When the `codex-plugin-cc` plugin is loaded, delegate worker phases to Codex via
 
 ```
 # Audit worker (xhigh for thorough review)
-/codex:rescue --model gpt-5.4 --effort xhigh \
+/codex:rescue --model gpt-5.5 --effort xhigh \
   Audit the {slice} slice implementation against its plan. \
   {paste constructed worker prompt from codex-mcp-orchestration-template.md}
 
-# Fix workers (medium effort for bounded implementation)
-/codex:rescue --model gpt-5.4 --effort medium \
+# Fix workers (xhigh effort for bounded implementation)
+/codex:rescue --model gpt-5.5 --effort xhigh \
   Apply backend fixes for {slice} from handoff block: \
   {paste backend handoff block from AUDIT_REPORT.md}
 
 # Re-review worker (xhigh for thorough re-assessment)
-/codex:rescue --model gpt-5.4 --effort xhigh \
+/codex:rescue --model gpt-5.5 --effort xhigh \
   Re-review the {slice} slice after fixes (re-review #{iteration}). \
   {paste constructed re-review prompt}
 ```

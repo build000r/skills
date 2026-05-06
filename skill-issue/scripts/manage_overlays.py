@@ -30,6 +30,17 @@ def find_config_root() -> Path | None:
     return None
 
 
+def find_config_roots() -> list[Path]:
+    """Walk up from cwd and return every skillbox-config/clients/ root."""
+    cwd = Path.cwd()
+    roots = []
+    for p in [cwd, *cwd.parents]:
+        candidate = p / "skillbox-config" / "clients"
+        if candidate.is_dir() and candidate not in roots:
+            roots.append(candidate)
+    return roots
+
+
 def load_overlays(config_root: Path) -> list[dict]:
     """Load all overlay.yaml files under config_root."""
     overlays = []
@@ -163,8 +174,8 @@ def cmd_validate(config_root: Path, as_json: bool) -> int:
     return 1 if has_errors else 0
 
 
-def cmd_match(cwd: str, config_root: Path, as_json: bool) -> int:
-    """Find which overlay matches a given cwd."""
+def find_matches(cwd: str, config_root: Path) -> list[dict]:
+    """Find overlay matches for a cwd in one config root."""
     overlays = load_overlays(config_root)
     cwd_path = os.path.abspath(os.path.expanduser(os.path.expandvars(cwd)))
     matches = []
@@ -180,12 +191,44 @@ def cmd_match(cwd: str, config_root: Path, as_json: bool) -> int:
                 matches.append({
                     "client_id": o["client_id"],
                     "path": o["path"],
+                    "config_root": str(config_root),
                     "matched_pattern": pattern,
                     "expanded": expanded,
                 })
 
+    return matches
+
+
+def cmd_match(cwd: str, config_root: Path, as_json: bool) -> int:
+    """Find which overlay matches a given cwd."""
+    cwd_path = os.path.abspath(os.path.expanduser(os.path.expandvars(cwd)))
+    matches = find_matches(cwd, config_root)
+
     if as_json:
         print(json.dumps({"cwd": cwd_path, "matches": matches}, indent=2))
+    else:
+        if not matches:
+            print(f"No overlay matches cwd: {cwd_path}")
+            return 1
+        for m in matches:
+            print(f"  {m['client_id']}  (pattern: {m['matched_pattern']})")
+
+    return 0 if matches else 1
+
+
+def cmd_match_roots(cwd: str, config_roots: list[Path], as_json: bool) -> int:
+    """Find overlay matches across multiple local config roots."""
+    cwd_path = os.path.abspath(os.path.expanduser(os.path.expandvars(cwd)))
+    matches = []
+    for config_root in config_roots:
+        matches.extend(find_matches(cwd, config_root))
+
+    if as_json:
+        print(json.dumps({
+            "cwd": cwd_path,
+            "config_roots": [str(root) for root in config_roots],
+            "matches": matches,
+        }, indent=2))
     else:
         if not matches:
             print(f"No overlay matches cwd: {cwd_path}")
@@ -323,7 +366,8 @@ def main():
         parser.print_help()
         return 1
 
-    config_root = Path(args.config_root) if args.config_root else find_config_root()
+    config_root_explicit = args.config_root is not None
+    config_root = Path(args.config_root) if config_root_explicit else find_config_root()
     if config_root is None:
         # Default to skillbox-config/clients/ relative to cwd
         config_root = Path.cwd() / "skillbox-config" / "clients"
@@ -333,6 +377,11 @@ def main():
     elif args.command == "validate":
         return cmd_validate(config_root, args.json)
     elif args.command == "match":
+        if not config_root_explicit:
+            config_roots = find_config_roots()
+            if not config_roots:
+                config_roots = [config_root]
+            return cmd_match_roots(args.cwd, config_roots, args.json)
         return cmd_match(args.cwd, config_root, args.json)
     elif args.command == "create":
         return cmd_create(args.client_id, args.cwd, config_root, args.json)

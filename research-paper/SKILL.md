@@ -1,7 +1,10 @@
 ---
 name: research-paper
-description: Generate dense research-paper-style pages on any topic plus companion X and LinkedIn drafts that keep the same thesis. Also has a discover mode that mines recent session activity (via cass) and existing paper coverage to propose accretive topics rooted in actual work. Use for "research paper", "write a paper on", "research page", "/research-paper", "discover topics", "what should I write about", or internal write-ups on a topic, especially when the paper should be grounded in existing wiki concepts, pressure-tested with wiki duels when needed, externally validated with GPT-5 Pro / Deep Research, and then fed back into the wiki as a new source note.
+description: Generate dense research-paper-style pages on any topic plus companion X and LinkedIn drafts that keep the same thesis. Also has a discover mode that mines recent session activity (via cass) and existing paper coverage to propose accretive topics rooted in actual work. Use for "research paper", "write a paper on", "research page", "/research-paper", "discover topics", "what should I write about", "find me something I'd like", "find a strong angle", "surprise me with a research topic", or internal write-ups on a topic, especially when the paper should be grounded in existing wiki concepts, pressure-tested with wiki duels when needed, externally validated with GPT-5 Pro / Deep Research, and then fed back into the wiki as a new source note.
 license: Complete terms in LICENSE
+depends_on:
+  - deep-research-prompt
+  - chart-crimes
 ---
 
 # Research Paper Generator
@@ -83,7 +86,7 @@ Write the client overlay to `skillbox-config/clients/{client-name}/overlay.yaml`
 The skill has two modes:
 
 - **Generate mode** (default): A topic is provided. Run the full workflow from Step 2 onward to produce a paper.
-- **Discover mode**: No topic is provided, or the user invokes with `discover`, `what should I write about`, `find a topic`, or similar. Run the discovery workflow first (see "Discover Mode" below) to propose 3-5 candidate topics rooted in recent activity and existing coverage gaps. Then, once the user picks one, flow into Generate mode at Step 2.
+- **Discover mode**: No topic is provided, or the user invokes with `discover`, `what should I write about`, `find me something I'd like`, `find a strong angle`, `surprise me with a research topic`, `find a topic`, or similar. Run the discovery workflow first (see "Discover Mode" below) to propose 3-5 candidate topics rooted in recent activity and existing coverage gaps. Then, once the user picks one, flow into Generate mode at Step 2.
 
 ## Workflow
 
@@ -93,9 +96,9 @@ The skill has two modes:
    - If yes, output format is a unified .md file (see "MDX Pipeline" in Step 8)
    - If no topic provided → enter Discover Mode before Step 2
 2. Parse topic from arguments (or from Discover Mode selection)
-3. Gather data (overlay-specific data sources + web research)
-4. Research the topic (WebSearch for publications, data, perspectives)
-5. Map findings to paper structure
+3. Gather data and sharpen the thesis from wiki/context
+4. Build an external source map: normal web sweep + source-variety gate; for vague, broad, source-thin, or external-reality claims, run `deep-research-prompt` + Oracle Deep Research before writing
+5. Map wiki + external findings to paper structure
 6. Create the companion output briefs
 7. Run title / hook passes
 8. Write the canonical paper (unified .md for MDX pipeline, or TSX per overlay)
@@ -110,27 +113,66 @@ The skill has two modes:
 Research-paper follows a fixed order. Do not invert it:
 
 1. **Wiki first** — query the relevant concept pages, prior papers, and raw
-   sources so the thesis starts from existing internal knowledge.
+   sources so the thesis starts from existing internal knowledge. Turn a vague
+   topic into an explicit thesis candidate, research questions, source-family
+   needs, and "what would change our mind."
 2. **Adversarial wiki pass when needed** — if the topic touches a contested,
    high-leverage, or under-articulated concept, use `wiki-duel` or
    `wiki-forge` before widening to external research.
-3. **Normal web research** — gather the baseline external evidence with
-   WebSearch and primary sources.
-4. **External-reality gate last** — if the remaining uncertainty is external
-   reality (current market structure, regulation, buyer behavior, competitive
-   motion, recent data), invoke `escalate` after the internal framing is already
-   sharp. It may route to `deep-research-prompt`, `thesis-gtm`, `web-check`,
-   `research-paper`, `skip`, or `too-broad`.
-5. **Feed the result back into the wiki** — distill the paper's durable
+3. **Source-variety gate before writing** — before drafting the paper, build a
+   source map with multiple independent source families and at least one serious
+   counter/limiting source. For vague concepts, broad frameworks, new public
+   theses, source-thin topics, or claims that depend on external reality
+   (current market structure, regulation, buyer behavior, competitive motion,
+   professional practice, pricing, recent data), invoke `deep-research-prompt`
+   and execute Oracle Deep Research when available. The output is an evidence
+   dossier/source map, not article prose.
+4. **Normal web verification and fill** — after the source map, use WebSearch
+   and primary sources to verify URLs, dates, quotations, current facts, and
+   gaps/counterevidence. If a separate external-reality decision is still needed,
+   invoke `escalate` with `caller: research-paper`; it may route to
+   `deep-research-prompt`, `thesis-gtm`, `web-check`, `research-paper`, `skip`,
+   or `too-broad`.
+5. **Write the paper from the grounded evidence base** — only draft after the
+   source-variety gate has passed or a skip/block reason has been recorded.
+6. **Feed the result back into the wiki** — distill the paper's durable
    findings to `_sources/notes/research-paper-<slug>-<date>.md` and run
    `/wiki ingest` before marking the run complete.
 
 The paper itself is the published artifact. The wiki ingest artifact is the
 distilled note, not the full paper body.
 
+Deep Research can be skipped only with an explicit reason: the run is a narrow
+internal reflection, the evidence already comes from a bounded source note or
+accepted wiki duel/forge, the user explicitly asks for a speed/light draft, or
+Oracle is unavailable and the user declines fallback research. "Normal search
+found a few sources" is not a sufficient reason to skip Deep Research for vague
+concept papers.
+
 ## Discover Mode
 
 Goal: propose accretive topic candidates grounded in the user's actual work — not generic industry trends. Every candidate must build on or extend existing papers AND be rooted in recent real activity.
+
+When the user's request is open-ended and taste-based — for example "find me
+something I'd like," "find a strong angle," "surprise me with a topic," or "what
+should I write?" — run **Angle Scout** before drafting. The output is candidate
+angles only, not full paper prompts and not prose articles.
+
+Use this compact instruction as the Angle Scout north star:
+
+```text
+Use the project research wiki and recent work history. Produce exactly five
+unusually strong, non-obvious angles the operator would likely find fascinating
+and that could later become research-paper prompts. Do not write full
+research-paper prompts. Avoid duplicating existing root-level papers. Ground each
+angle in concrete wiki concepts, source notes, duels, code artifacts, or recent
+session work. Keep it concise. Favor novelty, adversarial screening, and evidence
+survivability over generic topic coverage.
+```
+
+After presenting Angle Scout candidates, stop and wait for the user to pick one.
+Only then flow into Generate mode, where the source-variety and Oracle Deep
+Research gates apply before writing.
 
 ### Step D1: Inventory existing coverage
 
@@ -192,6 +234,11 @@ Generate 5-8 candidate topics. Score each on:
 
 Discard candidates that are generic industry commentary. The user's advantage is that they have **first-person operator evidence** from their actual work — every topic should exploit that.
 
+For Angle Scout requests, tighten the candidate set to exactly 5 unusually
+strong, non-obvious angles. These should be closer to "paper seeds" than a
+content calendar: compact thesis candidates with a reason the operator would
+care, not finished research prompts.
+
 ### Step D5: Present candidates
 
 Return 3-5 top candidates to the user in this format:
@@ -238,28 +285,78 @@ query it here anyway; otherwise proceed directly to web research.
 
 ## Step 4: Research the Topic
 
-Use WebSearch to find:
-- Published research, whitepapers, or case studies on the topic
+Source map first, prose later.
+
+Start by writing a compact source-variety plan. Cover these families when they
+apply to the topic:
+
+| Source family | Use it for |
+|---|---|
+| Internal wiki, prior papers, source notes | Existing thesis language, local evidence, repeated decisions |
+| Academic / peer-reviewed literature | Theory, historical evidence, measurement frameworks |
+| Official standards, regulators, legal docs | Rules, compliance, rights, definitions, enforcement posture |
+| Industry benchmarks, datasets, reports | Market structure, adoption, pricing, budgets, performance ranges |
+| Practitioner case studies, postmortems, field reports | Operational reality, failure modes, implementation detail |
+| Adversarial / limiting / counterevidence | What weakens, bounds, or falsifies the thesis |
+| Primary docs: statutes, standards, APIs, filings, product docs | Ground truth for claims that should not rely on commentary |
+
+Aim for 5-10 high-quality sources, but source variety matters more than count.
+Before writing, require at least three independent source families and one
+serious counter/limiting source. If the source map cannot satisfy that bar,
+keep researching, narrow the thesis, or mark the paper blocked/needs-research.
+
+### Oracle Deep Research Pre-Write Gate
+
+Invoke `deep-research-prompt` before drafting when any of these are true:
+
+- The starting topic is a vague concept, broad framework, or new public thesis
+- The paper depends on professional practice, economic claims, market structure,
+  regulation, law, pricing, recent events, or current product behavior
+- The initial web sweep is source-thin, one-family, secondary-only, or missing
+  credible counterevidence
+- The paper will update a public claim, README/VISION positioning, GTM thesis,
+  or strategic explanation
+
+Use `deep-research-prompt` in Oracle execute mode by default when `oracle` is on
+PATH. Ask it for an evidence dossier/source map, not prose. Pass these inputs:
+
+- Thesis candidate from the wiki/context pass
+- Research questions the paper must answer
+- Source families requested
+- Must-find counterevidence or falsifiers
+- Adjacent topics to exclude
+- Output schema: source-family coverage, strongest sources, weak claims,
+  counterevidence, gaps, and suggested citations
+
+If Oracle is unavailable or fails, use paste-mode only if the user explicitly
+accepts fallback. Otherwise mark the paper blocked/needs-research and do not
+write a full article from shallow sources.
+
+After the Oracle/source-map pass, use WebSearch to verify and fill:
+
+- Exact primary URLs and canonical source names
+- Publication/update dates for live facts
+- Short, compliant quotations only where wording matters
 - Data points: statistics, trends, benchmarks, real numbers
-- Frameworks and models relevant to the topic
 - Contrarian perspectives or critiques of mainstream approaches
 - Controversies or commonly cited but poorly supported claims
 
-Aim for 5-10 high-quality sources.
+The source-variety gate fails if all sources come from one family, no serious
+counterevidence is present, primary/official/academic sources are missing where
+expected, citations are secondary-only for primary claims, or live facts are not
+date-checked.
 
-If the topic's core claims depend on live external reality, invoke `escalate`
-with `caller: research-paper` after the wiki/context pass and the normal
-WebSearch sweep. GPT-5 Pro + Deep Research is a final external pass, not the
-first move.
-
-When the internal framing itself is contested, use `wiki-duel` or
-`wiki-forge` before the `escalate` route so any Oracle prompt is pointed at the
-real unresolved thesis rather than a vague topic area.
+When the internal framing itself is contested, use `wiki-duel` or `wiki-forge`
+before the Oracle prompt so Deep Research is pointed at the real unresolved
+thesis rather than a vague topic area.
 
 Route rules:
 
-- Use `deep-research-prompt` when `escalate` selects it for a final bounded
-  outside-world evidence pass.
+- Use `deep-research-prompt` for the pre-write Oracle evidence dossier whenever
+  the gate requires it.
+- Use `escalate` only when the source map exposes a remaining go/no-go decision
+  about external reality. If it selects `deep-research-prompt`, run a second
+  bounded Oracle pass for that decision.
 - Use `thesis-gtm` only when the paper will justify a product thesis, customer
   claim, GTM wedge, or README/VISION positioning claim.
 - Use `research-paper` when `escalate` says the right output is the paper
@@ -409,7 +506,11 @@ Selected sources:
 - npx skills add build000r/skills -s research-paper
 ```
 
-Apply this to BOTH the LinkedIn Article and X Article footer blocks. The Website section does not carry this footer — it has its own `<ResearchReferences>` component instead.
+Apply this to BOTH the LinkedIn Article and X Article footer blocks. If Deep
+Research was used, include `npx skills add build000r/skills -s
+deep-research-prompt` before the final two skill bullets. The Website section
+does not carry this footer — it has its own `<ResearchReferences>` component
+instead.
 
 **Critical constraints for the Website section:**
 
@@ -538,9 +639,10 @@ After that, rebuild/redeploy. If the client overlay specifies additional tasks (
 
 If a wiki vault exists, also write a distilled note to
 `_sources/notes/research-paper-<slug>-<date>.md` capturing the thesis, top
-findings, external sources, any Oracle session ID, and the concept pages or
-published papers affected. Then run `/wiki ingest` on that note. Do not make
-the wiki ingest the full published paper directly.
+findings, external sources, source-variety matrix, counterevidence, gaps, any
+Oracle prompt file/session slug (or skip/block reason), and the concept pages or
+published papers affected. Then run `/wiki ingest` on that note. Do not make the
+wiki ingest the full published paper directly.
 
 **Client overlay projects**: Check the client overlay for a "Post-Creation" section. If present, execute every step — these are required, not optional. Common post-creation tasks include adding the paper to a homepage link array, updating a navigation component, registering the paper in a manifest, or appending the X article / LinkedIn drafts to a social/content drafts ledger. **Do not skip this step.** Also update the overlay's "Existing Papers" list with the new paper.
 
@@ -554,8 +656,11 @@ Report to the user:
 - The paper and companion output file paths (and URL paths if applicable)
 - Key sections and what they cover
 - Notable findings from the research
-- Whether wiki grounding, wiki-duel/wiki-forge, and GPT-5 Pro / Deep Research
-  were used or intentionally skipped
+- The source-variety matrix: source families used, counterevidence, gaps, and
+  any missing family that shaped the thesis
+- Whether wiki grounding, wiki-duel/wiki-forge, `deep-research-prompt` / Oracle
+  Deep Research, normal web verification, and any `escalate` route were used or
+  intentionally skipped
 - The `_sources/notes/` path used for wiki feedback and the `/wiki ingest`
   status
 - The inferred companion briefs (reader, surface, CTA) when they materially shaped the X or LinkedIn drafts
@@ -575,12 +680,18 @@ python3 skill-issue/scripts/quick_validate.py research-paper
 Before returning, confirm all of the following:
 
 1. The evidence ladder status is explicit: wiki grounding, duel/forge use,
-   normal web research, and `escalate` route used or intentionally skipped.
+   source-variety gate result, `deep-research-prompt` / Oracle Deep Research
+   used or skipped with reason, normal web verification, and any `escalate`
+   route used or intentionally skipped.
 2. The canonical paper exists and every companion output stays within that
    paper's thesis/evidence base.
-3. If `escalate` routed to Deep Research, the response includes the
-   prompt/session details; if it did not, the response says why not.
+3. If Deep Research was used, the response includes the prompt file/session
+   slug. If skipped, the response names the skip reason. For vague, broad, or
+   source-thin concept papers, skipping Deep Research is a blocker unless the
+   user requested light/speed mode or Oracle was unavailable and fallback was
+   declined.
 4. If a wiki vault exists, the distilled note in `_sources/notes/` was written
-   and `/wiki ingest` was run before closeout.
+   with source-family coverage, counterevidence, gaps, and `/wiki ingest` was
+   run before closeout.
 5. Validation/post-creation work is reported: type-check or file verification,
    index/registry updates, and any rebuild/redeploy requirement.

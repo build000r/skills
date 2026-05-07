@@ -65,6 +65,20 @@ def load_overlays(config_root: Path) -> list[dict]:
     return overlays
 
 
+def _matches_prefix(cwd: str, prefix: str) -> bool:
+    """Return true when cwd is exactly prefix or below it as a path segment."""
+    if prefix == os.sep:
+        return True
+    return cwd == prefix or cwd.startswith(prefix + os.sep)
+
+
+def _expanded_match(pattern: str) -> str | None:
+    expanded = os.path.abspath(os.path.expanduser(os.path.expandvars(pattern)))
+    if "$" in expanded:
+        return None
+    return expanded
+
+
 def cmd_list(config_root: Path, as_json: bool) -> int:
     """List all client overlays."""
     overlays = load_overlays(config_root)
@@ -176,27 +190,82 @@ def cmd_validate(config_root: Path, as_json: bool) -> int:
 
 def find_matches(cwd: str, config_root: Path) -> list[dict]:
     """Find overlay matches for a cwd in one config root."""
-    overlays = load_overlays(config_root)
     cwd_path = os.path.abspath(os.path.expanduser(os.path.expandvars(cwd)))
-    matches = []
+    candidates = []
 
+    for client_dir in sorted(config_root.iterdir()) if config_root.is_dir() else []:
+        ctx_file = client_dir / "context.yaml"
+        if not ctx_file.is_file():
+            continue
+        try:
+            data = yaml.safe_load(ctx_file.read_text()) or {}
+        except Exception:
+            continue
+        patterns = data.get("cwd_match", [])
+        if isinstance(patterns, str):
+            patterns = [patterns]
+        if not isinstance(patterns, list):
+            continue
+        overlay_file = client_dir / "overlay.yaml"
+        match_path = overlay_file if overlay_file.is_file() else ctx_file
+        for pattern in patterns:
+            expanded = _expanded_match(str(pattern))
+            if expanded is None or not _matches_prefix(cwd_path, expanded):
+                continue
+            candidates.append({
+                "client_id": client_dir.name,
+                "path": str(match_path),
+                "source_path": str(ctx_file),
+                "source_kind": "context",
+                "config_root": str(config_root),
+                "matched_pattern": str(pattern),
+                "expanded": expanded,
+                "_match_len": len(expanded),
+                "_priority": 1,
+            })
+
+    overlays = load_overlays(config_root)
     for o in overlays:
         if "error" in o:
             continue
         client = o["data"].get("client", {})
         ctx = client.get("context", {})
         for pattern in ctx.get("cwd_match", []):
-            expanded = os.path.expanduser(os.path.expandvars(pattern))
-            if cwd_path.startswith(expanded) or expanded.startswith(cwd_path):
-                matches.append({
-                    "client_id": o["client_id"],
-                    "path": o["path"],
-                    "config_root": str(config_root),
-                    "matched_pattern": pattern,
-                    "expanded": expanded,
-                })
+            expanded = _expanded_match(str(pattern))
+            if expanded is None or not _matches_prefix(cwd_path, expanded):
+                continue
+            candidates.append({
+                "client_id": o["client_id"],
+                "path": o["path"],
+                "source_path": o["path"],
+                "source_kind": "overlay",
+                "config_root": str(config_root),
+                "matched_pattern": pattern,
+                "expanded": expanded,
+                "_match_len": len(expanded),
+                "_priority": 0,
+            })
 
-    return matches
+    if not candidates:
+        return []
+
+    best_len = max(match["_match_len"] for match in candidates)
+    top = [match for match in candidates if match["_match_len"] == best_len]
+    best_priority = max(match["_priority"] for match in top)
+    top = [match for match in top if match["_priority"] == best_priority]
+
+    cleaned = []
+    seen = set()
+    for match in top:
+        key = (match["client_id"], match["path"], match["expanded"])
+        if key in seen:
+            continue
+        seen.add(key)
+        match = dict(match)
+        del match["_match_len"]
+        del match["_priority"]
+        cleaned.append(match)
+    return cleaned
 
 
 def cmd_match(cwd: str, config_root: Path, as_json: bool) -> int:

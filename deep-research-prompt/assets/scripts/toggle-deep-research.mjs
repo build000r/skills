@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Toggle ChatGPT's "Deep research" tool on the currently focused composer.
+// Toggle ChatGPT's "Deep research" tool on the intended ChatGPT submit tab.
 //
 // Connects to a running Chrome via the DevTools Protocol (default
 // 127.0.0.1:9222), finds a chatgpt.com tab, opens the composer tool picker
@@ -8,10 +8,12 @@
 // Intended flow (see references/deep-research-tool-toggle.md):
 //   1. Skill launches Chrome headful with --remote-debugging-port=9222 using
 //      the user's logged-in ChatGPT profile.
-//   2. Skill opens a new tab to https://chatgpt.com/.
-//   3. Skill runs this script to turn Deep research on for the tab.
-//   4. Skill runs `oracle --remote-chrome 127.0.0.1:9222 --browser-model-strategy current ...`
-//      so Oracle attaches to the same Chrome and uses the already-toggled tab.
+//   2. Skill opens the intended ChatGPT project/conversation tab.
+//   3. Skill runs this script to turn Deep research on for that tab, using
+//      ORACLE_CHATGPT_TARGET_ID or ORACLE_CHATGPT_URL_MATCH if more than one
+//      ChatGPT tab is open on the same DevTools port.
+//   4. Skill runs Oracle only if that same tab is the one Oracle will submit in.
+//      Deep research is composer/tab-local, not Chrome-global.
 //
 // Exit codes:
 //   0 — Deep research is on (either toggled by us or already selected).
@@ -20,11 +22,16 @@
 //   4 — "Deep research" menu item not found.
 //   5 — CDP connection failed.
 //   6 — verification failed (click dispatched but indicator says off).
+//   7 — multiple matching chatgpt.com tabs found, so the submit tab is ambiguous.
+//   8 — requested ChatGPT target selector matched no tab.
 
 import { argv, exit, env } from 'node:process';
 
 const HOST = env.ORACLE_CDP_HOST ?? '127.0.0.1';
 const PORT = parseInt(env.ORACLE_CDP_PORT ?? '9222', 10);
+const TARGET_ID = env.ORACLE_CHATGPT_TARGET_ID ?? '';
+const URL_MATCH =
+  env.ORACLE_CHATGPT_URL_MATCH ?? env.DEEP_RESEARCH_CHATGPT_URL_MATCH ?? '';
 const VERBOSE = argv.includes('--verbose') || env.DEEP_RESEARCH_VERBOSE === '1';
 
 const log = (...args) => {
@@ -39,10 +46,41 @@ async function fetchTargets() {
   return res.json();
 }
 
-function pickChatGPTTarget(targets) {
-  return targets.find(
+function chatGPTTargets(targets) {
+  return targets.filter(
     (t) => t.type === 'page' && /chatgpt\.com/.test(t.url ?? ''),
   );
+}
+
+function describeTarget(target) {
+  return `${target.id} ${target.url} ${target.title ?? ''}`.trim();
+}
+
+function selectChatGPTTarget(targets) {
+  const tabs = chatGPTTargets(targets);
+  if (tabs.length === 0) {
+    return { status: 'none', candidates: [] };
+  }
+
+  if (TARGET_ID) {
+    const matches = tabs.filter((t) => t.id === TARGET_ID);
+    if (matches.length === 1) {
+      return { status: 'selected', tab: matches[0], candidates: matches };
+    }
+    return { status: 'selector-missing', candidates: tabs };
+  }
+
+  const candidates = URL_MATCH
+    ? tabs.filter((t) => (t.url ?? '').includes(URL_MATCH))
+    : tabs;
+
+  if (candidates.length === 0) {
+    return { status: URL_MATCH ? 'selector-missing' : 'none', candidates: tabs };
+  }
+  if (candidates.length === 1) {
+    return { status: 'selected', tab: candidates[0], candidates };
+  }
+  return { status: 'ambiguous', candidates };
 }
 
 async function cdpEval(wsUrl, expression) {
@@ -236,12 +274,38 @@ async function main() {
     exit(5);
   }
 
-  const tab = pickChatGPTTarget(targets);
-  if (!tab) {
+  const selection = selectChatGPTTarget(targets);
+  if (selection.status === 'none') {
     console.error(`No chatgpt.com tab found on ${HOST}:${PORT}.`);
     exit(2);
   }
-  log('found tab', tab.url);
+  if (selection.status === 'selector-missing') {
+    const selector = TARGET_ID
+      ? `ORACLE_CHATGPT_TARGET_ID=${TARGET_ID}`
+      : `ORACLE_CHATGPT_URL_MATCH=${URL_MATCH}`;
+    console.error(
+      `No chatgpt.com tab on ${HOST}:${PORT} matched ${selector}.`,
+    );
+    for (const t of selection.candidates) {
+      console.error(`- ${describeTarget(t)}`);
+    }
+    exit(8);
+  }
+  if (selection.status === 'ambiguous') {
+    const scope = URL_MATCH
+      ? `matching ORACLE_CHATGPT_URL_MATCH=${URL_MATCH}`
+      : 'on the DevTools port';
+    console.error(
+      `Multiple chatgpt.com tabs ${scope}; Deep research is tab-local, so the submit tab is ambiguous.`,
+    );
+    for (const t of selection.candidates) {
+      console.error(`- ${describeTarget(t)}`);
+    }
+    console.error('Set ORACLE_CHATGPT_TARGET_ID or narrow ORACLE_CHATGPT_URL_MATCH.');
+    exit(7);
+  }
+  const tab = selection.tab;
+  log('found tab', describeTarget(tab));
 
   let result;
   try {

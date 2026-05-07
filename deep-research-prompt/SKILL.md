@@ -51,21 +51,43 @@ This is what the skill does when `oracle` is on PATH and neither `paste-only` no
 1. Compose the standalone prompt block (same content rules as paste mode — self-announcing first line, hard constraints, completion criteria).
 2. Write it to `/tmp/<slug>-deep-research-<date>.md`.
 3. Run a sizing check: `oracle --dry-run summary --file /tmp/<slug>-deep-research-<date>.md`. If it reports oversized input, fix the prompt (usually by tightening scope or dropping attached files) and retry before the real run.
-4. Invoke Oracle headlessly:
+4. Prepare an explicit submit target on a known Chrome DevTools port. The Deep
+   Research toggle is **tab/composer-local**, not Chrome-global. "Same Chrome"
+   is not enough: Oracle may create or switch to another ChatGPT tab, and that
+   new tab will not inherit the Deep Research tool. Use the flow in
+   `references/deep-research-tool-toggle.md`:
+   - launch or reuse Chrome on `127.0.0.1:9222`
+   - when a ChatGPT Project/folder URL exists, open it and pass it to Oracle with
+     `--chatgpt-url`
+   - make the toggle helper resolve exactly one tab using a dedicated DevTools
+     port, `ORACLE_CHATGPT_TARGET_ID`, or `ORACLE_CHATGPT_URL_MATCH`
+   - multiple ChatGPT tabs are fine for subagents only when the intended submit
+     tab is explicit; if the helper reports ambiguous or missing selectors, stop
+     and surface the issue instead of submitting
+5. Invoke Oracle headlessly against that same prepared browser:
    ```
    oracle \
      --engine browser \
-     --browser-manual-login \
-     --model gpt-5-pro \
-     --browser-timeout 30m \
+     --remote-chrome 127.0.0.1:9222 \
+     --chatgpt-url "$CHATGPT_PROJECT_URL" \
+     --browser-model-strategy ignore \
+     --timeout 30m \
      --slug <slug> \
      -p "$(cat /tmp/<slug>-deep-research-<date>.md)"
    ```
+   Omit `--chatgpt-url` only when no ChatGPT Project/folder URL is configured
+   and the submit target is otherwise unambiguous. If using a URL selector, set
+   `ORACLE_CHATGPT_URL_MATCH` to a unique substring from the same URL before
+   running `assets/scripts/toggle-deep-research.mjs`.
    Add `--file <path>` for any supporting files the prompt references.
-5. Toggle ChatGPT's **Deep research** tool on before the prompt is submitted. Oracle v0.9.0 does not yet have a built-in Deep research toggle, so until it does, use the helper at `assets/scripts/toggle-deep-research.mjs` (CDP clicker that targets the composer "+" → Deep research menu) invoked against Oracle's Chrome DevTools port. See `references/deep-research-tool-toggle.md` for why this exists and how to verify it worked.
-6. Return to the user a short "Oracle session started" line with the slug and the `oracle session <slug>` reattach command. Do **not** also print the prompt block — that is what the user explicitly said not to do.
+6. Immediately verify the submitted conversation is the prepared Deep Research
+   tab. If Oracle opened or switched to a different project/conversation than
+   the resolved target, submitted in a tab without the Deep Research chip, or
+   the response begins like a normal non-research answer, treat the run as
+   failed. Do not claim Deep Research ran.
+7. Return to the user a short "Oracle session started" line with the slug and the `oracle session <slug>` reattach command. Do **not** also print the prompt block — that is what the user explicitly said not to do.
 
-If any of steps 3–5 fail, report the failure plainly and **do not** silently fall back to paste mode; ask the user whether to retry, patch, or fall back.
+If any of steps 3–6 fail, report the failure plainly and **do not** silently fall back to paste mode; ask the user whether to retry, patch, or fall back.
 
 ### Paste-mode fallback contract
 
@@ -299,8 +321,9 @@ Do not summarize the prompt content in prose after the block. The user will read
 
 - Prompt file was written to disk under `/tmp/` with an unambiguous slug
 - `oracle --dry-run summary` was run and the prompt is within the token budget
-- The real Oracle invocation includes `--engine browser` (or `--remote-chrome`), a concrete `--model` or `--browser-model-strategy`, a slug, and the prompt file
-- The Deep research tool toggle helper was invoked (or an explicit reason why it was skipped is logged)
+- The Deep Research toggle was applied to the exact tab/composer Oracle submitted in; if multiple `chatgpt.com` tabs existed, the run stopped before submission or the ambiguity was explicitly resolved
+- The real Oracle invocation includes `--engine browser` with `--remote-chrome`, a concrete `--browser-model-strategy`, a slug, and the prompt file
+- The Deep Research tool toggle helper was invoked after the submit tab existed and before Oracle submitted (or an explicit reason why it was skipped is logged)
 - The chat reply contains no prompt code block, no "paste this" instruction, and no "copy the block below" phrasing
 - Oracle session slug is surfaced for reattach
 

@@ -8,9 +8,10 @@ description: >-
   repo for this", "am I recreating the wheel", "should we fork/build this",
   "audit this codebase for build-vs-buy violations", "what can I get from this
   repo", "mine this repo", "prospect this", or when a plan should consider both
-  ecosystem fit and the user's current repo portfolio. When the blocker is
-  current external reality rather than local code inspection, use `escalate`
-  before finalizing the recommendation.
+  ecosystem fit and the user's current repo portfolio, including first-class
+  dogfood buckets like skillbox, skillbox-config, swimmers, and
+  sweet-potato/SPAPS. When the blocker is current external reality rather than
+  local code inspection, use `escalate` before finalizing the recommendation.
 ---
 
 # Build Vs Clone
@@ -75,6 +76,11 @@ landscape for skill/tooling placement. It is not just another upstream skill
 corpus: inspect it when the request touches skill packaging or sync, default
 skill bundles, client overlays, box/runtime behavior, or operator tooling.
 
+First-class dogfood bucket routing lives in
+[references/dogfood-buckets.md](references/dogfood-buckets.md). Run that pass
+before external search whenever a local repo, platform package, overlay, or
+loaded skill could already own the capability.
+
 If the ask is only "where should this go?" and the decision can be made from
 local repo evidence, local inspection is enough.
 
@@ -116,6 +122,24 @@ recommended structure.
 
 For extraction review, also use
 [references/extraction-heuristics.md](references/extraction-heuristics.md).
+
+## Dogfood Bucket Gate
+
+Before recommending `BUILD`, `NEW REPO`, or consumer-local implementation,
+check whether the active portfolio already has a first-class bucket for the
+capability. At minimum, check `skillbox`, `skillbox-config`, `swimmers`, and
+`sweet-potato`/SPAPS, plus every repo declared by the active overlay.
+
+If a bucket can satisfy the need exactly, route the work there. If it can
+satisfy the same class of need through an adapter, package, overlay, or shared
+contract, route through that bucket and make the current repo a consumer. If
+the bucket is missing a reusable surface, recommend an owner-bucket gap first;
+external dependencies may help only behind that bucket's contract.
+
+PDSMVP-style lesson: product repos own product-domain data and opaque refs;
+Sweet Potato/SPAPS owns identity, sessions, API keys, app identity, billing,
+grants, and generic entitlement projection. Do not recommend local substitutes
+for those platform concerns when SPAPS already exists or can be extended.
 
 ## Non-Negotiables
 
@@ -187,6 +211,9 @@ If the ask is "where should this go?" or the user has an existing repo
 portfolio:
 
 - load a local mode if one matches the current `cwd`
+- run the dogfood bucket pass from
+  [references/dogfood-buckets.md](references/dogfood-buckets.md) before
+  widening to general sibling repos or external search
 - if `~/.claude/context/manifest.yaml` exists, use it as a discovery index, not
   as final truth
 - inspect candidate repos directly:

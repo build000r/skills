@@ -40,6 +40,32 @@ bundled skills, do not model it only as an upstream skill root. Also list it
 under `Repo Ownership` or `Extraction Targets` so placement decisions can
 distinguish the portable skill contract from runtime/distribution concerns.
 
+## First-Class Dogfood Buckets
+
+List portfolio repos that should be checked before recommending local builds or
+external dependencies. These are not vague inspirations; they are owner buckets
+that can receive work or provide the contract a consumer repo should use.
+
+- `skillbox`
+  - path: `~/repos/opensource/skillbox`
+  - owns: runtime manager, focus/context generation, MCP/runtime wiring,
+    devbox behavior, skill distribution mechanics
+- `skillbox-config`
+  - path: `~/repos/skillbox-config`
+  - owns: client overlays, generated contexts, plans, workflows, evaluations,
+    invocation artifacts, repo landscapes, per-client validation commands
+- `swimmers`
+  - path: `~/repos/opensource/swimmers`
+  - owns: Rust binary crate, local server/TUI interaction surface,
+    multi-agent/session visibility patterns, publishable CLI ergonomics
+- `sweet-potato`
+  - path: `~/repos/sweet-potato`
+  - owns: SPAPS auth, sessions, API keys, application identity, billing,
+    payments, entitlements, wallet identity, published clients, issue reporting
+  - packages: `packages/python-server-quickstart`, `packages/python-client`,
+    `packages/sdk`, `packages/spaps`, `packages/types`,
+    `packages/issue-reporting-react`, `packages/wallet-utils`
+
 ## Repo Ownership
 
 - `repo-name`

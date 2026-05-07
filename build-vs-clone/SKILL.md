@@ -136,10 +136,11 @@ contract, route through that bucket and make the current repo a consumer. If
 the bucket is missing a reusable surface, recommend an owner-bucket gap first;
 external dependencies may help only behind that bucket's contract.
 
-PDSMVP-style lesson: product repos own product-domain data and opaque refs;
-Sweet Potato/SPAPS owns identity, sessions, API keys, app identity, billing,
-grants, and generic entitlement projection. Do not recommend local substitutes
-for those platform concerns when SPAPS already exists or can be extended.
+Shared-platform boundary: product repos own product-domain data and opaque
+refs; Sweet Potato/SPAPS owns identity, sessions, API keys, app identity,
+billing, grants, and generic entitlement projection. Do not recommend local
+substitutes for those platform concerns when SPAPS already exists or can be
+extended.
 
 ## Non-Negotiables
 

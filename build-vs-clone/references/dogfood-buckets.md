@@ -74,18 +74,19 @@ first:
 Do not collapse those into one consumer-local recommendation. That is how
 reusable platform work turns into one-off application glue.
 
-## PDSMVP Lesson
+## Shared Platform Boundary
 
-For PDSMVP-style product work, separate domain data from platform identity:
+For product work that depends on a shared platform, separate domain data from
+platform identity:
 
-- The product repo owns public-works/compliance domain rows, opaque SPAPS refs,
-  URLs, audit records, workflow state, and product-specific permissions layered
-  on top of SPAPS context.
+- The product repo owns product-specific domain rows, opaque SPAPS refs, URLs,
+  audit or event records, workflow state, and product-specific permissions
+  layered on top of SPAPS context.
 - Sweet Potato/SPAPS owns passwords, sessions, JWTs, API keys, application
   identity, billing, wallet identity, generic entitlements, and reusable grant
   projection.
-- `skillbox-config` owns the client overlay that tells agents where the web,
-  server, validation commands, plans, and invocation artifacts live.
+- `skillbox-config` owns the client overlay that tells agents where each
+  surface, validation command, plan, and invocation artifact lives.
 
 If an agent starts debating local database tables for users, sessions, API
 keys, generic roles, billing, or entitlement projection in a product repo, the

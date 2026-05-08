@@ -736,16 +736,26 @@ the proposal queue rather than relaxing the gate.
 
 ### Commit/Push Branch (Tier-Gated)
 
-Do not run `git add`, `git commit`, `git tag`, `git push`, or PR creation
-commands unless the user explicitly asks for that branch in the current run.
+Treat an explicit current-run commit request as authorization to run `git add`
+and `git commit` for the relevant scope. Examples include `commit`,
+`/commit`, `checkpoint`, `save progress`, `commit it`, `commit everything`,
+and `commit and continue`.
 
-The ask-first gate is stricter for `high`-tier edits: even after the user
-authorizes a commit, re-confirm before pushing if the risk tier is `high`.
-For `low`-tier edits the confirmation can cover multiple closely related
-changes; for `medium` and `high` tiers, confirm each edit individually.
+When commit authorization is present, do not ask again for commit approval and
+do not warn about an unsolicited commit. Switch to the `commit` skill, classify
+the dirty tree, scrub local-only or private artifacts, stage the intentional
+batch, and commit it.
 
-If commit/push is not authorized, finish with local edits plus verification
-output and report the pending commands instead of executing them.
+Only pause before committing when the staged set would include unrelated work,
+credentials, private data, unresolved conflicts, or files whose intent cannot
+be established from the current request and repo evidence.
+
+Do not run tag, push, release, publishing, or PR creation commands unless the
+user explicitly asks for that branch in the current run. Commit authorization
+does not authorize those follow-on operations.
+
+If commit is not authorized, finish with local edits plus verification output
+and report the pending commit command instead of executing it.
 
 ### Step 6: Iterate
 

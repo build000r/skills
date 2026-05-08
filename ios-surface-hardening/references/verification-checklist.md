@@ -4,7 +4,12 @@ Use this after the UI/analytics patch lands.
 
 ## Build
 
-- `make build`
+- Read the repo's command notes (`AGENTS.md`, `CLAUDE.md`, `README.md`) and
+  Makefile.
+- Use the repo-native simulator build lane. Common examples: `make build`,
+  `make ios-build`, or `make ios-sim-build`.
+- If no Makefile lane exists, use the repo's documented raw `xcodebuild`
+  command.
 
 ## Unit Tests
 
@@ -12,9 +17,13 @@ Use this after the UI/analytics patch lands.
 
 ## UI Tests
 
-- Run the signed-out/auth shell fixture slice.
-- Run the onboarding/sign-up fixture slice.
-- If the home/dashboard surface changed, run the current-plan or intake fixture slice too.
+- Run the repo-native signed-out/auth shell fixture slice.
+- Run the repo-native onboarding/sign-up fixture slice.
+- If the home/dashboard surface changed, run the current-plan or intake fixture
+  slice too.
+- Use fixture UI or screenshot lanes such as `make test-ui-fixtures`,
+  `make acceptance-local`, `make ios-ui-test`, `make screenshots`, or
+  `make ios-screenshots` when those are the repo-owned proof paths.
 
 ## Visual Integrity Checks
 

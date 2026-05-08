@@ -29,7 +29,8 @@ one-off bypass.
 | --- | --- | --- |
 | `skillbox` | Runtime manager, focus/context generation, MCP/runtime wiring, local devbox behavior, skill distribution mechanics | The task changes how agents discover clients, focus overlays, run local runtime checks, or provision managed agent environments |
 | `skillbox-config` | Client overlays, generated contexts, plans, workflows, evaluations, invocation artifacts, repo landscapes, per-client validation commands | The task needs client-specific routing, missing repo metadata, invocation storage, plan roots, or reusable per-client defaults |
-| `skills` | Reusable agent workflows, `SKILL.md` contracts, bundled scripts, references, tests, and packaging rules | The task changes what agents should know or do across future sessions |
+| `skills` | Public, portable agent workflows, `SKILL.md` contracts, bundled scripts, references, tests, and packaging rules | The task changes what agents should know or do across future sessions and the contract can be public/generic |
+| `skills-private` | Reusable private `SKILL.md` contracts with operator-specific workflows, private business context, internal repo maps, client names, or non-public references | The skill contract itself is private or not yet sanitized for `opensource/skills`; use `../../skills-private` from repos under `opensource/` |
 | `swimmers` | Rust binary crate, local server/TUI interaction surface, multi-agent/session visibility patterns, publishable CLI ergonomics | The task concerns terminal/TUI swarm surfaces, local coordination UX, or reusable Rust server/client patterns |
 | `sweet-potato` | SPAPS shared control plane: auth, sessions, API keys, application identity, billing, payments, entitlements, wallet identity, published clients, issue reporting | Any product needs identity, grants, billing, protected sessions, entitlement projection, wallet flow, or issue-reporting integration |
 

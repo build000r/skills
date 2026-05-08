@@ -73,6 +73,31 @@ This keeps every skill invocation overlay-backed. Generic/manual fallbacks mask 
 
 Client overlays are managed outside the skill repo — they contain org-specific paths and workflows that should not be committed to public skill files.
 
+## Skill Contract Placement
+
+Before creating or moving a `SKILL.md`, choose the repository that owns the
+contract:
+
+- `opensource/skills` owns public, portable skill contracts and generic bundled
+  resources that should work for other operators.
+- `../../skills-private` (relative to repos under `opensource/`) owns reusable private skill contracts:
+  operator-specific workflows, private business context, private repo maps,
+  client names, internal prompts, non-public references, and skills that should
+  not be prepared for public release yet.
+- `skillbox-config/clients/<client>/` owns per-client overlays, generated
+  context, publishing targets, validation commands, paths, secrets references,
+  and client-specific defaults. It is not the home for reusable `SKILL.md`
+  contracts.
+- `skillbox` owns runtime delivery of skills: installation, sync, bundles,
+  distribution, default skill curation, and operator tooling. Do not put the
+  canonical skill contract there unless the skill is intentionally bundled as a
+  runtime-local operator surface.
+
+If a requested skill would leak private context in a public repo, create or
+update it in `../../skills-private` first. Extract a public version into
+`opensource/skills` only after sanitizing names, paths, examples, assets, and
+references into a generic contract.
+
 ## Overlay Mode
 
 Use this mode when the user wants to manage client overlays directly: "create an overlay", "list overlays", "check my overlays", "which overlay matches", "migrate overlays", or when another skill delegates overlay creation on a miss.
@@ -557,7 +582,10 @@ Before committing or packaging any skill for public release, scrub ALL files (SK
 
 #### Open-Source Skill Architecture
 
-Skills intended for public repos use a dual-layer pattern: **generic tracked files + private client overlays via skillbox**.
+Skills intended for public repos use a dual-layer pattern: **generic tracked
+files + private client overlays via skillbox**. If the `SKILL.md` itself is
+private, keep it in `../../skills-private`; do not force it into this public
+pattern until it has been sanitized into a portable contract.
 
 ```
 my-skill/                      ← public (git tracked)

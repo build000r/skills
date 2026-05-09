@@ -53,6 +53,25 @@ The orchestrator owns:
 The orchestrator stays thin. It should prefer fresh-context workers for heavy
 work when the runtime supports delegation.
 
+### End-To-End Delivery Default
+
+When the user asks to implement a domain slice, the orchestrator owns the whole
+delivery chain. It must not stop after writing a plan, launching a first worker,
+or producing a partial audit unless a real blocker requires a human decision.
+
+Default completion means:
+
+1. accepted plan or plan-quality pass
+2. implementation/scaffolding across every in-scope repo
+3. fresh-context audit and re-review loops to `100/100`
+4. post-audit hardening for the touched code paths when configured
+5. retirement/closeout artifacts
+6. clean commit batching across touched repos
+7. final report with scores, validation, commits, and leftovers
+
+Pause only for materially ambiguous ownership, external blockers, missing
+canonical dependencies, destructive operations, or an explicit user override.
+
 ### Workers
 
 Workers own only their assigned concern and write scope. Workers must:
@@ -72,6 +91,18 @@ Pick the runtime profile your environment supports:
   `--model gpt-5.4 --effort xhigh` for detached review gates. Add
   `--background` for long-running work; check with `/codex:status` and
   `/codex:result`
+
+## Fresh-Eyes Review Gates
+
+Use fresh-context review whenever the runtime supports it. At minimum, the
+initial implementation audit and each post-fix re-review should run as a worker
+that reads the plan, code, standards, and prior report from scratch. For high
+risk or cross-repo slices, add an independent hardening/review worker after
+`100/100` plan compliance and before retirement.
+
+In single-agent runtimes, simulate fresh eyes by closing the prior phase,
+re-reading the required inputs from disk, and reviewing from the written
+artifacts rather than memory.
 
 Skill-local docs may name concrete tools, but should not redefine the shared
 role model or success criteria.

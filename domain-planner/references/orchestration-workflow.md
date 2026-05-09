@@ -17,9 +17,30 @@ covers planner-specific orchestration steps.
 - [Step 7: Launch Fix Agents](#step-7-launch-fix-agents)
 - [Step 8: Re-Audit Loop](#step-8-re-audit-loop)
 - [Step 9: Stall Triage](#step-9-stall-triage)
-- [Step 10: Completion](#step-10-completion)
+- [Step 10: Hardening, Retirement, And Commits](#step-10-hardening-retirement-and-commits)
 
 ---
+
+## End-To-End Contract
+
+Implementation orchestration is a full delivery run. Once the user selects
+"Implement it" for an accepted slice, the orchestrator continues through
+scaffolding, fresh-context audit/re-review, hardening, retirement, commit
+batching, and final reporting. It must not stop at a first-pass implementation,
+partial plan, or sub-100 audit result.
+
+Pause only for a real blocker: ambiguous slice/repo ownership, external
+dependency decisions, destructive operations, auth service gaps, hardening
+failure that needs an override, or an explicit user request to stop.
+
+Use fresh eyes for review gates whenever possible:
+
+- the initial audit worker reads the plan, code, and standards from scratch
+- every re-review worker reads the latest report and diff from scratch
+- the hardening worker assesses the touched code paths independently
+
+In a single-agent runtime, simulate this by ending each phase and re-reading the
+artifacts from disk before reviewing.
 
 ## Step 1: Analyze Plan Scope
 
@@ -57,6 +78,9 @@ Create a checklist based on repos involved:
 - [ ] {auth_repo} scaffolding (if applicable)
 - [ ] Audit (attempt 1)
 - [ ] All issues resolved
+- [ ] Hardening gate passed or explicitly overridden
+- [ ] Retirement completed
+- [ ] Commit sweep completed
 - [ ] INDEX.md updated to DONE
 ```
 
@@ -115,6 +139,7 @@ Once scaffolding is complete, launch an audit agent:
 Audit the {slice} implementation against its plan.
 
 Use the domain-reviewer skill in audit mode for {slice}.
+Run this as a fresh-context review worker when the runtime supports it.
 
 Follow all instructions from that skill. Generate AUDIT_REPORT.md.
 Return the verdict (COMPLIANT/MOSTLY COMPLIANT/NEEDS WORK) and
@@ -128,7 +153,7 @@ list any issues that need fixing.
 Parse the audit agent's response. Read `{plan_root}/{slice}/AUDIT_REPORT.md` and extract the score.
 
 **If score = 100:**
-- Jump to Step 10 (Completion)
+- Jump to Step 10 (Hardening, Retirement, And Commits)
 
 **If score < 100:**
 - Record the score in the score trajectory list (for stall detection)
@@ -169,9 +194,9 @@ If a fix is blocked by missing auth service functionality, stop and include an a
 
 After fix agents complete:
 1. Increment audit attempt counter
-2. Launch audit agent again (Step 5)
+2. Launch audit agent again (Step 5) as a fresh-context re-review
 3. Parse new score, add to trajectory
-4. If score = 100 → Step 10 (Completion)
+4. If score = 100 → Step 10 (Hardening, Retirement, And Commits)
 5. If score < 100 → check for stall (Step 9), then loop back to Step 7
 
 **Hard ceiling:** 5 iterations max. If reached, proceed to Step 9 stall triage regardless.
@@ -236,26 +261,56 @@ If remaining issues genuinely require plan revision, the escalation says so expl
 
 ---
 
-## Step 10: Completion
+## Step 10: Hardening, Retirement, And Commits
 
 When score = 100:
 
-1. **Auto-retire** — transition directly to retirement by following the domain-reviewer retire workflow. The orchestrator does this itself (not delegated) because it has full journey context and plenty of context budget remaining.
+1. **Hardening gate** — run a fresh-context hardening worker against the files
+   touched by the slice. Use `WORKGRAPH.md` `writes` globs and the actual git
+   diff to scope the check.
 
-2. Update the plan index:
+   ```
+   Audit 100/100 -> /crap hardening gate -> /mutate top hotspots if needed
+   ```
+
+   Gate behavior:
+   - If `FINAL_SCORE <= 30`, continue to retirement.
+   - If `FINAL_SCORE > 30`, run `/mutate` on the top 3 hotspots and add tests
+     or refactor until the score is `<= 30` where practical.
+   - If hardening still fails, report the score, file list, and specific
+     recommendation. Do not retire unless the user explicitly accepts the
+     remaining risk.
+   - Skip only when the user explicitly requested a hardening skip.
+
+2. **Auto-retire** — transition directly to retirement by following the
+   domain-reviewer retire workflow. The orchestrator does this itself (not
+   delegated) because it has full journey context and plenty of context budget
+   remaining.
+
+3. Verify the plan index:
    ```
    | {date} | [{slice}](./{slice}/) | DONE | {description} |
    ```
 
-3. Mark all checklist items complete.
+4. **Commit sweep** — run the commit skill in every touched repo and the plan
+   repo. Classify all dirty paths, ignore local artifacts, scrub privacy risks,
+   and batch intentional source, tests, docs, plan, audit, retirement, and
+   hardening artifacts into conventional commits. Leave only explicitly
+   explained leftovers.
 
-4. Report the full journey to user:
+5. Mark all checklist items complete.
+
+6. Report the full journey to user:
    ```
    ## {slice}: Done
 
    **Score:** {final}/100 (trajectory: {list})
    **Iterations:** {N}
+   **Hardening:** {FINAL_SCORE or skipped/overridden}
    **Retirement:** {stories complete/deferred summary}
+   **Commits:** {repo: sha subject}
+   **Validation:** {commands run}
+   **Leftovers:** {none or explicit list}
    ```
 
 No questions asked at this stage. The slice is done.

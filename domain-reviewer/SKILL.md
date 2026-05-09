@@ -45,6 +45,18 @@ The shared auth/payments/identity service (`{auth_packages_root}` from the clien
 - **Retire:** Investigate completed slices, categorize user stories, clean up bloat
 - **Retire-Session:** Roll DONE session plans into domain COMPLETED.md files, archive originals
 
+## Fresh-Eyes Review Contract
+
+Audit mode is not a one-shot review. The initial audit, every post-fix
+re-review, and any high-risk hardening review should run with fresh context
+where the runtime supports worker/subagent delegation. The worker must read the
+plan, implementation, standards, and prior report from disk instead of relying
+on the orchestrator's memory.
+
+In single-agent runtimes, simulate fresh eyes with explicit phase boundaries:
+close the prior phase, re-read the required artifacts, and review from those
+written inputs before changing score or verdict.
+
 ## Execution Profiles
 
 This skill is agent-platform neutral. Pick the profile your runtime supports:

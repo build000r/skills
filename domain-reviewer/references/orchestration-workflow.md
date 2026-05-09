@@ -67,6 +67,11 @@ The shared auth/payments/identity service (`{auth_packages_root}` from the clien
 
 ## The Loop
 
+Review phases are fresh-context gates. In subagent-capable runtimes, dispatch a
+new worker for the initial audit and each re-review. In single-agent runtimes,
+close the prior phase, re-read the plan, code, standards, and `AUDIT_REPORT.md`
+from disk, then score from those artifacts rather than memory.
+
 ```
 iteration = 0
 
@@ -274,7 +279,7 @@ After parsing each score, check for stall conditions:
 
 If any stall condition is met and score < 100, proceed to Stall Triage instead of the fix phase.
 
-## Convergence → Retirement
+## Convergence → Retirement And Commit Sweep
 
 When score = 100:
 
@@ -289,6 +294,10 @@ When score = 100:
    - Number of fix iterations
    - Final score
    - Retirement summary (stories complete/deferred)
+5. Run a final commit sweep for every touched repo and the plan repo using the
+   commit skill. Classify all dirty paths, batch intentional code/tests/docs and
+   audit/retirement artifacts, and report commit SHAs plus any explicit
+   leftovers.
 
 ## Stall Triage
 

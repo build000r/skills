@@ -650,6 +650,21 @@ Auth service checks are mandatory in quality assessment mode for auth/payments/i
 
 When user selects "Implement it" for an existing plan, become the **orchestrator agent**.
 
+Implementation mode is an end-to-end delivery run. Do not one-shot the first
+implementation pass and return a partial plan or partial progress report. Carry
+the accepted slice through scaffolding, fresh-context audit/re-review loops,
+hardening, retirement, and commit batching unless a blocker requires a human
+decision.
+
+Use fresh eyes where the runtime supports it:
+- initial domain-reviewer audit runs in a fresh worker/subagent
+- each post-fix re-review runs in a fresh worker/subagent
+- high-risk or cross-repo slices get a separate hardening/review worker before retirement
+
+In a single-agent runtime, simulate fresh eyes by ending each phase, re-reading
+the plan/code/report from disk, and reviewing the written artifacts instead of
+relying on memory.
+
 Auth service enforcement is mandatory in orchestration mode:
 1. Treat `{auth_packages_root}` as the auth/payments/identity source of truth.
 2. Require scaffolder agents to reuse existing auth service packages before writing custom auth/payments/identity logic.
@@ -673,7 +688,7 @@ See [references/orchestration-workflow.md](~/.claude/skills/domain-planner/refer
 │  5. If issues: launch fix agents, re-audit               │
 │  6. Loop until COMPLIANT (100/100)                       │
 │  6b. Hardening gate: /crap → /mutate (score ≤ 30)       │
-│  7. Update INDEX.md to DONE                              │
+│  7. Retire slice, batch commits, report validation        │
 │                                                          │
 └─────────────────────────────────────────────────────────┘
 ```
@@ -719,7 +734,7 @@ See [references/orchestration-workflow.md](~/.claude/skills/domain-planner/refer
 
    This gate catches high-complexity/low-coverage code before it gets retired and forgotten. The `/crap` + `/mutate` combination targets the riskiest code paths with mutation testing, ensuring test coverage is meaningful (not just line coverage).
 
-7. **Completion** — Update INDEX.md status to DONE, report results to user (including final CRAP score if hardening gate ran).
+7. **Completion** — Retire the slice via domain-reviewer, verify INDEX.md is DONE, run the commit skill for every touched repo, and report results to the user (including final audit score, final CRAP score if hardening ran, validation commands, commit SHAs, and any explicit leftovers).
 
 ---
 

@@ -41,45 +41,43 @@ The shared auth/payments/identity service (`{auth_packages_root}` from the clien
 2. Flag unrequested compatibility mechanics (legacy endpoints, dual routing, adapter layers, shadow write/read paths) as scope violations.
 3. If production data is affected, require a dedicated DB transition section with backup, raw `psql` execution plan, transactional/idempotent safety, verification, and rollback.
 
-- **Audit:** Autonomous audit→fix→retire loop — runs worker phases (subagents if available, inline fallback), converges to 100/100, then retires
+- **Audit:** Autonomous audit→fix→retire loop — runs worker phases through NTM/divide-and-conquer or another explicit worker transport, converges to 100/100, then retires
 - **Retire:** Investigate completed slices, categorize user stories, clean up bloat
 - **Retire-Session:** Roll DONE session plans into domain COMPLETED.md files, archive originals
 
 ## Fresh-Eyes Review Contract
 
 Audit mode is not a one-shot review. The initial audit, every post-fix
-re-review, and any high-risk hardening review should run with fresh context
-where the runtime supports worker/subagent delegation. The worker must read the
-plan, implementation, standards, and prior report from disk instead of relying
-on the orchestrator's memory.
+re-review, and any high-risk hardening review must run with fresh context. The
+worker must read the plan, implementation, standards, and prior report from
+disk instead of relying on the orchestrator's memory.
 
-In single-agent runtimes, simulate fresh eyes with explicit phase boundaries:
-close the prior phase, re-read the required artifacts, and review from those
-written inputs before changing score or verdict.
+The default worker substrate is `divide-and-conquer` backed by
+`vibing-with-ntm`. If no worker substrate is available, stop and surface the
+missing prerequisite instead of replacing review gates with local self-review.
 
-## Execution Profiles
+## Execution Runtime
 
-This skill is agent-platform neutral. Pick the profile your runtime supports:
+This skill requires a worker substrate for audit, re-review, and fix phases:
 
-- **Profile A: Subagent-capable runtimes** (Claude Task agents, Agents SDK with worker agents, similar)
-  - Run audit/re-review/fix as separate worker runs with fresh context where possible.
-  - Orchestrator coordinates handoffs, score parsing, and loop control.
-- **Profile B: Single-agent runtimes** (Codex CLI session without subagent primitives)
-  - Run the same phases inline in one session.
-  - Simulate fresh context by re-reading required files at each phase.
-  - Keep phase boundaries explicit: `AUDIT` -> `SCORE CHECK` -> `FIX` -> repeat.
+- **Default:** `divide-and-conquer` + `vibing-with-ntm` for worker dispatch,
+  reservations, monitoring, collection, and fresh-eyes reviews.
+- **Named transports:** `/codex:rescue` or helper scripts may be used when the
+  workflow explicitly selects them as worker transports.
+- **Unavailable substrate:** stop and surface the missing prerequisite. Do not
+  run audit/re-review/fix phases in-process.
 
 Terminology bridge used throughout this skill:
 
 | This skill says | Means |
 |-----------------|-------|
 | "Task agent" / "subagent" | Worker phase execution unit |
-| "Spawn" | Delegate if runtime supports it; otherwise execute inline |
+| "Spawn" | Dispatch through NTM/divide-and-conquer or a named worker transport |
 | "Orchestrator" | The active agent/session coordinating loop decisions |
 
-### Subagent Runtime Setup
+### Worker Runtime Setup
 
-When using a subagent-capable runtime:
+When using a worker-capable runtime:
 
 1. Run one orchestrator plus scoped workers (audit, fix-backend, fix-frontend, retire).
 2. Give each worker explicit owned paths (for example `backend/**` vs `frontend/**`).
@@ -110,7 +108,8 @@ When the `codex-plugin-cc` plugin is loaded, delegate worker phases to Codex via
 
 Add `--background` when running fix workers in parallel or when the orchestrator can continue productively.
 
-The `launch_codex_worker.py` and `run_codex_audit_loop.py` scripts remain available as standalone fallbacks for environments without the plugin.
+The `launch_codex_worker.py` and `run_codex_audit_loop.py` scripts remain
+available as standalone worker transports for environments without the plugin.
 
 ## Plan Storage
 
@@ -188,7 +187,8 @@ The client overlay specifies:
 
 ### Audit Mode: Orchestrator Behavior
 
-In audit mode, **you are the orchestrator**. Use worker phases for heavy work (delegate when supported, otherwise execute inline):
+In audit mode, **you are the orchestrator**. Use worker phases for heavy work
+through NTM/divide-and-conquer or another named worker transport:
 
 1. Read client overlay context + reference files (audit-workflow.md, audit-template.md, convention files)
 2. Enter the autonomous loop (see orchestration-workflow.md)
@@ -239,7 +239,7 @@ The orchestrator:
 1. Reads the `## Agent Handoffs` section from AUDIT_REPORT.md
 2. Canonicalizes each implementation handoff to `domain-scaffolder` with explicit surface, slice, plan path, and client-overlay-specific references
 3. Augments each handoff block with client-overlay-specific paths and convention file references
-4. Runs worker phase(s) with the constructed prompts (delegated or inline)
+4. Runs worker phase(s) with the constructed prompts through the worker substrate
 5. Backend and frontend fix workers run in parallel when both have issues and scopes are disjoint
 
 The handoff blocks in AUDIT_REPORT.md should reference the canonical

@@ -6,11 +6,14 @@ Shared cross-skill rules live in
 `~/.claude/skills/_shared/references/orchestration-contract.md`. This file only
 covers reviewer-specific audit-loop behavior.
 
-Worker execution is runtime-dependent:
+Worker execution requires an orchestration substrate:
 
-- **Subagent-capable runtime:** delegate each worker phase to a fresh worker/subagent.
-- **Single-agent runtime:** execute the worker phase inline in the current session.
-- In both cases, follow the same inputs/outputs and loop decisions.
+- **Default:** use `divide-and-conquer` backed by `vibing-with-ntm` to dispatch
+  each worker phase with fresh context.
+- **Named transports:** use `/codex:rescue` or helper scripts only when the
+  workflow explicitly selects them as worker transports.
+- **Unavailable substrate:** stop and surface the missing prerequisite. Do not
+  execute audit, re-review, fix, or hardening phases without worker isolation.
 
 Parallel execution contract (same repository, no extra worktrees required):
 
@@ -67,10 +70,10 @@ The shared auth/payments/identity service (`{auth_packages_root}` from the clien
 
 ## The Loop
 
-Review phases are fresh-context gates. In subagent-capable runtimes, dispatch a
-new worker for the initial audit and each re-review. In single-agent runtimes,
-close the prior phase, re-read the plan, code, standards, and `AUDIT_REPORT.md`
-from disk, then score from those artifacts rather than memory.
+Review phases are fresh-context gates. Dispatch a new worker for the initial
+audit and each re-review. The worker reads the plan, code, standards, and
+`AUDIT_REPORT.md` from disk, then scores from those artifacts rather than the
+orchestrator's memory.
 
 ```
 iteration = 0
@@ -80,10 +83,10 @@ while iteration < 5:
     ┌─ AUDIT PHASE ─────────────────────────────────────┐
     │                                                     │
     │  if iteration == 0:                                 │
-    │    Run AUDIT worker phase (delegate or inline)      │
+    │    Dispatch AUDIT worker phase                      │
     │    (reads plan + code + standards from scratch)     │
     │  else:                                              │
-    │    Run RE-REVIEW worker phase (delegate or inline)  │
+    │    Dispatch RE-REVIEW worker phase                  │
     │    (reads previous report + git diff + plan)        │
     │                                                     │
     │  Worker writes/updates AUDIT_REPORT.md              │
@@ -355,7 +358,7 @@ If remaining issues genuinely require plan revision, the escalation says so expl
 The orchestrator MUST stay thin. It should ONLY:
 
 - Read mode/reference files (once, at the start)
-- Run worker phases with constructed prompts (delegated or inline)
+- Run worker phases with constructed prompts through the worker substrate
 - Read AUDIT_REPORT.md to parse scores and extract handoffs
 - Make loop decisions (continue/converge/escalate)
 - Run retirement (final phase, when context is still fresh)

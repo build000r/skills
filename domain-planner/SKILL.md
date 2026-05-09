@@ -552,12 +552,17 @@ Populate **all 6 required files** from planning session:
 Run the automated assess→fix→re-assess loop against the [plan quality rubric](~/.claude/skills/domain-planner/references/plan-quality-rubric.md). See [quality-loop-workflow.md](~/.claude/skills/domain-planner/references/quality-loop-workflow.md) for the full workflow.
 
 ```
-Assess (subagent or inline) → Parse score
+Assess (fresh worker) → Parse score
 ├── 100/100 → skip to 6c
 └── < 100 → fix issues → re-assess (max 3 rounds)
 ```
 
-**Assessor:** Fresh-context subagent (Profile A) or inline re-read (Profile B) — scores all 6 files against the 10-dimension rubric (10 pts each, 100 total). Returns structured issues table with file, location, and fix instruction per deduction.
+**Assessor:** Fresh-context worker launched through `divide-and-conquer`/NTM or
+another explicit worker transport. If no worker substrate is available, stop
+and surface the missing prerequisite instead of assessing in-process. The assessor
+scores all 6 files against the 10-dimension rubric (10 pts each, 100 total) and
+returns a structured issues table with file, location, and fix instruction per
+deduction.
 
 **Fixer:** The orchestrator itself — has full domain context from the planning session. Applies targeted fixes from the issues table, then re-launches the assessor.
 
@@ -656,14 +661,14 @@ the accepted slice through scaffolding, fresh-context audit/re-review loops,
 hardening, retirement, and commit batching unless a blocker requires a human
 decision.
 
-Use fresh eyes where the runtime supports it:
-- initial domain-reviewer audit runs in a fresh worker/subagent
-- each post-fix re-review runs in a fresh worker/subagent
+Use fresh eyes through `divide-and-conquer`/NTM or another explicit worker
+transport:
+- initial domain-reviewer audit runs in a fresh worker
+- each post-fix re-review runs in a fresh worker
 - high-risk or cross-repo slices get a separate hardening/review worker before retirement
 
-In a single-agent runtime, simulate fresh eyes by ending each phase, re-reading
-the plan/code/report from disk, and reviewing the written artifacts instead of
-relying on memory.
+If the worker substrate is unavailable, stop and surface that missing
+prerequisite. Do not replace these review gates with local self-review.
 
 Auth service enforcement is mandatory in orchestration mode:
 1. Treat `{auth_packages_root}` as the auth/payments/identity source of truth.

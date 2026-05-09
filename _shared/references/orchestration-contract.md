@@ -50,8 +50,8 @@ The orchestrator owns:
 - score parsing and loop control
 - escalation and final reporting
 
-The orchestrator stays thin. It should prefer fresh-context workers for heavy
-work when the runtime supports delegation.
+The orchestrator stays thin. It uses fresh-context workers for heavy work
+through `divide-and-conquer`, NTM, or another explicit worker substrate.
 
 ### End-To-End Delivery Default
 
@@ -81,28 +81,27 @@ Workers own only their assigned concern and write scope. Workers must:
 - follow handoff instructions exactly
 - return structured results or a clear blocker
 
-## Runtime Profiles
+## Runtime Substrate
 
-Pick the runtime profile your environment supports:
+Domain orchestration assumes a worker substrate. The default execution route is
+`divide-and-conquer` backed by `vibing-with-ntm`; other explicit worker
+transports are acceptable only when the skill-local workflow names them.
 
-- Subagent-capable runtime: delegate worker phases with fresh context
-- Single-agent runtime: execute the same phases inline with explicit re-reads
-- Codex-delegated review: use `/codex:rescue` (via `codex-plugin-cc`) with
-  `--model gpt-5.4 --effort xhigh` for detached review gates. Add
-  `--background` for long-running work; check with `/codex:status` and
-  `/codex:result`
+- NTM/divide-and-conquer: dispatch work by ready frontier with explicit
+  ownership and fresh-context review workers
+- Codex-delegated review: use `/codex:rescue` only as a named worker transport,
+  not as a self-review fallback. Add `--background` for long-running work; check
+  with `/codex:status` and `/codex:result`
+- Missing worker substrate: stop and surface the missing prerequisite instead
+  of executing audit, implementation, or hardening phases without worker isolation
 
 ## Fresh-Eyes Review Gates
 
-Use fresh-context review whenever the runtime supports it. At minimum, the
-initial implementation audit and each post-fix re-review should run as a worker
-that reads the plan, code, standards, and prior report from scratch. For high
-risk or cross-repo slices, add an independent hardening/review worker after
-`100/100` plan compliance and before retirement.
-
-In single-agent runtimes, simulate fresh eyes by closing the prior phase,
-re-reading the required inputs from disk, and reviewing from the written
-artifacts rather than memory.
+Fresh-context review is mandatory. At minimum, the initial implementation audit
+and each post-fix re-review run as a worker that reads the plan, code,
+standards, and prior report from scratch. For high risk or cross-repo slices,
+add an independent hardening/review worker after `100/100` plan compliance and
+before retirement.
 
 Skill-local docs may name concrete tools, but should not redefine the shared
 role model or success criteria.

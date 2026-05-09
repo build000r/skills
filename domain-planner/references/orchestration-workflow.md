@@ -33,14 +33,15 @@ Pause only for a real blocker: ambiguous slice/repo ownership, external
 dependency decisions, destructive operations, auth service gaps, hardening
 failure that needs an override, or an explicit user request to stop.
 
-Use fresh eyes for review gates whenever possible:
+Use fresh eyes for review gates through `divide-and-conquer`/NTM or another
+explicit worker transport:
 
 - the initial audit worker reads the plan, code, and standards from scratch
 - every re-review worker reads the latest report and diff from scratch
 - the hardening worker assesses the touched code paths independently
 
-In a single-agent runtime, simulate this by ending each phase and re-reading the
-artifacts from disk before reviewing.
+If the worker substrate is unavailable, stop and surface the missing
+prerequisite. Do not replace review gates with local self-review.
 
 ## Step 1: Analyze Plan Scope
 
@@ -139,7 +140,8 @@ Once scaffolding is complete, launch an audit agent:
 Audit the {slice} implementation against its plan.
 
 Use the domain-reviewer skill in audit mode for {slice}.
-Run this as a fresh-context review worker when the runtime supports it.
+Run this as a fresh-context review worker through the configured worker
+substrate.
 
 Follow all instructions from that skill. Generate AUDIT_REPORT.md.
 Return the verdict (COMPLIANT/MOSTLY COMPLIANT/NEEDS WORK) and

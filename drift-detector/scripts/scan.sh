@@ -600,65 +600,70 @@ canonical_family_for_export() {
 scan_tsx_component_motifs() {
   # Broad semantic UI motifs. These are intentionally candidates, not verdicts:
   # they let the LLM see families even when token-level duplication misses them.
+  # File-glob scope is restricted to JSX-capable extensions (.tsx, .jsx, .html,
+  # .vue, .svelte, .astro). Pure .ts / .js files describe logic, not UI motifs;
+  # matching them produces large numbers of false positives where the regex
+  # hits identifiers, string literals, or JSDoc rather than actual JSX usage.
   local -a scope=("$@")
   local out="$tmp/tsx_component_motifs.jsonl"
   : > "$out"
+  local jsx_glob='*.{tsx,jsx,html,vue,svelte,astro}'
 
   emit_tagged_matches "$out" family button \
-    -g '*.{ts,tsx,js,jsx,html,vue,svelte,astro}' \
+    -g "$jsx_glob" \
     -e '<button\b' \
     -e '\bButton\b' \
     -e 'role=("|\x27)button' \
     "${scope[@]}"
   emit_tagged_matches "$out" family card \
-    -g '*.{ts,tsx,js,jsx,html,vue,svelte,astro}' \
+    -g "$jsx_glob" \
     -e '\b(Card|CardHeader|CardContent|CardFooter|CardTitle|CardDescription)\b' \
     -e '\b(rounded-[^"\x27\x60]*\s+(border|shadow|bg-)|(border|shadow|bg-)[^"\x27\x60]*\s+rounded-)' \
     "${scope[@]}"
   emit_tagged_matches "$out" family form-control \
-    -g '*.{ts,tsx,js,jsx,html,vue,svelte,astro}' \
+    -g "$jsx_glob" \
     -e '<(input|textarea|select)\b' \
     -e '\b(Input|Textarea|Select|Field|Label|Switch|Combobox)\b' \
     "${scope[@]}"
   emit_tagged_matches "$out" family dropdown \
-    -g '*.{ts,tsx,js,jsx,html,vue,svelte,astro}' \
+    -g "$jsx_glob" \
     -e '\b(DropdownMenu|Dropdown|Popover|Command|Combobox|Menu)\b' \
     -e 'aria-haspopup=' \
     "${scope[@]}"
   emit_tagged_matches "$out" family table \
-    -g '*.{ts,tsx,js,jsx,html,vue,svelte,astro}' \
+    -g "$jsx_glob" \
     -e '<table\b' \
     -e 'BillingTable\b' \
     -e 'DataTable\b' \
     -e '\bTable(Shell|HeadRow|Body|Row|Cell)\b' \
     "${scope[@]}"
   emit_tagged_matches "$out" family tabs \
-    -g '*.{ts,tsx,js,jsx,html,vue,svelte,astro}' \
+    -g "$jsx_glob" \
     -e '\bTabs(List|Trigger|Content)?\b' \
     -e 'role=("|\x27)tab' \
     "${scope[@]}"
   emit_tagged_matches "$out" family pagination \
-    -g '*.{ts,tsx,js,jsx,html,vue,svelte,astro}' \
+    -g "$jsx_glob" \
     -e '\b(Pagination|pageSize|nextPage|previousPage|canNextPage|canPreviousPage)\b' \
     -e 'aria-label=("|\x27)[^"\x27]*(pagination|next page|previous page)' \
     "${scope[@]}"
   emit_tagged_matches "$out" family badge \
-    -g '*.{ts,tsx,js,jsx,html,vue,svelte,astro}' \
+    -g "$jsx_glob" \
     -e '\b(Badge|Chip)\b' \
     -e '\brounded-full\b[^"\x27\x60]*\btext-(xs|sm)\b' \
     "${scope[@]}"
   emit_tagged_matches "$out" family modal \
-    -g '*.{ts,tsx,js,jsx,html,vue,svelte,astro}' \
+    -g "$jsx_glob" \
     -e '\b(Dialog|Modal|Drawer|Sheet)(Content|Header|Footer|Title|Description)?\b' \
     -e 'role=("|\x27)dialog' \
     "${scope[@]}"
   emit_tagged_matches "$out" family filter-bar \
-    -g '*.{ts,tsx,js,jsx,html,vue,svelte,astro}' \
+    -g "$jsx_glob" \
     -e '\b(Filter|Search|Sort|Toolbar)\b' \
     -e 'aria-label=("|\x27)[^"\x27]*(filter|search|sort)' \
     "${scope[@]}"
   emit_tagged_matches "$out" family widget \
-    -g '*.{ts,tsx,js,jsx,html,vue,svelte,astro}' \
+    -g "$jsx_glob" \
     -e '\bWidget[A-Z][A-Za-z0-9_]*\b' \
     -e '\b(FloatingActionDock|OrbitLoader)\b' \
     "${scope[@]}"
@@ -773,6 +778,15 @@ scan_tsx_unused_canonical() {
   while IFS=$'\t' read -r suspect suspect_family; do
     # Skip files inside a canonical root
     if [[ "$suspect" =~ ^($roots_alt)(/|$) ]]; then continue; fi
+    # Skip test/stories/spec files: their JSX usually lives inside vi.mock or
+    # fixture render trees that intentionally bypass canonical primitives.
+    # Treating them as bypass produces noise without surfacing real drift.
+    case "$suspect" in
+      *.test.tsx|*.test.jsx|*.test.ts|*.test.js) continue ;;
+      *.stories.tsx|*.stories.jsx|*.stories.ts|*.stories.js) continue ;;
+      *.spec.tsx|*.spec.jsx|*.spec.ts|*.spec.js) continue ;;
+      */__tests__/*|*/__mocks__/*) continue ;;
+    esac
     [ -f "$suspect" ] || continue
     # Capture motif signals once
     local motifs_json

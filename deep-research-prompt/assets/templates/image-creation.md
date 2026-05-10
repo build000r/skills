@@ -65,7 +65,9 @@ Do NOT mix mediums unless the mix is the point.]
 # Source visual assets
 [Use this section only when the request depends on visual references. List attached source image files first. Put source URLs, Midjourney `/styles/...` links, or `--sref` values under metadata only; do not rely on those links as the visual source.]
 
-- Attached source images: [file names/paths that are attached in this same image-mode message, or "none"]
+Bullet hygiene: write each entry as `path/to/image.ext — one-line role/purpose`, not just the bare path. When Oracle also passes the same path with `--file`, ChatGPT's composer sometimes swallows bare-path bullets (the line collapses to an empty `- `). The em-dash + role text survives that rendering.
+
+- Attached source images: [for example, `/tmp/<slug>-source/portrait.webp — primary subject reference, derive expression and lighting only`]
 - Source metadata: [original URL, Midjourney style URL, `/styles/...`, `--sref`, or "none"]
 - How to use the source: [derive composition/palette/texture/shape logic from the attached images; do not copy literal motifs unless explicitly requested]
 

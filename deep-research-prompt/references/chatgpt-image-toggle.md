@@ -30,15 +30,55 @@ Non-zero codes by reason:
 | 4    | `Create image` menu item not found (ChatGPT UI may have changed) |
 | 5    | CDP connection failed |
 | 6    | Click dispatched but the composer chip did not show image mode |
+| 7    | Multiple matching `chatgpt.com` tabs; submit tab is ambiguous |
+| 8    | Requested ChatGPT target selector matched no tab |
+
+The helper does **not** silently grab the first `chatgpt.com` tab when more
+than one is open. When more than one matches and no selector was provided it
+exits `7` and prints the candidate list; provide a selector via the env
+vars below to disambiguate.
 
 Environment knobs:
 - `ORACLE_CDP_HOST` (default `127.0.0.1`)
 - `ORACLE_CDP_PORT` (default `9222`)
+- `ORACLE_CHATGPT_TARGET_ID` — exact CDP target id of the intended tab
+- `ORACLE_CHATGPT_URL_MATCH` — substring of the intended tab's URL (also
+  honored as `CHATGPT_IMAGE_URL_MATCH` for image-only callers; the deep
+  research toggle reads the same `ORACLE_CHATGPT_URL_MATCH` env var so the
+  routing contract is uniform across the two helpers)
 - `CHATGPT_IMAGE_VERBOSE=1` for stderr tracing
 
 The helper uses WebSockets over CDP. On current Node versions it uses the
 built-in `WebSocket`; on older Node versions it falls back to the `ws` npm
 module if available.
+
+## Parallel image runs
+
+The image toggle is **per composer tab**, so concurrent image generations
+must each own their own `chatgpt.com` tab. Recommended shape:
+
+1. One Chrome instance, one DevTools port (`127.0.0.1:9222`). Do not spawn a
+   second Chrome — share the same logged-in profile across runs.
+2. For each parallel run, open a new ChatGPT tab with a unique URL — easiest
+   is the per-run slug as a query string or hash, e.g.
+   `https://chatgpt.com/?run=<slug>` or a fresh project URL with a unique
+   path. The hash and query are arbitrary to ChatGPT but observable to CDP.
+3. For each run, set `ORACLE_CHATGPT_URL_MATCH=<slug>` (or
+   `ORACLE_CHATGPT_TARGET_ID=<cdp-id>`) **before** invoking
+   `toggle-chatgpt-image.mjs`. The helper now refuses to pick one of N
+   matching tabs without a selector; ambiguous and missing-selector paths
+   exit `7` and `8` respectively.
+4. For each run, pass `--chatgpt-url <same-url>` to `oracle` so it submits
+   into the same tab the toggle activated. Without this, Oracle may open a
+   fresh tab whose composer is not in image mode.
+5. Capture the per-run Oracle slug for reattach. The runs proceed
+   independently from there; image generation finishes in 1-3 minutes per
+   tab.
+
+If two runs accidentally share a tab, the toggle for run B will succeed (it
+sees image mode is "already on") but Oracle for run A and run B will
+contend for the same composer. Always disambiguate up front rather than
+recovering after a collision.
 
 ## How the skill wires this into an Oracle run
 
@@ -66,26 +106,55 @@ End-to-end flow for Image execute mode:
    clear the composer tool first. The image helper handles "already on" but
    not "some other tool is on."
 
-4. **Toggle Create image on.**
+4. **Toggle Create image on.** Resolve the skill dir first (project-local
+   activation puts it at `./.claude/skills/deep-research-prompt`, global
+   activation puts it at `$HOME/.claude/skills/deep-research-prompt`):
    ```
-   node "${HOME}/.claude/skills/deep-research-prompt/assets/scripts/toggle-chatgpt-image.mjs"
+   SKILL_DIR=""
+   for d in "./.claude/skills/deep-research-prompt" "$HOME/.claude/skills/deep-research-prompt"; do
+     [ -f "$d/SKILL.md" ] && { SKILL_DIR="$d"; break; }
+   done
+   node "$SKILL_DIR/assets/scripts/toggle-chatgpt-image.mjs"
    ```
    If this exits non-zero, **do not silently proceed** — surface the reason to
    the user. Common failures: exit 4 (ChatGPT moved or renamed the menu item),
-   exit 3 (plus button moved).
+   exit 3 (plus button moved), exit 7 (multiple chatgpt.com tabs and no
+   selector), exit 8 (selector matched no tab).
 
 5. **Run Oracle against the same Chrome.** Use a shorter browser timeout since
-   image generation finishes in 1-3 minutes, not 30:
+   image generation finishes in 1-3 minutes, not 30. Use
+   `--browser-model-strategy ignore`, **not** `current` — Image mode hides the
+   ChatGPT model selector and `current` will exit early with
+   `Unable to locate the ChatGPT model selector button` before submission. The
+   model is fixed to ChatGPT's image-tool model anyway, so verifying the
+   selector is moot in this mode.
    ```
    oracle \
      --engine browser \
      --remote-chrome 127.0.0.1:9222 \
-     --browser-model-strategy current \
+     --browser-model-strategy ignore \
      --browser-timeout 15m \
      --slug <slug> \
      -p "$(cat /tmp/<slug>-image-<date>.md)"
    ```
    Image mode is already on from step 4, so Oracle just submits the spec.
+
+   **Tab-local hazard.** Image mode is a per-composer-tab toggle, just like
+   Deep research. If Oracle navigates to a brand-new `chatgpt.com` tab to
+   submit (it sometimes does — same caveat as the Deep research flow), the
+   new tab will not inherit the toggle from step 4. Mitigations, in
+   preference order:
+   - Pass `--chatgpt-url "$CHATGPT_PROJECT_URL"` so Oracle reuses the
+     toggled tab instead of opening a new one.
+   - Set `ORACLE_CHATGPT_URL_MATCH` to a unique substring of that URL before
+     running `assets/scripts/toggle-chatgpt-image.mjs` so the helper targets
+     the same tab Oracle will land on.
+   - After Oracle opens its submit tab but before the prompt is dispatched,
+     re-run `toggle-chatgpt-image.mjs` against the new tab.
+
+   If the response comes back as text instead of an image, the toggle was
+   not on the submit tab. Re-toggle and rerun rather than retrying with the
+   same configuration.
 
 6. **Surface the session slug** for reattach, and save the generated image
    file alongside the prompt. Do not re-print the prompt block.

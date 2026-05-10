@@ -618,7 +618,8 @@ scan_tsx_component_motifs() {
   emit_tagged_matches "$out" family card \
     -g "$jsx_glob" \
     -e '\b(Card|CardHeader|CardContent|CardFooter|CardTitle|CardDescription)\b' \
-    -e '\b(rounded-[^"\x27\x60]*\s+(border|shadow|bg-)|(border|shadow|bg-)[^"\x27\x60]*\s+rounded-)' \
+    -e '\brounded-(md|lg|xl|2xl|3xl)\b[^"\x27\x60]*\b(border|shadow)\b' \
+    -e '\b(border|shadow)\b[^"\x27\x60]*\brounded-(md|lg|xl|2xl|3xl)\b' \
     "${scope[@]}"
   emit_tagged_matches "$out" family form-control \
     -g "$jsx_glob" \

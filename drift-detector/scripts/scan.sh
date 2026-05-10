@@ -689,9 +689,19 @@ scan_tsx_ui_guidelines() {
     -e '<(span|a)\b[^>]*\b(className|class)=("|\x27|\x60)[^"\x27\x60]*\binline\b' \
     -e '<(button|input|select)\b[^>]*\b(className|class)=("|\x27|\x60)[^"\x27\x60]*\binline-block\b' \
     "${scope[@]}"
+  # Tailwind-version-aware deprecation list. Always-flag utilities (preferred
+  # shorter form since v2.1, or non-utility patterns): flex-shrink-, flex-grow-,
+  # theme(). Tailwind v4 also deprecated min-h-screen (use min-h-svh/dvh),
+  # bg-gradient-* (renamed to bg-linear-*), and leading-tight/snug/relaxed
+  # (numeric leading is preferred). On v3 those latter utilities are valid
+  # current syntax, so we keep them out of the regex to avoid false positives.
+  local deprecated_re='\b(flex-shrink-|flex-grow-|theme\()'
+  if [ "${TW_MAJOR:-4}" -ge 4 ] 2>/dev/null; then
+    deprecated_re='\b(min-h-screen|bg-gradient-|flex-shrink-|flex-grow-|leading-(tight|snug|relaxed)|theme\()'
+  fi
   emit_tagged_matches "$out" rule_id deprecated_tailwind \
     -g '*.{ts,tsx,js,jsx,css,scss,html,vue,svelte,astro}' \
-    -e '\b(min-h-screen|bg-gradient-|flex-shrink-|flex-grow-|leading-(tight|snug|relaxed)|theme\()' \
+    -e "$deprecated_re" \
     "${scope[@]}"
   emit_tagged_matches "$out" rule_id small_default_text_review \
     -g '*.{tsx,jsx,html,vue,svelte,astro}' \
@@ -718,9 +728,13 @@ scan_tsx_ui_guidelines() {
     -e '<button\b[^>]*\b(className|class)=("|\x27|\x60)[^"\x27\x60]*\btext-base\b' \
     -e '<Button\b[^>]*\bclassName=("|\x27|\x60)[^"\x27\x60]*\btext-base\b' \
     "${scope[@]}"
+  # margin_layout_candidate flags mt-/mb-/ml-/mr-/mx-/my- utilities that may
+  # belong as parent gap-* instead. mx-auto / my-auto are CORRECT centering
+  # patterns (no parent gap can replace them), so exclude both forms; only
+  # numeric-suffix margins remain candidates for layout review.
   emit_tagged_matches "$out" rule_id margin_layout_candidate \
     -g '*.{tsx,jsx,html,vue,svelte,astro}' \
-    -e '\b(className|class)=("|\x27|\x60)[^"\x27\x60]*\bm[trblxy]-' \
+    -e '\b(className|class)=("|\x27|\x60)[^"\x27\x60]*\bm[trblxy]-(?!auto\b)' \
     "${scope[@]}"
 
   filter_token_sources "$out"
@@ -970,6 +984,21 @@ scan_swift() {
 if [ -z "$TW_CONFIG" ]; then
   TW_CONFIG="$(ls tailwind.config.{js,ts,cjs,mjs} 2>/dev/null | head -1 || true)"
 fi
+
+# Detect Tailwind major version from package.json so deprecated_tailwind only
+# flags utilities that are actually deprecated in the user's installed version.
+# Defaults to v4 (most aggressive) if no package.json or version found, since
+# we'd rather over-warn than miss real v4 migration drift.
+TW_MAJOR=""
+if [ -f package.json ]; then
+  TW_MAJOR="$(jq -r '
+    (.dependencies.tailwindcss // .devDependencies.tailwindcss // "")
+    | sub("^[~^>=<]+"; "")
+    | split(".")[0]
+    | select(test("^[0-9]+$"))
+  ' package.json 2>/dev/null || true)"
+fi
+[ -z "$TW_MAJOR" ] && TW_MAJOR="4"
 
 TSX_SCOPE=""
 SWIFT_SCOPE=""

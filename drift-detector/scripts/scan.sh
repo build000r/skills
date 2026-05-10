@@ -480,6 +480,7 @@ discover_canonical_roots_tsx() {
     for d in \
       src/components/ui components/ui app/components/ui \
       src/components/widget-primitives components/widget-primitives app/components/widget-primitives \
+      src/components/widgets components/widgets app/components/widgets \
       src/components/design-system components/design-system app/components/design-system \
       src/components/primitives components/primitives app/components/primitives; do
       [ -d "$d" ] && printf '%s\n' "$d"

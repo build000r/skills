@@ -298,6 +298,15 @@ emit_matches() {
         matches: [.data.submatches[]?.match.text],
         value: .data.lines.text | gsub("^\\s+|\\s+$"; "")
       }' > "$out" || true
+  # Drop comment-only matches: JSDoc continuation (* foo), single-line // foo,
+  # block-comment continuation (/* foo or */) and JSX comment lines
+  # ({/* foo */}). These produce massive false-positive noise across the
+  # component_motifs and ui_guideline_violations rules. A line with both a
+  # comment AND code (// ... | * ... after a real statement) is rare enough
+  # in practice that this filter loses very little real signal.
+  filter_matches "$out" 'select(
+    (.value | test("^(\\*\\s|//\\s|/\\*|\\*/|\\{/\\*|//$|\\*$)")) | not
+  )'
   filter_gitignored_matches "$out"
   filter_driftignored_matches "$out"
 }

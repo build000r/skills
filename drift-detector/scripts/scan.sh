@@ -532,28 +532,60 @@ extract_named_exports_tsx() {
 }
 
 canonical_family_for_export() {
-  # Classify a canonical export into the nearest UI family. This is only a
-  # deterministic candidate signal; the plan-writing step still verifies source.
+  # Classify a canonical export into one or more UI families (newline-separated).
+  # Most exports return a single family; "Widget"-prefixed primitives also emit
+  # the implied family from their suffix (e.g. WidgetButton -> widget AND button)
+  # so a file that imports WidgetButton clears BOTH the widget motif check and
+  # the button motif check. "Widget" is treated as a generic primitive prefix —
+  # domain prefixes like Table* keep single-family classification because their
+  # prefix carries semantic meaning (TableSortButton is a table-family helper,
+  # not a generic button).
+  # Always candidate signals only; plan-writing still verifies source.
   local file="$1"
   local name="$2"
   local key
   key="$(printf '%s %s' "$file" "$name" | tr '[:upper:]' '[:lower:]')"
+  local primary
   case "$key" in
-    *widget*) echo "widget" ;;
-    *table*|*column*|*sort*|*grid*) echo "table" ;;
-    *button*|*toggle*) echo "button" ;;
-    *card*|*panel*|*surface*) echo "card" ;;
-    *input*|*textarea*|*select*|*field*|*label*|*switch*|*combobox*) echo "form-control" ;;
-    *dropdown*|*menu*|*popover*|*command*) echo "dropdown" ;;
-    *tab*) echo "tabs" ;;
-    *pagination*|*pager*) echo "pagination" ;;
-    *badge*|*chip*) echo "badge" ;;
-    *avatar*) echo "avatar" ;;
-    *dialog*|*modal*|*drawer*|*sheet*) echo "modal" ;;
-    *filter*|*search*) echo "filter-bar" ;;
-    *skeleton*|*loading*|*empty*|*error*) echo "state" ;;
-    *) echo "unknown" ;;
+    *widget*) primary="widget" ;;
+    *table*|*column*|*sort*|*grid*) primary="table" ;;
+    *card*|*panel*|*surface*) primary="card" ;;
+    *input*|*textarea*|*select*|*field*|*label*|*switch*|*combobox*) primary="form-control" ;;
+    *dropdown*|*menu*|*popover*|*command*) primary="dropdown" ;;
+    *tab*) primary="tabs" ;;
+    *pagination*|*pager*) primary="pagination" ;;
+    *badge*|*chip*) primary="badge" ;;
+    *avatar*) primary="avatar" ;;
+    *dialog*|*modal*|*drawer*|*sheet*) primary="modal" ;;
+    *button*|*toggle*) primary="button" ;;
+    *filter*|*search*) primary="filter-bar" ;;
+    *skeleton*|*loading*|*empty*|*error*) primary="state" ;;
+    *) primary="unknown" ;;
   esac
+  printf '%s\n' "$primary"
+  # Secondary family for Widget-prefixed primitives, classified by stripped suffix.
+  if [ "$primary" = "widget" ] && [[ "$name" =~ ^Widget ]]; then
+    local suffix_name="${name#Widget}"
+    local suffix_key
+    suffix_key="$(printf '%s' "$suffix_name" | tr '[:upper:]' '[:lower:]')"
+    local secondary
+    case "$suffix_key" in
+      *table*|*column*|*sort*|*grid*) secondary="table" ;;
+      *card*|*panel*|*surface*) secondary="card" ;;
+      *input*|*textarea*|*select*|*field*|*label*|*switch*|*combobox*) secondary="form-control" ;;
+      *dropdown*|*menu*|*popover*|*command*) secondary="dropdown" ;;
+      *tab*) secondary="tabs" ;;
+      *pagination*|*pager*) secondary="pagination" ;;
+      *badge*|*chip*) secondary="badge" ;;
+      *avatar*) secondary="avatar" ;;
+      *dialog*|*modal*|*drawer*|*sheet*) secondary="modal" ;;
+      *button*|*toggle*) secondary="button" ;;
+      *filter*|*search*) secondary="filter-bar" ;;
+      *skeleton*|*loading*|*empty*|*error*) secondary="state" ;;
+      *) secondary="" ;;
+    esac
+    [ -n "$secondary" ] && printf '%s\n' "$secondary"
+  fi
 }
 
 scan_tsx_component_motifs() {
@@ -693,18 +725,25 @@ scan_tsx_unused_canonical() {
   mapfile -t roots < <(discover_canonical_roots_tsx)
   [ ${#roots[@]} -gt 0 ] || return 0
 
-  # Build canonical export map: per root + family, collect exports separately so
-  # we can detect "imports nothing from THIS root/family" rather than "imports
-  # nothing from ANY canonical root" (which lets partial consumers slip through).
+  # Build canonical export map: per root + family, collect exports separately.
+  # Aggregation is per-family (NOT per-root): a suspect file clears the family
+  # bypass if it references ANY canonical export from ANY root that owns that
+  # family. This matches drift-detection intent — a file using any canonical
+  # primitive for the family is not bypassing canonicals. The earlier per-root
+  # semantics emitted parallel findings for every root when projects had
+  # multiple canonical roots in the same family (e.g. ui/Button + WidgetButton).
   local exports_tsv="$tmp/tsx_canonical_exports.tsv"
   : > "$exports_tsv"
   local root export_file export_name family
   for root in "${roots[@]}"; do
     while IFS=$'\t' read -r export_file export_name; do
       [ -n "$export_file" ] && [ -n "$export_name" ] || continue
-      family="$(canonical_family_for_export "$export_file" "$export_name")"
-      [ "$family" = "unknown" ] && continue
-      printf '%s\t%s\t%s\t%s\n' "$root" "$export_file" "$export_name" "$family" >> "$exports_tsv"
+      # canonical_family_for_export may emit multiple families (one per line)
+      while IFS= read -r family; do
+        [ -n "$family" ] || continue
+        [ "$family" = "unknown" ] && continue
+        printf '%s\t%s\t%s\t%s\n' "$root" "$export_file" "$export_name" "$family" >> "$exports_tsv"
+      done < <(canonical_family_for_export "$export_file" "$export_name")
     done < <(extract_named_exports_tsx "$root")
   done
   [ -s "$exports_tsv" ] || return 0
@@ -736,41 +775,39 @@ scan_tsx_unused_canonical() {
     )
     [ -n "$motifs_json" ] || motifs_json="[]"
 
-    # For each canonical root/family, check whether suspect references any of
-    # its exports. A reference is enough for scanner purposes; the LLM verifies
-    # imports and call sites in source before recommending consolidation.
-    for root in "${roots[@]}"; do
-      local root_exports
-      root_exports=$(awk -F'\t' -v r="$root" -v fam="$suspect_family" '$1==r && $4==fam {print $3}' "$exports_tsv" | awk 'NF && !seen[$0]++')
-      [ -n "$root_exports" ] || continue
-      local root_alt
-      root_alt=$(printf '%s\n' "$root_exports" | sed 's#[.[\*^$()+?{}|\\]#\\&#g' | paste -sd'|' -)
-      [ -n "$root_alt" ] || continue
-      if rg -q "(^|[^A-Za-z0-9_])($root_alt)([^A-Za-z0-9_]|$)" "$suspect" 2>/dev/null; then
-        continue
-      fi
-      local canonical_file
-      canonical_file=$(awk -F'\t' -v r="$root" -v fam="$suspect_family" '$1==r && $4==fam {print $2; exit}' "$exports_tsv")
-      local missing_json
-      missing_json=$(printf '%s\n' "$root_exports" | jq -R . | jq -s .)
-      local rec
-      rec=$(jq -nc \
-        --arg suspect "$suspect" \
-        --arg family "$suspect_family" \
-        --arg root "$root" \
-        --arg canonical_file "$canonical_file" \
-        --argjson missing "$missing_json" \
-        --argjson motifs "$motifs_json" \
-        '{
-          file: $suspect,
-          family: $family,
-          canonical_root: $root,
-          canonical_file: $canonical_file,
-          missing_exports: $missing,
-          motif_signals: $motifs
-        }')
-      printf '%s\n' "$rec" >> "$out"
-    done
+    # Aggregate canonical exports for this family across ALL roots.
+    local family_exports
+    family_exports=$(awk -F'\t' -v fam="$suspect_family" '$4==fam {print $3}' "$exports_tsv" | awk 'NF && !seen[$0]++')
+    [ -n "$family_exports" ] || continue
+    local family_alt
+    family_alt=$(printf '%s\n' "$family_exports" | sed 's#[.[\*^$()+?{}|\\]#\\&#g' | paste -sd'|' -)
+    [ -n "$family_alt" ] || continue
+    if rg -q "(^|[^A-Za-z0-9_])($family_alt)([^A-Za-z0-9_]|$)" "$suspect" 2>/dev/null; then
+      continue
+    fi
+    # Pick a representative canonical_root + canonical_file (first matching root).
+    local rep_root rep_file
+    rep_root=$(awk -F'\t' -v fam="$suspect_family" '$4==fam {print $1; exit}' "$exports_tsv")
+    rep_file=$(awk -F'\t' -v fam="$suspect_family" -v r="$rep_root" '$1==r && $4==fam {print $2; exit}' "$exports_tsv")
+    local missing_json
+    missing_json=$(printf '%s\n' "$family_exports" | jq -R . | jq -s .)
+    local rec
+    rec=$(jq -nc \
+      --arg suspect "$suspect" \
+      --arg family "$suspect_family" \
+      --arg root "$rep_root" \
+      --arg canonical_file "$rep_file" \
+      --argjson missing "$missing_json" \
+      --argjson motifs "$motifs_json" \
+      '{
+        file: $suspect,
+        family: $family,
+        canonical_root: $root,
+        canonical_file: $canonical_file,
+        missing_exports: $missing,
+        motif_signals: $motifs
+      }')
+    printf '%s\n' "$rec" >> "$out"
   done < "$motif_pairs"
 
   set -e

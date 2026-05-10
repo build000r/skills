@@ -116,10 +116,17 @@ End-to-end flow for Oracle execute mode:
    If multiple ChatGPT tabs are open, set `ORACLE_CHATGPT_TARGET_ID` or
    `ORACLE_CHATGPT_URL_MATCH` before toggling.
 
-3. **Toggle Deep research on in that resolved submit tab.**
+3. **Toggle Deep research on in that resolved submit tab.** Resolve the
+   skill dir first — project-local activation puts the helper at
+   `./.claude/skills/deep-research-prompt`, global activation at
+   `$HOME/.claude/skills/deep-research-prompt`:
    ```
+   SKILL_DIR=""
+   for d in "./.claude/skills/deep-research-prompt" "$HOME/.claude/skills/deep-research-prompt"; do
+     [ -f "$d/SKILL.md" ] && { SKILL_DIR="$d"; break; }
+   done
    ORACLE_CHATGPT_URL_MATCH="<unique-project-or-conversation-path>" \
-   node "${HOME}/.claude/skills/deep-research-prompt/assets/scripts/toggle-deep-research.mjs"
+     node "$SKILL_DIR/assets/scripts/toggle-deep-research.mjs"
    ```
    If this exits non-zero, **do not silently proceed** — surface the reason to
    the user. The common failure modes are exit 4 (ChatGPT moved the menu item

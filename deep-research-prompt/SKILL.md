@@ -102,6 +102,16 @@ Only reached when `oracle` is missing, the user said `paste-only`, or the target
 
 Sibling of Oracle execute mode. Same shape, different composer tool, different Oracle timeout.
 
+**Run storage.** When the caller supplies a per-run directory (for example,
+ui-fresh-eyes routes its `oracle-image` delivery under
+`<repo>/.fresh-eyes/runs/<slug>/`), write the spec, copied source images,
+and Oracle log there instead of `/tmp` so the run is project-traceable and
+parallel runs do not collide. Honor `DEEP_RESEARCH_RUN_ROOT` when set —
+treat it as the parent for `<run-root>/spec.md`, `<run-root>/source/`,
+`<run-root>/oracle.log`, and `<run-root>/result/`. Fall back to
+`/tmp/<slug>-image-<date>.md` and `/tmp/<slug>-source/` only when no run
+root is supplied.
+
 1. Compose the standalone image-spec block using `assets/templates/image-creation.md` (self-announcing first line, layered fields, image-drift hard constraints, verification-caption requirement).
 2. If the image request depends on visual source material, materialize and attach
    the source images. URLs, Midjourney `/styles/...` links, and `--sref` values
@@ -114,9 +124,21 @@ Sibling of Oracle execute mode. Same shape, different composer tool, different O
 3. Write it to `/tmp/<slug>-image-<date>.md`.
 4. Run a sizing check: `oracle --dry-run summary --file /tmp/<slug>-image-<date>.md`. If oversized, tighten the spec and retry.
 5. Make sure a Chrome instance is running on the DevTools port (default `127.0.0.1:9222`) using the user's logged-in ChatGPT profile, with a `chatgpt.com` tab open. If a Chrome was launched earlier in the session for Deep research, reuse it — but first ensure the Deep research toggle is **off** (Image and Deep research are mutually exclusive composer tools).
-6. Toggle Create image on:
+6. Resolve the skill directory once. The skill may be activated globally
+   (`~/.claude/skills/deep-research-prompt`) or project-local
+   (`./.claude/skills/deep-research-prompt`, when installed via
+   `sbp skill activate ... --cwd $PWD`). The toggle helper must be invoked
+   from whichever path actually exists:
    ```
-   node "${HOME}/.claude/skills/deep-research-prompt/assets/scripts/toggle-chatgpt-image.mjs"
+   SKILL_DIR=""
+   for d in "./.claude/skills/deep-research-prompt" "$HOME/.claude/skills/deep-research-prompt"; do
+     [ -f "$d/SKILL.md" ] && { SKILL_DIR="$d"; break; }
+   done
+   [ -n "$SKILL_DIR" ] || { echo "deep-research-prompt skill not activated" >&2; exit 1; }
+   ```
+   Then toggle Create image on:
+   ```
+   node "$SKILL_DIR/assets/scripts/toggle-chatgpt-image.mjs"
    ```
    Non-zero exit means stop and surface the reason — **do not** silently fall back to paste mode. See `references/chatgpt-image-toggle.md` for exit codes and DOM-fragility notes.
 7. Invoke Oracle against the same Chrome:
@@ -124,14 +146,38 @@ Sibling of Oracle execute mode. Same shape, different composer tool, different O
    oracle \
      --engine browser \
      --remote-chrome 127.0.0.1:9222 \
-     --browser-model-strategy current \
+     --browser-model-strategy ignore \
      --browser-timeout 15m \
      --slug <slug> \
      --file /tmp/<slug>-source/<reference-image>.<ext> \
      -p "$(cat /tmp/<slug>-image-<date>.md)"
    ```
-   Omit `--file` only when the request has no visual source material. Image mode
-   is already on from step 6, so Oracle just submits the spec.
+   Use `--browser-model-strategy ignore`, **not** `current`. Image mode hides
+   the ChatGPT model selector, so `current` exits early with
+   `Unable to locate the ChatGPT model selector button` before the prompt is
+   submitted. The model is fixed to ChatGPT's image-tool model in this
+   composer mode anyway, so verifying the selector is moot. Omit `--file`
+   only when the request has no visual source material. Image mode is
+   already on from step 6, so Oracle just submits the spec.
+
+   The Image toggle is **tab-local** (same hazard as the Deep research
+   toggle): if Oracle navigates to a brand-new `chatgpt.com` tab to submit,
+   the new tab will not inherit the toggle from step 6. Pass
+   `--chatgpt-url "$CHATGPT_PROJECT_URL"` so Oracle reuses the toggled tab,
+   set `ORACLE_CHATGPT_URL_MATCH` to a unique substring before running the
+   toggle helper, or re-toggle on the new submit tab before dispatch. See
+   `references/chatgpt-image-toggle.md` for details and recovery.
+
+   **Parallel image runs.** Image generation can run concurrently across
+   multiple `chatgpt.com` tabs in the same Chrome. Open one tab per run with
+   a unique URL marker (a `?run=<slug>` query string is enough), then for
+   each run set `ORACLE_CHATGPT_URL_MATCH=<slug>` before invoking
+   `toggle-chatgpt-image.mjs` and pass `--chatgpt-url` matching the same
+   URL to Oracle. The helper now refuses to silently pick one of N matching
+   tabs (exit `7` when ambiguous, exit `8` when a selector was given but did
+   not match), so the routing must be explicit per run. Same env-var
+   contract as the deep-research toggle. Full parallel-runs flow lives in
+   `references/chatgpt-image-toggle.md`.
 8. Surface the session slug for reattach (`oracle session <slug>`), and tell the user where the generated image file will be saved. Do **not** print the image-spec block back into chat.
 
 If any of steps 4–7 fail, report the failure plainly and ask the user whether to retry, patch the toggle helper, or fall back to Image paste mode.
@@ -333,7 +379,7 @@ Do not summarize the prompt content in prose after the block. The user will read
 - `oracle --dry-run summary` was run on the spec file
 - A Chrome on the DevTools port has a `chatgpt.com` tab open
 - `assets/scripts/toggle-chatgpt-image.mjs` was invoked and the exit status is logged in the chat reply (e.g. "Create image: turned on" or the failure reason)
-- The real Oracle invocation includes `--remote-chrome`, `--browser-model-strategy current`, the slug, and the spec file
+- The real Oracle invocation includes `--remote-chrome`, `--browser-model-strategy ignore` (not `current` — Image mode hides the model selector), the slug, and the spec file
 - If visual source material was part of the request, the source images were
   copied/downloaded/cached under `/tmp/<slug>-source/` and attached with
   `--file`; URLs, Midjourney `/styles/...` links, and `--sref` values were

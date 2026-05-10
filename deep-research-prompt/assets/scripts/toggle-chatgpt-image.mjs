@@ -9,11 +9,22 @@
 // Intended flow (see references/chatgpt-image-toggle.md):
 //   1. Skill launches Chrome headful with --remote-debugging-port=9222 using
 //      the user's logged-in ChatGPT profile.
-//   2. Skill opens a new tab to https://chatgpt.com/.
-//   3. Skill runs this script to turn Image mode on for the tab.
-//   4. Skill runs `oracle --remote-chrome 127.0.0.1:9222 --browser-model-strategy current ...`
+//   2. Skill opens the intended ChatGPT tab(s).
+//   3. Skill runs this script to turn Image mode on for the chosen tab,
+//      passing ORACLE_CHATGPT_TARGET_ID or ORACLE_CHATGPT_URL_MATCH when more
+//      than one chatgpt.com tab is open. The script REFUSES to silently pick
+//      one of N matching tabs; it must be told which.
+//   4. Skill runs `oracle --remote-chrome 127.0.0.1:9222 --browser-model-strategy ignore ...`
 //      so Oracle attaches to the same Chrome and submits the image prompt
-//      against the pre-toggled composer.
+//      against the pre-toggled composer. Use --chatgpt-url to pin Oracle to
+//      the same tab the toggle selected.
+//
+// Parallel runs: spawn one chatgpt.com tab per run, give each a unique URL
+// fragment or query string, and set ORACLE_CHATGPT_URL_MATCH to that unique
+// substring before invoking this helper for the corresponding run. Each run
+// then passes the same URL to oracle via --chatgpt-url. The shared env var
+// pair (ORACLE_CHATGPT_TARGET_ID / ORACLE_CHATGPT_URL_MATCH) is the same one
+// honored by toggle-deep-research.mjs, so the routing contract is uniform.
 //
 // Exit codes:
 //   0 — Image mode is on (either toggled by us or already selected).
@@ -22,11 +33,16 @@
 //   4 — "Create image" menu item not found.
 //   5 — CDP connection failed.
 //   6 — verification failed (click dispatched but indicator says off).
+//   7 — multiple matching chatgpt.com tabs found; submit tab is ambiguous.
+//   8 — requested ChatGPT target selector matched no tab.
 
 import { argv, exit, env } from 'node:process';
 
 const HOST = env.ORACLE_CDP_HOST ?? '127.0.0.1';
 const PORT = parseInt(env.ORACLE_CDP_PORT ?? '9222', 10);
+const TARGET_ID = env.ORACLE_CHATGPT_TARGET_ID ?? '';
+const URL_MATCH =
+  env.ORACLE_CHATGPT_URL_MATCH ?? env.CHATGPT_IMAGE_URL_MATCH ?? '';
 const VERBOSE = argv.includes('--verbose') || env.CHATGPT_IMAGE_VERBOSE === '1';
 
 const log = (...args) => {
@@ -41,10 +57,41 @@ async function fetchTargets() {
   return res.json();
 }
 
-function pickChatGPTTarget(targets) {
-  return targets.find(
+function chatGPTTargets(targets) {
+  return targets.filter(
     (t) => t.type === 'page' && /chatgpt\.com/.test(t.url ?? ''),
   );
+}
+
+function describeTarget(target) {
+  return `${target.id} ${target.url} ${target.title ?? ''}`.trim();
+}
+
+function selectChatGPTTarget(targets) {
+  const tabs = chatGPTTargets(targets);
+  if (tabs.length === 0) {
+    return { status: 'none', candidates: [] };
+  }
+
+  if (TARGET_ID) {
+    const matches = tabs.filter((t) => t.id === TARGET_ID);
+    if (matches.length === 1) {
+      return { status: 'selected', tab: matches[0], candidates: matches };
+    }
+    return { status: 'selector-missing', candidates: tabs };
+  }
+
+  const candidates = URL_MATCH
+    ? tabs.filter((t) => (t.url ?? '').includes(URL_MATCH))
+    : tabs;
+
+  if (candidates.length === 0) {
+    return { status: URL_MATCH ? 'selector-missing' : 'none', candidates: tabs };
+  }
+  if (candidates.length === 1) {
+    return { status: 'selected', tab: candidates[0], candidates };
+  }
+  return { status: 'ambiguous', candidates };
 }
 
 async function cdpEval(wsUrl, expression) {
@@ -260,12 +307,33 @@ async function main() {
     exit(5);
   }
 
-  const tab = pickChatGPTTarget(targets);
-  if (!tab) {
+  const selection = selectChatGPTTarget(targets);
+  if (selection.status === 'none') {
     console.error(`No chatgpt.com tab found on ${HOST}:${PORT}.`);
     exit(2);
   }
-  log('found tab', tab.url);
+  if (selection.status === 'selector-missing') {
+    const which = TARGET_ID
+      ? `ORACLE_CHATGPT_TARGET_ID=${TARGET_ID}`
+      : `ORACLE_CHATGPT_URL_MATCH=${URL_MATCH}`;
+    console.error(
+      `Selector ${which} matched no chatgpt.com tab on ${HOST}:${PORT}.`,
+    );
+    console.error('Available chatgpt.com tabs:');
+    for (const t of selection.candidates) console.error('  -', describeTarget(t));
+    exit(8);
+  }
+  if (selection.status === 'ambiguous') {
+    console.error(
+      `Multiple chatgpt.com tabs on ${HOST}:${PORT}; refusing to pick one.`,
+    );
+    console.error('Set ORACLE_CHATGPT_TARGET_ID or ORACLE_CHATGPT_URL_MATCH to disambiguate.');
+    console.error('Candidates:');
+    for (const t of selection.candidates) console.error('  -', describeTarget(t));
+    exit(7);
+  }
+  const tab = selection.tab;
+  log('selected tab', describeTarget(tab));
 
   let result;
   try {

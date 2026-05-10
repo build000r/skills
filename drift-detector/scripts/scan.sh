@@ -503,32 +503,41 @@ extract_named_exports_tsx() {
         }
       }'
 
-  # Re-exports: export { A, B as C } from "./x"
-  { rg -n --no-heading \
+  # Re-exports: export { A, B as C } from "./x". Handles BOTH single-line
+  # `export { Foo, Bar }` and multi-line `export {\n  Foo,\n  Bar,\n}` blocks
+  # by using awk per-file to coalesce open/close braces. Per-file dispatch is
+  # via rg -l so we only walk files that actually contain `export {`.
+  { rg -lU --no-heading \
     -g '*.{ts,tsx,js,jsx}' \
-    -e '^\s*export\s*\{[^}]+\}' \
+    -e '^[[:space:]]*export[[:space:]]*\{' \
     "$root" 2>/dev/null || true; } \
-    | awk -F: '{
-        path = $1
-        sub(/^\.\//, "", path)
-        n = index($0, ":")
-        rest = substr($0, n + 1)
-        n = index(rest, ":")
-        line = substr(rest, n + 1)
-        gsub(/.*\{|\}.*/, "", line)
-        n_items = split(line, items, /,/)
-        for (i = 1; i <= n_items; i++) {
-          item = items[i]
-          gsub(/^[[:space:]]+|[[:space:]]+$/, "", item)
-          if (match(item, /[[:space:]]+as[[:space:]]+[A-Z][A-Za-z0-9_]+/)) {
-            s = substr(item, RSTART, RLENGTH)
-            sub(/^[[:space:]]+as[[:space:]]+/, "", s)
-            print path "\t" s
-          } else if (match(item, /^[A-Z][A-Za-z0-9_]+$/)) {
-            print path "\t" item
+    | while IFS= read -r file; do
+        [ -n "$file" ] && [ -f "$file" ] || continue
+        awk -v rel="${file#./}" '
+          /^[[:space:]]*export[[:space:]]*\{/ { in_block=1; buf=""; }
+          in_block {
+            buf = buf " " $0
+            if (index($0, "}") > 0) {
+              in_block = 0
+              s = buf
+              sub(/.*\{/, "", s)
+              sub(/\}.*/, "", s)
+              n = split(s, items, /,/)
+              for (i = 1; i <= n; i++) {
+                item = items[i]
+                gsub(/^[[:space:]]+|[[:space:]]+$/, "", item)
+                if (match(item, /[[:space:]]+as[[:space:]]+[A-Z][A-Za-z0-9_]+/)) {
+                  alias = substr(item, RSTART, RLENGTH)
+                  sub(/^[[:space:]]+as[[:space:]]+/, "", alias)
+                  print rel "\t" alias
+                } else if (match(item, /^[A-Z][A-Za-z0-9_]+$/)) {
+                  print rel "\t" item
+                }
+              }
+            }
           }
-        }
-      }'
+        ' "$file"
+      done
 }
 
 canonical_family_for_export() {

@@ -456,6 +456,10 @@ discover_canonical_roots_tsx() {
   # Feature-local primitive roots should be passed explicitly or via overlay.
   # Auto-discovering every */components/<area>/index.ts barrel is too noisy:
   # feature modules often have barrels that would hide their own variants.
+  # Beyond ui/, also auto-discover sibling primitive roots that follow the
+  # well-known repo-conventional names: widget-primitives, design-system,
+  # primitives. These are widely used as second-tier canonical roots and
+  # always belong in the canonical export map when present.
   local d
   {
     for d in "${CANONICAL_ROOTS[@]}"; do
@@ -464,7 +468,11 @@ discover_canonical_roots_tsx() {
         printf '%s\n' "${d%/}"
       fi
     done
-    for d in src/components/ui components/ui app/components/ui; do
+    for d in \
+      src/components/ui components/ui app/components/ui \
+      src/components/widget-primitives components/widget-primitives app/components/widget-primitives \
+      src/components/design-system components/design-system app/components/design-system \
+      src/components/primitives components/primitives app/components/primitives; do
       [ -d "$d" ] && printf '%s\n' "$d"
     done
   } | awk 'NF && !seen[$0]++ { print }'
@@ -660,7 +668,8 @@ scan_tsx_component_motifs() {
     "${scope[@]}"
   emit_tagged_matches "$out" family filter-bar \
     -g "$jsx_glob" \
-    -e '\b(Filter|Search|Sort|Toolbar)\b' \
+    -e '<(Filter|Search|Sort|Toolbar)[A-Z][A-Za-z0-9_]*\b' \
+    -e 'import[^"\x27]*\b(FilterBar|SearchBar|SortControls|Toolbar)\b' \
     -e 'aria-label=("|\x27)[^"\x27]*(filter|search|sort)' \
     "${scope[@]}"
   emit_tagged_matches "$out" family widget \

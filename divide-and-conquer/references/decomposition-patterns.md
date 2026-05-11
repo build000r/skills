@@ -59,8 +59,9 @@ updated before any writer is launched.
 
 ### 5. Workgraph Frontier Split
 
-When `WORKGRAPH.md` exists, split only the current ready frontier instead of
-re-deriving the entire plan.
+When the slice's `br` epic exists, split only the current ready frontier
+(`br_helpers.py ready --label slice:{slug}`) instead of re-deriving the
+entire plan.
 
 ```text
 WG-001 backend API       writes: backend/domain/**         status: ready

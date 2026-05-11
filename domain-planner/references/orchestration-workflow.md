@@ -268,8 +268,8 @@ If remaining issues genuinely require plan revision, the escalation says so expl
 When score = 100:
 
 1. **Hardening gate** — run a fresh-context hardening worker against the files
-   touched by the slice. Use `WORKGRAPH.md` `writes` globs and the actual git
-   diff to scope the check.
+   touched by the slice. Use the `writes` globs stored on the slice's `br`
+   child issues plus the actual git diff to scope the check.
 
    ```
    Audit 100/100 -> /crap hardening gate -> /mutate top hotspots if needed

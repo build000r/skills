@@ -152,7 +152,10 @@ Implications:
 
 When a workflow emits or consumes handoff artifacts, keep ownership explicit:
 
-- `WORKGRAPH.md`: execution dependency graph and write ownership
+- `br` epic + child issues: execution dependency graph, ready frontier, write
+  ownership, validation, and risk gates
+- `WORKGRAPH.md`: optional generated view of `br` state; never the mutable
+  source of execution state
 - `AUDIT_REPORT.md`: findings, score, and worker handoffs
 - scaffolder completion handoff: emitted files, validation commands, and audit
   handoff

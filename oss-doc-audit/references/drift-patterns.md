@@ -128,7 +128,7 @@ deleted or rewritten from scratch against verified sources.
 
 For prose-level cleanup (emdashes, forced enthusiasm, "Here's why"
 constructions) on the Tier 6/7 docs that survive, hand off to the
-`docs-de-slopify` skill. That skill's `references/PATTERNS.md` now also
+`de-slopify` skill. That skill's `references/PATTERNS.md` now also
 carries a fabrication cross-reference pointing back here.
 
 ## Proof Strategy

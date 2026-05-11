@@ -44,15 +44,30 @@ class Entry:
 
 
 def find_mmdx(root: Path) -> Iterable[Path]:
+    """Yield .mmdx files anywhere, plus .mmd files that are siblings of a
+    plan.md (the domain-* slice convention: each slice dir contains plan.md
+    plus a schema.mmd / flows.md / etc.). The domain slice .mmd files are
+    treated as first-class diagrams in the index so the buildooor viewer
+    shows them alongside everything else."""
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames if d not in EXCLUDE_DIR_NAMES]
+        names = set(filenames)
+        is_domain_slice_dir = "plan.md" in names
         for f in filenames:
             if f.endswith(".mmdx"):
+                yield Path(dirpath) / f
+            elif f.endswith(".mmd") and is_domain_slice_dir:
                 yield Path(dirpath) / f
 
 
 def encode_mmdx_url(path: Path) -> str | None:
     try:
+        # Plain .mmd files (e.g. domain-* slice schema.mmd) are encoded as a
+        # bare mermaid state. Only .mmdx files use build_mmdx_document.
+        if path.suffix == ".mmd":
+            code = path.read_text()
+            state = build_state(code, source=build_source_metadata(str(path)))
+            return build_url(encode_state(state))
         markdown = path.read_text()
         document = build_mmdx_document(markdown)
         entry_code = get_mmdx_entry_code(document)

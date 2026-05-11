@@ -1,7 +1,7 @@
 # build000r/skills
 
 <p align="center">
-  <img alt="Catalog" src="https://img.shields.io/badge/catalog-41_skills-111111?style=for-the-badge" />
+  <img alt="Catalog" src="https://img.shields.io/badge/catalog-44_skills-111111?style=for-the-badge" />
   <img alt="Works with Claude Code, Codex, and Cursor" src="https://img.shields.io/badge/agents-Claude_Code%20%7C%20Codex%20%7C%20Cursor-2f6feb?style=for-the-badge" />
   <img alt="Licensing is skill-specific" src="https://img.shields.io/badge/license-skill--specific-6b7280?style=for-the-badge" />
 </p>
@@ -126,18 +126,20 @@ contain `SKILL.md`. You can install one skill, a lane, or the full catalog.
 | [`domain-planner`](./domain-planner/) | Plans multi-repo domain slices and implementation contracts |
 | [`domain-reviewer`](./domain-reviewer/) | Audits live work against a plan and retires completed slices |
 | [`domain-scaffolder`](./domain-scaffolder/) | Scaffolds backend or frontend domain code from accepted slice plans |
+| [`mmdx-registry-usage-audit`](./mmdx-registry-usage-audit/) | Audits MMDX index freshness, tracker placement, chart links, and preflight validity |
 | [`mutate`](./mutate/) | Runs mutation testing and triages surviving mutants |
 | [`oss-doc-audit`](./oss-doc-audit/) | Audits public docs for drift, grades OSS readiness, and builds ranked cleanup queues |
 | [`prompt-reviewer`](./prompt-reviewer/) | Scores prompting quality from Claude/Codex session history |
 | [`reproduce`](./reproduce/) | Uses a command-first QA ladder before handing testing back |
 | [`skill-issue`](./skill-issue/) | Creates, validates, improves, and packages skills |
+| [`skill-registry-usage-audit`](./skill-registry-usage-audit/) | Audits skill manifests, skill-repos.yaml, SBP/MCP visibility, bundles, and placement scope |
 
 ### Domain Slice Loop
 
 The `domain-*` family works best as a two-layer system:
 
 - **Planning layer**: [`domain-planner`](./domain-planner/) defines the slice, locks the contract, and settles the Core Value Gate.
-- **Execution layer**: `WORKGRAPH.md`, [`divide-and-conquer`](./divide-and-conquer/), [`describe`](./describe/), [`commit`](./commit/), and [`domain-reviewer`](./domain-reviewer/) walk that accepted slice to done.
+- **Execution layer**: the slice's `br` epic and child issues, [`divide-and-conquer`](./divide-and-conquer/), [`describe`](./describe/), [`commit`](./commit/), and [`domain-reviewer`](./domain-reviewer/) walk that accepted slice to done. `WORKGRAPH.md` is only an optional generated view of Beads state.
 
 The important boundary is this: once the plan is accepted, execution should stop re-litigating the 80/20 slice. Core value discipline belongs in planning. Execution should focus on sequencing, implementation, validation, and audit.
 
@@ -145,9 +147,10 @@ The important boundary is this: once the plan is accepted, execution should stop
 
 | Tool | Job in the loop |
 | --- | --- |
-| [`domain-planner`](./domain-planner/) | Creates the 6 plan files, runs the plan quality loop, then emits `WORKGRAPH.md` as the post-sign-off execution handoff |
-| `WORKGRAPH.md` | Holds executable nodes with `depends_on`, `writes`, `done_when`, `validate_cmds`, and `status` |
-| [`divide-and-conquer`](./divide-and-conquer/) | Reads the current ready frontier from `WORKGRAPH.md`, launches safe swarm waves, and handles the final integration review |
+| [`domain-planner`](./domain-planner/) | Creates the 6 plan files, runs deep review plus the fresh-worker plan quality loop to `100/100`, then mints a `br` epic with child issues for post-sign-off execution |
+| `br` epic + child issues | Durable execution graph, ready frontier, ownership, dependencies, validation, and risk gates |
+| `WORKGRAPH.md` | Optional rendered view of the `br` epic; never scaffolded or edited as source state |
+| [`divide-and-conquer`](./divide-and-conquer/) | Reads the current ready frontier from `br ready --json` / `br scheduler --json`, launches safe swarm waves, and handles the final integration review |
 | [`describe`](./describe/) | Tightens one fuzzy node when its completion rule or validation path is still ambiguous |
 | [`commit`](./commit/) | Leaves a clean checkpoint after the reviewed wave |
 | [`domain-reviewer`](./domain-reviewer/) | Audits the implemented slice against the accepted plan and writes `AUDIT_REPORT.md` |
@@ -165,10 +168,10 @@ The important boundary is this: once the plan is accepted, execution should stop
       [H] accept plan / save location
               |
               v
-    [A] domain-planner -> WORKGRAPH.md
+    [A] domain-planner -> br epic + child issues
               |
               v
-      [A] ready frontier only
+      [A] br ready frontier only
               |
               v
       [A] divide-and-conquer
@@ -188,7 +191,7 @@ The important boundary is this: once the plan is accepted, execution should stop
             [A] commit
               |
               v
-      [A] update WORKGRAPH.md
+      [A] update br issues / close completed nodes
               |
       more ready nodes?
          |           |
@@ -215,7 +218,7 @@ The important boundary is this: once the plan is accepted, execution should stop
 - **Slice intent**: only when the requested slice or business value is unclear.
 - **Planning ambiguity**: real scope or contract decisions during `domain-planner`.
 - **Plan acceptance**: `planned/` vs `released/`, after which the planning contract is considered settled.
-- **Node-level ambiguity**: use [`describe`](./describe/) only when one workgraph node still has fuzzy `done_when` or `validate_cmds`.
+- **Node-level ambiguity**: use [`describe`](./describe/) only when one `br` child issue still has fuzzy acceptance criteria or validation notes.
 - **Audit or risk escalation**: re-enter only when [`domain-reviewer`](./domain-reviewer/) finds a real blocker, risk gate, or unresolved tradeoff.
 
 #### Short Mental Model
@@ -421,8 +424,10 @@ Skills that commonly rely on client overlays include:
 - [`domain-planner`](./domain-planner/)
 - [`domain-reviewer`](./domain-reviewer/)
 - [`domain-scaffolder`](./domain-scaffolder/)
+- [`mmdx-registry-usage-audit`](./mmdx-registry-usage-audit/)
 - [`prompt-reviewer`](./prompt-reviewer/)
 - [`research-paper`](./research-paper/)
+- [`skill-registry-usage-audit`](./skill-registry-usage-audit/)
 - [`ssh-info`](./ssh-info/)
 - [`trend-to-content`](./trend-to-content/)
 - [`unclawg-discover`](./unclawg-discover/)

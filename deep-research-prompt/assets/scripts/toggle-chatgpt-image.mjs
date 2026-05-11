@@ -15,16 +15,15 @@
 //      than one chatgpt.com tab is open. The script REFUSES to silently pick
 //      one of N matching tabs; it must be told which.
 //   4. Skill runs `oracle --remote-chrome 127.0.0.1:9222 --browser-model-strategy ignore ...`
-//      so Oracle attaches to the same Chrome and submits the image prompt
-//      against the pre-toggled composer. Use --chatgpt-url to pin Oracle to
-//      the same tab the toggle selected.
+//      only when check-oracle-tab-local-route.mjs proves Oracle can submit in
+//      the exact target where this helper toggled image mode.
 //
 // Parallel runs: spawn one chatgpt.com tab per run, give each a unique URL
 // fragment or query string, and set ORACLE_CHATGPT_URL_MATCH to that unique
 // substring before invoking this helper for the corresponding run. Each run
-// then passes the same URL to oracle via --chatgpt-url. The shared env var
+// then runs the route guard before any Oracle submission. The shared env var
 // pair (ORACLE_CHATGPT_TARGET_ID / ORACLE_CHATGPT_URL_MATCH) is the same one
-// honored by toggle-deep-research.mjs, so the routing contract is uniform.
+// honored by toggle-deep-research.mjs, so helper-side targeting is uniform.
 //
 // Exit codes:
 //   0 — Image mode is on (either toggled by us or already selected).

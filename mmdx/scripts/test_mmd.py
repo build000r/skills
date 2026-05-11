@@ -69,7 +69,7 @@ class MmdTests(unittest.TestCase):
     def test_builds_mmdx_document_from_markdown_charts(self) -> None:
         document = mmd.build_mmdx_document(
             """<!-- mmdx
-{"entry":"main","links":[{"from":"main","label":"Open detail","to":"detail"}]}
+{"entry":"main","links":[{"from":"main","label":"Open detail","to":"detail","actions":[{"type":"web","url":"https://example.com/detail","title":"Open detail on web"},{"type":"github","url":"http://github.com/build000r/skills"},{"type":"x","url":"javascript:alert(1)"},{"type":"email","url":"https://example.com/email"}]}]}
 -->
 ## chart main Main Chart
 ```mermaid
@@ -88,12 +88,26 @@ sequenceDiagram
         self.assertEqual(document["entry"], "main")
         self.assertEqual([chart["id"] for chart in document["charts"]], ["main", "detail"])
         self.assertEqual(document["links"][0]["to"], "detail")
+        self.assertEqual(
+            document["links"][0]["actions"],
+            [
+                {
+                    "type": "web",
+                    "url": "https://example.com/detail",
+                    "title": "Open detail on web",
+                },
+                {
+                    "type": "github",
+                    "url": "http://github.com/build000r/skills",
+                },
+            ],
+        )
 
     def test_main_encodes_mmdx_document_with_entry_chart(self) -> None:
         with tempfile.NamedTemporaryFile("w", suffix=".mmdx", delete=False) as handle:
             handle.write(
                 """<!-- mmdx
-{"entry":"main","links":[{"from":"main","label":"Open detail","to":"detail"}]}
+{"entry":"main","links":[{"from":"main","label":"Open detail","to":"detail","actions":[{"type":"web","url":"https://example.com/detail"}]}]}
 -->
 ## chart main Main Chart
 ```mermaid
@@ -122,6 +136,10 @@ flowchart TD
         self.assertIn("Open detail", decoded["code"])
         self.assertEqual(decoded["buildooorMmdx"]["entry"], "main")
         self.assertEqual(len(decoded["buildooorMmdx"]["charts"]), 2)
+        self.assertEqual(
+            decoded["buildooorMmdx"]["links"][0]["actions"],
+            [{"type": "web", "url": "https://example.com/detail"}],
+        )
 
     def test_stdin_has_no_source_metadata(self) -> None:
         self.assertIsNone(mmd.build_source_metadata("-"))

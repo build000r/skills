@@ -1,0 +1,81 @@
+{
+  "meta": {
+    "repo": "drift-detector",
+    "stacks": [
+      ""
+    ],
+    "tsx_scope": "",
+    "swift_scope": "",
+    "tailwind_config": "",
+    "token_sources": [
+      "src/utils/brandPalette.ts",
+      "src/utils/mineralGlobeTheme.ts",
+      "src/utils/mineralGlobeMath.ts",
+      "src/utils/mineralGlobeColors.ts",
+      "src/components/wheel/mineralData.ts"
+    ],
+    "tsx_canonical_roots": [],
+    "scanned_at": "2026-05-10T04:08:43Z"
+  },
+  "findings": {
+    "tsx": {
+      "tailwind_arbitrary": [],
+      "raw_color_literals": [],
+      "off_scale_spacing": [],
+      "off_scale_typography": [],
+      "inline_styles": [],
+      "classname_soup": [],
+      "component_motifs": [],
+      "ui_guideline_violations": [],
+      "clone_clusters": {
+        "statistics": {
+          "total": {
+            "clones": 0
+          }
+        },
+        "duplicates": []
+      },
+      "orphan_primitives": {
+        "files": [],
+        "exports": []
+      },
+      "unused_canonical": []
+    },
+    "swift": {
+      "arbitrary_modifiers": [],
+      "raw_color_literals": [],
+      "off_scale_typography": [],
+      "modifier_soup": [],
+      "clone_clusters": {
+        "statistics": {
+          "total": {
+            "clones": 0
+          }
+        },
+        "duplicates": []
+      }
+    }
+  },
+  "summary": {
+    "tsx": {
+      "tailwind_arbitrary": 0,
+      "raw_color_literals": 0,
+      "off_scale_spacing": 0,
+      "off_scale_typography": 0,
+      "inline_styles": 0,
+      "classname_soup": 0,
+      "component_motifs": 0,
+      "ui_guideline_violations": 0,
+      "clone_clusters": 0,
+      "orphan_primitives": 0,
+      "unused_canonical": 0
+    },
+    "swift": {
+      "arbitrary_modifiers": 0,
+      "raw_color_literals": 0,
+      "off_scale_typography": 0,
+      "modifier_soup": 0,
+      "clone_clusters": 0
+    }
+  }
+}

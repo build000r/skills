@@ -68,10 +68,13 @@ must each own their own `chatgpt.com` tab. Recommended shape:
    `toggle-chatgpt-image.mjs`. The helper now refuses to pick one of N
    matching tabs without a selector; ambiguous and missing-selector paths
    exit `7` and `8` respectively.
-4. For each run, pass `--chatgpt-url <same-url>` to `oracle` so it submits
-   into the same tab the toggle activated. Without this, Oracle may open a
-   fresh tab whose composer is not in image mode.
-5. Capture the per-run Oracle slug for reattach. The runs proceed
+4. Run `assets/scripts/check-oracle-tab-local-route.mjs`. If it exits
+   non-zero, stop; the installed Oracle cannot prove same-tab submission for
+   tab-local tools.
+5. Only when the route guard passes, run Oracle with the same-tab target option
+   or pre-submit hook reported by that Oracle build. Do not rely on
+   `--chatgpt-url` alone; Oracle v0.9.0 uses it to open a fresh dedicated tab.
+6. Capture the per-run Oracle slug for reattach. The runs proceed
    independently from there; image generation finishes in 1-3 minutes per
    tab.
 
@@ -106,7 +109,7 @@ End-to-end flow for Image execute mode:
    clear the composer tool first. The image helper handles "already on" but
    not "some other tool is on."
 
-4. **Toggle Create image on.** Resolve the skill dir first (project-local
+4. **Run the route guard.** Resolve the skill dir first (project-local
    activation puts it at `./.claude/skills/deep-research-prompt`, global
    activation puts it at `$HOME/.claude/skills/deep-research-prompt`):
    ```
@@ -114,6 +117,14 @@ End-to-end flow for Image execute mode:
    for d in "./.claude/skills/deep-research-prompt" "$HOME/.claude/skills/deep-research-prompt"; do
      [ -f "$d/SKILL.md" ] && { SKILL_DIR="$d"; break; }
    done
+   node "$SKILL_DIR/assets/scripts/check-oracle-tab-local-route.mjs"
+   ```
+   If this exits non-zero, stop before invoking Oracle. Report a route-blocked
+   Image execute attempt with the spec file path and the guard output. Do not
+   submit a text-only ChatGPT turn by accident.
+
+5. **Toggle Create image on.**
+   ```
    node "$SKILL_DIR/assets/scripts/toggle-chatgpt-image.mjs"
    ```
    If this exits non-zero, **do not silently proceed** — surface the reason to
@@ -121,7 +132,7 @@ End-to-end flow for Image execute mode:
    exit 3 (plus button moved), exit 7 (multiple chatgpt.com tabs and no
    selector), exit 8 (selector matched no tab).
 
-5. **Run Oracle against the same Chrome.** Use a shorter browser timeout since
+6. **Run Oracle against the same Chrome only after the route guard passes.** Use a shorter browser timeout since
    image generation finishes in 1-3 minutes, not 30. Use
    `--browser-model-strategy ignore`, **not** `current` — Image mode hides the
    ChatGPT model selector and `current` will exit early with
@@ -137,26 +148,27 @@ End-to-end flow for Image execute mode:
      --slug <slug> \
      -p "$(cat /tmp/<slug>-image-<date>.md)"
    ```
-   Image mode is already on from step 4, so Oracle just submits the spec.
+   Image mode is already on from step 5, so Oracle just submits the spec.
 
    **Tab-local hazard.** Image mode is a per-composer-tab toggle, just like
    Deep research. If Oracle navigates to a brand-new `chatgpt.com` tab to
    submit (it sometimes does — same caveat as the Deep research flow), the
-   new tab will not inherit the toggle from step 4. Mitigations, in
+   new tab will not inherit the toggle from step 5. Mitigations, in
    preference order:
-   - Pass `--chatgpt-url "$CHATGPT_PROJECT_URL"` so Oracle reuses the
-     toggled tab instead of opening a new one.
-   - Set `ORACLE_CHATGPT_URL_MATCH` to a unique substring of that URL before
-     running `assets/scripts/toggle-chatgpt-image.mjs` so the helper targets
-     the same tab Oracle will land on.
-   - After Oracle opens its submit tab but before the prompt is dispatched,
-     re-run `toggle-chatgpt-image.mjs` against the new tab.
+   - Use an Oracle build that exposes an exact target-id, tab-reuse, or
+     pre-submit-hook contract, and run the guard again.
+   - Set `ORACLE_CHATGPT_URL_MATCH` to a unique substring before running
+     `assets/scripts/toggle-chatgpt-image.mjs` so the helper targets the
+     intended tab. This only disambiguates the helper; it does not prove
+     Oracle will submit there.
+   - Avoid automatic Oracle submission and use the Image paste-mode fallback
+     when the guard blocks.
 
    If the response comes back as text instead of an image, the toggle was
    not on the submit tab. Re-toggle and rerun rather than retrying with the
    same configuration.
 
-6. **Surface the session slug** for reattach, and save the generated image
+7. **Surface the session slug** for reattach, and save the generated image
    file alongside the prompt. Do not re-print the prompt block.
 
 ## Verification after the run starts

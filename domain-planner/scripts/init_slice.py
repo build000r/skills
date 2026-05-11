@@ -14,8 +14,7 @@ Config resolution order:
 
 Creates:
     {plan_root}/{slice}/
-        plan.md, shared.md, backend.md, frontend.md, flows.md, schema.mmd,
-        WORKGRAPH.md
+        plan.md, shared.md, backend.md, frontend.md, flows.md, schema.mmd
 
     Migration file (if backend_repo configured):
         {repos_root}/{backend_repo}/{migrations_path}/{timestamp}_{slice}_initial{migration_ext}
@@ -351,7 +350,7 @@ def init_slice(
     # Check for mode-specific frontend template (e.g., frontend-cca.md → frontend.md)
     template_files = [
         "plan.md", "shared.md", "backend.md",
-        "frontend.md", "flows.md", "schema.mmd", "WORKGRAPH.md",
+        "frontend.md", "flows.md", "schema.mmd",
     ]
     backend_repo = ctx.get("backend_repo", "")
 
@@ -442,7 +441,7 @@ def init_slice(
     print("Next steps:")
     print(f"  1. Fill in templates in {target_dir}")
     print("  2. Use domain-planner skill to refine and lock the 6 plan files")
-    print("  3. Populate WORKGRAPH.md after plan sign-off for execution waves")
+    print("  3. After deep review + 100/100 quality, mint the br epic for execution")
 
 
 def main():

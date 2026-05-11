@@ -42,6 +42,7 @@ PUBLIC_PAID_RESOURCE_KEYS = {
     "price_display",
     "priceDisplay",
 }
+MMDX_EXTERNAL_ACTION_TYPES = {"web", "github", "x"}
 
 
 def _read_text(path: str) -> str:
@@ -145,6 +146,9 @@ def build_mmdx_document(markdown: str) -> dict[str, Any]:
         }
         if isinstance(item.get("title"), str) and item["title"].strip():
             link["title"] = item["title"].strip()
+        actions = _read_mmdx_external_actions(item.get("actions"))
+        if actions:
+            link["actions"] = actions
         links.append(link)
 
     return {
@@ -196,6 +200,53 @@ def _parse_mmdx_metadata(markdown: str) -> dict[str, Any]:
     if not isinstance(metadata, dict):
         raise ValueError("MMDX metadata must be a JSON object")
     return metadata
+
+
+def _read_mmdx_external_actions(value: Any) -> list[dict[str, str]]:
+    if not isinstance(value, list):
+        return []
+    actions = []
+    for item in value:
+        action = _read_mmdx_external_action(item)
+        if action is not None:
+            actions.append(action)
+    return actions
+
+
+def _read_mmdx_external_action(value: Any) -> dict[str, str] | None:
+    if not isinstance(value, dict):
+        return None
+    action_type = value.get("type")
+    if not isinstance(action_type, str):
+        return None
+    action_type = action_type.strip().lower()
+    if action_type not in MMDX_EXTERNAL_ACTION_TYPES:
+        return None
+
+    url = _read_safe_external_url(value.get("url"))
+    if url is None:
+        return None
+
+    action = {
+        "type": action_type,
+        "url": url,
+    }
+    title = value.get("title")
+    if isinstance(title, str) and title.strip():
+        action["title"] = title.strip()
+    return action
+
+
+def _read_safe_external_url(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    if not value:
+        return None
+    parsed = urlparse(value)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return None
+    return value
 
 
 def _parse_mmdx_charts(markdown: str) -> list[dict[str, Any]]:

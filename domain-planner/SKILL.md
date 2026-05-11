@@ -2,6 +2,8 @@
 name: domain-planner
 description: Plan new multi-repo domain slices, assess plan quality, or orchestrate implementation from an accepted slice plan. Use for "plan the X slice", multi-repo feature planning, API contract design, "implement the X slice", or slice-quality review; not for bug fixes, small refactors, or single-repo work. When a slice premise depends on live external reality rather than internal repo evidence, run a bounded GPT-5 Pro / Deep Research gate before committing to the plan.
 license: MIT
+metadata:
+  requires_beads: true
 ---
 
 # Domain Planner
@@ -64,6 +66,18 @@ The overlay defines:
 - **backend** — repo, domain_path, migration_tool, migration_path
 - **frontend** — repo, features_path, types_path, api_only
 - **auth** — packages_root, python_packages, npm_packages
+
+Before manual `rg`/`sed`/`find` inspection, capture the active overlay and
+slice-plan state with the shared context snapshot helper:
+
+```bash
+python3 ~/.claude/skills/_shared/scripts/domain_context_snapshot.py --cwd "$PWD" --slice {slice_name} --pretty
+```
+
+Use the JSON output to identify plan roots, repo paths, convention references,
+missing overlay sections, required plan-file presence, and workflow artifacts.
+Only fall back to freehand shell inspection for concrete files the snapshot
+surfaces as relevant.
 
 **If no client overlay matches the current directory:**
 1. Tell the user no overlay matches and create one using the skillbox-quickstart scan + generate flow before proceeding.
@@ -178,7 +192,7 @@ Routing rules:
 - If build-vs-clone changed the plan (adopt/clone/extract), surface to user and halt until they confirm or redirect.
 - If README was rewritten, note this in the slice's `plan.md` under a "Pre-planning artifacts" section so the plan reflects the current documented state.
 - If the external reality gate ran, record the note/session artifact under "Pre-planning artifacts" and carry any newly surfaced constraints or invalidated assumptions into Phase 0 and Phase 0.5.
-- If the new slice materially changes the project's competitive positioning or feature set, **add a WORKGRAPH.md node** for a post-implementation README update (invoke `readme-writing` again after the slice ships). This ensures the README stays accurate after implementation, not just before planning.
+- If the new slice materially changes the project's competitive positioning or feature set, carry a **README update issue requirement** into Phase 6e so the post-sign-off `br` epic gets a final-wave documentation issue (invoke `readme-writing` again after the slice ships). This ensures the README stays accurate after implementation, not just before planning.
 
 ---
 
@@ -188,8 +202,7 @@ Routing rules:
 {plan_root}/
 ├── {slice}/
 │   ├── plan.md, shared.md, backend.md, frontend.md, flows.md, schema.mmd
-│   ├── review.mmdx
-│   └── WORKGRAPH.md
+│   └── review.mmdx
 └── ...
 
 {plan_draft}/
@@ -200,6 +213,7 @@ Routing rules:
 
 **schema.mmd is REQUIRED** — without it, the slice won't appear in indexes or ERD views.
 **review.mmdx is REQUIRED at human checkpoints** — generate it from the current plan when a human is being asked to approve, revise, block, or choose save location. It is a checkpoint mirror, not a canonical plan file.
+**The execution graph lives in `br`** — do not scaffold or hand-edit `WORKGRAPH.md`. A `WORKGRAPH.md` may be rendered after Phase 6e only as a generated, throwaway view of the `br` epic.
 
 ## Critical Rules
 
@@ -215,8 +229,8 @@ Routing rules:
 10. **Default delivery strategy is big-bang** — Plan the target-state contract directly. Do not add dual routes, backward-compatibility shims, deprecation windows, or legacy endpoint support unless the user explicitly asks.
 11. **Separate DB transition planning from API planning** — Only add a DB transition section when production data is at risk. Keep it operationally focused: backup, transactional/idempotent raw SQL execution, verification, and rollback.
 12. **Core Value Gate is binding** — Before Phase 1 Discovery, define the primary actor, single user-visible outcome, minimum winning slice, explicit non-goals, and debt avoided by deferring them. If a story does not materially improve that outcome, defer it unless it is required for safety/risk containment or the user explicitly widens scope.
-13. **`WORKGRAPH.md` is post-plan only** — It is an execution handoff artifact created after the 6 plan files are accepted. It may include `writes`, dependency edges, validation commands, and risk gates. Do not mix those execution details back into the plan files.
-14. **`review.mmdx` is the human checkpoint surface** — Before any human sign-off, build/update `review.mmdx` from all current plan files using the `mmdx` skill's chart-stacking contract and the opinionated structure in [references/mmdx-review-checkpoint.md](~/.claude/skills/domain-planner/references/mmdx-review-checkpoint.md). The MMDX must expose every decision-grade detail through linked charts: core value, stories, endpoints, errors, schema, backend rules, frontend states, flows, decisions, non-goals, risks, open questions, performance envelopes, and WORKGRAPH nodes when present.
+13. **The `br` epic replaces WORKGRAPH as the execution graph** — After the 6 plan files pass Phase 5.5 deep review, reach Phase 6b `100/100` through a fresh worker, and are accepted, mint a `br` epic for the slice with one child issue per execution node (writes, deps, validation, risk live there as `--design`/`--notes`/`--acceptance-criteria`/labels per [`_shared/references/beads-contract.md`](../_shared/references/beads-contract.md)). Do not create, edit, or consume `WORKGRAPH.md` as source state. If a human-readable `WORKGRAPH.md` is useful, render it from `br` after the epic exists and treat it as disposable.
+14. **`review.mmdx` is the human checkpoint surface** — Before any human sign-off, build/update `review.mmdx` from all current plan files using the `mmdx` skill's chart-stacking contract and the opinionated structure in [references/mmdx-review-checkpoint.md](~/.claude/skills/domain-planner/references/mmdx-review-checkpoint.md). The MMDX must expose every decision-grade detail through linked charts: core value, stories, endpoints, errors, schema, backend rules, frontend states, flows, decisions, non-goals, risks, open questions, performance envelopes, and the post-sign-off `br` epic/child-issue handoff when present.
 
 ## Questioning Strategy
 
@@ -441,13 +455,15 @@ A thin Phase 5 that says "we chose X" without saying "because Y, not Z" is incom
 
 ---
 
-### Phase 5.5: Deep Review (`apr`)
+### Phase 5.5: Deep Review (`apr` or Fresh Worker)
 
-**Goal:** Iterative architectural refinement using GPT Pro Extended Reasoning via `apr`, until suggestions converge to steady-state.
+**Goal:** Iterative architectural refinement using GPT Pro Extended Reasoning via `apr` or a fresh-context review worker, until suggestions converge to steady-state.
 
 **Why this phase exists:** The Phase 6b quality loop checks rubric compliance (are all fields present? do contracts match?). This phase checks *architectural quality* — are the contracts well-designed? Are there better patterns? Did we miss failure modes? These are different concerns; rubric compliance does not imply good architecture.
 
-**Prerequisites:** `apr` CLI installed (`apr --version`). If not installed, fall back to `/codex:rescue` (see Codex fallback below). If neither is available, skip this phase and note it was skipped.
+**Prerequisites:** `apr` CLI installed (`apr --version`) or an explicit fresh-worker transport (`divide-and-conquer`/NTM, runtime-native subagent, or `/codex:rescue`). If none is available, stop and surface the missing prerequisite. Do not replace this phase with in-process self-review.
+
+**Gate:** Phase 5.5 must finish before Phase 6b. Phase 6e must not mint a `br` epic, and no optional `WORKGRAPH.md` view may be rendered, until Phase 5.5 has either reached steady-state or the user explicitly records an override. An override can save a draft but must not silently start execution.
 
 **Steps:**
 
@@ -514,13 +530,13 @@ A thin Phase 5 that says "we chose X" without saying "because Y, not Z" is incom
    apr robot integrate {round}   # get integration prompt
    ```
 
-**Exit criteria:** Steady-state reached (apr stats shows <5% delta between rounds), OR user explicitly skips further rounds.
+**Exit criteria:** Steady-state reached (apr stats shows <5% delta between rounds or the fresh worker reports no material architectural changes), OR user explicitly records an override and the plan remains draft-only.
 
 **What this phase is NOT:** It is not a replacement for Phase 6b's rubric-based quality loop. `apr` reviews improve the *substance* of the plan; the quality loop ensures *structural completeness*. Run both.
 
-#### Codex Fallback (when `apr` is not installed)
+#### Fresh-Worker Fallback (when `apr` is not installed)
 
-If `apr` is unavailable but the `codex-plugin-cc` plugin is loaded, use `/codex:rescue` to get architectural review with your own prompt:
+If `apr` is unavailable, launch a fresh reviewer through the active worker substrate. Use `/codex:rescue` when the `codex-plugin-cc` plugin is loaded:
 
 ```
 /codex:rescue --background --model gpt-5.5 --effort xhigh \
@@ -532,6 +548,8 @@ If `apr` is unavailable but the `codex-plugin-cc` plugin is loaded, use `/codex:
 ```
 
 Check progress with `/codex:status`, retrieve output with `/codex:result`. Integrate suggestions manually, then proceed to Phase 6.
+
+For other worker substrates, use the same prompt and require a file/section-specific suggestions list. The reviewer must not modify plan files and must not score the rubric; Phase 6b handles rubric scoring separately.
 
 ---
 
@@ -566,9 +584,9 @@ deduction.
 
 **Fixer:** The orchestrator itself — has full domain context from the planning session. Applies targeted fixes from the issues table, then re-launches the assessor.
 
-**Loop exit:** Score = 100, or 3 iterations reached (escalate remaining issues to user).
+**Loop exit:** Score = 100. If 3 iterations are reached below 100, run stall triage and escalate the remaining issues to the user; do not proceed to Phase 6c/6d/6e until a fresh worker returns `100/100` or the user explicitly records a sub-100 override. A sub-100 override may save a draft, but it must not mint the execution epic.
 
-After the loop, report the final score before proceeding.
+After the loop, report the final score before proceeding. Phase 6e is blocked unless the score is `100/100`.
 
 #### 6c. Human Checkpoint MMDX Review
 
@@ -597,32 +615,75 @@ the human checkpoint is presented with the path/URL.
 
 Ask: "Save to released/ (locked) or planned/ (draft)?"
 
-#### 6e. Synthesize `WORKGRAPH.md`
+#### 6e. Mint the `br` Epic and Child Issues
 
-After the 6 plan files are accepted and saved, populate `WORKGRAPH.md` as the
-execution handoff for downstream orchestration. This file is intentionally
-outside the plan-quality rubric: it exists to bridge accepted specs into
-parallel implementation waves.
+After Phase 5.5 deep review is complete, Phase 6b returns `100/100` from a fresh
+worker, and the 6 plan files are accepted and saved, mint the slice's execution
+graph in `br` (beads_rust). The epic + child issues are the durable source of
+truth for downstream orchestration; an optional `WORKGRAPH.md` is only a
+regenerable view.
+The cross-skill contract (naming, labels, lifecycle, attribution, commit policy)
+lives in [`_shared/references/beads-contract.md`](../_shared/references/beads-contract.md).
 
-Rules:
+Bootstrap once per repo (idempotent):
+
+```bash
+python3 ~/.claude/skills/_shared/scripts/br_helpers.py ensure
+export BR_AGENT_NAME=domain-planner BR_HARNESS=claude-code BR_MODEL="$CLAUDE_MODEL"
+```
+
+Mint the epic, then one child issue per executable concern:
+
+```bash
+EPIC=$(br create "{slice}: {one-line value}" --slug epic-{slice} --type epic --priority 1 --json | jq -r .id)
+
+python3 ~/.claude/skills/_shared/scripts/br_helpers.py mint-node \
+  exec-001-{kebab-title} '{Title}' \
+  --epic "$EPIC" \
+  --concern {backend-api|frontend-widget|migration|test-hardening|...} \
+  --repo {repo-slug} \
+  --writes 'src/domain/{slice}/**' --writes 'tests/{slice}/**' \
+  --done-when '{binary completion check}' \
+  --validate '{repo-native test command}' \
+  --risk {none|human|external} \
+  --depends-on {parent-issue-id}  # repeat for each dependency
+```
+
+Rules per node:
 - One node per executable concern, not one node per tiny file edit
 - Keep nodes concern-scoped: backend API, migration, frontend widget, test hardening
-- Use explicit dependency IDs in `depends_on`
-- Include `writes` globs or paths so parallel waves can avoid overlap
-- Include `done_when` as binary completion criteria
-- Include `validate_cmds` for the concrete commands the execution wave should run
-- Use `status` values from: `todo`, `in_progress`, `done`, `blocked`, `skipped`
-- **Each node must be a self-contained brief** — an agent should be able to pick up a single node and execute it without reading the full plan. Include:
-  - `context`: 1-3 sentences of business context (why this node exists)
-  - `contract_excerpt`: the relevant endpoint(s), entity shapes, or UI states from the plan files that this node implements — inline, not "see shared.md"
-  - `acceptance_criteria`: specific, testable conditions (carry from plan files)
-  - `rationale`: why this concern is a separate node (dependency reason, isolation reason, or parallelism reason)
+- `--depends-on` carries explicit dependency IDs; cycles are rejected by `br dep`
+- `--writes` globs prevent parallel-wave overlap
+- `--done-when` becomes the issue's `acceptance_criteria` field
+- `--validate` lines become `notes` for the worker to run
+- Status flows through `br update --claim` → `br update -s blocked` → `br close`
+- **Each node must be a self-contained brief** — an agent should be able to
+  pick up a single issue and execute it without reading the full plan. After
+  minting, populate `--description` (or `br update --description`) with:
+  - 1-3 sentences of business context (why this node exists)
+  - the relevant endpoint(s), entity shapes, or UI states from the plan files
+    this node implements — inline, not "see shared.md"
+  - rationale for why this concern is a separate node (dependency, isolation,
+    or parallelism reason)
 
-The goal is independently executable briefs, not a task index that requires cross-referencing plan files. A node without embedded context forces the implementing agent to re-derive intent from the full plan, which defeats the purpose of the graph.
+The goal is independently executable issues, not a task index that requires
+cross-referencing plan files. A node without embedded context forces the
+implementing agent to re-derive intent from the full plan.
 
-`WORKGRAPH.md` must stay concise per node but self-contained. It is not a second plan document and it is not a changelog — it is a bag of executable briefs.
+If a markdown view is useful for human scanning, render an optional
+`WORKGRAPH.md` view inside the run directory used by downstream orchestration:
 
-**README update node:** If the Pre-Planning Prerequisites phase determined this slice changes the project's feature set or competitive positioning, add a final-wave `readme-update` node with no implementation dependencies blocked on it. Its `context` should summarize what changed, and its execution should invoke the `readme-writing` skill. This ensures documentation stays current after implementation, not just before planning.
+```bash
+python3 ~/.claude/skills/_shared/scripts/br_helpers.py render-workgraph \
+  --epic "$EPIC" --out {run_dir}/WORKGRAPH.md
+echo "$EPIC" > {run_dir}/EPIC_ID.txt
+```
+
+Do not edit the rendered file by hand and do not feed it back as source state.
+All execution updates happen through `br update`, `br close`, dependencies, and
+issue fields.
+
+**README update node:** If the Pre-Planning Prerequisites phase determined this slice changes the project's feature set or competitive positioning, mint a final-wave `readme-update` issue with no implementation dependencies blocked on it. Its description should summarize what changed; its execution invokes the `readme-writing` skill. This ensures documentation stays current after implementation, not just before planning.
 
 #### 6f. Handoff
 
@@ -636,7 +697,7 @@ Handoff: "Ready to implement? Run the domain-planner skill and select 'Implement
 >   Score all 10 dimensions (10 pts each, 100 total). \
 >   Write REVIEW.md in the plan directory. Do not modify plan files.
 > ```
-> Check with `/codex:status`, retrieve with `/codex:result`. The `review_plan.py` script remains available as a standalone fallback (`python3 ~/.claude/skills/domain-planner/scripts/review_plan.py --slice {slice_name} --execute`).
+> Check with `/codex:status`, retrieve with `/codex:result`. The `review_plan.py` script remains available as a standalone diagnostic (`python3 ~/.claude/skills/domain-planner/scripts/review_plan.py --slice {slice_name} --execute`), but it does not replace the fresh-worker Phase 6b gate.
 
 ---
 
@@ -714,7 +775,17 @@ See [references/orchestration-workflow.md](~/.claude/skills/domain-planner/refer
 
 5. **Handle audit results:**
    - COMPLIANT (score = 100/100) → proceed to hardening gate (step 6b)
-   - Issues found → extract handoffs from AUDIT_REPORT.md, launch fix agents only for repos with issues
+   - Issues found → extract handoffs from AUDIT_REPORT.md and mint each finding as a `br` issue under the slice's epic:
+     ```bash
+     python3 ~/.claude/skills/_shared/scripts/br_helpers.py mint-node \
+       finding-{kebab-summary} '{Finding title}' \
+       --epic "$EPIC" --type bug --priority 1 \
+       --concern audit-fix --repo {repo} \
+       --depends-on {parent-node-id} \
+       --done-when '{verification step from AUDIT_REPORT.md}'
+     ```
+     Then launch fix agents only for repos with issues; each fix worker uses
+     the standard `--claim` / `--close --suggest-next` lifecycle.
 
 6. **Re-audit loop** — Max 5 attempts with stall triage, then escalate with a specific blocker report.
 
@@ -723,6 +794,23 @@ See [references/orchestration-workflow.md](~/.claude/skills/domain-planner/refer
    ```
    Audit 100/100 → /crap hardening gate → retire
    ```
+
+   **Subagent prompt:**
+   > Run `/crap` against the files touched by this slice across all repos involved.
+   > If FINAL_SCORE > 30, run `/mutate` on the top 3 hotspots and add tests
+   > until FINAL_SCORE drops to 30 or below.
+   > Report: pass (score ≤ 30) or fail (score > 30 after hardening) with
+   > the final score and any surviving hotspots.
+
+   **Gate rules:**
+   - **Pass (FINAL_SCORE ≤ 30):** Proceed to step 7 (completion/retirement).
+   - **Fail after hardening (FINAL_SCORE > 30):** Report surviving hotspots to the user with the score and file list. Ask whether to (a) accept current score and proceed to retirement, or (b) launch targeted fix agents for the hotspots.
+   - **Scope:** Only score files that were created or modified by this slice's scaffolding — do not score the entire repo. Use the `writes` globs from the slice's `br` child issues plus the actual git diff to determine scope.
+   - **Skip condition:** If the user passed `--skip-hardening` or explicitly says to skip, proceed directly to step 7.
+
+   This gate catches high-complexity/low-coverage code before it gets retired and forgotten. The `/crap` + `/mutate` combination targets the riskiest code paths with mutation testing, ensuring test coverage is meaningful (not just line coverage).
+
+7. **Completion** — Retire the slice via domain-reviewer, verify INDEX.md is DONE, run the commit skill for every touched repo, and report results to the user (including final audit score, final CRAP score if hardening ran, validation commands, commit SHAs, and any explicit leftovers  ```
 
    **Subagent prompt:**
    > Run `/crap` against the files touched by this slice across all repos involved.

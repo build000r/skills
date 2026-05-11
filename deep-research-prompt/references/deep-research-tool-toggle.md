@@ -44,14 +44,44 @@ The helper uses WebSockets over CDP. On current Node versions it uses the
 built-in `WebSocket`; on older Node versions it falls back to the `ws` npm
 module if available.
 
+## Oracle routing guard
+
+Before any automatic Deep Research submission, run:
+
+```bash
+node "$SKILL_DIR/assets/scripts/check-oracle-tab-local-route.mjs"
+```
+
+This is a hard preflight, not a warning. If it exits non-zero, stop before
+opening Chrome, toggling the tool, or invoking Oracle. The installed Oracle
+must prove it can submit in the exact CDP target where this helper verified
+the Deep Research chip.
+
+Observed failure, May 2026: Oracle v0.9.0 remote browser mode opens a fresh
+dedicated ChatGPT tab for its URL before submitting. That means this sequence
+is unsafe:
+
+1. open `https://chatgpt.com/?run=<slug>` manually
+2. toggle Deep Research in that tab
+3. run `oracle --remote-chrome ... --chatgpt-url https://chatgpt.com/?run=<slug>`
+
+The `--chatgpt-url` value is used by Oracle as the URL for a new dedicated tab;
+it is not a same-tab pin. The result is exactly the bad shape: one tab has
+Deep Research selected, another receives the pasted prompt and submits a normal
+text turn.
+
+Until Oracle exposes a target-id, tab-reuse, or pre-submit-hook contract for
+ChatGPT browser runs, the skill must fail closed and report a route-blocked
+execute attempt. Do not "race" Oracle by trying to toggle the new tab after it
+appears; the submit timing is not a stable contract.
+
 ## How the skill wires this into an Oracle run
 
 Oracle's browser mode launches its own Chrome and drives it to completion in
 one shot, so there's no natural pause between "open tab" and "submit prompt"
-where we can interleave a tool toggle. The clean way around this is Oracle's
-`--remote-chrome host:port` flag, which makes Oracle attach to an *already
-running* Chrome instead of launching its own. That gives the skill full
-control over the pre-submit setup.
+where we can interleave a tool toggle. Remote Chrome only solves the
+login/profile problem; it does not by itself prove same-tab submission. The
+route guard above decides whether automatic execution is allowed.
 
 ## Submit-tab invariant
 
@@ -70,8 +100,8 @@ is not allowed is an ambiguous submit target. Resolve the target by one of these
 routes, in order of preference:
 
 1. Use a dedicated Chrome DevTools port/profile for the run.
-2. Use a ChatGPT Project/folder URL and pass that same URL to Oracle with
-   `--chatgpt-url`.
+2. Use a ChatGPT Project/folder URL only as a selector for the toggle helper,
+   not as proof that Oracle will reuse the tab.
 3. Set `ORACLE_CHATGPT_TARGET_ID=<cdp-target-id>` when the exact tab is known.
 4. Set `ORACLE_CHATGPT_URL_MATCH=<unique-url-substring>` when the intended
    project/conversation path is unique.
@@ -86,14 +116,15 @@ not guess.
 Oracle supports `--chatgpt-url <url>` for ChatGPT workspace/folder/project
 targets. Prefer using one ChatGPT Project/folder per client, domain, or research
 wave (for example, a Buildooor research-validation project) so browser runs are
-organized and the URL itself becomes a stable routing key.
+organized and the URL itself becomes a stable selector for the toggle helper.
 
-When a project/folder URL is available:
+When a project/folder URL is available and the route guard has already passed:
 
 1. Open that URL in the Chrome instance attached to the DevTools port.
 2. Set `ORACLE_CHATGPT_URL_MATCH` to a unique substring from that URL.
 3. Run the toggle helper and confirm it selects exactly one tab.
-4. Run Oracle with the same `--chatgpt-url`.
+4. Run Oracle with the same-tab target option or pre-submit hook reported by
+   the guard. Do not rely on `--chatgpt-url` alone.
 
 End-to-end flow for Oracle execute mode:
 
@@ -116,7 +147,14 @@ End-to-end flow for Oracle execute mode:
    If multiple ChatGPT tabs are open, set `ORACLE_CHATGPT_TARGET_ID` or
    `ORACLE_CHATGPT_URL_MATCH` before toggling.
 
-3. **Toggle Deep research on in that resolved submit tab.** Resolve the
+3. **Run the route guard.** Resolve the skill dir first, then:
+   ```
+   node "$SKILL_DIR/assets/scripts/check-oracle-tab-local-route.mjs"
+   ```
+   If this exits non-zero, stop. Report the prompt file and guard output. Do
+   not launch a normal Oracle browser submission.
+
+4. **Toggle Deep research on in that resolved submit tab.** Resolve the
    skill dir first — project-local activation puts the helper at
    `./.claude/skills/deep-research-prompt`, global activation at
    `$HOME/.claude/skills/deep-research-prompt`:
@@ -133,31 +171,33 @@ End-to-end flow for Oracle execute mode:
    label), exit 3 (plus button moved), exit 7 (selector still matches multiple
    ChatGPT tabs), and exit 8 (selector matched no tab).
 
-4. **Run Oracle against the prepared browser without reselecting the model.**
+5. **Run Oracle against the prepared browser without reselecting the model,
+   only after the route guard passes.**
    ```
    oracle \
      --engine browser \
      --remote-chrome 127.0.0.1:9222 \
-     --chatgpt-url "$CHATGPT_PROJECT_URL" \
      --browser-model-strategy ignore \
      --timeout 30m \
      --slug <slug> \
      -p "$(cat /tmp/<slug>-deep-research-<date>.md)"
    ```
-   Omit `--chatgpt-url` only when there is no project/folder URL configured and
-   the submit target is otherwise unambiguous.
+   On Oracle builds like v0.9.0, this step is route-blocked because remote
+   Chrome opens a fresh dedicated tab. Do not add `--chatgpt-url` to try to
+   force reuse; that is the behavior that creates the extra non-Deep-Research
+   submit tab.
    `--browser-model-strategy ignore` avoids an extra model-picker click that can
    move focus or fail when ChatGPT's selector DOM changes. The prepared tab's
    current model/tool state is the source of truth.
 
-5. **Verify the submitted tab.** Immediately inspect the browser or reattach
+6. **Verify the submitted tab.** Immediately inspect the browser or reattach
    with `oracle session <slug>`. If Oracle opened or switched to a different
    target than the selected project/conversation, if the submitted
    composer/conversation lacks the Deep Research chip, or if the reply starts
    like a normal answer rather than a research run with external-source
    behavior, treat the run as failed. Do not report "Deep Research started."
 
-6. **Surface the session slug** for reattach, do not re-print the prompt.
+7. **Surface the session slug** for reattach, do not re-print the prompt.
 
 ## Verification after the run starts
 

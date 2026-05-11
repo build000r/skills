@@ -65,6 +65,71 @@ def test_match_scans_all_upward_config_roots_by_default(tmp_path: Path) -> None:
     assert data["matches"][0]["config_root"] == str(outer_root)
 
 
+def test_match_prefers_repo_local_buildooor_root_on_tie(tmp_path: Path) -> None:
+    repo = tmp_path / "repos" / "project"
+    repo.mkdir(parents=True)
+    local_root = repo / ".buildooor" / "skillbox-config" / "clients"
+    outer_root = tmp_path / "repos" / "skillbox-config" / "clients"
+    write_overlay(local_root / "project-local" / "overlay.yaml", "project-local", str(repo))
+    write_overlay(outer_root / "project-global" / "overlay.yaml", "project-global", str(repo))
+
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), "match", "--cwd", str(repo), "--json"],
+        cwd=repo,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    data = json.loads(result.stdout)
+    assert data["config_roots"] == [str(local_root), str(outer_root)]
+    assert [match["client_id"] for match in data["matches"]] == ["project-local"]
+    assert data["matches"][0]["config_root"] == str(local_root)
+
+
+def test_match_scans_from_supplied_cwd_not_process_cwd(tmp_path: Path) -> None:
+    repo = tmp_path / "repos" / "project"
+    repo.mkdir(parents=True)
+    local_root = repo / ".buildooor" / "skillbox-config" / "clients"
+    write_overlay(local_root / "project" / "overlay.yaml", "project", str(repo))
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), "match", "--cwd", str(repo), "--json"],
+        cwd=outside,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    data = json.loads(result.stdout)
+    assert data["config_roots"] == [str(local_root)]
+    assert [match["client_id"] for match in data["matches"]] == ["project"]
+
+
+def test_match_miss_reports_target_cwd_fallback_root(tmp_path: Path) -> None:
+    repo = tmp_path / "repos" / "project"
+    repo.mkdir(parents=True)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), "match", "--cwd", str(repo), "--json"],
+        cwd=outside,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    data = json.loads(result.stdout)
+    assert data["config_roots"] == [str(repo / ".buildooor" / "skillbox-config" / "clients")]
+    assert data["matches"] == []
+
+
 def test_match_with_explicit_config_root_remains_scoped(tmp_path: Path) -> None:
     repo = tmp_path / "repos" / "opensource" / "project"
     repo.mkdir(parents=True)
@@ -92,6 +157,36 @@ def test_match_with_explicit_config_root_remains_scoped(tmp_path: Path) -> None:
 
     assert result.returncode == 1
     assert json.loads(result.stdout)["matches"] == []
+
+
+def test_create_defaults_to_repo_local_buildooor_root(tmp_path: Path) -> None:
+    repo = tmp_path / "repos" / "project"
+    repo.mkdir(parents=True)
+    (repo / ".git").mkdir()
+    outer_root = tmp_path / "repos" / "skillbox-config" / "clients"
+    write_overlay(outer_root / "existing" / "overlay.yaml", "existing", str(tmp_path / "other"))
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "create",
+            "--client-id",
+            "project",
+            "--cwd",
+            str(repo),
+            "--json",
+        ],
+        cwd=repo,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    target = repo / ".buildooor" / "skillbox-config" / "clients" / "project" / "overlay.yaml"
+    assert json.loads(result.stdout)["created"] == str(target)
+    assert target.is_file()
 
 
 def test_match_uses_path_segment_boundaries(tmp_path: Path) -> None:

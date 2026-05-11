@@ -1,16 +1,21 @@
 ---
 name: divide-and-conquer
-description: Decompose complex work into an executable `WORKGRAPH.md`, then run an NTM-style swarm by ready frontier with no write overlap. Use before parallel execution for multi-file, multi-domain, or naturally orchestrated tasks.
+description: Decompose complex work into an executable `WORKGRAPH.md`, then run an NTM-style swarm by ready frontier with no write overlap. Use before parallel execution for large-ish, UI-facing, multi-file, multi-domain, naturally parallel, naturally orchestrated, or review-sensitive tasks.
 license: MIT
+metadata:
+  requires_beads: true
 ---
 
 # Divide and Conquer
 
-Decompose a task into a `WORKGRAPH.md`, then execute that graph through an
-NTM-managed swarm. Autonomous: analyze -> load or synthesize `WORKGRAPH.md` ->
-tighten fuzzy nodes -> spawn a wave swarm -> dispatch node briefs -> monitor ->
-collect -> update graph state -> advance waves -> run final integration review
--> commit -> report. No approval gates.
+Decompose a task into a `br` epic with child issues, then execute that graph
+through an NTM-managed swarm. Autonomous: analyze -> load or mint the epic
+in `br` -> tighten fuzzy nodes -> spawn a wave swarm using `br ready`/`br scheduler`
+-> dispatch node briefs (each carrying a `br` issue ID) -> monitor -> collect
+-> reconcile `br` state -> advance waves -> run final integration review
+(close-eligible epic, flush JSONL) -> commit `.beads/issues.jsonl` with the
+slice changes -> report. `WORKGRAPH.md` exists as a generated view only.
+No approval gates.
 
 ## Default Marker
 
@@ -26,10 +31,40 @@ handoff semantics.
 Temp workgraph synthesis and describe-style node briefs live in
 [references/workgraph-synthesis.md](references/workgraph-synthesis.md).
 
+## Beads Is the Source of Truth
+
+Every divide-and-conquer run uses [beads_rust (`br`)](https://github.com/Dicklesworthstone/beads_rust)
+as the canonical store for nodes, dependencies, status, and the ready frontier.
+`WORKGRAPH.md` is now a **rendered view** of `br` state, not the authoritative
+artifact. Cross-skill conventions (naming, labels, lifecycle, attribution env
+vars, commit policy) live in
+[`_shared/references/beads-contract.md`](../_shared/references/beads-contract.md).
+
+Bootstrap on entry (idempotent):
+
+```bash
+python3 ~/.claude/skills/_shared/scripts/br_helpers.py ensure
+export BR_AGENT_NAME=divide-and-conquer BR_HARNESS=claude-code BR_MODEL="$CLAUDE_MODEL"
+```
+
+Use the helper rather than raw `br` calls so attribution and JSON envelopes are
+consistent across panes. The helper exposes: `ensure`, `status`, `ready`,
+`scheduler`, `mint-node`, `claim`, `block`, `done`, `render-workgraph`, `flush`.
+
 This skill now defaults to an external NTM swarm for execution. Do not fall
 back to ad hoc local subagents or `/codex:rescue` as the primary path unless
 the user explicitly asks to bypass the swarm. If `ntm` is unavailable, stop and
 surface the missing prerequisite instead of silently degrading.
+
+Because execution is swarm/NTM-coordinated, `vibing-with-ntm` is mandatory for
+every divide-and-conquer run. Activate it through `sbp` when needed, then follow
+its operator, reservation, transport, and review-loop guidance.
+
+Use this skill for large-ish, UI-facing, multi-file, naturally parallel, or
+review-sensitive tasks even when the user did not explicitly ask for a swarm. For
+UI work or ambiguous review-heavy work, include Claude Opus in the worker or
+reviewer mix when the runtime exposes model selection, and require a final
+fresh-eyes reviewer pass before completion.
 
 ## Related Skills
 
@@ -74,16 +109,18 @@ Where:
 - `run_id` = timestamped execution id such as `2026-04-09T16-22-31Z`
 
 Store these artifacts in the run directory:
-- `WORKGRAPH.md` for temp graphs created by this skill
-- `EXECUTION_CONTEXT.md`
-- `WG-*_RESULT.md`
-- `DAC_FINAL_RESULT.md`
+- `WORKGRAPH.md` — generated view (regenerate with `br_helpers.py render-workgraph --epic {id} --out WORKGRAPH.md`); never edit by hand
+- `EXECUTION_CONTEXT.md` — the execution pack handed to every worker
+- `WG-*_RESULT.md` — per-node worker reports (still required for prose evidence the swarm cannot keep in `br` notes)
+- `DAC_FINAL_RESULT.md` — final integration summary
+- `EPIC_ID.txt` — the `br` epic ID for this run; sole pointer back to the source-of-truth state in `.beads/`
 - any copied monitor notes or wave summaries
 
-If a durable `WORKGRAPH.md` already exists in a plan directory, read it in
-place, but still create the invocation run directory and write all new
-execution artifacts there. In that case, also write a pointer file such as
-`WORKGRAPH_SOURCE.txt` noting the durable graph path.
+If the slice already has a `br` epic with open children, treat that epic as the
+durable graph: list its children with `br_helpers.py ready --label slice:{name}`
+and skip re-minting nodes. Always create a fresh invocation run directory for
+this execution's artifacts and write `EPIC_ID.txt` pointing at the reused
+epic.
 
 ## Modes
 
@@ -162,27 +199,37 @@ execution should stay narrow.
 If the split itself is unclear, use `ask-cascade` on the first blocking
 strategic fork before inventing nodes or launching a swarm.
 
-### 3. Load or Synthesize `WORKGRAPH.md`
+### 3. Load or Synthesize the Beads Epic
 
-Before inventing a split, check whether the repo or plan directory already has
-a durable `WORKGRAPH.md` execution artifact.
+Before inventing a split, check whether the slice already has a `br` epic with
+open children:
 
-If a durable `WORKGRAPH.md` exists:
-- Run `python3 ~/.claude/skills/divide-and-conquer/scripts/workgraph_ready.py --file <path-to-WORKGRAPH.md>`
-- Treat the reported `ready_nodes` and `waves` as the default launch proposal
-- Respect `writes` ownership from the workgraph even if the user asked broadly
-- Do not pull blocked or dependency-pending nodes into the same wave
+```bash
+python3 ~/.claude/skills/_shared/scripts/br_helpers.py ready --label slice:{slug} > /tmp/dac-ready.json
+```
 
-If no durable `WORKGRAPH.md` exists and orchestration is still relevant:
+If the epic exists and the ready frontier is non-empty:
+- Treat the helper's output as the default launch proposal
+- Respect each issue's `writes` (in `--design`) even if the user asked broadly
+- Do not pull blocked or deferred issues into the same wave
+
+If no epic exists and orchestration is still relevant:
 - Create an invocation run directory under the resolved invocation root
-- Write `WORKGRAPH.md` inside that run directory using the canonical node contract
-  from [references/workgraph-synthesis.md](references/workgraph-synthesis.md)
-- Keep the temp graph focused on this execution slice only, usually 2-8 nodes
-- Do not commit the temp graph unless the user explicitly asks to preserve it
-- Immediately run `workgraph_ready.py` against the temp file and treat the
-  resulting ready frontier as wave 1
+- Mint the epic and child nodes via `br_helpers.py mint-node`, following the
+  field mapping in
+  [`_shared/references/beads-contract.md`](../_shared/references/beads-contract.md):
+  `--concern`, `--repo`, `--writes`, `--done-when`, `--validate`, `--risk`,
+  `--depends-on`, `--epic`. Synthesis prose lives in
+  [references/workgraph-synthesis.md](references/workgraph-synthesis.md);
+  treat it as guidance for what *content* each node carries, not where state lives.
+- Keep the slice focused on this execution, usually 2-8 nodes
+- Write `EPIC_ID.txt` to the run directory, then regenerate `WORKGRAPH.md` as a
+  view: `br_helpers.py render-workgraph --epic $(cat EPIC_ID.txt) --out WORKGRAPH.md`
+- Immediately run `br_helpers.py ready --label slice:{slug}` and treat the
+  result as wave 1
 
-The temp graph is a scratch execution artifact, not a second plan document.
+The rendered `WORKGRAPH.md` is a scratch view, not a second plan document.
+State changes flow through `br update`/`br close`; never hand-edit the markdown.
 
 ### 4. Tighten Fuzzy Nodes Before Swarm Launch
 
@@ -194,8 +241,8 @@ When a ready node still has vague `done_when`, `validate_cmds`, or non-goals:
 - Run a node-local `describe` pass or fresh review to tighten the contract
 - If the review exposes a real strategic decision, route that one blocking
   question through `ask-cascade`
-- Rewrite the node in `WORKGRAPH.md`
-- Re-run `workgraph_ready.py` before launching the wave
+- Update the issue in place: `br update {id} --acceptance-criteria '…' --notes 'validate: …' --design '…'`
+- Re-query the frontier with `br_helpers.py ready --label slice:{slug}` before launching the wave
 
 ### 5. Build the Execution Context Pack
 
@@ -216,7 +263,9 @@ Every wave prompt inherits this pack.
 For each ready frontier wave, launch an NTM swarm sized to that wave.
 
 ```bash
-frontier_json="$(python3 ~/.claude/skills/divide-and-conquer/scripts/workgraph_ready.py --file "$WORKGRAPH")"
+frontier_json="$(python3 ~/.claude/skills/_shared/scripts/br_helpers.py ready --label slice:${SLICE_SLUG})"
+# Optional: ranked by br's evidence-aware scheduler instead of plain priority
+# frontier_json="$(python3 ~/.claude/skills/_shared/scripts/br_helpers.py scheduler)"
 
 ntm spawn "$WAVE_PROJECT" \
   --cc="$NUM_CC" --cod="${NUM_COD}:gpt-5.5" \
@@ -269,23 +318,28 @@ done
 
 Every worker prompt MUST include:
 1. The execution context pack
-2. The workgraph path and exact node ID
+2. The exact `br` issue ID for the node, plus the run directory path for prose artifacts
 3. The node's `concern`, `depends_on`, `writes`, `done_when`, `validate_cmds`,
-   and `risk_gate`
+   and `risk_gate` (read these from `br show {id}` if not inlined)
 4. The hard ownership rule: edit only the declared `writes`
-5. The stop rule: if required edits escape `writes`, return a workgraph change
-   proposal instead of coding past the boundary
-6. The result artifact contract below
+5. The lifecycle commands the worker MUST run:
+   - On entry: `br update {id} --claim` (atomic in_progress)
+   - On blocked: `br update {id} -s blocked --notes "{reason}"`
+   - On done: `br close {id} --reason "{summary}" --suggest-next --json`
+6. The attribution preamble: `export BR_AGENT_NAME=<role> BR_HARNESS=<harness> BR_MODEL=<model>` before any `br` mutation
+7. The stop rule: if required edits escape `writes`, leave the issue in_progress, write a workgraph change proposal in the result artifact, and do NOT close the issue
+8. The result artifact contract below
 
 ### Node Worker Prompt Contract
 
 Use a compact brief like this:
 
 ```text
-You own one divide-and-conquer workgraph node inside an execution swarm.
+You own one divide-and-conquer node inside an execution swarm.
 
-Workgraph: <path-to-WORKGRAPH.md> (durable | temp)
-Node: <WG-001> - <title>
+Source of truth: br (run `br show <issue-id>` for the live contract)
+Issue ID: <prefix>-wg-001-<slug>-<hash>
+Run directory: <path under skillbox-config>
 Concern: <concern>
 Depends on: <ids already satisfied, or None>
 Writes: <expected paths/globs, or None>
@@ -306,11 +360,17 @@ Non-goals:
 - <explicitly out of scope>
 
 Rules:
+- export BR_AGENT_NAME=<role> BR_HARNESS=<harness> BR_MODEL=<model> before any br call
+- On entry: `br update <id> --claim` (atomic in_progress)
 - Work only inside the repo and inside your declared write scope
-- Do not commit
-- If you need edits outside `writes`, stop and propose the smallest WORKGRAPH edit
+- Do not commit; the integration wave commits everything together
+- If you need edits outside `writes`, do NOT close the issue. Write the
+  proposal in WG-001_RESULT.md and leave status=in_progress for the orchestrator
 - Run your validate commands before declaring success
-- Write `WG-001_RESULT.md` in the invocation run directory with the required sections
+- On done: `br close <id> --reason "<summary>" --suggest-next --json` and write
+  `WG-001_RESULT.md` in the invocation run directory with the required sections
+- On blocked: `br update <id> -s blocked --notes "<reason>"` and write the
+  blocker section in WG-001_RESULT.md
 ```
 
 ### Node Result Artifact
@@ -400,14 +460,19 @@ Once the wave has produced results, or the timeout is reached:
    ntm --robot-tail="$WAVE_PROJECT" --lines=200
    ```
 3. Read every `WG-*_RESULT.md` in the run directory for the active wave completely
-4. Independently run each node's `validate_cmds` yourself before marking it
+4. Cross-reference each issue's current state with `br show {id}` — workers
+   *should* have run `br update --claim` and `br close --suggest-next`, but
+   never trust the worker's prose alone
+5. Independently run each node's `validate_cmds` yourself before treating it as
    `done`
-5. Update `WORKGRAPH.md` statuses:
-   - `done` if implementation and independent validation both pass
-   - `blocked` if the node surfaced a real blocker
-   - `todo` or `ready` again if rework is still required
-6. Re-run `workgraph_ready.py`
-7. Launch the next ready wave
+6. Reconcile `br` state to the verified outcome:
+   - Validation passed: leave it closed (or run `br close {id} --reason …` if
+     the worker forgot)
+   - Real blocker: `br update {id} -s blocked --notes "{verified blocker}"`
+   - Needs rework: `br reopen {id}` — the issue returns to the ready frontier
+7. Re-render the view: `python3 ~/.claude/skills/_shared/scripts/br_helpers.py render-workgraph --epic $(cat EPIC_ID.txt) --out WORKGRAPH.md`
+8. Re-query the frontier: `python3 ~/.claude/skills/_shared/scripts/br_helpers.py ready --label slice:{slug}`
+9. Launch the next ready wave
 
 Do not mark a node done based only on a worker's self-report.
 
@@ -434,11 +499,21 @@ ntm --robot-wait="$REVIEW_PROJECT" --condition=idle --timeout=120
 ```
 
 Reviewer prompt:
-- Read the original task, final `WORKGRAPH.md`, and current `git diff`
+- Read the original task, the rendered `WORKGRAPH.md` view, the live state via
+  `br_helpers.py render-workgraph --epic $(cat EPIC_ID.txt)`, and the current
+  `git diff`
 - Confirm the graph intent matches the repo state
 - Run relevant build, test, lint, and typecheck commands
 - Fix only integration bugs or validation failures
-- Commit if there are clean, scoped changes to save
+- For UI or ambiguous review-heavy work, use Claude Opus when the runtime exposes
+  model selection and perform a fresh-eyes review of the final diff and
+  validation evidence
+- Run `br epic close-eligible --json` to retire the slice's epic if every child
+  is closed; surface any leftover open child as the blocker
+- Run `python3 ~/.claude/skills/_shared/scripts/br_helpers.py flush` so
+  `.beads/issues.jsonl` reflects current state
+- Commit if there are clean, scoped changes to save (include `.beads/issues.jsonl`,
+  exclude `.beads/*.db*`)
 - Write `DAC_FINAL_RESULT.md` in the invocation run directory
 
 `DAC_FINAL_RESULT.md` MUST end with:
@@ -463,9 +538,11 @@ When the final review result is available:
 
 ## Rules
 
-- `WORKGRAPH.md` is the execution source of truth
-- Invocation artifacts live under the overlay-backed invocation root in `skillbox-config`
-- Ready frontier first; do not pre-dispatch blocked nodes
+- `br` (the slice's epic + child issues in `.beads/`) is the execution source of truth
+- `WORKGRAPH.md` is a generated view; never hand-edit it — re-render with `br_helpers.py render-workgraph`
+- State changes flow through `br update`/`br close`, not markdown rewrites
+- Invocation prose artifacts (`EXECUTION_CONTEXT.md`, `WG-*_RESULT.md`, `DAC_FINAL_RESULT.md`, `EPIC_ID.txt`) still live under the overlay-backed invocation root in `skillbox-config`
+- Ready frontier comes from `br_helpers.py ready` or `scheduler`; do not pre-dispatch blocked nodes
 - `writes` ownership is a hard boundary, not a suggestion
 - Default to NTM swarm execution; do not substitute local ad hoc workers
 - One worker per ready node; one wave per ready frontier
@@ -473,8 +550,9 @@ When the final review result is available:
 - Prefer 2-8 meaningful nodes; 10 is the hard cap per wave
 - Use `describe` only for fuzzy nodes
 - Use `ask-cascade` only for the first blocking strategic ambiguity
-- Every worker gets the workgraph path and exact node contract
-- Node workers do not commit; only the final integration review commits
-- Independently run `validate_cmds` before marking any node `done`
-- If `ntm` is missing or broken, stop and surface the prerequisite gap
+- Every worker gets its `br` issue ID, the run directory path, and the lifecycle commands (`--claim`, `--reason --suggest-next`)
+- Workers stamp `BR_AGENT_NAME`/`BR_HARNESS`/`BR_MODEL` before any `br` mutation
+- Node workers do not commit; only the final integration review commits, and it includes `.beads/issues.jsonl` while excluding `.beads/*.db*`
+- Independently run `validate_cmds` and reconcile `br` state before treating any node `done`
+- If `ntm` or `br` is missing or broken, stop and surface the prerequisite gap
 - Sequential waves are fine; fake parallelism is not

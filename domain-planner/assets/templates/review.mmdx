@@ -37,7 +37,7 @@
 -->
 
 <!-- honesty-ledger
-Source: plan.md, shared.md, backend.md, frontend.md, flows.md, schema.mmd, WORKGRAPH.md if present
+Source: plan.md, shared.md, backend.md, frontend.md, flows.md, schema.mmd, br epic/child issues if minted
 Unit and denominator: decision-grade plan details; all canonical plan files included
 Transform: plan details mirrored into linked Mermaid charts for review
 Filter or category selection: only implementation code and file-tree details omitted by spec boundary
@@ -48,7 +48,7 @@ Caveat: review.mmdx is a checkpoint mirror, not the source of truth
 ## chart main Slice Plan Review Decision Surface
 ```mermaid
 flowchart LR
-  source["Source: 6 plan files + WORKGRAPH if present"]
+  source["Source: 6 plan files + br epic if minted"]
   verdict["UNKNOWN: replace with READY, REVISE, or BLOCKED"]
   core["Core win and scope"]
   contract["Contract and data"]
@@ -139,7 +139,7 @@ quadrantChart
 ## chart execution-handoff Execution Handoff
 ```mermaid
 flowchart TD
-  wg["UNKNOWN: WORKGRAPH nodes if present"]
+  wg["UNKNOWN: br child issues if minted"]
   deps["UNKNOWN: dependency edges"]
   writes["UNKNOWN: writes ownership"]
   checks["UNKNOWN: validation commands"]

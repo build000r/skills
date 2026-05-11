@@ -110,4 +110,4 @@
 - [backend.md](./backend.md) - Backend spec
 - [frontend.md](./frontend.md) - Frontend spec
 - [review.mmdx](./review.mmdx) - Human checkpoint review stack (generated/updated before sign-off)
-- [WORKGRAPH.md](./WORKGRAPH.md) - Post-sign-off execution handoff (created after plan acceptance)
+- Post-sign-off `br` epic - Execution graph with child issues, dependencies, validation, and risk gates (created after deep review + `100/100`; optional `WORKGRAPH.md` views are generated from it)

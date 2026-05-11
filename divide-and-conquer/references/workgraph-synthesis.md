@@ -1,145 +1,150 @@
-# Workgraph Synthesis
+# Workgraph Synthesis (Beads-Backed)
 
 Use this when `divide-and-conquer` should orchestrate execution through the
-default swarm runtime but no durable `WORKGRAPH.md` exists yet.
+default swarm runtime but no `br` epic exists yet for the slice. State lives
+in `br`; this file describes what *content* each node carries and how to mint
+it. Cross-skill conventions live in
+[`_shared/references/beads-contract.md`](../../_shared/references/beads-contract.md).
 
-## Temporary Path
+## Run Directory
 
-Create an invocation run directory under the active client overlay first, then
-place a canonical `WORKGRAPH.md` inside it. Do not use `/tmp` when an overlay is
-available.
-
-Expected shape:
-
-```text
-{invocation_root}/{repo_slug}/divide-and-conquer/{run_id}/WORKGRAPH.md
-```
-
-Example:
+Still required for prose artifacts (`EXECUTION_CONTEXT.md`, `WG-*_RESULT.md`,
+`DAC_FINAL_RESULT.md`, `EPIC_ID.txt`, optional rendered `WORKGRAPH.md`). Do not
+use `/tmp` when an overlay is available.
 
 ```bash
-workgraph_dir="{invocation_root}/{repo_slug}/divide-and-conquer/{run_id}"
-mkdir -p "$workgraph_dir"
-workgraph_path="$workgraph_dir/WORKGRAPH.md"
+run_dir="{invocation_root}/{repo_slug}/divide-and-conquer/{run_id}"
+mkdir -p "$run_dir"
 ```
 
-Keep the filename `WORKGRAPH.md` so the artifact matches the existing parser and
-cross-skill conventions. Do not commit the temp file unless the user explicitly
-asks to preserve the graph.
+`WORKGRAPH.md` inside the run directory is a generated view, not authoritative.
+Regenerate it any time:
 
-If a durable workgraph already exists in a plan directory, do not copy it over
-blindly. Read it in place and write a pointer file like `WORKGRAPH_SOURCE.txt`
-into the invocation run directory instead.
-
-## What Goes In The Temp Graph
-
-Use the same node shape as the durable domain-planner workgraph:
-
-```json
-{
-  "nodes": [
-    {
-      "id": "WG-001",
-      "title": "Short executable unit",
-      "concern": "backend-api",
-      "repo": "current-repo",
-      "depends_on": [],
-      "writes": ["path/or/glob/**"],
-      "done_when": ["Binary completion check"],
-      "validate_cmds": ["Concrete validation command"],
-      "risk_gate": "none",
-      "status": "todo"
-    }
-  ]
-}
+```bash
+python3 ~/.claude/skills/_shared/scripts/br_helpers.py render-workgraph \
+  --epic "$EPIC_ID" --out "$run_dir/WORKGRAPH.md"
 ```
 
-Rules:
-- Keep the graph narrow: current execution slice only, usually 2-8 nodes
+If a `br` epic already exists for the slice (typically minted by
+`domain-planner` Phase 6e), reuse it. Read its ID from upstream artifacts or
+`br list --label slice:{slug} --type epic --json`. Write `EPIC_ID.txt` into
+the new run directory instead of duplicating the epic.
+
+## Mint The Epic And Children
+
+```bash
+EPIC=$(br create "{slice}: {one-line value}" --slug epic-{slice} \
+  --type epic --priority 1 --json | jq -r .id)
+echo "$EPIC" > "$run_dir/EPIC_ID.txt"
+
+python3 ~/.claude/skills/_shared/scripts/br_helpers.py mint-node \
+  wg-001-{kebab-title} '{Title}' \
+  --epic "$EPIC" \
+  --concern backend-api \
+  --repo current-repo \
+  --writes 'src/domain/**' \
+  --done-when 'Binary completion check' \
+  --validate 'Concrete validation command' \
+  --risk none
+```
+
+The same fields the old JSON node carried map cleanly: `id` is auto-assigned,
+`title` is positional, `concern`/`repo`/`risk` go on `--labels`, `depends_on`
+is a sequence of `--depends-on` flags, `writes` becomes the issue's `Design`
+block, `done_when` becomes `acceptance_criteria`, `validate_cmds` become
+`notes`. `status: todo` is the default open state.
+
+Rules per node:
+- Keep the slice narrow: current execution only, usually 2-8 nodes
 - One node per executable concern, not per tiny file edit
-- Encode dependencies in `depends_on`, not narrative prose
-- Use concrete `writes` so wave grouping can detect overlap
-- Use concrete `done_when` and `validate_cmds`; placeholder language means the
+- Encode dependencies through `--depends-on` (or `br dep add` after the fact),
+  not narrative prose
+- Use concrete `--writes` so wave grouping can detect overlap
+- Use concrete `--done-when` and `--validate`; placeholder language means the
   node is not ready
-- Use `writes: []` only for truly read-only nodes
+- Read-only nodes: omit `--writes` entirely
 
 ## When To Trigger `describe`
 
 Trigger a node-level `describe` pass before swarm launch when any of these are
 true:
-- `done_when` would otherwise be vague or subjective
-- `validate_cmds` are missing or hand-wavy
+- `--done-when` (acceptance criteria) would otherwise be vague or subjective
+- `--validate` is missing or hand-wavy
 - The node still has a real scope or behavior decision unresolved
 - The worker would need to guess non-goals or ownership boundaries
 
 Do not run `describe` for every node by default. Use it to tighten fuzzy nodes,
-then rewrite the node and recompute the ready frontier.
+then update the issue (`br update {id} --acceptance-criteria … --notes …
+--design …`) and recompute the ready frontier with `br_helpers.py ready`.
 
 ## Swarm Node Brief
 
-Every wave worker prompt should carry the workgraph path and node ownership.
+The canonical worker prompt template — including the `--claim` /
+`--close --suggest-next` lifecycle — lives directly in the parent SKILL.md
+under "Node Worker Prompt Contract." Reuse it verbatim; do not duplicate the
+template here.
 
-Template:
-
-```text
-You own one divide-and-conquer workgraph node inside an execution swarm.
-
-Workgraph: <path-to-WORKGRAPH.md> (durable | temp)
-Node: <WG-001> - <title>
-Concern: <concern>
-Depends on: <ids already satisfied, or None>
-Writes: <paths/globs, or None>
-
-Underlying ask:
-<plain-language user outcome for this node>
-
-Done when:
-- <binary completion check>
-
-Validate:
-- <command>
-
-Risk gate:
-- none | <gate>
-
-Non-goals:
-- <explicitly out of scope>
-
-Rules:
-- Stay inside the repo and the declared write scope
-- Do not commit
-- If the node really needs broader edits, stop and propose the smallest WORKGRAPH edit
-- Write `WG-001_RESULT.md` with status, files changed, and validation proof
-```
+The minimum a node brief must carry:
+- `br` issue ID
+- run directory path (for the `WG-*_RESULT.md` artifact)
+- the node's concern, depends_on, writes, done_when, validate, risk_gate
+- attribution preamble: `export BR_AGENT_NAME=… BR_HARNESS=… BR_MODEL=…`
+- the lifecycle commands (`br update --claim`, `br close --reason --suggest-next`,
+  `br update -s blocked --notes …`)
 
 ## Result Artifact
 
-Each worker should write `<NODE_ID>_RESULT.md` such as `WG-001_RESULT.md`:
-- `Status`: `done | blocked | needs_rework`
+Each worker still writes `<NODE_ID>_RESULT.md` (e.g. `WG-001_RESULT.md`) for
+prose evidence the swarm cannot keep in `br` notes. Required sections:
+- `Status`: `done | blocked | needs_rework` (mirrors the `br` state but acts
+  as belt-and-suspenders if the worker forgot the `br close`)
 - `Summary`: what changed
 - `Files Changed`: explicit file list
 - `Validation`: each command plus pass or fail
-- `Workgraph Notes`: any suggested graph edits
+- `Workgraph Notes`: any suggested graph edits (the orchestrator decides
+  whether to apply via `br update` or by minting/closing issues)
 - `Blockers`: only when relevant
 
-The orchestrator independently re-runs `validate_cmds` before marking the node
-done.
+The orchestrator independently re-runs `validate_cmds` and reconciles `br`
+state before treating the node `done`.
 
-These node result files belong in the same invocation run directory as the
-temp `WORKGRAPH.md`, not in the repo root.
+These node result files belong in the same invocation run directory as
+`EPIC_ID.txt` and the rendered `WORKGRAPH.md`, not in the repo root.
 
 ## Mini Example
 
-This is a valid temp graph shape for a review-driven skill update:
+A valid 4-node slice for a review-driven skill update:
 
 ```text
-WG-001 review latest usage traces     writes: []                      ready
+WG-001 review latest usage traces     writes: (none)                  ready
 WG-002 patch skill contract           writes: skill/SKILL.md          blocked on WG-001
 WG-003 add supporting reference       writes: skill/references/**     blocked on WG-001
-WG-004 validate updated skill         writes: []                      blocked on WG-002, WG-003
+WG-004 validate updated skill         writes: (none)                  blocked on WG-002, WG-003
 ```
 
-The graph makes the wave model explicit:
-- `WG-001` launches first as a read-only execution node
-- `WG-002` and `WG-003` can run in the same wave only if their writes do not overlap
-- `WG-004` waits until the patch wave completes and then validates the merged result
+In `br`:
+
+```bash
+W1=$(python3 br_helpers.py mint-node wg-001-review 'Review latest usage traces' \
+       --epic "$EPIC" --concern review --repo current-repo \
+       --done-when 'Findings written' --validate 'echo done')
+W2=$(python3 br_helpers.py mint-node wg-002-patch 'Patch skill contract' \
+       --epic "$EPIC" --concern skill-edit --repo current-repo \
+       --writes 'skill/SKILL.md' --depends-on "$W1" \
+       --done-when 'Edits applied' --validate 'quick_validate.py')
+W3=$(python3 br_helpers.py mint-node wg-003-ref 'Add supporting reference' \
+       --epic "$EPIC" --concern skill-edit --repo current-repo \
+       --writes 'skill/references/**' --depends-on "$W1" \
+       --done-when 'Reference added' --validate 'quick_validate.py')
+python3 br_helpers.py mint-node wg-004-validate 'Validate updated skill' \
+       --epic "$EPIC" --concern validate --repo current-repo \
+       --depends-on "$W2" --depends-on "$W3" \
+       --done-when 'quick_validate passes' --validate 'quick_validate.py'
+```
+
+The wave model is the same:
+- `WG-001` launches first (read-only)
+- `WG-002` and `WG-003` can run in the same wave because their `--writes` do
+  not overlap
+- `WG-004` waits until the patch wave completes, then validates the merged
+  result. `br ready` will surface it automatically once both predecessors close.

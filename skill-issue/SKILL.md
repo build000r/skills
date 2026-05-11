@@ -34,14 +34,19 @@ Client overlays customize skill creation for specific organizations or projects 
 
 ### How Client Overlays Work
 
-Each client overlay lives in `skillbox-config/clients/{client}/overlay.yaml`. It contains org-specific configuration: skill naming patterns, required SKILL.md sections, publishing target (marketplace, GitHub org, internal registry), validation commands, standard bundled resources, and the review/approval workflow.
+Each client overlay lives in one of two roots:
+
+- Repo-local, git-reviewable overlays: `.buildooor/skillbox-config/clients/{client}/overlay.yaml`
+- Shared/private fallback overlays: `skillbox-config/clients/{client}/overlay.yaml`
+
+Use the repo-local `.buildooor/` root when the overlay explains project trajectory, generated plans, validation contracts, or skillbox structure that should be reviewable in that repo's git history. Use the shared fallback root for operator-wide private defaults, cross-repo overlays, or material that must stay outside a public project. Overlays contain org-specific configuration: skill naming patterns, required SKILL.md sections, publishing targets, validation commands, standard bundled resources, and review/approval workflow.
 
 ### Overlay Selection (Step 0)
 
-1. Check `skillbox-config/clients/` for available client overlays
+1. Check for available client overlays in `.buildooor/skillbox-config/clients/` and `skillbox-config/clients/`, walking upward from cwd
 2. Each overlay has a `cwd_match` field — a path prefix to match against cwd
-3. If cwd matches exactly one overlay, use it automatically
-4. If cwd matches multiple, ask the user which overlay to use
+3. Prefer the most specific `cwd_match`; when specificity ties, prefer the closest repo-local `.buildooor/` overlay over shared fallback overlays
+4. If cwd still matches multiple overlays at the same priority, ask the user which overlay to use
 5. **If no overlay matches or none exist, ask before creating one.** Default to read-only diagnostics (`list`, `match`, `validate`) until the user confirms creation. Do not fall back to generic defaults.
 
 ### Overlay Miss → Create Flow
@@ -58,11 +63,11 @@ cat /tmp/skillbox-scan.json | python3 ~/.claude/skills/skillbox-quickstart/scrip
   --client-id {CLIENT_ID} --json > /tmp/skillbox-recommendation.json
 ```
 
-4. Review the generated overlay with the user, then install it:
+4. Review the generated overlay with the user, then install it in the repo-local root unless the user explicitly wants a shared/private fallback overlay:
 
 ```bash
-mkdir -p skillbox-config/clients/{CLIENT_ID}
-cp /tmp/overlay.yaml skillbox-config/clients/{CLIENT_ID}/overlay.yaml
+mkdir -p .buildooor/skillbox-config/clients/{CLIENT_ID}
+cp /tmp/overlay.yaml .buildooor/skillbox-config/clients/{CLIENT_ID}/overlay.yaml
 ```
 
 5. Re-run Step 0 — the new overlay should now match
@@ -71,7 +76,21 @@ If the user does not approve creation, keep the run read-only and report that ov
 
 This keeps every skill invocation overlay-backed. Generic/manual fallbacks mask configuration gaps that compound across sessions.
 
-Client overlays are managed outside the skill repo — they contain org-specific paths and workflows that should not be committed to public skill files.
+Client overlays are managed outside reusable skill contracts. Repo-local overlays may be committed when sanitized and useful for project history; shared fallback overlays remain outside project repos for private/operator-wide defaults.
+
+### Repo-Local Symlink Bridge
+
+For existing projects, it is acceptable to create a transition symlink at
+`.buildooor/skillbox-config/clients/{client}` that points to the current legacy
+overlay directory. Prefer the closest existing overlay source:
+
+1. If the repo already has `skillbox-config/clients/{client}/`, link to that
+2. Otherwise link to the shared `~/repos/skillbox-config/clients/{client}/`
+
+This gives tools the repo-local `.buildooor/` shape immediately. It does not
+make overlay content reviewable in the project git history by itself; only the
+symlink is tracked. When trajectory matters, sanitize and copy the overlay into
+`.buildooor/skillbox-config/clients/{client}/overlay.yaml` as a real file.
 
 ## Skill Contract Placement
 
@@ -84,7 +103,11 @@ contract:
   operator-specific workflows, private business context, private repo maps,
   client names, internal prompts, non-public references, and skills that should
   not be prepared for public release yet.
-- `skillbox-config/clients/<client>/` owns per-client overlays, generated
+- `.buildooor/skillbox-config/clients/<client>/` owns repo-local per-client
+  overlays, generated context, publishing targets, validation commands, paths,
+  and client-specific defaults that should be reviewable alongside the project.
+  Keep secrets and machine-local values out of committed overlays.
+- `skillbox-config/clients/<client>/` owns shared/private per-client overlays, generated
   context, publishing targets, validation commands, paths, secrets references,
   and client-specific defaults. It is not the home for reusable `SKILL.md`
   contracts.
@@ -119,7 +142,7 @@ Use this mode when the user wants to manage client overlays directly: "create an
 
 Create a new client overlay. Two paths depending on context:
 
-Before running either create path, ask for explicit confirmation to write `skillbox-config/clients/{CLIENT_ID}/overlay.yaml`.
+Before running either create path, ask for explicit confirmation to write `.buildooor/skillbox-config/clients/{CLIENT_ID}/overlay.yaml` unless an explicit `--config-root` is being used for a shared/private fallback overlay.
 
 **Quick create** (minimal — when the miss is blocking another skill):
 
@@ -140,8 +163,8 @@ cat /tmp/skillbox-scan.json | python3 ~/.claude/skills/skillbox-quickstart/scrip
 Review the draft with the user, then install:
 
 ```bash
-mkdir -p skillbox-config/clients/{CLIENT_ID}
-cp /tmp/overlay-draft/overlay.yaml skillbox-config/clients/{CLIENT_ID}/overlay.yaml
+mkdir -p .buildooor/skillbox-config/clients/{CLIENT_ID}
+cp /tmp/overlay-draft/overlay.yaml .buildooor/skillbox-config/clients/{CLIENT_ID}/overlay.yaml
 ```
 
 After either path, verify:
@@ -574,7 +597,7 @@ Before committing or packaging any skill for public release, scrub ALL files (SK
 - **Referral/affiliate links**: URLs with tracking parameters (`fpr=...`, `ref=...`, etc.)
 - **Business intelligence**: Customer lists, personas, targeting criteria, pricing, competitor data
 
-**Client overlays are safe** — they live in `skillbox-config/clients/` outside the skill repo. Project-specific config belongs there, not in tracked files.
+**Client overlays are safe when sanitized** — repo-local overlay history belongs in `.buildooor/skillbox-config/clients/` when it explains project trajectory. Private, machine-local, or cross-repo defaults belong in shared `skillbox-config/clients/` outside the project. Never commit secrets, real credentials, private host data, or machine-only absolute paths.
 
 **Pattern**: Use `{placeholder}` syntax for values that vary per deployment. Scripts should accept CLI args or client overlay config instead of hardcoded defaults. Reference files should use generic examples ("auth service", "your-project") instead of real names.
 
@@ -583,9 +606,10 @@ Before committing or packaging any skill for public release, scrub ALL files (SK
 #### Open-Source Skill Architecture
 
 Skills intended for public repos use a dual-layer pattern: **generic tracked
-files + private client overlays via skillbox**. If the `SKILL.md` itself is
-private, keep it in `../../skills-private`; do not force it into this public
-pattern until it has been sanitized into a portable contract.
+skill files + sanitized repo-local overlays + optional private fallback overlays**.
+If the `SKILL.md` itself is private, keep it in `../../skills-private`; do not
+force it into this public pattern until it has been sanitized into a portable
+contract.
 
 ```
 my-skill/                      ← public (git tracked)
@@ -596,8 +620,12 @@ my-skill/                      ← public (git tracked)
     ├── default.md             ← tracked
     └── my-project.md          ← gitignored (project-specific template)
 
-skillbox-config/clients/my-project/  ← private (outside skill repo)
-└── overlay.yaml               ← project-specific: paths, names, conventions
+.buildooor/                    ← project-local, git tracked when sanitized
+└── skillbox-config/clients/my-project/
+    └── overlay.yaml           ← project trajectory, validation contracts, non-secret paths
+
+skillbox-config/clients/my-project/  ← shared/private fallback outside project
+└── overlay.yaml               ← secrets references, operator-wide defaults, machine-local paths
 ```
 
 **The SKILL.md reads client overlay config at runtime** to fill in `{placeholder}` values:
@@ -605,7 +633,7 @@ skillbox-config/clients/my-project/  ← private (outside skill repo)
 - `{plan_root}` → overlay provides `~/.claude/plans/my-project`
 - `{backend_repo}` → overlay provides `~/repos/my-api`
 
-Anyone cloning the public repo gets a working generic skill. You keep your project-specific overlay in skillbox.
+Anyone cloning the public repo gets a working generic skill plus the sanitized repo-local operating contract. Private fallback overlays can still enrich the run without hiding project trajectory from git history.
 
 #### Repo-Level .gitignore for Skill Collections
 
@@ -634,16 +662,17 @@ my-skill/assets/templates/frontend-*.md
 - Use `skillname/` entries for entire skills that must stay private
 - Use `!` exceptions to track generic templates while ignoring project-specific variants
 - Private deployment data (instance configs, deployed IPs) should have dedicated gitignore entries
-- Project-specific config lives in skillbox client overlays, not in the skill repo
+- Project-specific operating contracts live in `.buildooor/skillbox-config/clients/` when they are sanitized and worth tracking with the repo
+- Private fallback config lives in shared skillbox client overlays, not in reusable skill contracts
 
 #### Sanitization Workflow (Existing Repo → Public)
 
 When preparing an existing skill repo for open source:
 
 1. **Audit tracked files**: `git ls-files | xargs grep -lE 'project-name|internal-domain|api-key-name'`
-2. **Extract project content → client overlays**: Move project-specific references from SKILL.md body into skillbox client overlays (`skillbox-config/clients/{client}/overlay.yaml`). Replace with `{placeholder}` syntax referencing overlay config.
+2. **Extract project content → client overlays**: Move project-specific references from SKILL.md body into repo-local overlays (`.buildooor/skillbox-config/clients/{client}/overlay.yaml`) when sanitized history matters, or shared private overlays (`skillbox-config/clients/{client}/overlay.yaml`) when the data must stay outside the project. Replace with `{placeholder}` syntax referencing overlay config.
 3. **Genericize examples**: Replace domain-specific slice names with generic ones ("task_assignments"). Replace internal service names with generic terms ("backend API"). Keep generic role names (operator, admin, user).
-4. **Verify gitignore coverage**: Ensure project-specific templates and deployment data are excluded. Project config lives in skillbox client overlays, not in the skill repo.
+4. **Verify gitignore coverage**: Ensure project-specific templates and deployment data are excluded. Commit sanitized `.buildooor/` overlays only when they should be reviewable with the project; keep private fallback overlays out of the project repo.
 5. **Final audit**: `git ls-files | xargs grep -lE 'project|company|internal'` — zero tolerance for the real names.
 6. **Check git history**: If project names exist in past commits, consider `git filter-repo` or starting a clean history.
 

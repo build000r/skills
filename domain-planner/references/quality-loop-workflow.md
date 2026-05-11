@@ -20,18 +20,21 @@ This mirrors the domain-reviewer's audit→fix→re-audit loop but targets **pla
 
 ## Execution Profiles
 
-Like domain-reviewer, this workflow is agent-platform neutral:
+Like domain-reviewer, this workflow is worker-transport neutral, but not
+self-review neutral. The assessor must be a fresh-context worker.
 
-- **Profile A: Subagent-capable runtimes** — Launch assessor as a Task subagent (`subagent_type=general-purpose`). Fresh context eliminates confirmation bias from having just written the plan. Orchestrator fixes inline (has full domain context).
-- **Profile B: Single-agent runtimes** — Run assessment inline. Simulate fresh context by explicitly re-reading all 6 plan files + rubric before scoring. Keep phase boundaries explicit: `ASSESS` → `SCORE CHECK` → `FIX` → repeat.
-- **Profile C: Codex-delegated** — Delegate assessment to Codex via `/codex:rescue`. Gives a genuinely independent model reviewing the plan with your prompt and rubric. Orchestrator still fixes inline. Use `--background` to keep working while Codex scores.
+- **Profile A: Subagent-capable runtimes** — Launch assessor as a Task subagent (`subagent_type=general-purpose`), `divide-and-conquer`/NTM worker, or equivalent fresh worker. Fresh context eliminates confirmation bias from having just written the plan. Orchestrator fixes inline (has full domain context).
+- **Profile B: Codex-delegated** — Delegate assessment to Codex via `/codex:rescue`. Gives a genuinely independent model reviewing the plan with your prompt and rubric. Orchestrator still fixes inline. Use `--background` to keep working while Codex scores.
+
+Single-agent inline scoring is not an acceptable substitute. If no worker
+substrate is available, stop and report the missing prerequisite.
 
 | Role | Who | Why |
 |------|-----|-----|
-| Assessor | Subagent (A), inline re-read (B), or Codex via `/codex:rescue` (C) | Fresh eyes — no bias from having written the plan |
+| Assessor | Fresh worker/subagent (A) or Codex via `/codex:rescue` (B) | Fresh eyes — no bias from having written the plan |
 | Fixer | Orchestrator (this agent) | Has full domain context, codebase access, planning session history |
 
-### Profile C: Codex-Delegated Assessment
+### Profile B: Codex-Delegated Assessment
 
 When the `codex-plugin-cc` plugin is loaded, delegate the assessor prompt to Codex:
 
@@ -47,9 +50,9 @@ When the `codex-plugin-cc` plugin is loaded, delegate the assessor prompt to Cod
   only deduct for rubric violations.
 ```
 
-Add `--background` if you want to continue working while it runs, then `/codex:result` to retrieve the assessment. Parse the score and issues table the same as Profiles A/B (Step 2).
+Add `--background` if you want to continue working while it runs, then `/codex:result` to retrieve the assessment. Parse the score and issues table the same as Profile A (Step 2).
 
-**When to prefer Profile C:** When you want a cross-model second opinion (Codex uses GPT, not Claude) and have the plugin installed. Profile A is faster for the iterative fix loop; Profile C is best for the final external review pass.
+**When to prefer Profile B:** When you want a cross-model second opinion and have the plugin installed. Profile A is faster for the iterative fix loop; Profile B is best for the final external review pass.
 
 ## Auth Service Checks (Quality Assessment Mode)
 
@@ -72,7 +75,7 @@ When the slice touches auth/payments/identity, treat `{auth_packages_root}` as m
 
 The assessor reads all 6 plan files + the rubric and produces a structured assessment.
 
-### Assessor Prompt (for subagent or inline execution)
+### Assessor Prompt (for fresh worker execution)
 
 ```
 Assess the {slice} plan against the plan quality rubric.
@@ -114,12 +117,10 @@ assessment = launch_subagent(
 )
 ```
 
-### Profile B: Inline Execution
+### Worker Unavailable
 
-1. Re-read all 6 plan files (forces fresh context)
-2. Re-read the rubric
-3. Score each dimension, building the issues table
-4. Output the assessment in the specified format
+If no worker substrate is available, stop. Do not score the plan inline, and do
+not proceed to human checkpoint, save-location sign-off, or `br` epic minting.
 
 ---
 
@@ -183,6 +184,7 @@ while score < 100 and iteration <= max_iterations:
     iteration += 1
 
 if iteration > max_iterations and score < 100:
+    stall_triage()
     escalate_to_user()
 ```
 
@@ -199,16 +201,17 @@ Remaining issues:
 | ... | ... | ... | ... |
 
 These may require design decisions. How to proceed?
-- Fix manually (Recommended) — I'll address each remaining issue with your input
-- Accept current score — Proceed to save with known gaps
-- Another round — Run one more automated fix+assess cycle
+- Fix manually then re-run fresh-worker assessment (Recommended) — address each remaining issue with your input, then continue until 100/100
+- Another worker round — run one more fix+assess cycle with sharper instructions
+- Save draft with known gaps — allowed only as a draft; do not mint the `br` execution epic
 ```
 
 ---
 
 ## Step 5: Report
 
-Report the final quality score before proceeding to save location (Phase 6c).
+Report the final quality score before proceeding to human checkpoint (Phase 6c).
+Only `100/100` permits Phase 6e execution-epic minting.
 
 ### On PASS (100/100)
 
@@ -221,23 +224,27 @@ Plan quality: 100/100 ✓
 
 ```
 Plan quality: {score}/100
-{iterations_used} assessment round(s). {remaining_count} known issues accepted.
+{iterations_used} assessment round(s). {remaining_count} known issues remain.
+Saved as draft only; execution epic not minted.
 ```
 
 ---
 
 ## Integration with Phase 6
 
-This workflow slots into Phase 6 between writing files (6a) and save location (6c):
+This workflow slots into Phase 6 between writing files (6a) and the human
+checkpoint (6c):
 
 ```
 Phase 6: Sign-off
 ├── 6a. Write all 6 files (existing behavior)
 ├── 6b. Quality Loop (THIS WORKFLOW)
 │   ├── Assess → Parse → Fix → Re-assess (max 3 rounds)
-│   └── Report final score
-├── 6c. Save location (released/ vs planned/)
-└── 6d. Handoff
+│   └── Report final score; block execution below 100/100
+├── 6c. Human checkpoint MMDX review
+├── 6d. Save location (released/ vs planned/)
+├── 6e. Mint br epic + child issues only after 100/100
+└── 6f. Handoff
 ```
 
-The quality loop replaces the previous `review_plan.py` call in the skill's Phase 6 flow. Profile C (Codex-delegated via `/codex:rescue`) is the preferred external review path when the `codex-plugin-cc` plugin is installed. The `review_plan.py` script remains available as a standalone fallback for environments without the plugin.
+The quality loop replaces the previous `review_plan.py` call in the skill's Phase 6 flow. Profile B (Codex-delegated via `/codex:rescue`) is the preferred external review path when the `codex-plugin-cc` plugin is installed. The `review_plan.py` script remains available as a standalone fallback for environments without the plugin, but it does not replace the fresh-worker gate.

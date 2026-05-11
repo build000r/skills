@@ -1,0 +1,689 @@
+<!-- mmdx
+{
+  "entry": "main",
+  "links": [
+    {
+      "from": "main",
+      "label": "Context resolver",
+      "to": "context-resolver",
+      "title": "Open overlay and context resolution"
+    },
+    {
+      "from": "main",
+      "label": "Plan gate",
+      "to": "plan-gate",
+      "title": "Open planning gate"
+    },
+    {
+      "from": "main",
+      "label": "Implementation loop",
+      "to": "implementation-loop",
+      "title": "Open implementation orchestration loop"
+    },
+    {
+      "from": "main",
+      "label": "Review and retire",
+      "to": "review-retire",
+      "title": "Open audit and retirement loop"
+    },
+    {
+      "from": "main",
+      "label": "Artifact map",
+      "to": "artifact-map",
+      "title": "Open source-of-truth artifact map"
+    },
+    {
+      "from": "main",
+      "label": "Risk gates",
+      "to": "risk-gates",
+      "title": "Open risk gates"
+    },
+    {
+      "from": "plan-gate",
+      "label": "Phase depth",
+      "to": "phase-depth",
+      "title": "Open planner phase depth"
+    },
+    {
+      "from": "plan-gate",
+      "label": "Question cascade",
+      "to": "question-cascade",
+      "title": "Open question cascade"
+    },
+    {
+      "from": "plan-gate",
+      "label": "Plan quality loop",
+      "to": "plan-quality-loop",
+      "title": "Open plan quality loop"
+    },
+    {
+      "from": "implementation-loop",
+      "label": "Beads depth",
+      "to": "beads-depth",
+      "title": "Open Beads execution graph"
+    },
+    {
+      "from": "implementation-loop",
+      "label": "Scaffolder depth",
+      "to": "scaffolder-depth",
+      "title": "Open scaffolder depth"
+    },
+    {
+      "from": "implementation-loop",
+      "label": "Hardening depth",
+      "to": "hardening-depth",
+      "title": "Open hardening gate"
+    },
+    {
+      "from": "review-retire",
+      "label": "Audit loop depth",
+      "to": "audit-loop-depth",
+      "title": "Open audit loop detail"
+    },
+    {
+      "from": "review-retire",
+      "label": "Stall triage depth",
+      "to": "stall-triage-depth",
+      "title": "Open stall triage detail"
+    },
+    {
+      "from": "review-retire",
+      "label": "Retirement depth",
+      "to": "retirement-depth",
+      "title": "Open retirement detail"
+    },
+    {
+      "from": "artifact-map",
+      "label": "Single source depth",
+      "to": "single-source-depth",
+      "title": "Open single source of truth detail"
+    },
+    {
+      "from": "artifact-map",
+      "label": "MMDX checkpoint depth",
+      "to": "mmdx-checkpoint-depth",
+      "title": "Open MMDX checkpoint detail"
+    },
+    {
+      "from": "risk-gates",
+      "label": "External reality depth",
+      "to": "external-reality-depth",
+      "title": "Open external reality gate"
+    },
+    {
+      "from": "risk-gates",
+      "label": "Auth scope depth",
+      "to": "auth-scope-depth",
+      "title": "Open auth service gate"
+    }
+  ]
+}
+-->
+
+<!-- honesty-ledger
+Source: domain-planner/SKILL.md, domain-planner/references/orchestration-workflow.md, domain-scaffolder/SKILL.md, domain-reviewer/SKILL.md, domain-reviewer/references/orchestration-workflow.md
+Unit and denominator: domain-* process contracts across the three public skills
+Transform: skill contracts mirrored into linked Mermaid charts for review and navigation
+Filter or category selection: implementation-code details omitted; process contracts, gates, handoffs, artifacts, and loops retained
+Axis/domain: entry chart positions workflow left to right; child charts use status severity and handoff dependency order
+Caveat: this MMDX is a decision and navigation surface, not a replacement for the canonical SKILL.md files
+-->
+
+## chart main Domain Star Process Decision Surface
+```mermaid
+flowchart LR
+  start["RECOMMENDED: run domain-* as a gated slice factory"]
+  context["Context resolver"]
+  plan["Plan gate"]
+  implement["Implementation loop"]
+  review["Review and retire"]
+  done["DONE: audited, hardened, retired slice"]
+  artifacts["Artifact map"]
+  risks["Risk gates"]
+
+  start --> context --> plan --> implement --> review --> done
+  context -. "every mode depends on this" .-> artifacts
+  plan -. "writes canonical plan" .-> artifacts
+  implement -. "consumes plan and br epic" .-> artifacts
+  review -. "writes audit and completion record" .-> artifacts
+  risks -. "can halt or reshape" .-> plan
+  risks -. "can block closure" .-> review
+
+  classDef high fill:#fee2e2,stroke:#dc2626,color:#7f1d1d,stroke-width:2px
+  classDef med fill:#fef3c7,stroke:#d97706,color:#78350f,stroke-width:2px
+  classDef ok fill:#dcfce7,stroke:#16a34a,color:#14532d,stroke-width:2px
+  classDef low fill:#e0f2fe,stroke:#0284c7,color:#0c4a6e,stroke-width:1px
+  classDef unknown fill:#f3f4f6,stroke:#6b7280,color:#111827,stroke-dasharray: 4 3
+  classDef neutral fill:#f8fafc,stroke:#64748b,color:#0f172a
+  classDef decision fill:#ede9fe,stroke:#7c3aed,color:#3b0764,stroke-width:2px
+  classDef recommended fill:#d1fae5,stroke:#059669,color:#064e3b,stroke-width:3px
+  class start,done recommended
+  class context,artifacts neutral
+  class plan,implement,review decision
+  class risks med
+```
+
+## chart context-resolver Context Resolver
+```mermaid
+flowchart TD
+  cwd["Input: CWD + slice name or handoff"]
+  snapshot["OK: run domain_context_snapshot"]
+  overlay{"Client overlay matches?"}
+  matched["OK: context.yaml gives plan roots, repos, conventions, auth"]
+  noOverlay["BLOCKED: no overlay for orchestration"]
+  explicit["LOW: explicit plan paths allowed for read or plan-only work"]
+  askCreate["MED: ask to create overlay via skillbox quickstart"]
+  noSearch["HIGH: do not search filesystem for plans"]
+  result["Context is resolved before planning, scaffolding, or audit"]
+
+  cwd --> snapshot --> overlay
+  overlay -->|yes| matched --> result
+  overlay -->|no, planning only| explicit --> result
+  overlay -->|no, implementation| noOverlay --> askCreate --> result
+  noOverlay --> noSearch
+
+  classDef high fill:#fee2e2,stroke:#dc2626,color:#7f1d1d,stroke-width:2px
+  classDef med fill:#fef3c7,stroke:#d97706,color:#78350f,stroke-width:2px
+  classDef ok fill:#dcfce7,stroke:#16a34a,color:#14532d,stroke-width:2px
+  classDef low fill:#e0f2fe,stroke:#0284c7,color:#0c4a6e,stroke-width:1px
+  classDef decision fill:#ede9fe,stroke:#7c3aed,color:#3b0764,stroke-width:2px
+  classDef recommended fill:#d1fae5,stroke:#059669,color:#064e3b,stroke-width:3px
+  class snapshot,matched,result ok
+  class overlay decision
+  class noOverlay,noSearch high
+  class askCreate med
+  class explicit low
+```
+
+## chart plan-gate Planning Gate
+```mermaid
+flowchart TD
+  trigger["Trigger: new slice or existing plan"]
+  existing{"Plan exists?"}
+  prereq["OK: pre-planning prerequisites"]
+  phases["Phase depth"]
+  questions["Question cascade"]
+  quality["Plan quality loop"]
+  checkpoint["OK: review.mmdx human checkpoint"]
+  beads["OK: post-signoff br epic"]
+  accepted["READY: accepted slice contract"]
+
+  trigger --> existing
+  existing -->|new plan| prereq --> phases
+  existing -->|continue planning| phases
+  existing -->|check quality| quality
+  existing -->|implement it| accepted
+  phases --> questions --> quality --> checkpoint --> beads --> accepted
+
+  classDef ok fill:#dcfce7,stroke:#16a34a,color:#14532d,stroke-width:2px
+  classDef med fill:#fef3c7,stroke:#d97706,color:#78350f,stroke-width:2px
+  classDef decision fill:#ede9fe,stroke:#7c3aed,color:#3b0764,stroke-width:2px
+  classDef recommended fill:#d1fae5,stroke:#059669,color:#064e3b,stroke-width:3px
+  class existing decision
+  class prereq,checkpoint,beads ok
+  class phases,questions,quality med
+  class accepted recommended
+```
+
+## chart phase-depth Planner Phase Depth
+```mermaid
+flowchart TD
+  pre["Pre: build-vs-clone, docs freshness, external gate if needed"]
+  p0["0 Landscape: INDEX + sibling shared.md/schema"]
+  p05["0.5 Core Value Gate: actor, visible win, minimum slice"]
+  p1["1 Discovery: user stories with acceptance tests"]
+  p2["2 Contract: shared.md endpoints, shapes, errors locked"]
+  p3["3 Backend: rules, permissions, schema.mmd"]
+  p4["4 Frontend: screens, states, flows.md"]
+  p5["5 Strategy: tradeoffs, rejected options, non-goals"]
+  p55["5.5 Deep review: apr or fallback"]
+  p6["6 Signoff: deep review, 100/100 quality, review.mmdx, save, br epic"]
+
+  pre --> p0 --> p05 --> p1 --> p2 --> p3 --> p4 --> p5 --> p55 --> p6
+  p05 -. "scope filter" .-> p1
+  p2 -. "contract lock" .-> p3
+  p2 -. "contract lock" .-> p4
+  p6 -. "handoff" .-> p2
+
+  classDef ok fill:#dcfce7,stroke:#16a34a,color:#14532d,stroke-width:2px
+  classDef med fill:#fef3c7,stroke:#d97706,color:#78350f,stroke-width:2px
+  classDef high fill:#fee2e2,stroke:#dc2626,color:#7f1d1d,stroke-width:2px
+  class pre,p55 med
+  class p05,p2,p6 high
+  class p0,p1,p3,p4,p5 ok
+```
+
+## chart question-cascade Question Cascade
+```mermaid
+flowchart TD
+  outcome["1 Core outcome: what visible win?"]
+  story["2 Story scope: CRUD, view-only, assignment, or flow?"]
+  endpoint["3 Endpoint shape: combined or separate?"]
+  data["4 Data model: references, ownership, history?"]
+  access["5 Access control: inferred auth, owner, shared, admin?"]
+  frontend["6 Frontend access pattern: inline widget or page?"]
+  accept["7 Acceptance tests: happy, validation, auth, not found, conflict"]
+  stop["OK: ask only genuine uncertainties"]
+
+  outcome --> story --> endpoint --> data --> access --> frontend --> accept --> stop
+  outcome -. "cuts low-value scope" .-> accept
+  data -. "sibling FK check" .-> access
+  access -. "drives UI visibility" .-> frontend
+
+  classDef ok fill:#dcfce7,stroke:#16a34a,color:#14532d,stroke-width:2px
+  classDef decision fill:#ede9fe,stroke:#7c3aed,color:#3b0764,stroke-width:2px
+  class outcome,story,endpoint,data,access,frontend decision
+  class accept,stop ok
+```
+
+## chart plan-quality-loop Plan Quality Loop
+```mermaid
+flowchart LR
+  files["Input: 6 plan files"]
+  assess["Assess against 10 dimensions"]
+  score{"Score is 100/100?"}
+  fix["Fix cited issues only"]
+  reassess["Re-assess fresh"]
+  max{"3 rounds reached?"}
+  pass["READY: structural plan quality clean"]
+  escalate["BLOCKED: escalate remaining design decisions"]
+
+  files --> assess --> score
+  score -->|yes| pass
+  score -->|no| fix --> reassess --> score
+  score --> max
+  max -->|yes and still below 100| escalate
+
+  classDef high fill:#fee2e2,stroke:#dc2626,color:#7f1d1d,stroke-width:2px
+  classDef ok fill:#dcfce7,stroke:#16a34a,color:#14532d,stroke-width:2px
+  classDef decision fill:#ede9fe,stroke:#7c3aed,color:#3b0764,stroke-width:2px
+  class files,assess,fix,reassess ok
+  class score,max decision
+  class pass ok
+  class escalate high
+```
+
+## chart implementation-loop Implementation Loop
+```mermaid
+flowchart TD
+  accepted["Input: accepted plan + br epic"]
+  scope["Analyze repos and surfaces"]
+  wg["Beads depth"]
+  launch["Launch scaffolder workers by repo/surface"]
+  scaffold["Scaffolder depth"]
+  audit["Domain-reviewer audit"]
+  score{"Audit score 100/100?"}
+  fix["Fix workers from AUDIT_REPORT handoffs"]
+  harden["Hardening depth"]
+  done["READY: index DONE and retire"]
+
+  accepted --> scope --> wg --> launch --> scaffold --> audit --> score
+  score -->|no| fix --> audit
+  score -->|yes| harden --> done
+
+  classDef high fill:#fee2e2,stroke:#dc2626,color:#7f1d1d,stroke-width:2px
+  classDef med fill:#fef3c7,stroke:#d97706,color:#78350f,stroke-width:2px
+  classDef ok fill:#dcfce7,stroke:#16a34a,color:#14532d,stroke-width:2px
+  classDef decision fill:#ede9fe,stroke:#7c3aed,color:#3b0764,stroke-width:2px
+  class accepted,scope,wg,launch,scaffold,audit,harden ok
+  class score decision
+  class fix med
+  class done ok
+```
+
+## chart beads-depth Beads Execution Graph
+```mermaid
+flowchart TD
+  wg["br epic"]
+  node["Each child issue is a self-contained executable brief"]
+  fields["Required: issue id, concern label, repo label, dependencies, writes design, acceptance criteria, validation notes, risk label, status"]
+  context["Must embed context, contract excerpt, acceptance criteria, rationale"]
+  deps["Dependency edges define ready frontier"]
+  writes["Writes globs define parallel safety"]
+  readme["Optional README update node when positioning changes"]
+  wave["READY: agents can execute without re-deriving plan intent"]
+
+  wg --> node --> fields --> context --> wave
+  wg --> deps --> wave
+  wg --> writes --> wave
+  wg --> readme --> wave
+
+  classDef ok fill:#dcfce7,stroke:#16a34a,color:#14532d,stroke-width:2px
+  classDef med fill:#fef3c7,stroke:#d97706,color:#78350f,stroke-width:2px
+  class wg,node,fields,context,deps,writes,wave ok
+  class readme med
+```
+
+## chart scaffolder-depth Scaffolder Depth
+```mermaid
+flowchart TD
+  input["Input: existing slice plan"]
+  surface{"surface=backend or frontend?"}
+  backend["Backend: service tests, route tests, models, schemas, repository, service, router, migration"]
+  frontend["Frontend: patterns, types, API service, hooks, components, widget or page"]
+  validateB["Backend validation: tests pass, migration exists, router registered"]
+  validateF["Frontend validation: type/build/lint pass, states handled, patterns reused"]
+  handoff["Audit handoff names domain-reviewer, slice, surface, plan path, commands, risks"]
+
+  input --> surface
+  surface -->|backend| backend --> validateB --> handoff
+  surface -->|frontend| frontend --> validateF --> handoff
+
+  classDef ok fill:#dcfce7,stroke:#16a34a,color:#14532d,stroke-width:2px
+  classDef decision fill:#ede9fe,stroke:#7c3aed,color:#3b0764,stroke-width:2px
+  class input,backend,frontend,validateB,validateF,handoff ok
+  class surface decision
+```
+
+## chart hardening-depth Hardening Depth
+```mermaid
+flowchart TD
+  compliant["Audit 100/100"]
+  scope["Scope files from br issue writes"]
+  crap["Run /crap on touched files only"]
+  score{"FINAL_SCORE <= 30?"}
+  mutate["Run /mutate on top 3 hotspots and add tests"]
+  pass["READY: proceed to retirement"]
+  fail["BLOCKED: report surviving hotspots and ask accept or fix"]
+  skip["LOW: skip only if user explicitly requested"]
+
+  compliant --> scope --> crap --> score
+  score -->|yes| pass
+  score -->|no| mutate --> crap
+  mutate --> fail
+  compliant --> skip
+
+  classDef high fill:#fee2e2,stroke:#dc2626,color:#7f1d1d,stroke-width:2px
+  classDef ok fill:#dcfce7,stroke:#16a34a,color:#14532d,stroke-width:2px
+  classDef low fill:#e0f2fe,stroke:#0284c7,color:#0c4a6e,stroke-width:1px
+  classDef decision fill:#ede9fe,stroke:#7c3aed,color:#3b0764,stroke-width:2px
+  class compliant,scope,crap,pass ok
+  class score decision
+  class mutate high
+  class fail high
+  class skip low
+```
+
+## chart review-retire Review And Retire
+```mermaid
+flowchart TD
+  trigger["Trigger: audit, review, retire, close out, session consolidation"]
+  mode{"Mode?"}
+  audit["Audit loop depth"]
+  stall["Stall triage depth"]
+  retire["Retirement depth"]
+  session["Retire-session: consolidate DONE session plans"]
+  complete["DONE: lean completion artifact and updated index"]
+
+  trigger --> mode
+  mode -->|audit| audit --> stall --> retire --> complete
+  mode -->|retire| retire --> complete
+  mode -->|retire-session| session --> complete
+
+  classDef ok fill:#dcfce7,stroke:#16a34a,color:#14532d,stroke-width:2px
+  classDef med fill:#fef3c7,stroke:#d97706,color:#78350f,stroke-width:2px
+  classDef decision fill:#ede9fe,stroke:#7c3aed,color:#3b0764,stroke-width:2px
+  class mode decision
+  class audit,retire,session,complete ok
+  class stall med
+```
+
+## chart audit-loop-depth Audit Loop Depth
+```mermaid
+flowchart LR
+  start["Start audit with plan, code, standards"]
+  audit["Worker writes AUDIT_REPORT.md"]
+  parse["Orchestrator parses Overall Compliance Score"]
+  score{"100/100?"}
+  handoffs["Extract Agent Handoffs"]
+  fixB["Backend fix worker if needed"]
+  fixF["Frontend fix worker if needed"]
+  rereview["Re-review against previous report and git diff"]
+  done["READY: retire"]
+
+  start --> audit --> parse --> score
+  score -->|yes| done
+  score -->|no| handoffs
+  handoffs --> fixB --> rereview --> parse
+  handoffs --> fixF --> rereview
+
+  classDef ok fill:#dcfce7,stroke:#16a34a,color:#14532d,stroke-width:2px
+  classDef med fill:#fef3c7,stroke:#d97706,color:#78350f,stroke-width:2px
+  classDef decision fill:#ede9fe,stroke:#7c3aed,color:#3b0764,stroke-width:2px
+  class start,audit,parse,rereview,done ok
+  class score decision
+  class handoffs,fixB,fixF med
+```
+
+## chart stall-triage-depth Stall Triage Depth
+```mermaid
+flowchart TD
+  stall["Stall: less than 2 point gain, repeated issue, or 5 iterations"]
+  classify["Classify every remaining issue"]
+  actionable["ACTIONABLE: retarget worker with sharper instructions"]
+  regressing["REGRESSING: retry once with combined context"]
+  stale["STALE: escalate, do not mark DONE below 100"]
+  external["EXTERNAL: auth gap, upstream API, missing package"]
+  report["Output specific stall report with trajectory and recommendation"]
+
+  stall --> classify
+  classify --> actionable --> report
+  classify --> regressing --> report
+  classify --> stale --> report
+  classify --> external --> report
+
+  classDef high fill:#fee2e2,stroke:#dc2626,color:#7f1d1d,stroke-width:2px
+  classDef med fill:#fef3c7,stroke:#d97706,color:#78350f,stroke-width:2px
+  classDef ok fill:#dcfce7,stroke:#16a34a,color:#14532d,stroke-width:2px
+  class stall,stale,external high
+  class classify,regressing,report med
+  class actionable ok
+```
+
+## chart retirement-depth Retirement Depth
+```mermaid
+flowchart TD
+  compliant["Input: 100/100 compliant implementation"]
+  investigate["Read plan, AUDIT_REPORT, git diff, completed evidence"]
+  categorize["Categorize stories: complete, deferred, not built"]
+  completed["Write lean COMPLETED.md"]
+  prune["Remove bloat from completion docs"]
+  index["Update INDEX.md to DONE"]
+  archive["Retire-session can archive completed session plans"]
+  done["DONE: future readers know what shipped and what did not"]
+
+  compliant --> investigate --> categorize --> completed --> prune --> index --> done
+  archive --> index
+
+  classDef ok fill:#dcfce7,stroke:#16a34a,color:#14532d,stroke-width:2px
+  classDef low fill:#e0f2fe,stroke:#0284c7,color:#0c4a6e,stroke-width:1px
+  class compliant,investigate,categorize,completed,prune,index,done ok
+  class archive low
+```
+
+## chart artifact-map Artifact Map
+```mermaid
+flowchart TD
+  index["INDEX.md: slice registry and status"]
+  plan["plan.md: business value, stories, decisions, non-goals"]
+  shared["shared.md: endpoints, types, errors"]
+  backend["backend.md: rules, permissions, edge cases"]
+  frontend["frontend.md: screens, states, interactions"]
+  flows["flows.md: journeys and failure paths"]
+  schema["schema.mmd: conceptual ERD"]
+  review["review.mmdx: human checkpoint mirror"]
+  wg["br epic: execution briefs and ready frontier"]
+  audit["AUDIT_REPORT.md: compliance and handoffs"]
+  completed["COMPLETED.md: lean shipped summary"]
+  depth1["Single source depth"]
+  depth2["MMDX checkpoint depth"]
+
+  index --> plan
+  plan --> shared
+  shared --> backend
+  shared --> frontend
+  shared --> flows
+  backend --> schema
+  frontend --> flows
+  plan --> review
+  shared --> review
+  backend --> review
+  frontend --> review
+  flows --> review
+  schema --> review
+  plan --> wg
+  wg --> audit
+  audit --> completed
+  depth1 -. "govern definitions" .-> shared
+  depth2 -. "review surface" .-> review
+
+  classDef ok fill:#dcfce7,stroke:#16a34a,color:#14532d,stroke-width:2px
+  classDef neutral fill:#f8fafc,stroke:#64748b,color:#0f172a
+  class index,plan,shared,backend,frontend,flows,schema,review,wg,audit,completed ok
+  class depth1,depth2 neutral
+```
+
+## chart single-source-depth Single Source Depth
+```mermaid
+flowchart LR
+  types["Types and shapes live in shared.md"]
+  endpoints["Endpoint paths live in shared.md"]
+  rules["Business rules live in backend.md"]
+  screens["Screens and states live in frontend.md"]
+  journeys["Journeys live in flows.md"]
+  entities["Entities and relationships live in schema.mmd"]
+  refs["Other files reference, not redefine"]
+  audit["Reviewer checks cross-file integrity"]
+
+  types --> refs
+  endpoints --> refs
+  rules --> refs
+  screens --> refs
+  journeys --> refs
+  entities --> refs
+  refs --> audit
+
+  classDef ok fill:#dcfce7,stroke:#16a34a,color:#14532d,stroke-width:2px
+  classDef high fill:#fee2e2,stroke:#dc2626,color:#7f1d1d,stroke-width:2px
+  class types,endpoints,rules,screens,journeys,entities,refs,audit ok
+```
+
+## chart mmdx-checkpoint-depth MMDX Checkpoint Depth
+```mermaid
+flowchart TD
+  source["Source: 6 plan files plus br epic if minted"]
+  main["Entry chart: READY, REVISE, or BLOCKED"]
+  core["Core win and scope"]
+  contract["Contract and data"]
+  runtime["Runtime behavior"]
+  risk["Decision and risk"]
+  exec["Execution handoff"]
+  preflight["OK: mmd.py --preflight-only passes"]
+  open["OK: opened in diagrams viewer before human decision"]
+
+  source --> main
+  main --> core
+  main --> contract
+  main --> runtime
+  main --> risk
+  main --> exec
+  core --> preflight
+  contract --> preflight
+  runtime --> preflight
+  risk --> preflight
+  exec --> preflight
+  preflight --> open
+
+  classDef ok fill:#dcfce7,stroke:#16a34a,color:#14532d,stroke-width:2px
+  classDef decision fill:#ede9fe,stroke:#7c3aed,color:#3b0764,stroke-width:2px
+  class source,core,contract,runtime,risk,exec,preflight,open ok
+  class main decision
+```
+
+## chart risk-gates Risk Gates
+```mermaid
+flowchart TD
+  start["Risk gates can reshape or stop a slice"]
+  build["Build-vs-clone: adopt, clone, extract, or build"]
+  docs["Docs freshness: README and vision drift"]
+  external["External reality depth"]
+  auth["Auth scope depth"]
+  delivery["Delivery strategy: big-bang target state by default"]
+  db["DB transition: only when production data is at risk"]
+  perf["Performance envelope: binding when overlay declares targets"]
+  result["READY: risks are explicit, not implicit implementation debt"]
+
+  start --> build --> result
+  start --> docs --> result
+  start --> external --> result
+  start --> auth --> result
+  start --> delivery --> result
+  start --> db --> result
+  start --> perf --> result
+
+  classDef high fill:#fee2e2,stroke:#dc2626,color:#7f1d1d,stroke-width:2px
+  classDef med fill:#fef3c7,stroke:#d97706,color:#78350f,stroke-width:2px
+  classDef ok fill:#dcfce7,stroke:#16a34a,color:#14532d,stroke-width:2px
+  class build,external,auth,db high
+  class docs,delivery,perf med
+  class start,result ok
+```
+
+## chart external-reality-depth External Reality Depth
+```mermaid
+flowchart TD
+  unknown["Question depends on current outside facts"]
+  escalate["Call escalate with exact decision at risk"]
+  route{"Route?"}
+  thesis["thesis-gtm: buyer, ICP, wedge, pricing, packaging"]
+  research["deep-research-prompt: vendor, platform, regulation, API fact"]
+  web["web-check: bounded current-source check"]
+  skip["skip: record reason"]
+  broad["too-broad: narrow before Phase 0"]
+  wiki["If durable finding and wiki exists, ingest note"]
+  carry["Carry constraints into landscape and Core Value Gate"]
+
+  unknown --> escalate --> route
+  route --> thesis --> carry
+  route --> research --> wiki --> carry
+  route --> web --> wiki
+  route --> skip --> carry
+  route --> broad --> unknown
+
+  classDef high fill:#fee2e2,stroke:#dc2626,color:#7f1d1d,stroke-width:2px
+  classDef med fill:#fef3c7,stroke:#d97706,color:#78350f,stroke-width:2px
+  classDef ok fill:#dcfce7,stroke:#16a34a,color:#14532d,stroke-width:2px
+  classDef decision fill:#ede9fe,stroke:#7c3aed,color:#3b0764,stroke-width:2px
+  class unknown,broad high
+  class escalate,thesis,research,web,wiki,carry ok
+  class route decision
+  class skip med
+```
+
+## chart auth-scope-depth Auth Scope Depth
+```mermaid
+flowchart TD
+  slice["Slice touches auth, payments, or identity"]
+  source["Canonical source: auth packages from client overlay"]
+  reuse["OK: reuse existing packages first"]
+  gap{"Capability missing?"}
+  proposal["BLOCKED: auth-scope proposal with gap, API/package, impacted slice, cross-product benefit"]
+  local["MED: temporary local symlink/link for unpublished package changes"]
+  live["OK: final validation against published/live auth packages"]
+  reject["HIGH: reject parallel local auth/payments/identity layer"]
+  close["READY: compliant auth scope"]
+
+  slice --> source --> reuse --> gap
+  gap -->|no| close
+  gap -->|yes| proposal --> local --> live --> close
+  reuse --> reject
+
+  classDef high fill:#fee2e2,stroke:#dc2626,color:#7f1d1d,stroke-width:2px
+  classDef med fill:#fef3c7,stroke:#d97706,color:#78350f,stroke-width:2px
+  classDef ok fill:#dcfce7,stroke:#16a34a,color:#14532d,stroke-width:2px
+  classDef decision fill:#ede9fe,stroke:#7c3aed,color:#3b0764,stroke-width:2px
+  class source,reuse,live,close ok
+  class gap decision
+  class proposal,reject high
+  class local med
+```

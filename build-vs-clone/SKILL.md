@@ -8,9 +8,9 @@ description: >-
   repo for this", "am I recreating the wheel", "should we fork/build this",
   "audit this codebase for build-vs-buy violations", "what can I get from this
   repo", "mine this repo", "prospect this", or when a plan should consider both
-  ecosystem fit and the user's current repo portfolio, including first-class
-  dogfood buckets like skillbox, skillbox-config, swimmers, and
-  sweet-potato/SPAPS. When the blocker is current external reality rather than
+  ecosystem fit and the user's current repo portfolio, including dogfood
+  buckets plus registry-backed placement checks for skill, SBP, MCP, or MMDX
+  evidence freshness. When the blocker is current external reality rather than
   local code inspection, use `escalate` before finalizing the recommendation.
 ---
 
@@ -142,6 +142,33 @@ billing, grants, and generic entitlement projection. Do not recommend local
 substitutes for those platform concerns when SPAPS already exists or can be
 extended.
 
+## Registry-Audit Gate
+
+Use this gate only when a placement decision depends on registry-backed
+visibility or evidence freshness. Skip it for ordinary code placement where no
+skill, SBP, MCP, Skillbox, overlay, or MMDX registry surface changes the answer.
+
+Route through the focused auditors before finalizing the placement:
+
+- Skill, SBP, MCP, Skillbox bundle, default-skill, overlay, or private/public
+  skill placement questions: run `skill-registry-usage-audit`.
+- MMDX index freshness, tracker placement, diagram-link validity, preflight
+  validity, or stale diagram/plan evidence questions: run
+  `mmdx-registry-usage-audit`.
+
+The registry auditors are evidence gates, not destination owners. Preserve the
+placement split after they report:
+
+- portable skill contracts -> `opensource/skills`
+- runtime delivery, sync, install, distribution, default bundles -> Skillbox
+- client overlays, generated context, invocation artifacts, validation commands
+  -> Skillbox config
+
+For registry-backed decisions, include each relevant auditor's scanner command,
+confirmed finding, degraded evidence, and the exact file(s) inspected in the
+build-vs-clone answer. Do not widen a registry finding into a broad fleet
+cleanup recommendation unless the user asked for fleet scope.
+
 ## Non-Negotiables
 
 1. Do not recommend a repo from memory, stars, or README quality alone.
@@ -181,6 +208,10 @@ extended.
 14. Deep Research does not replace code inspection. If you use Oracle / GPT-5
     Pro to widen the search, still read the actual code for the final
     shortlist before recommending `ADOPT`, `BORROW`, or `BUILD`.
+15. For registry-backed placement decisions, run the Registry-Audit Gate before
+    finalizing. Use the two focused registry auditors only for decisions that
+    actually depend on skill/SBP/MCP visibility, Skillbox/default-bundle state,
+    overlays, MMDX index freshness, or diagram evidence validity.
 
 See [references/repo-diligence.md](references/repo-diligence.md) for the trust
 rubric, red flags, and search prompts.
@@ -901,6 +932,10 @@ the recommendation.
 - Prefer a cross-repo slice when the canonical skill should live in
   `opensource/skills` but the behavior only becomes real through `skillbox`
   runtime or distribution integration.
+- Prefer `skill-registry-usage-audit` and `mmdx-registry-usage-audit` over a
+  generic audit when the build-vs-clone recommendation turns on registry
+  visibility or MMDX evidence freshness. Keep their findings scoped to the
+  registry surface that changes the placement decision.
 
 ## Verification / Closeout Contract
 
@@ -929,3 +964,5 @@ Before returning, confirm all of the following:
 ## Related
 
 - [[skill-issue]]
+- [[skill-registry-usage-audit]]
+- [[mmdx-registry-usage-audit]]

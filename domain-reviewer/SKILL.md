@@ -8,6 +8,14 @@ license: MIT
 
 Three modes: **Audit** (autonomous loop), **Retire** (post-completion), and **Retire-Session** (session plan consolidation).
 
+## First Progress Marker (Required)
+
+Start the first progress update with the exact prefix `Using domain-reviewer`.
+
+Preferred format: `Using domain-reviewer in <mode|resolving> mode for <slice|slice-resolution>.`
+
+Do not change or omit that prefix.
+
 ## Use This For
 
 - Auditing an implementation against an existing slice plan
@@ -140,6 +148,18 @@ The overlay defines:
 - **auth** — packages_root, python_packages, npm_packages
 - **Tag-to-domain mapping** — maps plan tags to domain folders (for retire-session mode)
 - **Commit conventions** — message formats for audit and retire commits
+
+Before manual `rg`/`sed`/`find` inspection, capture the active overlay and
+slice-plan state with the shared context snapshot helper:
+
+```bash
+python3 ~/.claude/skills/_shared/scripts/domain_context_snapshot.py --cwd "$PWD" --slice {slice_name} --pretty
+```
+
+Use the JSON output to identify plan roots, implementation repos, convention
+references, required plan-file presence, and existing workflow artifacts such as
+`AUDIT_REPORT.md` or `COMPLETED.md`. Only fall back to freehand shell inspection
+for concrete files the snapshot surfaces as relevant.
 
 **If no client overlay matches the current directory:**
 1. Tell the user no overlay matches and create one using the skillbox-quickstart scan + generate flow before proceeding.

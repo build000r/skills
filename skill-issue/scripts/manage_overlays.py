@@ -9,6 +9,9 @@ Usage:
     manage_overlays.py match  [--cwd DIR] [--config-root DIR]
 
 All commands output JSON when --json is passed.
+By default, new overlays are created under .buildooor/skillbox-config/clients
+inside the target git repo; legacy/shared skillbox-config/clients roots are
+still discovered for matching and explicit --config-root use.
 """
 
 import argparse
@@ -20,25 +23,56 @@ from pathlib import Path
 import yaml
 
 
-def find_config_root() -> Path | None:
-    """Walk up from cwd looking for skillbox-config/clients/."""
-    cwd = Path.cwd()
-    for p in [cwd, *cwd.parents]:
-        candidate = p / "skillbox-config" / "clients"
-        if candidate.is_dir():
-            return candidate
+CONFIG_ROOT_SUFFIXES = (
+    (".buildooor", "skillbox-config", "clients"),
+    ("skillbox-config", "clients"),
+)
+
+
+def _candidate_config_roots(base: Path) -> list[Path]:
+    return [base.joinpath(*suffix) for suffix in CONFIG_ROOT_SUFFIXES]
+
+
+def _find_git_root(start: Path) -> Path | None:
+    for p in [start, *start.parents]:
+        if (p / ".git").exists():
+            return p
     return None
 
 
-def find_config_roots() -> list[Path]:
-    """Walk up from cwd and return every skillbox-config/clients/ root."""
-    cwd = Path.cwd()
+def _start_path(start: str | Path | None = None) -> Path:
+    if start is None:
+        return Path.cwd()
+    return Path(os.path.abspath(os.path.expanduser(os.path.expandvars(str(start)))))
+
+
+def find_config_root(start: str | Path | None = None) -> Path | None:
+    """Walk up from cwd looking for a known clients/ root."""
+    cwd = _start_path(start)
+    for p in [cwd, *cwd.parents]:
+        for candidate in _candidate_config_roots(p):
+            if candidate.is_dir():
+                return candidate
+    return None
+
+
+def find_config_roots(start: str | Path | None = None) -> list[Path]:
+    """Walk up from cwd and return every known clients/ root."""
+    cwd = _start_path(start)
     roots = []
     for p in [cwd, *cwd.parents]:
-        candidate = p / "skillbox-config" / "clients"
-        if candidate.is_dir() and candidate not in roots:
-            roots.append(candidate)
+        for candidate in _candidate_config_roots(p):
+            if candidate.is_dir() and candidate not in roots:
+                roots.append(candidate)
     return roots
+
+
+def default_create_config_root(cwd: str) -> Path:
+    """Create new overlays inside the current git repo's tracked .buildooor tree."""
+    cwd_path = Path(os.path.abspath(os.path.expanduser(os.path.expandvars(cwd))))
+    git_root = _find_git_root(cwd_path)
+    base = git_root if git_root is not None else cwd_path
+    return base / ".buildooor" / "skillbox-config" / "clients"
 
 
 def load_overlays(config_root: Path) -> list[dict]:
@@ -289,8 +323,20 @@ def cmd_match_roots(cwd: str, config_roots: list[Path], as_json: bool) -> int:
     """Find overlay matches across multiple local config roots."""
     cwd_path = os.path.abspath(os.path.expanduser(os.path.expandvars(cwd)))
     matches = []
-    for config_root in config_roots:
-        matches.extend(find_matches(cwd, config_root))
+    for root_index, config_root in enumerate(config_roots):
+        for match in find_matches(cwd, config_root):
+            match["_root_index"] = root_index
+            match["_match_len"] = len(match["expanded"])
+            matches.append(match)
+
+    if matches:
+        best_len = max(match["_match_len"] for match in matches)
+        matches = [match for match in matches if match["_match_len"] == best_len]
+        best_root = min(match["_root_index"] for match in matches)
+        matches = [match for match in matches if match["_root_index"] == best_root]
+        for match in matches:
+            del match["_root_index"]
+            del match["_match_len"]
 
     if as_json:
         print(json.dumps({
@@ -436,10 +482,15 @@ def main():
         return 1
 
     config_root_explicit = args.config_root is not None
-    config_root = Path(args.config_root) if config_root_explicit else find_config_root()
-    if config_root is None:
-        # Default to skillbox-config/clients/ relative to cwd
-        config_root = Path.cwd() / "skillbox-config" / "clients"
+    if config_root_explicit:
+        config_root = Path(args.config_root)
+    elif args.command == "create":
+        config_root = default_create_config_root(args.cwd)
+    else:
+        config_root = find_config_root(args.cwd if args.command == "match" else None)
+        if config_root is None:
+            fallback_base = _start_path(args.cwd) if args.command == "match" else Path.cwd()
+            config_root = fallback_base / ".buildooor" / "skillbox-config" / "clients"
 
     if args.command == "list":
         return cmd_list(config_root, args.json)
@@ -447,7 +498,7 @@ def main():
         return cmd_validate(config_root, args.json)
     elif args.command == "match":
         if not config_root_explicit:
-            config_roots = find_config_roots()
+            config_roots = find_config_roots(args.cwd)
             if not config_roots:
                 config_roots = [config_root]
             return cmd_match_roots(args.cwd, config_roots, args.json)

@@ -5,9 +5,13 @@ description: Produce copy-pasteable mega-prompts for external deep research tool
 
 # Deep research prompt
 
-Produce a single standalone deep-research prompt and, by default, **execute it through `oracle` headlessly** when `oracle` is on PATH. The prompt must still survive copy/paste cleanly, because paste mode is the documented fallback — but paste mode is no longer the default.
+Produce a single standalone deep-research prompt and, by default, **execute it through `oracle` headlessly** when `oracle` is on PATH and the installed Oracle can prove same-tab routing for ChatGPT tab-local tools. The prompt must still survive copy/paste cleanly, because paste mode is the documented fallback — but paste mode is no longer the default.
 
-**Hard rule — never ask the user to copy and paste when `oracle` is on PATH.** If `oracle` is available, run it. Do not hand back a code block with "paste this into ChatGPT" and stop there. The owner of this skill flagged that exact behavior as the thing to stop doing. Paste mode is only correct when (1) `oracle` is genuinely missing from PATH, (2) the user explicitly asked for `paste-only` / a Perplexity / Claude Research target, or (3) the caller skill explicitly asked for paste output.
+**Hard rule — never ask the user to copy and paste when `oracle` is on PATH and the route guard passes.** If `oracle` is available and `assets/scripts/check-oracle-tab-local-route.mjs` reports same-tab routing support, run it. Do not hand back a code block with "paste this into ChatGPT" and stop there. The owner of this skill flagged that exact behavior as the thing to stop doing. Paste mode is only correct when (1) `oracle` is genuinely missing from PATH, (2) the user explicitly asked for `paste-only` / a Perplexity / Claude Research target, (3) the caller skill explicitly asked for paste output, or (4) the route guard blocks automatic execution because Oracle would submit in a different ChatGPT tab than the one holding the Deep Research/Create image tool state.
+
+**Fail-closed rule for tab-local ChatGPT tools.** Deep Research and Create image are composer/tab-local. If the route guard says the installed Oracle opens a fresh remote ChatGPT tab, stop before toggling or submitting. Report the prompt/spec file path and the exact blocker. Do not "try anyway", do not rely on `--chatgpt-url` as a pin, and do not silently downgrade to a normal non-Deep-Research Oracle turn.
+
+**Execution-effort rule.** A route-blocked result is a blocked ChatGPT tab-local submission, not a completed launch. When the user asked to "launch", "run", "generate", or otherwise expected execution, do not stop at prompt/spec preparation if another route-independent execution lane exists. After the guarded ChatGPT path blocks, make one clearly labeled fallback attempt or control probe that cannot accidentally submit to the wrong ChatGPT tab, such as an available first-party image tool, Oracle/Gemini image generation, or a repo-local render/export path. Label it as a fallback, attach/source the same assets when the lane supports files, and report the exact success or failure evidence. Do not call the original ChatGPT Image/Deep Research request "launched" unless that exact tool actually received the job.
 
 ## First Progress Marker (Required)
 
@@ -40,9 +44,10 @@ Invoked when the user wants a structured research task delegated to an external 
 
 Pick one mode from context and say which one you are producing:
 
-- **Oracle execute mode** (default when `oracle` is on PATH) — the current run writes the prompt to `/tmp/<slug>-deep-research-<date>.md` and invokes `oracle` headlessly. User does not paste anything. This is the new default; see "Oracle execute mode contract" below.
+- **Oracle execute mode** (default when `oracle` is on PATH and the route guard passes) — the current run writes the prompt to `/tmp/<slug>-deep-research-<date>.md` and invokes `oracle` headlessly. User does not paste anything. This is the new default; see "Oracle execute mode contract" below.
+- **Route-blocked execute attempt** (automatic safety stop when `oracle` is on PATH but cannot prove same-tab routing) — the current run writes and sizes the prompt/spec, runs the guard, and stops before opening Chrome or submitting to the unsafe tab-local tool. User gets the file path and blocker, not a fake Oracle session. If execution was requested, also attempt one clearly labeled route-independent fallback/control probe when available and report that evidence separately.
 - **Paste mode** (fallback) — used only when `oracle` is not on PATH, the user explicitly asked for `paste-only`, or the target is Perplexity / Claude Research rather than ChatGPT. The user will paste the prompt into the external tool themselves.
-- **Image execute mode** (default when `oracle` is on PATH and the user asked for an image) — the prompt is an image-generation spec, not a research task spec. The skill writes it to `/tmp/<slug>-image-<date>.md`, toggles ChatGPT's Create image tool via the CDP helper, then runs Oracle headlessly against the same Chrome. Sibling of Oracle execute mode; see "Image execute mode contract" below. Falls back to Image paste mode only if Oracle is missing or the user asked for paste-only.
+- **Image execute mode** (default when `oracle` is on PATH, the user asked for an image, and the route guard passes) — the prompt is an image-generation spec, not a research task spec. The skill writes it to `/tmp/<slug>-image-<date>.md`, toggles ChatGPT's Create image tool via the CDP helper, then runs Oracle headlessly against the same Chrome. Sibling of Oracle execute mode; see "Image execute mode contract" below. Falls back to Image paste mode only if Oracle is missing, the user asked for paste-only, or the route guard blocks and the user explicitly chooses manual fallback.
 
 ### Oracle execute mode contract (default)
 
@@ -51,43 +56,58 @@ This is what the skill does when `oracle` is on PATH and neither `paste-only` no
 1. Compose the standalone prompt block (same content rules as paste mode — self-announcing first line, hard constraints, completion criteria).
 2. Write it to `/tmp/<slug>-deep-research-<date>.md`.
 3. Run a sizing check: `oracle --dry-run summary --file /tmp/<slug>-deep-research-<date>.md`. If it reports oversized input, fix the prompt (usually by tightening scope or dropping attached files) and retry before the real run.
-4. Prepare an explicit submit target on a known Chrome DevTools port. The Deep
+4. Resolve the skill directory and run the route guard:
+   ```
+   SKILL_DIR=""
+   for d in "./.claude/skills/deep-research-prompt" "$HOME/.claude/skills/deep-research-prompt"; do
+     [ -f "$d/SKILL.md" ] && { SKILL_DIR="$d"; break; }
+   done
+   [ -n "$SKILL_DIR" ] || { echo "deep-research-prompt skill not activated" >&2; exit 1; }
+   node "$SKILL_DIR/assets/scripts/check-oracle-tab-local-route.mjs"
+   ```
+   If it exits non-zero, **do not launch Chrome, toggle Deep Research, or run
+   Oracle**. Return a route-blocked execute attempt: mode, slug, prompt file,
+   guard output, and the choices "manual Deep Research paste" or "normal
+   non-Deep-Research Oracle run if the user explicitly accepts the downgrade."
+5. Prepare an explicit submit target on a known Chrome DevTools port. The Deep
    Research toggle is **tab/composer-local**, not Chrome-global. "Same Chrome"
    is not enough: Oracle may create or switch to another ChatGPT tab, and that
    new tab will not inherit the Deep Research tool. Use the flow in
    `references/deep-research-tool-toggle.md`:
    - launch or reuse Chrome on `127.0.0.1:9222`
-   - when a ChatGPT Project/folder URL exists, open it and pass it to Oracle with
-     `--chatgpt-url`
+   - when a ChatGPT Project/folder URL exists, open it only as the target that
+     will be toggled; do not treat `--chatgpt-url` as proof of tab reuse
    - make the toggle helper resolve exactly one tab using a dedicated DevTools
      port, `ORACLE_CHATGPT_TARGET_ID`, or `ORACLE_CHATGPT_URL_MATCH`
    - multiple ChatGPT tabs are fine for subagents only when the intended submit
      tab is explicit; if the helper reports ambiguous or missing selectors, stop
      and surface the issue instead of submitting
-5. Invoke Oracle headlessly against that same prepared browser:
+6. Invoke Oracle headlessly against that same prepared browser only when the
+   route guard has passed and the command includes whatever same-tab target
+   option or pre-submit hook the guard found. On Oracle v0.9.0, `--chatgpt-url`
+   opens a fresh dedicated remote tab; that is unsafe for Deep Research and
+   must be treated as route-blocked, not as a pin.
    ```
    oracle \
      --engine browser \
      --remote-chrome 127.0.0.1:9222 \
-     --chatgpt-url "$CHATGPT_PROJECT_URL" \
      --browser-model-strategy ignore \
      --timeout 30m \
      --slug <slug> \
      -p "$(cat /tmp/<slug>-deep-research-<date>.md)"
    ```
-   Omit `--chatgpt-url` only when no ChatGPT Project/folder URL is configured
-   and the submit target is otherwise unambiguous. If using a URL selector, set
+   If using a URL selector for the toggle helper, set
    `ORACLE_CHATGPT_URL_MATCH` to a unique substring from the same URL before
    running `assets/scripts/toggle-deep-research.mjs`.
    Add `--file <path>` for any supporting files the prompt references.
-6. Immediately verify the submitted conversation is the prepared Deep Research
+7. Immediately verify the submitted conversation is the prepared Deep Research
    tab. If Oracle opened or switched to a different project/conversation than
    the resolved target, submitted in a tab without the Deep Research chip, or
    the response begins like a normal non-research answer, treat the run as
    failed. Do not claim Deep Research ran.
-7. Return to the user a short "Oracle session started" line with the slug and the `oracle session <slug>` reattach command. Do **not** also print the prompt block — that is what the user explicitly said not to do.
+8. Return to the user a short "Oracle session started" line with the slug and the `oracle session <slug>` reattach command. Do **not** also print the prompt block — that is what the user explicitly said not to do.
 
-If any of steps 3–6 fail, report the failure plainly and **do not** silently fall back to paste mode; ask the user whether to retry, patch, or fall back.
+If any of steps 3–7 fail, report the failure plainly and **do not** silently fall back to paste mode; ask the user whether to retry, patch, or fall back.
 
 ### Paste-mode fallback contract
 
@@ -123,11 +143,10 @@ root is supplied.
    links.
 3. Write it to `/tmp/<slug>-image-<date>.md`.
 4. Run a sizing check: `oracle --dry-run summary --file /tmp/<slug>-image-<date>.md`. If oversized, tighten the spec and retry.
-5. Make sure a Chrome instance is running on the DevTools port (default `127.0.0.1:9222`) using the user's logged-in ChatGPT profile, with a `chatgpt.com` tab open. If a Chrome was launched earlier in the session for Deep research, reuse it — but first ensure the Deep research toggle is **off** (Image and Deep research are mutually exclusive composer tools).
-6. Resolve the skill directory once. The skill may be activated globally
+5. Resolve the skill directory once. The skill may be activated globally
    (`~/.claude/skills/deep-research-prompt`) or project-local
    (`./.claude/skills/deep-research-prompt`, when installed via
-   `sbp skill activate ... --cwd $PWD`). The toggle helper must be invoked
+   `sbp skill activate ... --cwd $PWD`). The guard and toggle helpers must be invoked
    from whichever path actually exists:
    ```
    SKILL_DIR=""
@@ -136,12 +155,24 @@ root is supplied.
    done
    [ -n "$SKILL_DIR" ] || { echo "deep-research-prompt skill not activated" >&2; exit 1; }
    ```
-   Then toggle Create image on:
+   Run the route guard before opening Chrome or toggling tools:
+   ```
+   node "$SKILL_DIR/assets/scripts/check-oracle-tab-local-route.mjs"
+   ```
+   If it exits non-zero, stop and report a route-blocked Image execute attempt
+   with the spec file path and guard output. Do not submit a text-only ChatGPT
+   turn by accident.
+6. Make sure a Chrome instance is running on the DevTools port (default `127.0.0.1:9222`) using the user's logged-in ChatGPT profile, with a `chatgpt.com` tab open. If a Chrome was launched earlier in the session for Deep research, reuse it — but first ensure the Deep research toggle is **off** (Image and Deep research are mutually exclusive composer tools).
+7. Toggle Create image on:
    ```
    node "$SKILL_DIR/assets/scripts/toggle-chatgpt-image.mjs"
    ```
    Non-zero exit means stop and surface the reason — **do not** silently fall back to paste mode. See `references/chatgpt-image-toggle.md` for exit codes and DOM-fragility notes.
-7. Invoke Oracle against the same Chrome:
+8. Invoke Oracle against the same Chrome only when the route guard has passed
+   and the command includes whatever same-tab target option or pre-submit hook
+   the guard found. On Oracle v0.9.0, `--chatgpt-url` opens a fresh dedicated
+   remote tab; that is unsafe for Image mode and must be treated as
+   route-blocked, not as a pin.
    ```
    oracle \
      --engine browser \
@@ -158,29 +189,30 @@ root is supplied.
    submitted. The model is fixed to ChatGPT's image-tool model in this
    composer mode anyway, so verifying the selector is moot. Omit `--file`
    only when the request has no visual source material. Image mode is
-   already on from step 6, so Oracle just submits the spec.
+   already on from step 7, so Oracle just submits the spec.
 
    The Image toggle is **tab-local** (same hazard as the Deep research
    toggle): if Oracle navigates to a brand-new `chatgpt.com` tab to submit,
-   the new tab will not inherit the toggle from step 6. Pass
-   `--chatgpt-url "$CHATGPT_PROJECT_URL"` so Oracle reuses the toggled tab,
-   set `ORACLE_CHATGPT_URL_MATCH` to a unique substring before running the
-   toggle helper, or re-toggle on the new submit tab before dispatch. See
+   the new tab will not inherit the toggle from step 7. Do not rely on
+   `--chatgpt-url` as a same-tab guarantee; the route guard must pass first.
+   Set `ORACLE_CHATGPT_URL_MATCH` to a unique substring before running the
+   toggle helper only to make the helper choose the right tab. See
    `references/chatgpt-image-toggle.md` for details and recovery.
 
    **Parallel image runs.** Image generation can run concurrently across
    multiple `chatgpt.com` tabs in the same Chrome. Open one tab per run with
    a unique URL marker (a `?run=<slug>` query string is enough), then for
    each run set `ORACLE_CHATGPT_URL_MATCH=<slug>` before invoking
-   `toggle-chatgpt-image.mjs` and pass `--chatgpt-url` matching the same
-   URL to Oracle. The helper now refuses to silently pick one of N matching
+   `toggle-chatgpt-image.mjs`. Run the route guard before any Oracle
+   submission; do not rely on `--chatgpt-url` matching the same URL as a
+   same-tab guarantee. The helper now refuses to silently pick one of N matching
    tabs (exit `7` when ambiguous, exit `8` when a selector was given but did
    not match), so the routing must be explicit per run. Same env-var
    contract as the deep-research toggle. Full parallel-runs flow lives in
    `references/chatgpt-image-toggle.md`.
-8. Surface the session slug for reattach (`oracle session <slug>`), and tell the user where the generated image file will be saved. Do **not** print the image-spec block back into chat.
+9. Surface the session slug for reattach (`oracle session <slug>`), and tell the user where the generated image file will be saved. Do **not** print the image-spec block back into chat.
 
-If any of steps 4–7 fail, report the failure plainly and ask the user whether to retry, patch the toggle helper, or fall back to Image paste mode.
+If any of steps 4–8 fail, report the failure plainly and ask the user whether to retry, patch the toggle helper, or fall back to Image paste mode.
 
 ### Image paste-mode fallback contract
 
@@ -348,6 +380,8 @@ Pick the shape based on the mode you chose:
 
 Do not print the prompt text. Do not print a fenced block. Do not print a copy instruction.
 
+**Route-blocked execute attempt (Oracle present but unsafe for tab-local tool):** one line naming mode, slug, prompt/spec file, guard command/result, and that no Oracle browser submission was made because the installed Oracle would open a fresh ChatGPT tab without the tool state. If the user expected execution, include the route-independent fallback/control probe that was actually attempted, the command/session/output path, and whether it produced the requested artifact. Offer only explicit next choices: manual Deep Research/Image paste, upgrade/patch Oracle for target-id or pre-submit-hook support, a supported fallback image/research lane, or normal non-Deep-Research Oracle if the user accepts that downgrade. Do not print the prompt/spec block unless the user explicitly chooses paste-mode fallback.
+
 **Paste-mode fallback / Perplexity / Claude Research:**
 1. **One or two lines of framing** — what this prompt does and what tool it is for, and why Oracle was skipped.
 2. **The copy instruction** — "Copy only the contents of the code block below..." placed immediately before the block.
@@ -367,9 +401,11 @@ Do not summarize the prompt content in prose after the block. The user will read
 
 - Prompt file was written to disk under `/tmp/` with an unambiguous slug
 - `oracle --dry-run summary` was run and the prompt is within the token budget
-- The Deep Research toggle was applied to the exact tab/composer Oracle submitted in; if multiple `chatgpt.com` tabs existed, the run stopped before submission or the ambiguity was explicitly resolved
-- The real Oracle invocation includes `--engine browser` with `--remote-chrome`, a concrete `--browser-model-strategy`, a slug, and the prompt file
-- The Deep Research tool toggle helper was invoked after the submit tab existed and before Oracle submitted (or an explicit reason why it was skipped is logged)
+- `assets/scripts/check-oracle-tab-local-route.mjs` was run before opening Chrome
+  or toggling Deep Research; if it failed, no browser submission was made
+- When the guard passed, the Deep Research toggle was applied to the exact tab/composer Oracle submitted in; if multiple `chatgpt.com` tabs existed, the run stopped before submission or the ambiguity was explicitly resolved
+- When Oracle was invoked, the real command includes `--engine browser` with `--remote-chrome`, a concrete `--browser-model-strategy`, a slug, and the prompt file
+- When the guard passed, the Deep Research tool toggle helper was invoked after the submit tab existed and before Oracle submitted (or an explicit reason why it was skipped is logged)
 - The chat reply contains no prompt code block, no "paste this" instruction, and no "copy the block below" phrasing
 - Oracle session slug is surfaced for reattach
 
@@ -377,9 +413,14 @@ Do not summarize the prompt content in prose after the block. The user will read
 
 - Spec file was written to disk under `/tmp/` with an unambiguous slug
 - `oracle --dry-run summary` was run on the spec file
-- A Chrome on the DevTools port has a `chatgpt.com` tab open
-- `assets/scripts/toggle-chatgpt-image.mjs` was invoked and the exit status is logged in the chat reply (e.g. "Create image: turned on" or the failure reason)
-- The real Oracle invocation includes `--remote-chrome`, `--browser-model-strategy ignore` (not `current` — Image mode hides the model selector), the slug, and the spec file
+- `assets/scripts/check-oracle-tab-local-route.mjs` was run before opening Chrome
+  or toggling Create image; if it failed, no browser submission was made
+- If the user asked to launch/generate and the route guard failed, at least one
+  route-independent fallback/control probe was attempted when a plausible lane
+  existed, and the closeout states whether that attempt produced an artifact
+- When the guard passed, a Chrome on the DevTools port has a `chatgpt.com` tab open
+- When the guard passed, `assets/scripts/toggle-chatgpt-image.mjs` was invoked and the exit status is logged in the chat reply (e.g. "Create image: turned on" or the failure reason)
+- When Oracle was invoked, the real command includes `--remote-chrome`, `--browser-model-strategy ignore` (not `current` — Image mode hides the model selector), the slug, and the spec file
 - If visual source material was part of the request, the source images were
   copied/downloaded/cached under `/tmp/<slug>-source/` and attached with
   `--file`; URLs, Midjourney `/styles/...` links, and `--sref` values were
@@ -413,6 +454,7 @@ If any item fails, fix before sending. Read `references/anti-patterns.md` for th
 - `assets/templates/n-entity-structured.md` — generic skeleton for "research N things with same structure"
 - `assets/templates/cross-jurisdiction-legal.md` — specialization for state-by-state or country-by-country legal research
 - `assets/templates/image-creation.md` — high-detail image generation prompt for Image execute mode (and its paste-mode fallback)
+- `assets/scripts/check-oracle-tab-local-route.mjs` — guard that blocks automatic Oracle submission when the installed Oracle cannot prove same-tab routing for ChatGPT tab-local tools
 - `assets/scripts/toggle-deep-research.mjs` — CDP helper that clicks ChatGPT's composer Deep research toggle on a running Chrome
 - `assets/scripts/toggle-chatgpt-image.mjs` — CDP helper that clicks ChatGPT's composer Create image toggle on a running Chrome
 
@@ -428,10 +470,13 @@ Before returning, confirm all of the following:
 
 1. Delivery mode is explicit: `Oracle execute mode` (default for research when
    `oracle` is on PATH), `Image execute mode` (default for image when
-   `oracle` is on PATH), `Paste-mode fallback`, or `Image paste-mode fallback`.
+   `oracle` is on PATH), `Route-blocked execute attempt`, `Paste-mode fallback`,
+   or `Image paste-mode fallback`.
 1a. If `oracle` was on PATH and neither `paste-only` nor a Perplexity / Claude
-    Research target was requested, the corresponding execute mode was used
-    and **no** "copy this / paste this" instruction appeared in the response.
+    Research target was requested, the corresponding execute mode was used or
+    the route guard blocked it before browser submission, and **no** "copy this
+    / paste this" instruction appeared in the response unless the user chose
+    paste fallback.
 2. For paste-mode shapes only: the prompt is a single fenced code block with a
    self-announcing first line, output schema (or layered image spec), hard
    constraints, and completion criteria (or image verification caption
@@ -442,6 +487,9 @@ Before returning, confirm all of the following:
 4. If Oracle execute mode was used, the chat reply names the spec file path,
    the slug, the toggle helper status, and the `oracle session <slug>`
    reattach command — and contains no spec block.
+4a. If the route guard blocked execution, the chat reply says no Oracle browser
+    submission was made and names the guard result instead of implying a
+    session exists.
 5. If Image execute mode was used, the chat reply additionally names which
    ChatGPT composer tool was toggled (Create image), the helper exit status,
    and the image verification reminder. If the toggle helper failed, the

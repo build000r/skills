@@ -79,7 +79,7 @@ Scorecard summary
 ### Tier 5 — Redundant copies
 ...
 
-### Tier 6 — Needs trimming (hand to docs-de-slopify after)
+### Tier 6 — Needs trimming (hand to de-slopify after)
 ...
 
 ### Tier 7 — Keep

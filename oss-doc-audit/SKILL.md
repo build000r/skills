@@ -10,9 +10,9 @@ Audit public docs against live code and repo policy.
 This is not a prose-polish skill. Factual correctness, active-stack alignment,
 and functioning guardrails come first. Style cleanup is secondary — for
 prose-level slop (emdashes, "Here's why", forced enthusiasm), hand off to the
-`docs-de-slopify` skill after factual drift is resolved. The two skills
+`de-slopify` skill after factual drift is resolved. The two skills
 compose: this one decides whether a doc should exist and be accurate;
-`docs-de-slopify` decides whether the surviving prose sounds human.
+`de-slopify` decides whether the surviving prose sounds human.
 
 ## On Trigger
 
@@ -223,7 +223,7 @@ stronger evidence for deletion than a single low score.
 | 3 | Deprecated but referenced | Old content still linked from live surface | Delete + sweep links |
 | 4 | Near-empty stubs | Placeholder or redirect-only pages | Delete |
 | 5 | Redundant copies | Duplicate of a canonical source | Delete, keep canonical |
-| 6 | Needs trimming | Useful core, padded with slop | Trim + hand to `docs-de-slopify` |
+| 6 | Needs trimming | Useful core, padded with slop | Trim + hand to `de-slopify` |
 | 7 | Keep | Accurate, necessary, non-redundant | Leave alone |
 
 Fabricated compliance claims, invented benchmarks, and fictional pricing are
@@ -351,6 +351,20 @@ Always include:
 - `Next Loop:` what to fix first before rerunning
 
 If no issues are found, say so plainly and still report what you checked.
+
+## Verification / Closeout
+
+Before returning, report the exact repo-native docs, build, test, or link checks
+you ran, plus any blocked checks and why they could not run. For edits to this
+skill itself, run:
+
+```bash
+python3 skill-issue/scripts/quick_validate.py oss-doc-audit
+python3 -m pytest oss-doc-audit/tests/test_select_mode.py
+```
+
+Do not call an audit complete until the public-doc findings are tied back to
+live code evidence and the validation commands or blockers are explicit.
 
 ## Related
 

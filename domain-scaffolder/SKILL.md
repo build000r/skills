@@ -2,6 +2,8 @@
 name: domain-scaffolder
 description: Scaffold backend or frontend domain code from an existing slice plan using a shared stack-aware workflow. Use for "scaffold a domain slice", "implement the backend for {slice}", "implement the frontend for {slice}", or "scaffold {slice}" after domain-planner finishes a slice plan. This is the only supported domain scaffolder skill.
 license: MIT
+metadata:
+  requires_beads: true
 ---
 
 # Domain Scaffolder
@@ -24,6 +26,36 @@ material. Treat this skill as the source of truth.
 
 Cross-skill worker, handoff, and shared-file ownership rules come from
 `references/orchestration-contract.md`.
+
+## Beads Discipline (All Surfaces)
+
+This skill executes work that originated as `br` (beads_rust) issues — usually
+minted by `domain-planner` Phase 6e or `domain-reviewer` audit findings.
+Every scaffold run claims its issue, runs validation, and closes it. Cross-skill
+conventions (naming, labels, lifecycle, attribution, commit policy) live in
+[`_shared/references/beads-contract.md`](../_shared/references/beads-contract.md).
+
+When an upstream handoff includes a `br` issue ID:
+
+```bash
+# Bootstrap (idempotent; cheap when already initialized)
+python3 ~/.claude/skills/_shared/scripts/br_helpers.py ensure
+export BR_AGENT_NAME=domain-scaffolder BR_HARNESS=claude-code BR_MODEL="$CLAUDE_MODEL"
+
+# Atomic claim on entry — assignee=actor + status=in_progress
+br update {issue-id} --claim
+
+# (do the work; respect --writes from `br show {id}`'s Design block)
+
+# On success — closes + returns newly unblocked issues
+br close {issue-id} --reason "{1-line summary}" --suggest-next --json
+
+# On verified blocker — leave it for the orchestrator
+br update {issue-id} -s blocked --notes "{verified blocker reason}"
+```
+
+If no `br` issue ID is provided (greenfield direct invocation), proceed without
+beads. Skill behavior is otherwise unchanged.
 
 ## Surfaces
 
@@ -84,6 +116,30 @@ surface: backend | frontend | both
 
 Use surface-specific sections within the overlay when a client needs separate
 configuration per surface.
+
+Before manual `rg`/`sed`/`find` inspection, capture the active overlay and
+slice-plan state with the shared context snapshot helper:
+
+```bash
+python3 ~/.claude/skills/_shared/scripts/domain_context_snapshot.py --cwd "$PWD" --slice {slice_name} --pretty
+```
+
+Use the JSON output to identify the matched plan roots, implementation repos,
+surface sections, convention references, required plan-file presence, and
+workflow artifacts. Only fall back to freehand shell inspection for concrete
+files the snapshot surfaces as relevant.
+
+Before manual `rg`/`sed`/`find` inspection, capture the active overlay and
+slice-plan state with the shared context snapshot helper:
+
+```bash
+python3 ~/.claude/skills/_shared/scripts/domain_context_snapshot.py --cwd "$PWD" --slice {slice_name} --pretty
+```
+
+Use the JSON output to identify the matched plan roots, implementation repos,
+surface sections, convention references, required plan-file presence, and
+workflow artifacts. Only fall back to freehand shell inspection for concrete
+files the snapshot surfaces as relevant.
 
 ## Client Overlay Selection
 

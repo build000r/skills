@@ -1,0 +1,103 @@
+<!-- mmdx
+{
+  "entry": "main",
+  "links": [
+    {
+      "from": "main",
+      "label": "HIGH Visibility break",
+      "to": "visibility-break",
+      "title": "Open visibility break detail"
+    },
+    {
+      "from": "main",
+      "label": "MED Placement drift",
+      "to": "placement-drift",
+      "title": "Open placement drift detail"
+    },
+    {
+      "from": "main",
+      "label": "OK Registry contract",
+      "to": "registry-contract",
+      "title": "Open registry contract"
+    },
+    {
+      "from": "main",
+      "label": "Plan First fixes",
+      "to": "first-fixes",
+      "title": "Open first fixes"
+    }
+  ]
+}
+-->
+
+## chart main Skill Registry Audit Map
+```mermaid
+quadrantChart
+  title Skill Registry Audit Map
+  x-axis Local manifest issue --> Runtime or cross-repo issue
+  y-axis Low adoption impact --> Blocks agent visibility
+  "HIGH Visibility break": [0.78, 0.9]
+  "MED Placement drift": [0.46, 0.68]
+  "OK Registry contract": [0.16, 0.24]
+  "Plan First fixes": [0.7, 0.52]
+```
+
+## chart visibility-break Visibility Break Detail
+```mermaid
+flowchart TD
+  declared["Required skill or MCP surface is declared"]
+  registry["Registry source exists"]
+  sbp["SBP effective cwd check"]
+  mcp["Claude and Codex MCP parity"]
+  blocked["HIGH visibility break"]
+  dryrun["Draft narrow dry-run command"]
+  verify["Re-run SBP or MCP read-only check"]
+  declared --> registry --> sbp --> mcp --> blocked --> dryrun --> verify
+```
+
+## chart placement-drift Placement Drift Detail
+```mermaid
+flowchart LR
+  contract["Portable skill contract"]
+  runtime["Skillbox runtime and distribution"]
+  config["Skillbox config and overlays"]
+  current{"Current file owner"}
+  public["opensource/skills"]
+  skillbox["Skillbox runtime repo"]
+  overlay["skillbox-config"]
+  contract --> current --> public
+  runtime --> current --> skillbox
+  config --> current --> overlay
+```
+
+## chart registry-contract Registry Contract Detail
+```mermaid
+flowchart TD
+  source["skill-repos.yaml and source manifests"]
+  skill["SKILL.md name and description"]
+  scope["skill-scope.yaml and SBP policy"]
+  bundle["default bundle manifests"]
+  mcp[".mcp.json and .codex/config.toml"]
+  proof["OK registry contract proof"]
+  source --> proof
+  skill --> proof
+  scope --> proof
+  bundle --> proof
+  mcp --> proof
+```
+
+## chart first-fixes First Fixes
+```mermaid
+gantt
+  title Skill Registry First Fixes
+  dateFormat  YYYY-MM-DD
+  axisFormat  %m-%d
+  section Audit
+  Run read-only scanner             :a1, 2026-05-10, 1d
+  Confirm active registry evidence  :a2, after a1, 1d
+  Run SBP and MCP read-only checks  :a3, after a2, 1d
+  section Fix
+  Review narrow dry-run commands    :b1, after a3, 1d
+  Apply scoped registry fix         :b2, after b1, 1d
+  Verify effective visibility       :b3, after b2, 1d
+```

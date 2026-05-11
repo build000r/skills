@@ -39,4 +39,9 @@ video-assets/
 video-script.md
 *-portal-api/
 broadcast-verify/
+
+# beads_rust local database sidecars; commit .beads/issues.jsonl instead
+.beads/*.db
+.beads/*.db-shm
+.beads/*.db-wal
 *-register/

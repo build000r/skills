@@ -21,7 +21,8 @@ Source of truth:
 - `flows.md` owns user journeys, service interactions, state transitions, and
   failure paths.
 - `schema.mmd` owns entity relationships.
-- `WORKGRAPH.md` owns post-sign-off implementation nodes when it exists.
+- The post-sign-off `br` epic owns implementation nodes. `WORKGRAPH.md`, when
+  present, is only a rendered view of that Beads state.
 
 ## Required MMDX Stack
 
@@ -36,7 +37,7 @@ has a clearly better chart family:
 | `contract-data` | `flowchart TD` plus ER detail or linked `erDiagram` | endpoints, request/response shapes, error codes, runtime/backpressure contract, entities, relationships, sibling FKs |
 | `runtime-behavior` | `sequenceDiagram`, `stateDiagram-v2`, or `flowchart TD` | flows, backend rules, permissions, frontend states, performance envelopes, DB transition runbook if any |
 | `decision-risk` | `quadrantChart` plus detail flowchart when needed | decisions, alternatives rejected, risk severity, confidence, open questions, blockers |
-| `execution-handoff` | `gantt` or `flowchart TD` | WORKGRAPH nodes, dependencies, writes ownership, validation commands, risk gates |
+| `execution-handoff` | `gantt` or `flowchart TD` | `br` child issues, dependencies, writes ownership, validation commands, risk gates |
 
 Use second-level links only when a child chart is too dense. Good second-level
 targets:
@@ -73,7 +74,7 @@ Make the chart argue truthfully:
 - **Title as verdict:** the entry chart answers `READY`, `REVISE`, or
   `BLOCKED`, not just `{slice} review`.
 - **Subtitle as method:** include a source/method node such as `Source: 6 plan
-  files + WORKGRAPH if present`.
+  files + br epic if minted`.
 - **Dominant recommendation:** the preferred human action has the strongest
   visual class and a status prefix.
 - **Direct labels:** label the exact thing that proves the recommendation:
@@ -111,8 +112,8 @@ Before opening the checkpoint, confirm `review.mmdx` contains:
 - Every performance SLO, load assumption, backpressure rule, and verification method.
 - Every major decision, rejected alternative, and out-of-scope/non-goal.
 - Every unresolved open question, risk, human-only gate, and blocker.
-- Every WORKGRAPH node, dependency, writes ownership, validation command, and
-  risk gate once `WORKGRAPH.md` exists.
+- Every `br` child issue, dependency, writes ownership, validation command, and
+  risk gate once the post-sign-off epic exists.
 
 ## Honesty Ledger
 
@@ -120,7 +121,7 @@ Put this ledger in the MMDX file as an HTML comment near the top:
 
 ```markdown
 <!-- honesty-ledger
-Source: plan.md, shared.md, backend.md, frontend.md, flows.md, schema.mmd, WORKGRAPH.md if present
+Source: plan.md, shared.md, backend.md, frontend.md, flows.md, schema.mmd, br epic/child issues if minted
 Unit and denominator: decision-grade plan details; all canonical plan files included
 Transform: plan details mirrored into linked Mermaid charts for review
 Filter or category selection: only implementation code and file-tree details omitted by spec boundary

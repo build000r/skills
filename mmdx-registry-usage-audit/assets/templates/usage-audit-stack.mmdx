@@ -1,0 +1,96 @@
+<!-- mmdx
+{
+  "entry": "main",
+  "links": [
+    {
+      "from": "main",
+      "label": "HIGH Stale index",
+      "to": "stale-index",
+      "title": "Open stale index detail"
+    },
+    {
+      "from": "main",
+      "label": "MED Link drift",
+      "to": "link-drift",
+      "title": "Open link drift detail"
+    },
+    {
+      "from": "main",
+      "label": "OK Valid stack",
+      "to": "valid-stack",
+      "title": "Open valid stack proof"
+    },
+    {
+      "from": "main",
+      "label": "Plan First fixes",
+      "to": "first-fixes",
+      "title": "Open first fixes"
+    }
+  ]
+}
+-->
+
+## chart main MMDX Registry Audit Map
+```mermaid
+quadrantChart
+  title MMDX Registry Audit Map
+  x-axis Local file issue --> Registry or placement issue
+  y-axis Low decision impact --> Blocks current evidence
+  "HIGH Stale index": [0.76, 0.9]
+  "MED Link drift": [0.48, 0.68]
+  "OK Valid stack": [0.17, 0.25]
+  "Plan First fixes": [0.68, 0.52]
+```
+
+## chart stale-index Stale Index Detail
+```mermaid
+flowchart TD
+  files["Active .mmdx files"]
+  index["INDEX.mmdx"]
+  mtime{"Index newer than active files?"}
+  stale["HIGH stale index"]
+  refresh["Run mmdx_index.py"]
+  verify["Open or preflight refreshed INDEX.mmdx"]
+  files --> index --> mtime
+  mtime --> stale --> refresh --> verify
+```
+
+## chart link-drift Link Drift Detail
+```mermaid
+flowchart LR
+  meta["MMDX link metadata"]
+  chart["Declared chart ids"]
+  labels["Visible labels in source chart"]
+  files["Local .mmd or .mmdx links"]
+  drift["MED link drift"]
+  meta --> chart --> drift
+  meta --> labels --> drift
+  files --> drift
+```
+
+## chart valid-stack Valid Stack Proof
+```mermaid
+flowchart TD
+  source["Read active MMDX source"]
+  links["Check metadata links"]
+  preflight["mmd.py --preflight-only"]
+  placement["Confirm owner path"]
+  proof["OK valid stack proof"]
+  source --> links --> preflight --> placement --> proof
+```
+
+## chart first-fixes First Fixes
+```mermaid
+gantt
+  title MMDX Registry First Fixes
+  dateFormat  YYYY-MM-DD
+  axisFormat  %m-%d
+  section Audit
+  Run read-only scanner             :a1, 2026-05-10, 1d
+  Refresh generated index if needed :a2, after a1, 1d
+  Preflight active stacks           :a3, after a2, 1d
+  section Fix
+  Patch missing chart links         :b1, after a3, 1d
+  Move misplaced active trackers    :b2, after b1, 1d
+  Verify current evidence path      :b3, after b2, 1d
+```

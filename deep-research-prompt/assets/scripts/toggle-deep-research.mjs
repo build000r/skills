@@ -14,6 +14,8 @@
 //      ChatGPT tab is open on the same DevTools port.
 //   4. Skill runs Oracle only if that same tab is the one Oracle will submit in.
 //      Deep research is composer/tab-local, not Chrome-global.
+//      Oracle v0.9.0 remote mode opens a fresh dedicated tab for its ChatGPT
+//      URL, so run check-oracle-tab-local-route.mjs before submitting.
 //
 // Exit codes:
 //   0 — Deep research is on (either toggled by us or already selected).

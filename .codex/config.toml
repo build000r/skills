@@ -1,0 +1,10 @@
+#:schema https://developers.openai.com/codex/config-schema.json
+
+[mcp_servers.skillbox]
+command = "python3"
+args = ["/Users/b/repos/opensource/skillbox/.env-manager/mcp_server.py"]
+
+[mcp_servers.skillbox.env]
+SKILLBOX_MONOSERVER_ROOT = "/Users/b/repos"
+SKILLBOX_MONOSERVER_HOST_ROOT = "/Users/b/repos"
+SKILLBOX_CLIENTS_HOST_ROOT = "/Users/b/repos/skillbox-config/clients"

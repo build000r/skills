@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "skillbox": {
+      "command": "python3",
+      "args": ["/Users/b/repos/opensource/skillbox/.env-manager/mcp_server.py"],
+      "env": {
+        "SKILLBOX_MONOSERVER_ROOT": "/Users/b/repos",
+        "SKILLBOX_CLIENTS_HOST_ROOT": "/Users/b/repos/skillbox-config/clients"
+      }
+    }
+  }
+}

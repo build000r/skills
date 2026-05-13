@@ -73,6 +73,49 @@ class SshInfoStatusTests(unittest.TestCase):
             self.assertIn("=== Local / Known Health Checks ===", result.stdout)
             self.assertIn("Example API", result.stdout)
 
+    def test_health_check_label_falls_back_to_service_id(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(os.path.realpath(tmpdir))
+            repo = root / "service"
+            repo.mkdir()
+
+            overlay = {
+                "version": 1,
+                "client": {
+                    "id": "example",
+                    "label": "Example",
+                    "default_cwd": str(repo),
+                    "repos": [],
+                    "logs": [],
+                    "context": {
+                        "cwd_match": [str(repo)],
+                        "deploy": {
+                            "services": {
+                                "site": {
+                                    "health_url": "http://127.0.0.1:1/health",
+                                }
+                            }
+                        },
+                    },
+                    "checks": [],
+                },
+            }
+            overlay_path = root / "skillbox-config" / "clients" / "example" / "overlay.yaml"
+            overlay_path.parent.mkdir(parents=True)
+            overlay_path.write_text(yaml.safe_dump(overlay, sort_keys=False), encoding="utf-8")
+
+            result = subprocess.run(
+                ["bash", str(SCRIPT), "local"],
+                cwd=repo,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, msg=result.stderr)
+            self.assertIn("site", result.stdout)
+            self.assertNotIn("unknown", result.stdout)
+
     def test_prod_status_prefers_upstream_container_over_compose_service(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(os.path.realpath(tmpdir))

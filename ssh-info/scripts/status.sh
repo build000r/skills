@@ -72,8 +72,8 @@ print('(' + '|'.join(names) + ')')
   checks="$(printf '%s' "$json" | python3 -c "
 import sys, json
 d = json.load(sys.stdin)
-for s in d.get('services', {}).values():
-    label = s.get('label', 'unknown')
+for service_id, s in d.get('services', {}).items():
+    label = s.get('label') or service_id
     url = s.get('health_url', '')
     if url:
         print(f'{label}|{url}')
@@ -89,8 +89,8 @@ for s in d.get('services', {}).values():
   prod_checks="$(printf '%s' "$json" | python3 -c "
 import sys, json
 d = json.load(sys.stdin)
-for s in d.get('services', {}).values():
-    label = s.get('label', 'unknown')
+for service_id, s in d.get('services', {}).items():
+    label = s.get('label') or service_id
     container = s.get('container_name') or s.get('upstream_container') or s.get('compose_service', '')
     port = s.get('internal_port', '')
     if container and port:

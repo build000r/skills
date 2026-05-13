@@ -59,6 +59,12 @@ when they explain the current goal's failed proof; otherwise record them as
 process noise and keep the closeout focused on the exact approval or runtime
 gate that still blocks completion.
 
+When a client-scoped event feed returns rows whose `client_id` or
+`detail.client_id` differs from the requested client, treat those rows as
+cross-client noise unless another field directly explains the current proof
+failure. Do not let subject/name matches alone promote another client's pulse
+failure into the target repo's blocker list.
+
 ## Output Shape
 
 - Observed friction

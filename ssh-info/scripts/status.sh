@@ -49,7 +49,9 @@ try_overlay() {
   # Extract SSH target
   STATUS_REMOTE_SSH="$(printf '%s' "$json" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('droplet_ssh',''))" 2>/dev/null)" || true
 
-  # Build container filter from service names
+  # Build container filter from service names. For Compose services, the
+  # service name is often generic ("api"); prefer the concrete runtime
+  # container/alias when the overlay provides one.
   local services_filter
   services_filter="$(printf '%s' "$json" | python3 -c "
 import sys, json
@@ -57,12 +59,10 @@ d = json.load(sys.stdin)
 svcs = d.get('services', {})
 names = ['NAMES']
 for s in svcs.values():
-    cs = s.get('compose_service', '')
-    if cs:
-        names.append(cs)
-    cw = s.get('compose_service_worker', '')
-    if cw:
-        names.append(cw)
+    for key in ('container_name', 'upstream_container', 'compose_service', 'compose_service_worker'):
+        name = s.get(key, '')
+        if name:
+            names.append(name)
 print('(' + '|'.join(names) + ')')
 " 2>/dev/null)" || true
   PROD_CONTAINER_FILTER="${services_filter:-}"
@@ -91,7 +91,7 @@ import sys, json
 d = json.load(sys.stdin)
 for s in d.get('services', {}).values():
     label = s.get('label', 'unknown')
-    container = s.get('compose_service', '')
+    container = s.get('container_name') or s.get('upstream_container') or s.get('compose_service', '')
     port = s.get('internal_port', '')
     if container and port:
         print(f'{label}|{container}|http://localhost:{port}/health')

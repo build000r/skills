@@ -5,6 +5,16 @@ description: Friction-removal retrospective for agent sessions. Use when the use
 
 # Lube
 
+## First Progress Marker (Required)
+
+Start the first progress update with the exact prefix `Using lube`.
+
+Preferred format: `Using lube to <goal>. First I will <next concrete step>.`
+
+Do not change or omit that prefix. Usage review tooling depends on this stable
+marker; without it, lube invocations look like path-touch heuristics instead of
+confirmed skill use.
+
 Several frictions were observed in our session that I believe could have been avoided. How do we unblock this and all similar or adjacent situations in the future?
 
 Use the current session as evidence, then convert each friction into the smallest durable unblocker.
@@ -21,6 +31,33 @@ Use the current session as evidence, then convert each friction into the smalles
    - Add a checklist, test, or repo doc when the prevention belongs next to the code.
 4. Execute safe local fixes immediately. Ask only for secrets, paid external actions, destructive changes, or ambiguous policy decisions.
 5. Close with what changed, what still needs human input, and how the change prevents adjacent failures.
+
+## Evidence Miner
+
+For broad "what should we improve?" or "$cass $skill-issue $lube" requests,
+run the bundled miner instead of hand-assembling the same shell sequence:
+
+```bash
+python3 scripts/lube_evidence_miner.py --skills cass,skill-issue,lube --since month
+```
+
+The miner combines the portfolio-level `skill-issue` opportunity scan with
+per-skill usage reviews, then emits the lube output shape below. It is evidence
+gathering only; after reading it, still execute the smallest safe unblocker
+directly when the fix is local and non-destructive.
+
+## Skillbox Log Review
+
+When the friction source is an orchestration or Skillbox runtime issue, inspect
+recent events deliberately instead of reading the feed from the beginning. Call
+`skillbox_events` once to see `total_events`, then tail with a cursor near the
+end, for example `cursor = max(total_events - 100, 0)`.
+
+Classify repeated `pulse.restart_failed` or cross-client service-noise entries
+separately from target-repo blockers. Only turn them into implementation work
+when they explain the current goal's failed proof; otherwise record them as
+process noise and keep the closeout focused on the exact approval or runtime
+gate that still blocks completion.
 
 ## Output Shape
 

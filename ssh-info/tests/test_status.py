@@ -130,7 +130,7 @@ class SshInfoStatusTests(unittest.TestCase):
                 f"""#!/usr/bin/env bash
 printf '%s\\n' "$*" >> {docker_log}
 if [[ "$1" == "ps" ]]; then
-  printf 'NAMES\\tSTATUS\\tPORTS\\nexample-api\\tUp 1 minute\\t8000/tcp\\n'
+  printf 'NAMES\\tSTATUS\\tPORTS\\nexample-api\\tUp 1 minute\\t8000/tcp\\nother-api\\tUp 1 minute\\t9000/tcp\\n'
   exit 0
 fi
 if [[ "$1" == "exec" ]]; then
@@ -195,6 +195,8 @@ bash -c "$*"
 
             self.assertEqual(result.returncode, 0, msg=result.stderr)
             self.assertIn("[ok]   Example API", result.stdout)
+            self.assertIn("example-api", result.stdout)
+            self.assertNotIn("other-api", result.stdout)
             self.assertIn("example-api", docker_log.read_text(encoding="utf-8"))
             self.assertNotIn("exec api ", docker_log.read_text(encoding="utf-8"))
 

@@ -59,10 +59,15 @@ d = json.load(sys.stdin)
 svcs = d.get('services', {})
 names = ['NAMES']
 for s in svcs.values():
-    for key in ('container_name', 'upstream_container', 'compose_service', 'compose_service_worker'):
-        name = s.get(key, '')
-        if name:
-            names.append(name)
+    name = (
+        s.get('container_name')
+        or s.get('upstream_container')
+        or s.get('compose_service_worker')
+        or s.get('compose_service')
+        or ''
+    )
+    if name:
+        names.append(name)
 print('(' + '|'.join(names) + ')')
 " 2>/dev/null)" || true
   PROD_CONTAINER_FILTER="${services_filter:-}"

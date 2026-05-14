@@ -80,7 +80,7 @@ Use `--labels` consistently:
 |---|---|
 | Plan node accepted | `br q --slug … --type task --parent {epic} --priority 1 --labels … --silent` |
 | Add a dependency | `br dep add {child} {parent}` |
-| Worker starts the node | `br update {id} --claim` (atomic: assignee + in_progress) |
+| Node assigned or worker starts the node | `br update {id} --claim` (atomic: assignee + in_progress) |
 | Worker reports `blocked` | `br update {id} -s blocked --notes "{reason}"` |
 | Worker reports done | `br close {id} --reason "{summary}" --suggest-next --robot` |
 | Wave complete (advance) | `br ready --json` (plain) or `br scheduler --robot` (ranked) |
@@ -89,7 +89,10 @@ Use `--labels` consistently:
 
 `br update --claim` is the canonical start signal because it is atomic — no
 race between two panes claiming the same node. Skills MUST use it instead of
-`br update -s in_progress`.
+`br update -s in_progress`. For externally orchestrated swarms, the
+orchestrator may and often should claim on behalf of the assigned worker before
+dispatch, then verify `br show {id}` reports `status=in_progress` and the
+expected assignee before edits begin.
 
 `br close --suggest-next` returns the newly unblocked frontier in the same
 call; the orchestrator should consume that envelope and dispatch the next
@@ -106,6 +109,34 @@ distinct issue IDs.
 Do NOT auto-commit `.beads/` updates inside node workers — only the final
 integration/review wave commits. Workers run `br` mutations against the
 shared `.beads/` directory but defer the commit to integration.
+
+## Execution-Pack Field Mapping
+
+For Beads-backed orchestration, the executable worker contract lives in the
+issue fields and comments. Markdown execution packs are generated views or
+evidence attachments only.
+
+| Execution-pack field | Canonical Beads location |
+|---|---|
+| Original ask / node ask | `description` |
+| Repo path, branch/HEAD, run dir | `notes` scalar lines such as `repo_path:`, `branch:`, `run_dir:` |
+| Node id/title/status/assignee | issue `id`, `title`, `status`, `assignee` |
+| Concern/repo/risk/model/wave/slice | labels such as `concern:*`, `repo:*`, `risk:*`, `model:*`, `wave:*`, `slice:*` plus `notes: model_route:` when a human-readable route is needed |
+| Dependencies / ready frontier | `br dep add`, `br ready`, `br scheduler` |
+| Writes / ownership boundaries | `design` block headed `writes:` |
+| Stop rules and non-goals | `design` blocks headed `stop_rules:` and `non_goals:` |
+| Global constraints | `design` block headed `global_constraints:` |
+| Done-when / acceptance | `acceptance_criteria` |
+| Validation commands | `notes` block headed `validate:` |
+| Expected worker attribution | `notes: expected_assignee:` plus `br update --claim` proof |
+| Dispatch prompt | rendered from `br_helpers.py render-node-brief <id>` |
+| Worker proof / validation output | comments or `WG-*_RESULT.md` evidence attachment referenced from comments |
+| Final integration proof | comments, close reason, and optional `DAC_FINAL_RESULT.md` evidence attachment |
+
+Before dispatch, `br_helpers.py hydrate-node <id>` should return the fields
+needed to render a worker brief. If rich fields are missing, update the Bead
+with `br_helpers.py update-node` or `br update`; do not patch the missing
+context into `EXECUTION_CONTEXT.md`.
 
 ## Legacy Field Mapping (WORKGRAPH.md → br)
 

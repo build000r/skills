@@ -88,10 +88,20 @@ recovering after a collision.
 Same Chrome as Deep research. Don't spawn a second Chrome; attach Oracle to
 the already-running port.
 
-End-to-end flow for Image execute mode:
+End-to-end flow for Image execute mode from a staged run directory:
 
-1. **Launch Chrome with a known DevTools port** (or reuse the one already open
-   from a Deep research session):
+1. **Create the run directory.** The shared runner expects:
+   ```
+   <run-dir>/spec.md
+   <run-dir>/source/
+   <run-dir>/result/
+   ```
+   Put actual visual source files under `source/`; links and `--sref` values are
+   metadata, not a substitute for attached pixels.
+
+2. **Launch Chrome with a known DevTools port** if Oracle does not already have
+   a usable remote Chrome. Reuse the one already open from a Deep research
+   session when possible:
    ```
    /Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome \
      --remote-debugging-port=9222 \
@@ -100,60 +110,32 @@ End-to-end flow for Image execute mode:
      https://chatgpt.com/
    ```
 
-2. **Wait for the tab to be ready.** Poll `http://127.0.0.1:9222/json` until a
+3. **Wait for the tab to be ready.** Poll `http://127.0.0.1:9222/json` until a
    target with `url` matching `chatgpt.com` has loaded past `about:blank`.
 
-3. **Make sure Deep research is OFF** before toggling image mode. Deep
+4. **Make sure Deep research is OFF** before toggling image mode. Deep
    research and Create image are mutually exclusive composer tools; if the
    user just came from a Deep research run, re-select a different tool or
    clear the composer tool first. The image helper handles "already on" but
    not "some other tool is on."
 
-4. **Run the route guard.** Resolve the skill dir first (project-local
-   activation puts it at `./.claude/skills/deep-research-prompt`, global
-   activation puts it at `$HOME/.claude/skills/deep-research-prompt`):
+5. **Invoke the shared runner** instead of reassembling Oracle flags in the
+   caller:
    ```
-   SKILL_DIR=""
-   for d in "./.claude/skills/deep-research-prompt" "$HOME/.claude/skills/deep-research-prompt"; do
-     [ -f "$d/SKILL.md" ] && { SKILL_DIR="$d"; break; }
-   done
-   node "$SKILL_DIR/assets/scripts/check-oracle-tab-local-route.mjs"
+   assets/scripts/run-image-execute.sh --run-dir <run-dir>
    ```
-   If this exits non-zero, stop before invoking Oracle. Report a route-blocked
-   Image execute attempt with the spec file path and the guard output. Do not
-   submit a text-only ChatGPT turn by accident.
+   The runner performs the sizing check, route guard, Create image pre-submit
+   hook, source attachments, command logging, and Oracle log routing.
 
-5. **Toggle Create image on.**
-   ```
-   node "$SKILL_DIR/assets/scripts/toggle-chatgpt-image.mjs"
-   ```
-   If this exits non-zero, **do not silently proceed** — surface the reason to
-   the user. Common failures: exit 4 (ChatGPT moved or renamed the menu item),
-   exit 3 (plus button moved), exit 7 (multiple chatgpt.com tabs and no
-   selector), exit 8 (selector matched no tab).
-
-6. **Run Oracle against the same Chrome only after the route guard passes.** Use a shorter browser timeout since
-   image generation finishes in 1-3 minutes, not 30. Use
-   `--browser-model-strategy ignore`, **not** `current` — Image mode hides the
-   ChatGPT model selector and `current` will exit early with
-   `Unable to locate the ChatGPT model selector button` before submission. The
-   model is fixed to ChatGPT's image-tool model anyway, so verifying the
-   selector is moot in this mode.
-   ```
-   oracle \
-     --engine browser \
-     --remote-chrome 127.0.0.1:9222 \
-     --browser-model-strategy ignore \
-     --browser-timeout 15m \
-     --slug <slug> \
-     -p "$(cat /tmp/<slug>-image-<date>.md)"
-   ```
-   Image mode is already on from step 5, so Oracle just submits the spec.
+   The shared runner passes `toggle-chatgpt-image.mjs` as Oracle's
+   `--pre-submit-hook` when available, so Create image is toggled inside the
+   exact tab Oracle is about to submit from. If the installed Oracle lacks that
+   hook, the runner stops route-blocked instead of attempting text-mode submit.
 
    **Tab-local hazard.** Image mode is a per-composer-tab toggle, just like
-   Deep research. If Oracle navigates to a brand-new `chatgpt.com` tab to
-   submit (it sometimes does — same caveat as the Deep research flow), the
-   new tab will not inherit the toggle from step 5. Mitigations, in
+   Deep research. If Oracle navigates to a brand-new `chatgpt.com` tab without
+   the pre-submit hook, the new tab will not inherit any toggle set on another
+   tab. Mitigations, in
    preference order:
    - Use an Oracle build that exposes an exact target-id, tab-reuse, or
      pre-submit-hook contract, and run the guard again.
@@ -168,7 +150,7 @@ End-to-end flow for Image execute mode:
    not on the submit tab. Re-toggle and rerun rather than retrying with the
    same configuration.
 
-7. **Surface the session slug** for reattach, and save the generated image
+6. **Surface the session slug** for reattach, and save the generated image
    file alongside the prompt. Do not re-print the prompt block.
 
 ## Verification after the run starts

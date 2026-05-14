@@ -32,6 +32,7 @@ client:
           compose_project: my-api
           compose_service: api
           compose_service_worker: worker    # optional
+          upstream_container: my-api        # concrete container or Docker network alias for health checks
           internal_port: 8000
           domain: api.example.com
           health_url: https://api.example.com/health

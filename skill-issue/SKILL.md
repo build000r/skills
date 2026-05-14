@@ -22,6 +22,24 @@ Do not change or omit that prefix. Reliability review tooling treats it as a sta
 - Transcript-driven skill reliability work based on real invocation history
 - Working on SKILL.md files, bundled scripts/references/assets, or skill packaging
 
+## Mode Selection
+
+Pick the branch before editing:
+
+| Request shape | Branch | Default action | Verification |
+|---------------|--------|----------------|--------------|
+| "create a skill", "new skill", "skill template" | create/update | choose placement, initialize or patch the owning skill | `scripts/quick_validate.py <skill>` |
+| "review this skill", "when did we last use it", "improve from past runs" | reliability review | run `review_skill_usage.py`, evidence packets/opportunities, then patch one repeated failure family | regenerate packets/opportunities and validate |
+| "$cass $skill-issue $lube", "rank improvements", "high leverage lube opportunities" | portfolio triage | self-heal named companion skill visibility if needed, then run `scripts/rank_skill_improvements.py` and create Beads for the top actionable cards | Beads exist and top cards map to owning skill files |
+| "create/check/match/migrate overlay" | overlay mode | use `manage_overlays.py`, then print the overlay diagnostic block below | `manage_overlays.py match --cwd ... --json` |
+| "I do not see skill X", "expected skill missing" | visibility miss | invoke SBP recalibration/activation instead of falling back to memory or repo artifacts | show the SBP command result |
+
+For mixed requests, preserve roles: `cass` mines prior-session evidence,
+`skill-issue` owns skill changes, and `lube` frames friction into durable
+unblockers. If a named companion skill is not already visible in the current
+repo/session, run the Missing Skill Visibility flow below before falling back
+or asking the operator to activate it manually.
+
 ## Do Not Use This For
 
 - One-off prompts or workflows that are not meant to become reusable skills
@@ -173,6 +191,21 @@ After either path, verify:
 scripts/manage_overlays.py match --cwd {CWD} --json
 ```
 
+When reporting overlay results, always include this diagnostic block so matching
+does not get confused with write location:
+
+```text
+Overlay diagnostic
+- matched overlay:
+- repo-local .buildooor root:
+- shared fallback root:
+- actual write path:
+```
+
+If a command matched a broad shared overlay but wrote invocation artifacts to
+`.claude/skills`, `.codex/skills`, or another non-overlay path, say both facts.
+Overlay selection is not proof that outputs were written inside the overlay.
+
 #### list
 
 ```bash
@@ -216,6 +249,50 @@ When any skill hits an overlay miss, it should delegate to skill-issue's overlay
 5. If created, skill re-runs overlay selection — should now match
 
 Skills that already stop on miss (deploy, ssh-info, dev-sanity) should add this ask-first create step before stopping.
+
+### Missing Skill Visibility
+
+If an agent says an expected skill is not active, not visible, not found, or
+that it will fall back to repo artifacts, memory, or git history because a skill
+is missing, route to SBP first. Do not replace the missing skill with an ad hoc
+fallback unless SBP recalibration or activation fails.
+
+```bash
+sbp skill activate {skill} --cwd "$PWD" --dry-run
+sbp skill activate {skill} --cwd "$PWD"
+```
+
+### Companion Skill Auto-Activation
+
+When this skill's selected branch names a companion skill (`cass` for
+transcript evidence, `lube` for friction closeout, `sbp` for visibility repair)
+or the user explicitly tags a companion skill in the same request, treat a
+missing local skill link as self-healing project setup.
+
+1. Check visibility in the current repo:
+
+```bash
+sbp skills --issues-only --no-global --format json
+```
+
+2. If the companion skill is absent but known to SBP, run a project-local
+activation. Review the dry-run for only local `.claude/skills` and
+`.codex/skills` links to an existing source, then apply it:
+
+```bash
+sbp skill activate {skill} --cwd "$PWD" --dry-run
+sbp skill activate {skill} --cwd "$PWD"
+```
+
+3. Use the returned activation packet or the linked `SKILL.md` in the same
+turn. Do not make the operator run `sbp skills add {skill}` by hand.
+4. Keep the repair local to the current repo. Do not perform broad global
+installs, global prune, or unrelated fleet cleanup for a companion-skill miss.
+5. If activation fails, report the exact command and error, then continue with
+the narrowest safe fallback.
+
+If SBP is unavailable, report that visibility calibration is blocked and keep
+the fallback explicitly degraded.
 
 ## Core Principles
 
@@ -315,8 +392,13 @@ This counts raw Codex `function_call` entries and Claude `tool_use` blocks, sort
 Use the `cass` skill to search across all indexed sessions for the target skill's invocation patterns, corrections, and usage evolution. This surfaces signal the single-transcript scanner misses — especially ritual detection, cross-project usage, and prompt drift.
 
 ```bash
-# Ensure cass index is fresh
-cass status --json && cass index --json
+# If cass is not already visible, self-heal the repo-local link first.
+sbp skill activate cass --cwd "$PWD" --dry-run
+sbp skill activate cass --cwd "$PWD"
+
+# Check cass health. If the index is stale but the database exists, search now
+# and refresh in the background with a wall-clock cap from cass's recovery docs.
+cass status --json | jq '{healthy, fresh: .index.fresh, stale: .index.stale, db: .database.exists}'
 
 # Find all sessions mentioning this skill (lexical, minimal output)
 cass search "SKILL_NAME" --json --fields minimal --limit 50
@@ -437,6 +519,16 @@ scripts/generate_skill_opportunities.py --input /tmp/skill-issue-review.json
 This ranks concrete improvement ideas such as verification gaps, over-checkpointing,
 missing risk gates, contract-clarity problems, and automation gaps so `skill-issue`
 can iterate on the highest-leverage changes first.
+
+For broad improvement-backlog requests, run the one-shot wrapper instead of
+manually stitching together the portfolio scan and per-skill reviews:
+
+```bash
+scripts/rank_skill_improvements.py --skills cass,skill-issue,lube --since month
+```
+
+Use `--full` when you need the underlying reports, or keep the default compact
+ranked rows when the next step is Bead creation and a focused patch.
 
 9. When the question is portfolio-level rather than "improve this one skill", run the catalog-wide miner:
 

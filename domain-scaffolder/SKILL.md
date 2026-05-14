@@ -54,8 +54,11 @@ br close {issue-id} --reason "{1-line summary}" --suggest-next --json
 br update {issue-id} -s blocked --notes "{verified blocker reason}"
 ```
 
-If no `br` issue ID is provided (greenfield direct invocation), proceed without
-beads. Skill behavior is otherwise unchanged.
+If no `br` issue ID is provided for substantive implementation, route back
+through `/divide-and-conquer` so it can create or select the right Bead before
+scaffolding begins. Proceed without Beads only for tiny, explicitly direct
+single-surface work or when Beads are unavailable; report that degraded mode in
+the final output.
 
 ## Surfaces
 
@@ -347,4 +350,5 @@ Before marking complete:
 
 - [[skill-issue]]
 - `domain-planner` -- creates the plan this skill implements
+- `divide-and-conquer` -- owns Beads frontier selection and worker dispatch for substantive scaffolding
 - `domain-reviewer` -- audits the implementation against the plan

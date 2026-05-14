@@ -49,7 +49,7 @@ The shared auth/payments/identity service (`{auth_packages_root}` from the clien
 2. Flag unrequested compatibility mechanics (legacy endpoints, dual routing, adapter layers, shadow write/read paths) as scope violations.
 3. If production data is affected, require a dedicated DB transition section with backup, raw `psql` execution plan, transactional/idempotent safety, verification, and rollback.
 
-- **Audit:** Autonomous audit→fix→retire loop — runs worker phases through NTM/divide-and-conquer or another explicit worker transport, converges to 100/100, then retires
+- **Audit:** Autonomous audit→fix→retire loop — runs worker phases through `/divide-and-conquer`/NTM, converges to 100/100, then retires
 - **Retire:** Investigate completed slices, categorize user stories, clean up bloat
 - **Retire-Session:** Roll DONE session plans into domain COMPLETED.md files, archive originals
 
@@ -63,6 +63,9 @@ disk instead of relying on the orchestrator's memory.
 The default worker substrate is `divide-and-conquer` backed by
 `vibing-with-ntm`. If no worker substrate is available, stop and surface the
 missing prerequisite instead of replacing review gates with local self-review.
+When audit findings require fixes, convert them into `br` issues and route the
+ready fix frontier through `/divide-and-conquer`; do not launch bespoke fix
+subagents directly from this skill.
 
 ## Execution Runtime
 
@@ -70,8 +73,9 @@ This skill requires a worker substrate for audit, re-review, and fix phases:
 
 - **Default:** `divide-and-conquer` + `vibing-with-ntm` for worker dispatch,
   reservations, monitoring, collection, and fresh-eyes reviews.
-- **Named transports:** `/codex:rescue` or helper scripts may be used when the
-  workflow explicitly selects them as worker transports.
+- **Named transports:** `/codex:rescue` or helper scripts may be used only when
+  `/divide-and-conquer` or the user explicitly selects them as the worker
+  transport.
 - **Unavailable substrate:** stop and surface the missing prerequisite. Do not
   run audit/re-review/fix phases in-process.
 
@@ -80,7 +84,7 @@ Terminology bridge used throughout this skill:
 | This skill says | Means |
 |-----------------|-------|
 | "Task agent" / "subagent" | Worker phase execution unit |
-| "Spawn" | Dispatch through NTM/divide-and-conquer or a named worker transport |
+| "Spawn" | Dispatch through `/divide-and-conquer`/NTM; named transports are explicit fallbacks |
 | "Orchestrator" | The active agent/session coordinating loop decisions |
 
 ### Worker Runtime Setup
@@ -95,7 +99,9 @@ When using a worker-capable runtime:
 
 ### Codex Worker Delegation (via `codex-plugin-cc`)
 
-When the `codex-plugin-cc` plugin is loaded, delegate worker phases to Codex via `/codex:rescue` instead of shelling out to Python scripts:
+When `/divide-and-conquer` selects Codex as the worker transport and the
+`codex-plugin-cc` plugin is loaded, delegate worker phases via `/codex:rescue`
+instead of shelling out to Python scripts:
 
 ```
 # Audit worker (xhigh for thorough review)
@@ -253,13 +259,14 @@ Implementation code lives in context-specific repos, but plan artifacts remain c
 
 ## Automated Handoffs (Audit Mode)
 
-In audit mode, handoffs to fix workers are **automated by the orchestrator** — no manual copy-paste needed.
+In audit mode, handoffs to fix workers are **automated by the orchestrator**
+through `/divide-and-conquer` and Beads — no manual copy-paste needed.
 
 The orchestrator:
 1. Reads the `## Agent Handoffs` section from AUDIT_REPORT.md
 2. Canonicalizes each implementation handoff to `domain-scaffolder` with explicit surface, slice, plan path, and client-overlay-specific references
 3. Augments each handoff block with client-overlay-specific paths and convention file references
-4. Runs worker phase(s) with the constructed prompts through the worker substrate
+4. Runs worker phase(s) with the constructed prompts through `/divide-and-conquer` and the ready Beads frontier
 5. Backend and frontend fix workers run in parallel when both have issues and scopes are disjoint
 
 The handoff blocks in AUDIT_REPORT.md should reference the canonical

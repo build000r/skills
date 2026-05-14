@@ -45,7 +45,8 @@ The overlay's `deploy` section holds:
 - `droplet_ip`: server IP
 - `ssh_key`: path to SSH key
 - `services`: map of service entries, each with:
-  - `label`, `compose_service`, `health_url`, `internal_port`
+  - `label`, `compose_service`, `upstream_container` or `container_name`,
+    `health_url`, `internal_port`
   - `deploy_root`, `compose_file`, `domain`, `env_file`
 
 See [references/mode-template.md](references/mode-template.md) for the full
@@ -129,6 +130,11 @@ Then summarize:
 ```bash
 docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
 ```
+
+For Compose services with generic service names such as `api`, prefer the
+overlay's concrete `upstream_container` or `container_name` when running
+`docker exec` health checks. `compose_service` is the Compose service selector,
+not necessarily the runtime container name.
 
 ### Logs
 

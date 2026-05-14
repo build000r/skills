@@ -15,6 +15,12 @@ Audit the diagram and plan registry layer that lets agents find current MMDX
 maps, trust their links, and decide whether tracker evidence is fresh enough to
 drive placement or handoff decisions.
 
+Use this as the canonical registry-audit skill when the request is about MMDX,
+Mermaid, diagram indexes, chart links, or plan/tracker freshness. If the request
+is about whether a `SKILL.md`, skill bundle, SBP policy, MCP server, or overlay
+is registered or visible, hand off to `skill-registry-usage-audit` instead of
+duplicating that workflow here.
+
 ## First Progress Marker
 
 Start with:
@@ -98,6 +104,8 @@ that Mermaid syntax is valid.
 - Do not treat mtime alone as drift. Confirm that a stale diagram is used as
   active evidence before escalating above `LOW`.
 - Do not move client-specific MMDX artifacts into a reusable skill contract.
+- Do not audit general `SKILL.md`, SBP, MCP, bundle, or overlay visibility
+  here unless the finding specifically blocks MMDX registry trust.
 
 ## Handoff To Usage-Auditor-Maker
 

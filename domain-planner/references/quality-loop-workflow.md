@@ -10,7 +10,7 @@ This mirrors the domain-reviewer's audit→fix→re-audit loop but targets **pla
 
 ## Table of Contents
 
-- [Step 1: Launch Assessor](#step-1-launch-assessor)
+- [Step 1: Route Assessor](#step-1-route-assessor)
 - [Step 2: Parse Score](#step-2-parse-score)
 - [Step 3: Fix Issues](#step-3-fix-issues)
 - [Step 4: Re-Assess (Loop)](#step-4-re-assess-loop)
@@ -20,23 +20,29 @@ This mirrors the domain-reviewer's audit→fix→re-audit loop but targets **pla
 
 ## Execution Profiles
 
-Like domain-reviewer, this workflow is worker-transport neutral, but not
-self-review neutral. The assessor must be a fresh-context worker.
+Like domain-reviewer, this workflow is worker-transport aware, but not
+self-review neutral. The assessor must be a fresh-context worker routed through
+`/divide-and-conquer`.
 
-- **Profile A: Subagent-capable runtimes** — Launch assessor as a Task subagent (`subagent_type=general-purpose`), `divide-and-conquer`/NTM worker, or equivalent fresh worker. Fresh context eliminates confirmation bias from having just written the plan. Orchestrator fixes inline (has full domain context).
-- **Profile B: Codex-delegated** — Delegate assessment to Codex via `/codex:rescue`. Gives a genuinely independent model reviewing the plan with your prompt and rubric. Orchestrator still fixes inline. Use `--background` to keep working while Codex scores.
+- **Default: `/divide-and-conquer`/NTM worker** — Route the assessor as a
+  ready Bead. Fresh context eliminates confirmation bias from having just
+  written the plan. Orchestrator fixes inline (has full domain context).
+- **Codex transport** — Use `/codex:rescue` only when `/divide-and-conquer` or
+  the user explicitly selects Codex as the worker transport. Orchestrator still
+  fixes inline.
 
 Single-agent inline scoring is not an acceptable substitute. If no worker
 substrate is available, stop and report the missing prerequisite.
 
 | Role | Who | Why |
 |------|-----|-----|
-| Assessor | Fresh worker/subagent (A) or Codex via `/codex:rescue` (B) | Fresh eyes — no bias from having written the plan |
+| Assessor | Fresh `/divide-and-conquer` worker, optionally using Codex as selected transport | Fresh eyes — no bias from having written the plan |
 | Fixer | Orchestrator (this agent) | Has full domain context, codebase access, planning session history |
 
 ### Profile B: Codex-Delegated Assessment
 
-When the `codex-plugin-cc` plugin is loaded, delegate the assessor prompt to Codex:
+When `/divide-and-conquer` selects Codex as the worker transport and the
+`codex-plugin-cc` plugin is loaded, delegate the assessor prompt to Codex:
 
 ```
 /codex:rescue --model gpt-5.5 --effort xhigh \
@@ -50,9 +56,14 @@ When the `codex-plugin-cc` plugin is loaded, delegate the assessor prompt to Cod
   only deduct for rubric violations.
 ```
 
-Add `--background` if you want to continue working while it runs, then `/codex:result` to retrieve the assessment. Parse the score and issues table the same as Profile A (Step 2).
+Add `--background` if the selected transport supports it, then retrieve the
+assessment through that transport. Parse the score and issues table the same as
+the default worker path (Step 2).
 
-**When to prefer Profile B:** When you want a cross-model second opinion and have the plugin installed. Profile A is faster for the iterative fix loop; Profile B is best for the final external review pass.
+**When to prefer Codex transport:** When you want a cross-model second opinion
+and `/divide-and-conquer` can route the worker that way. The default D&C/NTM
+worker is faster for the iterative fix loop; Codex transport is best for the
+final external review pass.
 
 ## Auth Service Checks (Quality Assessment Mode)
 
@@ -71,7 +82,7 @@ When the slice touches auth/payments/identity, treat `{auth_packages_root}` as m
 
 ---
 
-## Step 1: Launch Assessor
+## Step 1: Route Assessor
 
 The assessor reads all 6 plan files + the rubric and produces a structured assessment.
 
@@ -106,16 +117,11 @@ Rules:
 - Enforce big-bang default: deduct unrequested legacy compatibility/transition plans; require separate DB transition section only when production data is affected
 ```
 
-### Profile A: Subagent Launch
+### Default: `/divide-and-conquer` Worker
 
-```python
-# Pseudocode — adapt to your runtime's agent API
-assessment = launch_subagent(
-    type="general-purpose",
-    prompt=assessor_prompt,
-    description="Assess plan quality"
-)
-```
+Create or claim a plan-quality assessor Bead and route it through
+`/divide-and-conquer` with the assessor prompt above. Do not hand-launch a
+generic worker outside the Beads frontier from this workflow.
 
 ### Worker Unavailable
 

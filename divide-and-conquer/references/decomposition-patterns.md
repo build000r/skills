@@ -124,10 +124,17 @@ Before finalizing a graph, verify:
 - [ ] Each node is scoped by concern or goal, not by micro-file edits
 - [ ] No two nodes' `writes` overlap
 - [ ] No node needs another node's output to begin unless the dependency is explicit
-- [ ] Each node has all context it needs in its prompt
+- [ ] Each node has all context it needs in Beads fields/comments, and
+      `br_helpers.py hydrate-node <id>` can expose it before dispatch
 - [ ] Read-only nodes declare empty writes
 - [ ] Writer nodes own concrete write scopes
-- [ ] Explicit Codex model selection uses `gpt-5.5`, with reasoning chosen from `medium|high|xhigh`
+- [ ] Design-related nodes are routed to Claude Opus, including UI/UX,
+      visual design, design-system, CSS/token, screenshot, and visual parity work
+- [ ] Non-design nodes are routed to Codex `gpt-5.5`, with reasoning chosen
+      from `medium|high|xhigh`
+- [ ] Every node has an expected `BR_AGENT_NAME`, and the lead will verify
+      `br show` reports `status=in_progress` plus that assignee before edits
+      begin
 - [ ] The whole ready frontier can launch in one wave without conflict
 - [ ] The orchestrator can independently validate each node after collection
 - [ ] Recombining results requires no merge arbitration

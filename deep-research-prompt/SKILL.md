@@ -1,6 +1,6 @@
 ---
 name: deep-research-prompt
-description: Produce copy-pasteable mega-prompts for external deep research tools (ChatGPT Deep Research, Perplexity Deep Research, Claude Research), Oracle-ready prompt handoffs when the current run should execute GPT-5 Pro / Deep Research directly, and high-detail image-creation prompts for ChatGPT image creation via Oracle. Use when the user asks for "a prompt for another agent to research X", "mega prompt for deep research", "draft a research prompt", "make a prompt to paste into ChatGPT deep research", "prompt for another agent to do all the Y", "image", "image prompt", "make an image prompt", or when another skill needs a bounded external-reality pass before a strategic decision or document update. Not for inline research the current agent can do with WebFetch or WebSearch directly, and not for prompts that ask another agent to write code or edit files.
+description: Produce copy-pasteable mega-prompts for external deep research tools (ChatGPT Deep Research, Perplexity Deep Research, Claude Research), Oracle-ready prompt handoffs when the current run should execute GPT-5 Pro / Deep Research directly, and high-detail image-creation prompts for ChatGPT image creation via Oracle. Use when the user asks for "a prompt for another agent to research X", "mega prompt for deep research", "draft a research prompt", "make a prompt to paste into ChatGPT deep research", "prompt for another agent to do all the Y", "image prompt", "make an image prompt", "use this image/style/contact sheet as visual inspiration", "describe these references for an image generator", "get this off the page", "better vibes", "image to the left/right", or when another skill needs a bounded external-reality pass before a strategic decision or document update. Not for inline research the current agent can do with WebFetch/WebSearch, and not for prompts asking another agent to write code or edit files.
 ---
 
 # Deep research prompt
@@ -32,6 +32,9 @@ Invoked when the user wants a structured research task delegated to an external 
 - "I want to send this to a deep research tool"
 - "/deep-research-prompt"
 - "image" / "image prompt" / "make an image prompt" / "image creator prompt" — selects Image execute mode below
+- "use this image/style/contact sheet as visual inspiration"
+- "describe these references for an image generator"
+- "get this off the page", "better vibes", "put the image to the left/right" when the request is really asking for an image-generation/spec handoff
 
 ## Do not use for
 
@@ -132,6 +135,20 @@ treat it as the parent for `<run-root>/spec.md`, `<run-root>/source/`,
 `/tmp/<slug>-image-<date>.md` and `/tmp/<slug>-source/` only when no run
 root is supplied.
 
+**Shared runner.** If a caller has already staged a run directory with
+`spec.md`, `source/`, and `result/`, do not retype the Oracle command in the
+caller. Invoke the canonical helper:
+
+```bash
+assets/scripts/run-image-execute.sh --run-dir <run-root>
+```
+
+The helper owns sizing, same-tab route guard, Create image pre-submit hook,
+source-file attachment, command logging, Oracle log path, and route-blocked
+failure reporting. Callers such as `ui-fresh-eyes` and
+`visual-inspiration-demo` own only their domain-specific prompt/spec and source
+material staging.
+
 1. Compose the standalone image-spec block using `assets/templates/image-creation.md` (self-announcing first line, layered fields, image-drift hard constraints, verification-caption requirement).
 2. If the image request depends on visual source material, materialize and attach
    the source images. URLs, Midjourney `/styles/...` links, and `--sref` values
@@ -163,11 +180,13 @@ root is supplied.
    with the spec file path and guard output. Do not submit a text-only ChatGPT
    turn by accident.
 6. Make sure a Chrome instance is running on the DevTools port (default `127.0.0.1:9222`) using the user's logged-in ChatGPT profile, with a `chatgpt.com` tab open. If a Chrome was launched earlier in the session for Deep research, reuse it — but first ensure the Deep research toggle is **off** (Image and Deep research are mutually exclusive composer tools).
-7. Toggle Create image on:
+7. Decide how Create image will be toggled based on what made the route guard pass:
+   - If Oracle exposes `--pre-submit-hook`, do **not** pre-toggle a different tab. Pass the image toggle helper as the pre-submit hook so Oracle toggles Create image inside the exact tab it opened and will submit from.
+   - If Oracle exposes an explicit target-id/reuse-tab option instead, prepare that exact tab first and toggle Create image on that tab:
    ```
    node "$SKILL_DIR/assets/scripts/toggle-chatgpt-image.mjs"
    ```
-   Non-zero exit means stop and surface the reason — **do not** silently fall back to paste mode. See `references/chatgpt-image-toggle.md` for exit codes and DOM-fragility notes.
+   Non-zero exit from the helper or hook means stop and surface the reason — **do not** silently fall back to paste mode. See `references/chatgpt-image-toggle.md` for exit codes and DOM-fragility notes.
 8. Invoke Oracle against the same Chrome only when the route guard has passed
    and the command includes whatever same-tab target option or pre-submit hook
    the guard found. On Oracle v0.9.0, `--chatgpt-url` opens a fresh dedicated
@@ -178,6 +197,8 @@ root is supplied.
      --engine browser \
      --remote-chrome 127.0.0.1:9222 \
      --browser-model-strategy ignore \
+     --browser-attachments always \
+     --pre-submit-hook "node $SKILL_DIR/assets/scripts/toggle-chatgpt-image.mjs" \
      --browser-timeout 15m \
      --slug <slug> \
      --file /tmp/<slug>-source/<reference-image>.<ext> \
@@ -189,7 +210,8 @@ root is supplied.
    submitted. The model is fixed to ChatGPT's image-tool model in this
    composer mode anyway, so verifying the selector is moot. Omit `--file`
    only when the request has no visual source material. Image mode is
-   already on from step 7, so Oracle just submits the spec.
+   already on from step 7, or it is turned on by the pre-submit hook immediately
+   before upload/send, so Oracle submits the spec in Image mode.
 
    The Image toggle is **tab-local** (same hazard as the Deep research
    toggle): if Oracle navigates to a brand-new `chatgpt.com` tab to submit,
@@ -419,7 +441,7 @@ Do not summarize the prompt content in prose after the block. The user will read
   route-independent fallback/control probe was attempted when a plausible lane
   existed, and the closeout states whether that attempt produced an artifact
 - When the guard passed, a Chrome on the DevTools port has a `chatgpt.com` tab open
-- When the guard passed, `assets/scripts/toggle-chatgpt-image.mjs` was invoked and the exit status is logged in the chat reply (e.g. "Create image: turned on" or the failure reason)
+- When the guard passed, `assets/scripts/toggle-chatgpt-image.mjs` was invoked either directly against the selected target or through Oracle's `--pre-submit-hook`, and the exit status is logged in the chat reply (e.g. "Create image: turned on" or the failure reason)
 - When Oracle was invoked, the real command includes `--remote-chrome`, `--browser-model-strategy ignore` (not `current` — Image mode hides the model selector), the slug, and the spec file
 - If visual source material was part of the request, the source images were
   copied/downloaded/cached under `/tmp/<slug>-source/` and attached with
@@ -454,6 +476,7 @@ If any item fails, fix before sending. Read `references/anti-patterns.md` for th
 - `assets/templates/n-entity-structured.md` — generic skeleton for "research N things with same structure"
 - `assets/templates/cross-jurisdiction-legal.md` — specialization for state-by-state or country-by-country legal research
 - `assets/templates/image-creation.md` — high-detail image generation prompt for Image execute mode (and its paste-mode fallback)
+- `assets/scripts/run-image-execute.sh` — shared runner for staged Create image / Oracle run directories (`spec.md`, `source/`, `result/`)
 - `assets/scripts/check-oracle-tab-local-route.mjs` — guard that blocks automatic Oracle submission when the installed Oracle cannot prove same-tab routing for ChatGPT tab-local tools
 - `assets/scripts/toggle-deep-research.mjs` — CDP helper that clicks ChatGPT's composer Deep research toggle on a running Chrome
 - `assets/scripts/toggle-chatgpt-image.mjs` — CDP helper that clicks ChatGPT's composer Create image toggle on a running Chrome
@@ -491,9 +514,15 @@ Before returning, confirm all of the following:
     submission was made and names the guard result instead of implying a
     session exists.
 5. If Image execute mode was used, the chat reply additionally names which
-   ChatGPT composer tool was toggled (Create image), the helper exit status,
-   and the image verification reminder. If the toggle helper failed, the
-   response says so plainly and does not silently fall back.
+   ChatGPT composer tool was toggled (Create image), whether it was toggled by
+   direct helper call or `--pre-submit-hook`, the helper exit status, and the
+   image verification reminder. If the toggle helper failed, the response says
+   so plainly and does not silently fall back.
+5a. If a caller supplied a staged run directory, the run went through
+    `assets/scripts/run-image-execute.sh` (or the response names the exact
+    blocker), and the run directory contains `oracle.command.sh`,
+    `oracle.dry-run.log`, and `oracle.route-guard.log` when the helper reached
+    those phases.
 6. If the caller expected execution rather than handoff, state plainly whether
    Oracle was actually run or only prepared.
 

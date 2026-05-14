@@ -37,6 +37,12 @@ Do not change or omit that prefix.
 for the cross-skill contract on worker ownership, background-task handling, and
 the domain suite's `100/100` convergence rule.
 
+Accepted slice execution routes through `/divide-and-conquer`. `domain-planner`
+may define the slice, mint the accepted `br` epic/child issues, and name the
+needed `domain-scaffolder`/`domain-reviewer` handoffs, but `/divide-and-conquer`
+owns the ready frontier, claims, worker waves, and status updates once
+implementation begins.
+
 ## Plan Storage
 
 Plan storage is resolved from the skillbox client overlay. Each client defines plan paths in its `overlay.yaml`, and the `focus` command generates a resolved `context.yaml` with absolute paths:
@@ -102,7 +108,7 @@ The shared auth/payments/identity service (`{auth_packages_root}` from the clien
 3. **Check if plan already exists** at `{plan_root}/{slice}/plan.md`:
 
    **If plan does NOT exist:**
-   - Run **Pre-Planning Prerequisites** (below) — parallel subagents for build-vs-clone and docs freshness
+   - Run **Pre-Planning Prerequisites** (below) — route delegated checks through `/divide-and-conquer` when they run in parallel
    - Run `python3 ~/.claude/skills/domain-planner/scripts/init_slice.py {slice_name}` to scaffold files (context resolved automatically from skillbox overlay)
    - Begin Phase 0 landscape, then Phase 0.5 Core Value Gate (Planning Mode)
 
@@ -127,11 +133,16 @@ The shared auth/payments/identity service (`{auth_packages_root}` from the clien
 
 **Goal:** Ensure the project's public documentation and strategic positioning are current before committing to a new slice plan. Stale READMEs, unexamined build-vs-clone questions, and externally unverified market/regulatory assumptions create downstream rework.
 
-Launch the prerequisite subagents that apply. A and B always run. C runs only when the slice is externally gated.
+Route the prerequisite worker issues that apply through `/divide-and-conquer`.
+A and B always run. C runs only when the slice is externally gated. If the work
+is kept in-process because it is tiny, say so explicitly.
 
 ### Subagent A: Build-vs-Clone Assessment
 
-Invoke the `build-vs-clone` skill as a background subagent with the slice name and one-sentence business value. Its job: determine whether this work should live in an existing repo, be extracted, adopt existing open source, or be built from scratch.
+Invoke the `build-vs-clone` skill through `/divide-and-conquer` with the slice
+name and one-sentence business value. Its job: determine whether this work
+should live in an existing repo, be extracted, adopt existing open source, or be
+built from scratch.
 
 **Wait for its result before proceeding to Phase 0.** If build-vs-clone recommends adopting or cloning, surface that to the user — it may change or cancel the slice entirely.
 
@@ -153,7 +164,9 @@ Invoke the `build-vs-clone` skill as a background subagent with the slice name a
 
 4. **Verdict:**
    - **README is current** → no action, report "docs fresh" and continue
-   - **README needs update** → invoke the `readme-writing` skill as a subagent, passing it the list of drifted sections and the diff summary. **Wait for readme-writing to complete before returning.**
+   - **README needs update** → route a `/divide-and-conquer` Bead for the
+     `readme-writing` skill, passing it the list of drifted sections and the diff
+     summary. **Wait for readme-writing to complete before returning.**
 
 ### Subagent C: External Reality Gate via `escalate` (conditional)
 
@@ -187,7 +200,7 @@ Routing rules:
 
 **Wait for Subagent C before proceeding** when it runs. If it invalidates the slice premise, halt planning and surface the contradiction to the user.
 
-### After Prerequisite Subagents Return
+### After Prerequisite Workers Return
 
 - If build-vs-clone changed the plan (adopt/clone/extract), surface to user and halt until they confirm or redirect.
 - If README was rewritten, note this in the slice's `plan.md` under a "Pre-planning artifacts" section so the plan reflects the current documented state.
@@ -229,7 +242,7 @@ Routing rules:
 10. **Default delivery strategy is big-bang** — Plan the target-state contract directly. Do not add dual routes, backward-compatibility shims, deprecation windows, or legacy endpoint support unless the user explicitly asks.
 11. **Separate DB transition planning from API planning** — Only add a DB transition section when production data is at risk. Keep it operationally focused: backup, transactional/idempotent raw SQL execution, verification, and rollback.
 12. **Core Value Gate is binding** — Before Phase 1 Discovery, define the primary actor, single user-visible outcome, minimum winning slice, explicit non-goals, and debt avoided by deferring them. If a story does not materially improve that outcome, defer it unless it is required for safety/risk containment or the user explicitly widens scope.
-13. **The `br` epic replaces WORKGRAPH as the execution graph** — After the 6 plan files pass Phase 5.5 deep review, reach Phase 6b `100/100` through a fresh worker, and are accepted, mint a `br` epic for the slice with one child issue per execution node (writes, deps, validation, risk live there as `--design`/`--notes`/`--acceptance-criteria`/labels per [`_shared/references/beads-contract.md`](../_shared/references/beads-contract.md)). Do not create, edit, or consume `WORKGRAPH.md` as source state. If a human-readable `WORKGRAPH.md` is useful, render it from `br` after the epic exists and treat it as disposable.
+13. **The `br` epic replaces WORKGRAPH as the execution graph** — After the 6 plan files pass Phase 5.5 deep review, reach Phase 6b `100/100` through a fresh worker, and are accepted, mint a `br` epic for the slice with one child issue per execution node (writes, deps, validation, risk live there as `--design`/`--notes`/`--acceptance-criteria`/labels per [`_shared/references/beads-contract.md`](../_shared/references/beads-contract.md)). Do not create, edit, or consume `WORKGRAPH.md` as source state. If a human-readable `WORKGRAPH.md` is useful, render it from `br` after the epic exists and treat it as disposable. Hand execution to `/divide-and-conquer` against that epic instead of launching ad hoc parallel workers from this skill.
 14. **`review.mmdx` is the human checkpoint surface** — Before any human sign-off, build/update `review.mmdx` from all current plan files using the `mmdx` skill's chart-stacking contract and the opinionated structure in [references/mmdx-review-checkpoint.md](~/.claude/skills/domain-planner/references/mmdx-review-checkpoint.md). The MMDX must expose every decision-grade detail through linked charts: core value, stories, endpoints, errors, schema, backend rules, frontend states, flows, decisions, non-goals, risks, open questions, performance envelopes, and the post-sign-off `br` epic/child-issue handoff when present.
 
 ## Questioning Strategy
@@ -269,7 +282,7 @@ Use Phases 0-6 below for spec creation, including the binding Phase 0.5 Core Val
 
 | Phase | Goal | Output | Key Action |
 |-------|------|--------|------------|
-| Pre | Docs freshness + build-vs-clone | Go/no-go, updated README if stale | Parallel subagents before planning |
+| Pre | Docs freshness + build-vs-clone | Go/no-go, updated README if stale | D&C prereq workers before planning |
 | 0. Landscape | Understand neighbors | Relationship summary | Read INDEX.md + sibling shared.md |
 | 0.5 Core Value Gate | Trim to the minimum winning slice | Core value summary | Cut expensive low-value scope before discovery |
 | 1. Discovery | User stories | Draft stories | Binary "A or B?" refinement |
@@ -461,7 +474,11 @@ A thin Phase 5 that says "we chose X" without saying "because Y, not Z" is incom
 
 **Why this phase exists:** The Phase 6b quality loop checks rubric compliance (are all fields present? do contracts match?). This phase checks *architectural quality* — are the contracts well-designed? Are there better patterns? Did we miss failure modes? These are different concerns; rubric compliance does not imply good architecture.
 
-**Prerequisites:** `apr` CLI installed (`apr --version`) or an explicit fresh-worker transport (`divide-and-conquer`/NTM, runtime-native subagent, or `/codex:rescue`). If none is available, stop and surface the missing prerequisite. Do not replace this phase with in-process self-review.
+**Prerequisites:** `apr` CLI installed (`apr --version`) or `/divide-and-conquer`
+with a fresh-worker substrate. Use runtime-native subagents or `/codex:rescue`
+only when selected as the worker transport behind that orchestration path. If no
+fresh-worker substrate is available, stop and surface the missing prerequisite.
+Do not replace this phase with in-process self-review.
 
 **Gate:** Phase 5.5 must finish before Phase 6b. Phase 6e must not mint a `br` epic, and no optional `WORKGRAPH.md` view may be rendered, until Phase 5.5 has either reached steady-state or the user explicitly records an override. An override can save a draft but must not silently start execution.
 
@@ -575,9 +592,9 @@ Assess (fresh worker) → Parse score
 └── < 100 → fix issues → re-assess (max 3 rounds)
 ```
 
-**Assessor:** Fresh-context worker launched through `divide-and-conquer`/NTM or
-another explicit worker transport. If no worker substrate is available, stop
-and surface the missing prerequisite instead of assessing in-process. The assessor
+**Assessor:** Fresh-context worker launched through `/divide-and-conquer`/NTM. If
+no worker substrate is available, stop and surface the missing prerequisite
+instead of assessing in-process. The assessor
 scores all 6 files against the 10-dimension rubric (10 pts each, 100 total) and
 returns a structured issues table with file, location, and fix instruction per
 deduction.
@@ -687,7 +704,7 @@ issue fields.
 
 #### 6f. Handoff
 
-Handoff: "Ready to implement? Run the domain-planner skill and select 'Implement it'"
+Handoff: "Ready to implement? Run `/divide-and-conquer` for the minted `{slice}` `br` epic and follow its ready frontier."
 
 > **External review (optional):** Use `/codex:rescue` to get an independent second opinion after the quality loop passes:
 > ```
@@ -714,7 +731,11 @@ Auth service checks are mandatory in quality assessment mode for auth/payments/i
 
 ## Orchestration Mode
 
-When user selects "Implement it" for an existing plan, become the **orchestrator agent**.
+When user selects "Implement it" for an existing plan, hand the accepted plan's
+`br` epic to `/divide-and-conquer`. This skill supplies the slice contract and
+domain-specific worker prompts; `/divide-and-conquer` is the orchestrator for
+Beads frontier selection, worker dispatch, claims, fix waves, hardening issues,
+and status updates.
 
 Implementation mode is an end-to-end delivery run. Do not one-shot the first
 implementation pass and return a partial plan or partial progress report. Carry
@@ -722,8 +743,7 @@ the accepted slice through scaffolding, fresh-context audit/re-review loops,
 hardening, retirement, and commit batching unless a blocker requires a human
 decision.
 
-Use fresh eyes through `divide-and-conquer`/NTM or another explicit worker
-transport:
+Use fresh eyes through `/divide-and-conquer`/NTM:
 - initial domain-reviewer audit runs in a fresh worker
 - each post-fix re-review runs in a fresh worker
 - high-risk or cross-repo slices get a separate hardening/review worker before retirement
@@ -743,15 +763,15 @@ See [references/orchestration-workflow.md](~/.claude/skills/domain-planner/refer
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  ORCHESTRATOR (this agent)                               │
-│  Owns: progress checklist, agent coordination            │
+│  ORCHESTRATOR (/divide-and-conquer)                      │
+│  Owns: br frontier, claims, worker waves, status         │
 ├─────────────────────────────────────────────────────────┤
 │                                                          │
 │  1. Analyze plan to determine scope (which repos)        │
-│  2. Launch scaffolder agents (parallel, one per repo)    │
+│  2. Claim ready br issues and launch scoped workers      │
 │  3. Wait for completion                                  │
-│  4. Launch audit agent (domain-reviewer)                 │
-│  5. If issues: launch fix agents, re-audit               │
+│  4. Claim audit issue (domain-reviewer)                  │
+│  5. If issues: mint/claim fix Beads, re-audit            │
 │  6. Loop until COMPLIANT (100/100)                       │
 │  6b. Hardening gate: /crap → /mutate (score ≤ 30)       │
 │  7. Retire slice, batch commits, report validation        │
@@ -763,15 +783,17 @@ See [references/orchestration-workflow.md](~/.claude/skills/domain-planner/refer
 
 1. **Analyze plan scope** — Read plan.md and the client overlay's repo configuration to determine which repos need work.
 
-2. **Initialize progress checklist** — One item per repo + audit + completion.
+2. **Initialize progress tracking** — Use the slice's `br` epic and child
+   issues as the durable tracker. A checklist is only a rendered view.
 
-3. **Launch parallel agents, one per repo involved:**
+3. **Route parallel work through `/divide-and-conquer`:**
    - Backend repos → each agent uses the `domain-scaffolder` skill with `surface=backend`
    - Frontend repos → each agent uses the `domain-scaffolder` skill with `surface=frontend`
    - Each agent works in its own repo with its own conventions
-   - Use the divide-and-conquer pattern: scope by concern, not files
+   - Scope by concern, not files; `/divide-and-conquer` verifies disjoint
+     `writes` before launching a ready wave
 
-4. **After scaffolding completes, launch an audit agent** using the domain-reviewer skill in audit mode.
+4. **After scaffolding completes, route the audit issue through `/divide-and-conquer`** using the domain-reviewer skill in audit mode.
 
 5. **Handle audit results:**
    - COMPLIANT (score = 100/100) → proceed to hardening gate (step 6b)
@@ -784,12 +806,13 @@ See [references/orchestration-workflow.md](~/.claude/skills/domain-planner/refer
        --depends-on {parent-node-id} \
        --done-when '{verification step from AUDIT_REPORT.md}'
      ```
-     Then launch fix agents only for repos with issues; each fix worker uses
-     the standard `--claim` / `--close --suggest-next` lifecycle.
+     Then let `/divide-and-conquer` claim and dispatch the ready fix issues
+     only for repos with issues; each fix worker uses the standard `--claim` /
+     `--close --suggest-next` lifecycle.
 
 6. **Re-audit loop** — Max 5 attempts with stall triage, then escalate with a specific blocker report.
 
-6b. **Hardening gate (`/crap` score check)** — After audit convergence (100/100 COMPLIANT), launch a background subagent to assess structural quality before retirement:
+6b. **Hardening gate (`/crap` score check)** — After audit convergence (100/100 COMPLIANT), mint or claim a hardening issue and route it through `/divide-and-conquer` to assess structural quality before retirement:
 
    ```
    Audit 100/100 → /crap hardening gate → retire
@@ -806,23 +829,6 @@ See [references/orchestration-workflow.md](~/.claude/skills/domain-planner/refer
    - **Pass (FINAL_SCORE ≤ 30):** Proceed to step 7 (completion/retirement).
    - **Fail after hardening (FINAL_SCORE > 30):** Report surviving hotspots to the user with the score and file list. Ask whether to (a) accept current score and proceed to retirement, or (b) launch targeted fix agents for the hotspots.
    - **Scope:** Only score files that were created or modified by this slice's scaffolding — do not score the entire repo. Use the `writes` globs from the slice's `br` child issues plus the actual git diff to determine scope.
-   - **Skip condition:** If the user passed `--skip-hardening` or explicitly says to skip, proceed directly to step 7.
-
-   This gate catches high-complexity/low-coverage code before it gets retired and forgotten. The `/crap` + `/mutate` combination targets the riskiest code paths with mutation testing, ensuring test coverage is meaningful (not just line coverage).
-
-7. **Completion** — Retire the slice via domain-reviewer, verify INDEX.md is DONE, run the commit skill for every touched repo, and report results to the user (including final audit score, final CRAP score if hardening ran, validation commands, commit SHAs, and any explicit leftovers  ```
-
-   **Subagent prompt:**
-   > Run `/crap` against the files touched by this slice across all repos involved.
-   > If FINAL_SCORE > 30, run `/mutate` on the top 3 hotspots and add tests
-   > until FINAL_SCORE drops to 30 or below.
-   > Report: pass (score ≤ 30) or fail (score > 30 after hardening) with
-   > the final score and any surviving hotspots.
-
-   **Gate rules:**
-   - **Pass (FINAL_SCORE ≤ 30):** Proceed to step 7 (completion/retirement).
-   - **Fail after hardening (FINAL_SCORE > 30):** Report surviving hotspots to the user with the score and file list. Ask whether to (a) accept current score and proceed to retirement, or (b) launch targeted fix agents for the hotspots.
-   - **Scope:** Only score files that were created or modified by this slice's scaffolding — do not score the entire repo. Use the `writes` globs from `WORKGRAPH.md` nodes to determine scope.
    - **Skip condition:** If the user passed `--skip-hardening` or explicitly says to skip, proceed directly to step 7.
 
    This gate catches high-complexity/low-coverage code before it gets retired and forgotten. The `/crap` + `/mutate` combination targets the riskiest code paths with mutation testing, ensuring test coverage is meaningful (not just line coverage).

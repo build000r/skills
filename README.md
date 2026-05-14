@@ -240,6 +240,7 @@ human re-enters only for ambiguity, risk, or escalation
 
 | Skill | What it does |
 | --- | --- |
+| [`deep-research-prompt`](./deep-research-prompt/) | Builds Oracle-ready Deep Research and image-creation prompts for external research tools, ChatGPT image generation, visual reference sheets, and "make a prompt for another agent" handoffs |
 | [`remotion`](./remotion/) | Encodes practical Remotion guidance for React video work and SVG-first motion architecture |
 | [`research-paper`](./research-paper/) | Produces dense research pages plus social companions |
 | [`swimmers-sprite`](./swimmers-sprite/) | Generates thronglet sprite packs from master pixel assets |
@@ -305,6 +306,7 @@ Tooling:
 
 ```bash
 for skill in \
+  deep-research-prompt \
   prompt-reviewer 
 do
   npx skills add build000r/skills -s "$skill"

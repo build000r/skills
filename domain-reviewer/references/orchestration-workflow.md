@@ -10,10 +10,14 @@ Worker execution requires an orchestration substrate:
 
 - **Default:** use `divide-and-conquer` backed by `vibing-with-ntm` to dispatch
   each worker phase with fresh context.
-- **Named transports:** use `/codex:rescue` or helper scripts only when the
-  workflow explicitly selects them as worker transports.
+- **Named transports:** use `/codex:rescue` or helper scripts only when
+  `/divide-and-conquer` or the user explicitly selects them as worker transports.
 - **Unavailable substrate:** stop and surface the missing prerequisite. Do not
   execute audit, re-review, fix, or hardening phases without worker isolation.
+
+Audit findings that require code changes become `br` issues. `/divide-and-conquer`
+owns ready-frontier selection, claims, worker dispatch, and status updates for
+those fix waves; this file only defines the prompt content and convergence loop.
 
 Parallel execution contract (same repository, no extra worktrees required):
 
@@ -226,7 +230,8 @@ Re-review the {slice} slice after fixes were applied (re-review #{iteration}).
 
 Extract the handoff block from the `## Agent Handoffs` section of AUDIT_REPORT.md. There may be separate blocks for backend and frontend.
 
-**For backend issues** — run backend fix worker phase:
+**For backend issues** — create or update a backend fix Bead, then let
+`/divide-and-conquer` run the backend fix worker phase:
 ```
 Run `domain-scaffolder` with `surface=backend` for the `{slice}` slice.
 
@@ -242,7 +247,8 @@ Additional context:
 - Write/fix tests FIRST, then fix implementation (TDD-first).
 ```
 
-**For frontend issues** — run frontend fix worker phase:
+**For frontend issues** — create or update a frontend fix Bead, then let
+`/divide-and-conquer` run the frontend fix worker phase:
 ```
 Run `domain-scaffolder` with `surface=frontend` for the `{slice}` slice.
 
@@ -257,7 +263,8 @@ Additional context:
 - After fixing, commit with: "fix({slice}): {brief description of fixes}"
 ```
 
-**Run backend and frontend fix workers in parallel** when both have issues and path ownership is disjoint.
+**Run backend and frontend fix workers in parallel through `/divide-and-conquer`**
+when both have ready Beads and path ownership is disjoint.
 
 ## Parsing the Score
 

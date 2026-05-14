@@ -15,6 +15,12 @@ Audit the registry layer that decides which agent skills exist, where they are
 owned, and whether agents can see the right Skillbox/SBP/MCP surface from a
 given repo.
 
+Use this as the canonical registry-audit skill when the request is about
+`SKILL.md`, skill manifests, Skillbox/SBP/MCP visibility, bundles, overlays, or
+public/private placement. If the request is about MMDX index freshness, Mermaid
+preflight, chart-stack links, or diagram tracker placement, hand off to
+`mmdx-registry-usage-audit` instead of duplicating that workflow here.
+
 ## First Progress Marker
 
 Start with:
@@ -112,6 +118,9 @@ effective runtime visibility.
   skill's core behavior depends on that MCP server.
 - Do not report a string match from docs as active policy until a manifest,
   overlay, scope file, README, workflow, or current instruction confirms it.
+- Do not audit MMDX index freshness, Mermaid validity, chart links, or diagram
+  tracker placement here unless the root cause is a skill-registry visibility
+  defect.
 
 ## Handoff To Usage-Auditor-Maker
 

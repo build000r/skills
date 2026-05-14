@@ -12,9 +12,9 @@ covers planner-specific orchestration steps.
 - [Step 2: Initialize Progress Tracking](#step-2-initialize-progress-tracking)
 - [Step 3: Launch Scaffolder Agents](#step-3-launch-scaffolder-agents)
 - [Step 4: Wait and Update Progress](#step-4-wait-and-update-progress)
-- [Step 5: Launch Audit Agent](#step-5-launch-audit-agent)
+- [Step 5: Route Audit Worker](#step-5-route-audit-worker)
 - [Step 6: Handle Audit Results](#step-6-handle-audit-results)
-- [Step 7: Launch Fix Agents](#step-7-launch-fix-agents)
+- [Step 7: Route Fix Workers](#step-7-route-fix-workers)
 - [Step 8: Re-Audit Loop](#step-8-re-audit-loop)
 - [Step 9: Stall Triage](#step-9-stall-triage)
 - [Step 10: Hardening, Retirement, And Commits](#step-10-hardening-retirement-and-commits)
@@ -28,6 +28,11 @@ Implementation orchestration is a full delivery run. Once the user selects
 scaffolding, fresh-context audit/re-review, hardening, retirement, commit
 batching, and final reporting. It must not stop at a first-pass implementation,
 partial plan, or sub-100 audit result.
+
+The implementation orchestrator is `/divide-and-conquer`, backed by the slice's
+repo-local `br` epic and child issues. This workflow defines the logical phases
+and prompt content that domain workers need; it is not permission to hand-launch
+parallel workers outside the Beads frontier.
 
 Pause only for a real blocker: ambiguous slice/repo ownership, external
 dependency decisions, destructive operations, auth service gaps, hardening
@@ -71,7 +76,8 @@ Parse repo tags from the plan index entry (e.g., `[backend, frontend, auth]`) to
 
 ## Step 2: Initialize Progress Tracking
 
-Create a checklist based on repos involved:
+Use the slice's `br` epic and child issues as the durable tracker. A checklist
+may be rendered from Beads for human scanning, but it is not source state:
 
 ```
 - [ ] {backend_repo} scaffolding
@@ -89,9 +95,11 @@ Create a checklist based on repos involved:
 
 ## Step 3: Launch Scaffolder Agents
 
-Launch agents **in parallel** — one per repo involved. Scope each agent by concern (repo), not by file list.
+Ask `/divide-and-conquer` to claim the ready scaffold issues and launch agents
+**in parallel** only when the Beads frontier shows disjoint ownership. Scope each
+agent by concern (repo), not by file list.
 
-For each backend repo, launch a general-purpose agent with instructions:
+For each backend repo, give `/divide-and-conquer` a worker prompt shaped like:
 
 ```
 Implement the {repo} portion of the {slice} slice.
@@ -105,7 +113,7 @@ Do not add legacy endpoint compatibility layers unless the plan explicitly requi
 When complete, report what was created and any issues encountered.
 ```
 
-For each frontend repo, launch a general-purpose agent with instructions:
+For each frontend repo, give `/divide-and-conquer` a worker prompt shaped like:
 
 ```
 Implement the {repo} frontend portion of the {slice} slice.
@@ -119,29 +127,31 @@ Do not add dual-client or legacy API compatibility paths unless explicitly requi
 When complete, report what was created and any issues encountered.
 ```
 
-**Key:** All parallel agents MUST be launched in a single message. Agents that depend on prior results (like audit depending on scaffolding) must be launched sequentially.
+**Key:** All parallel agents MUST be launched through the same
+`/divide-and-conquer` ready wave. Agents that depend on prior results (like
+audit depending on scaffolding) must wait for the next Beads frontier.
 
 ---
 
 ## Step 4: Wait and Update Progress
 
-After each agent completes:
+After each worker issue completes:
 - Parse their output for success/failure
-- Update the progress checklist
+- Update Beads status through `br close`, `br update -s blocked`, or the next
+  ready frontier
 - If any agent failed critically, ask the user before continuing
 
 ---
 
-## Step 5: Launch Audit Agent
+## Step 5: Route Audit Worker
 
-Once scaffolding is complete, launch an audit agent:
+Once scaffolding is complete, route the audit issue through `/divide-and-conquer`:
 
 ```
 Audit the {slice} implementation against its plan.
 
 Use the domain-reviewer skill in audit mode for {slice}.
-Run this as a fresh-context review worker through the configured worker
-substrate.
+Run this as a fresh-context review worker through `/divide-and-conquer`.
 
 Follow all instructions from that skill. Generate AUDIT_REPORT.md.
 Return the verdict (COMPLIANT/MOSTLY COMPLIANT/NEEDS WORK) and
@@ -167,9 +177,11 @@ Parse the audit agent's response. Read `{plan_root}/{slice}/AUDIT_REPORT.md` and
 
 ---
 
-## Step 7: Launch Fix Agents
+## Step 7: Route Fix Workers
 
-Launch fix agents **only for repos that have issues**. One agent per repo with issues.
+Mint or update fix Beads **only for repos that have issues**, then let
+`/divide-and-conquer` dispatch the ready fix workers. One worker issue per repo
+with issues.
 
 ```
 Fix the {repo} issues found in the {slice} audit.
@@ -188,15 +200,16 @@ Write tests for fixes. Report what was fixed.
 If a fix is blocked by missing auth service functionality, stop and include an auth-scope proposal instead of adding local auth/payments/identity substitutes.
 ```
 
-**Key:** Only launch agents for repos that actually have issues. If one repo is clean, skip it.
+**Key:** Only route workers for repos that actually have issues. If one repo is
+clean, skip it.
 
 ---
 
 ## Step 8: Re-Audit Loop
 
-After fix agents complete:
+After fix worker issues complete:
 1. Increment audit attempt counter
-2. Launch audit agent again (Step 5) as a fresh-context re-review
+2. Route the audit issue again (Step 5) as a fresh-context re-review
 3. Parse new score, add to trajectory
 4. If score = 100 → Step 10 (Hardening, Retirement, And Commits)
 5. If score < 100 → check for stall (Step 9), then loop back to Step 7
@@ -229,7 +242,9 @@ Read the latest AUDIT_REPORT.md and classify every open finding:
 
 Based on the triage:
 
-- **ACTIONABLE items exist** → retarget fix agents with more specific instructions (include the failure context from prior attempts), loop back to Step 7
+- **ACTIONABLE items exist** → mint or update fix Beads with sharper
+  instructions, then route the ready fix frontier through `/divide-and-conquer`
+  and loop back to Step 7
 - **Only STALE / EXTERNAL / Medium+ REGRESSING remain** → escalate to user (see 9c)
 
 ### 9c. Contextual Escalation

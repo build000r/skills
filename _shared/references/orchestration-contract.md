@@ -81,6 +81,11 @@ Workers own only their assigned concern and write scope. Workers must:
 - follow handoff instructions exactly
 - return structured results or a clear blocker
 
+For Beads-backed swarms, an assigned node is not in flight until `br show`
+confirms `status=in_progress` with the expected assignee. Skill-local
+orchestrators should claim nodes on behalf of the selected worker before
+dispatch when the worker substrate cannot guarantee immediate Beads mutation.
+
 ## Runtime Substrate
 
 Domain orchestration assumes a worker substrate. The default execution route is
@@ -94,6 +99,12 @@ transports are acceptable only when the skill-local workflow names them.
   with `/codex:status` and `/codex:result`
 - Missing worker substrate: stop and surface the missing prerequisite instead
   of executing audit, implementation, or hardening phases without worker isolation
+
+When a skill can choose models, route design-related nodes to Claude Opus and
+route non-design nodes to Codex by default. Design-related includes UI/UX,
+visual design, design systems, CSS/tokens, responsive behavior, screenshots,
+visual parity, product interaction copy, and fresh-eyes review of those
+surfaces.
 
 ## Fresh-Eyes Review Gates
 
@@ -153,9 +164,13 @@ Implications:
 When a workflow emits or consumes handoff artifacts, keep ownership explicit:
 
 - `br` epic + child issues: execution dependency graph, ready frontier, write
-  ownership, validation, and risk gates
+  ownership, validation, risk gates, and the canonical worker dispatch contract
 - `WORKGRAPH.md`: optional generated view of `br` state; never the mutable
   source of execution state
+- `EXECUTION_CONTEXT.md`: optional generated dispatch summary; never the place
+  to repair missing worker-only context
+- `WG-*_RESULT.md`: worker evidence attachment; it can support reconciliation
+  but cannot override `br` status, write scope, or acceptance criteria
 - `AUDIT_REPORT.md`: findings, score, and worker handoffs
 - scaffolder completion handoff: emitted files, validation commands, and audit
   handoff

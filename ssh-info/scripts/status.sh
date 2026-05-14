@@ -8,6 +8,16 @@ SKILL_DIR="$SCRIPT_DIR/.."
 SHARED_SCRIPTS="$SKILL_DIR/../_shared/scripts"
 LOCAL_HEALTH_CHECKS=()
 PROD_HEALTH_CHECKS=()
+SSH_CONNECT_TIMEOUT_SECONDS="${SSH_CONNECT_TIMEOUT_SECONDS:-8}"
+ssh_identity_file=""
+ssh_identity_args=()
+
+cleanup() {
+  if [[ -n "$ssh_identity_file" ]]; then
+    rm -f "$ssh_identity_file"
+  fi
+}
+trap cleanup EXIT
 
 usage() {
   cat <<'EOF'
@@ -48,6 +58,13 @@ try_overlay() {
 
   # Extract SSH target
   STATUS_REMOTE_SSH="$(printf '%s' "$json" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('droplet_ssh',''))" 2>/dev/null)" || true
+  if [[ -n "${DO_DROPLET_IP:-}" ]]; then
+    if [[ -z "${DO_SSH_USER:-}" ]]; then
+      echo "DO_SSH_USER is required when DO_DROPLET_IP overrides droplet_ssh" >&2
+      exit 1
+    fi
+    STATUS_REMOTE_SSH="${DO_SSH_USER}@${DO_DROPLET_IP}"
+  fi
 
   # Build container filter from service names. For Compose services, the
   # service name is often generic ("api"); prefer the concrete runtime
@@ -113,11 +130,42 @@ if ! try_overlay; then
   exit 1
 fi
 
+prepare_ssh_identity() {
+  ssh_identity_args=()
+  if [[ -z "${DO_SSH_PRIVATE_KEY_B64:-}" ]]; then
+    return 0
+  fi
+
+  ssh_identity_file="$(mktemp)"
+  chmod 600 "$ssh_identity_file"
+  if python3 - "$ssh_identity_file" <<'PY'
+import base64
+import os
+import sys
+
+try:
+    decoded = base64.b64decode(os.environ["DO_SSH_PRIVATE_KEY_B64"], validate=True)
+except Exception:
+    sys.exit(1)
+
+with open(sys.argv[1], "wb") as handle:
+    handle.write(decoded)
+PY
+  then
+    ssh_identity_args=(-i "$ssh_identity_file")
+  else
+    echo "invalid DO_SSH_PRIVATE_KEY_B64" >&2
+    rm -f "$ssh_identity_file"
+    ssh_identity_file=""
+    exit 1
+  fi
+}
+
 # --- Check functions ----------------------------------------------------------
 
 run_prod() {
   if [[ -n "${STATUS_REMOTE_SSH:-}" ]]; then
-    ssh "$STATUS_REMOTE_SSH" "$@"
+    ssh -o BatchMode=yes -o ConnectTimeout="$SSH_CONNECT_TIMEOUT_SECONDS" "${ssh_identity_args[@]}" "$STATUS_REMOTE_SSH" "$@"
   else
     bash -lc "$*"
   fi
@@ -188,6 +236,7 @@ case "$MODE" in
     print_local_health
     ;;
   prod)
+    prepare_ssh_identity
     print_prod_status
     ;;
   *)

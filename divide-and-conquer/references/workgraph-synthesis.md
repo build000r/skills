@@ -74,6 +74,10 @@ Rules per node:
   node is not ready
 - Set `--model-route`, `--repo-path`, `--branch`, and `--run-dir` before dispatch so
   `br_helpers.py hydrate-node` can prove the node is dispatch-ready
+- Use `--model-route 'Grok dispatcher'` only for read-only router/preflight
+  nodes such as cwd selection, skill-tag extraction, cleaned-request drafting,
+  and broad evidence bucketing. Execution nodes still route to Claude Opus for
+  design work or Codex gpt-5.5 for non-design work.
 - Read-only nodes: omit `--writes` entirely
 
 ## When To Trigger `describe`
@@ -113,8 +117,8 @@ The minimum Beads-backed node brief must carry:
 - run directory path (for the `WG-*_RESULT.md` artifact)
 - the node's concern, depends_on, writes, done_when, validate, risk_gate
 - attribution preamble: `export BR_AGENT_NAME=… BR_HARNESS=… BR_MODEL=…`
-- model route: Claude Opus for design-related nodes; Codex gpt-5.5 for
-  everything else
+- model route: Grok dispatcher for read-only router/preflight nodes; Claude
+  Opus for design-related nodes; Codex gpt-5.5 for other execution nodes
 - verified claim state: the lead must have run `br update <id> --claim` for
   the assigned worker, and the worker must verify `br show <id>` reports
   `status=in_progress` plus the expected assignee before editing

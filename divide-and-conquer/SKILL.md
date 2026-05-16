@@ -72,14 +72,24 @@ its operator, reservation, transport, and review-loop guidance.
 
 Use this skill for large-ish, UI-facing, multi-file, naturally parallel, or
 review-sensitive tasks even when the user did not explicitly ask for a swarm.
-Design-related nodes must run on Claude Opus; non-design nodes must run on
-Codex unless the user explicitly overrides the routing. Require a final
-fresh-eyes reviewer pass before completion.
+Cheap cwd/workflow routing and worker-request cleanup should use the
+workspace sibling `voice-to-text` Grok dispatcher when that runtime is
+available. Design-related execution nodes must run on Claude Opus; non-design
+execution nodes must run on Codex unless the user explicitly overrides the
+routing. Require a final fresh-eyes reviewer pass before completion.
 
 ## Model Routing Is Mandatory
 
 Route every ready node before spawning workers:
 
+- **Grok dispatcher for routing/preflight.** The `voice-to-text` dispatcher is
+  the preferred cheap router for cwd selection, skill-tag extraction, request
+  cleanup, broad evidence bucketing, and other read-only clerk work. It already
+  invokes Grok headlessly for the route decision and, through Swimmers, can
+  spawn a hidden Grok worker for the cleaned request. Record this as
+  `Model route: Grok dispatcher` when a Beads node is only doing router or
+  preflight work. Do not treat a Grok dispatcher result as authority to bypass
+  Beads hydration, ownership, validation, or the final review gate.
 - **Claude Opus only for design-related work.** Treat a node as design-related
   when it touches UI/UX, visual design, design systems, frontend screen or
   component layout, CSS/tokens, responsive behavior, screenshots, visual
@@ -93,7 +103,8 @@ Route every ready node before spawning workers:
   material acceptance criterion. Split mixed nodes before launch when the model
   routing would otherwise be unclear.
 - Record the selected route in the Beads dispatch contract and worker prompt:
-  `Model route: Claude Opus` or `Model route: Codex gpt-5.5`.
+  `Model route: Grok dispatcher`, `Model route: Claude Opus`, or
+  `Model route: Codex gpt-5.5`.
 
 ## Related Skills
 
@@ -195,7 +206,10 @@ execution.
 - Size each wave from the current ready frontier, not from the full graph
 - Default to one worker per ready node
 - If the frontier exceeds `--max-workers`, split it into multiple subwaves
-- Route design-related nodes to Claude Opus and all non-design nodes to Codex
+- Keep Grok dispatcher/preflight nodes read-only unless the user explicitly
+  asks for Grok to own a writer node with a concrete write scope
+- Route design-related execution nodes to Claude Opus and non-design execution
+  nodes to Codex
 - Use `gpt-5.5` whenever you set a Codex model explicitly
 - Fall back to `gpt-5.4` or `gpt-5.3-codex` only when the runtime rejects 5.5,
   quota/account limits require it, or the user asks for a cheaper/lower model
@@ -282,8 +296,8 @@ ready node is not launchable until `br show {id} --json` or
 - current dependencies, blocked state, and ready frontier membership
 - `writes`, `done_when`, `validate_cmds`, `risk_gate`, non-goals, and stop rules
 - global constraints: no remote push, no cross-repo edits, no write-scope theft
-- model route per node: Claude Opus for design-related nodes, Codex gpt-5.5
-  for all other nodes
+- model route per node: Grok dispatcher for read-only router/preflight nodes,
+  Claude Opus for design-related nodes, Codex gpt-5.5 for other execution nodes
 - expected Beads assignee per node (`BR_AGENT_NAME`) and the exact claim
   verification command
 
@@ -429,7 +443,9 @@ Validate:
 Risk gate:
 - none | <gate>
 Model route:
-- Claude Opus for design-related nodes | Codex gpt-5.5 for all other nodes
+- Grok dispatcher for read-only router/preflight nodes
+- Claude Opus for design-related nodes
+- Codex gpt-5.5 for other execution nodes
 Expected Beads assignee:
 - <worker-id>
 
@@ -632,8 +648,11 @@ When the final review result is available:
 - Ready frontier comes from `br_helpers.py ready` or `scheduler`; do not pre-dispatch blocked nodes
 - `writes` ownership is a hard boundary, not a suggestion
 - Default to NTM swarm execution; do not substitute local ad hoc workers
+- Cwd/workflow routing, skill-tag extraction, cleaned-request drafting, and
+  read-only clerk/preflight nodes should use the `voice-to-text` Grok
+  dispatcher when available
 - Design-related nodes and design/fresh-eyes review nodes must use Claude Opus;
-  non-design nodes must use Codex gpt-5.5 by default
+  non-design execution nodes must use Codex gpt-5.5 by default
 - The lead must claim every dispatched node for the assigned worker and verify
   `status=in_progress` plus assignee before edits begin; unclaimed pane activity
   does not count as in-flight work

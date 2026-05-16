@@ -100,11 +100,14 @@ transports are acceptable only when the skill-local workflow names them.
 - Missing worker substrate: stop and surface the missing prerequisite instead
   of executing audit, implementation, or hardening phases without worker isolation
 
-When a skill can choose models, route design-related nodes to Claude Opus and
-route non-design nodes to Codex by default. Design-related includes UI/UX,
-visual design, design systems, CSS/tokens, responsive behavior, screenshots,
-visual parity, product interaction copy, and fresh-eyes review of those
-surfaces.
+When a skill can choose models, use the cheapest reliable router first:
+cwd/workflow routing, skill-tag extraction, cleaned-request drafting, and
+read-only clerk/preflight work should route through the workspace
+`voice-to-text` Grok dispatcher when available. Route design-related execution
+nodes to Claude Opus and route non-design execution nodes to Codex by default.
+Design-related includes UI/UX, visual design, design systems, CSS/tokens,
+responsive behavior, screenshots, visual parity, product interaction copy, and
+fresh-eyes review of those surfaces.
 
 ## Fresh-Eyes Review Gates
 

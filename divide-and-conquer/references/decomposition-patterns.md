@@ -128,10 +128,13 @@ Before finalizing a graph, verify:
       `br_helpers.py hydrate-node <id>` can expose it before dispatch
 - [ ] Read-only nodes declare empty writes
 - [ ] Writer nodes own concrete write scopes
+- [ ] Cwd/workflow routing, skill-tag extraction, cleaned-request drafting, and
+      broad read-only evidence bucketing are routed through the `voice-to-text`
+      Grok dispatcher when that runtime is available
 - [ ] Design-related nodes are routed to Claude Opus, including UI/UX,
       visual design, design-system, CSS/token, screenshot, and visual parity work
-- [ ] Non-design nodes are routed to Codex `gpt-5.5`, with reasoning chosen
-      from `medium|high|xhigh`
+- [ ] Non-design execution nodes are routed to Codex `gpt-5.5`, with reasoning
+      chosen from `medium|high|xhigh`
 - [ ] Every node has an expected `BR_AGENT_NAME`, and the lead will verify
       `br show` reports `status=in_progress` plus that assignee before edits
       begin

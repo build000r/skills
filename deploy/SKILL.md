@@ -88,6 +88,13 @@ Run this checklist before any irreversible step:
 5. Confirm the verification path you will use after the change.
 6. For browser-facing surfaces, identify the canonical production origin and
    every first-party alias from the overlay before changing code or config.
+7. For browser API/auth flows, map every backend the browser calls, not only
+   the frontend host:
+   - frontend origins: canonical origin plus first-party aliases
+   - browser-called API/auth origins
+   - exact preflight route, method, and non-simple request headers
+   - callback, return, and checkout redirect allowlists that must match those
+     origins
 
 For auth, env, or schema changes, explicitly answer:
 
@@ -126,6 +133,31 @@ For Cloudflare Workers / Pages deploys, the minimum contract is:
 If parity is `unknown` or `failed`, stop and treat the rollout as blocked until
 the CI secret is rotated, synced, or deliberately bypassed by an approved
 manual deploy path.
+
+Browser CORS/auth probe:
+
+When users are blocked by a browser login or app API call, prove CORS with a
+real browser-shaped `OPTIONS` request before blaming application auth. Health
+checks and server-to-server `GET` requests do not prove browser preflight.
+
+```bash
+FRONTEND_ORIGIN="https://www.example.com"
+API_ORIGIN="https://api.example.com"
+
+curl -i -X OPTIONS "$API_ORIGIN/api/auth/login" \
+  -H "Origin: $FRONTEND_ORIGIN" \
+  -H "Access-Control-Request-Method: POST" \
+  -H "Access-Control-Request-Headers: content-type,authorization,x-api-key"
+```
+
+Use the exact route, method, and custom headers from the browser request. Repeat
+the probe for every canonical frontend origin, first-party alias, and
+browser-called API/auth backend in the overlay. For credentialed requests, the
+response must include `access-control-allow-origin` matching the request origin
+and `access-control-allow-credentials: true`; the allowed headers must include
+each requested non-simple header. A passing preflight followed by `401` or
+`403` is not a CORS failure: split stale-token/session refresh from route
+authorization and role/scope checks.
 
 ## Permission Model
 
@@ -294,6 +326,8 @@ Checklist:
 - note any new headers, scopes, or callback URLs
 - explicitly compare browser origin allowlists against every public hostname and
   alias in the overlay (`example.com`, `www.example.com`, Pages/Vercel aliases)
+- for each browser-called API/auth backend, run an explicit `OPTIONS` preflight
+  with the real route, method, origin, and non-simple request headers
 - for checkout or billing flows, compare redirect allowlists against the
   canonical origin and first-party aliases in the overlay, then test one
   rejected lookalike host
@@ -333,6 +367,9 @@ Use the exact failure signature instead of generic “unauthorized” summaries:
 | `403` + permission code | role/scope mismatch | inspect auth config and subject role |
 | Cloudflare `10000` / `9109` | stale or invalid CI token | compare `npx wrangler whoami` locally vs workflow secret source, then rotate/sync the GitHub secret before the next push |
 | `400` + `Disallowed CORS origin` on `OPTIONS` | browser origin allowlist drift | diff deployed env/secret allowlist against all public hostnames and aliases, then rerun preflight |
+| `OPTIONS` passes but browser `401` persists | stale token/session/header issue | clear or refresh the session, compare auth headers/cookies, then retry the authenticated route |
+| `OPTIONS` passes but authenticated route returns `403` | application authorization or role/scope mismatch | inspect route guards and the subject's app/company/project access |
+| `OPTIONS` omits a requested custom header | header allowlist drift | add the exact browser-sent header to the deployed CORS config and rerun preflight |
 | `404` on health URL | wrong route/origin/frontdoor | check overlay host/path values |
 | `502` / `503` at proxy | upstream container down or wrong upstream port | check compose status and container-local health |
 | migration command fails | schema drift or wrong DB target | verify DB name, container, and current revision |

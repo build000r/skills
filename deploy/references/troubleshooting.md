@@ -85,6 +85,49 @@ curl -I "$MODE_HEALTH_URL_FRONTEND"
 
 Then inspect the frontend deploy surface defined in the project runbook or local mode notes.
 
+## Browser Login Or API Calls Denied
+
+First split:
+- preflight denied: browser origin, method, or header allowlist drift
+- `401`: missing/stale credential, token refresh, cookie, or header issue
+- `403`: authenticated subject lacks the app/company/project access the route expects
+
+Do not use a health check as CORS proof. Probe the actual browser route with
+the actual origin, method, and non-simple headers. Replace the header list with
+the headers the browser sends, including custom publishable-key or refresh
+headers when the stack uses them.
+
+```bash
+FRONTEND_ORIGIN="https://www.example.com"
+API_ORIGIN="https://api.example.com"
+
+curl -sS -D- -o /dev/null -X OPTIONS "$API_ORIGIN/api/auth/login" \
+  -H "Origin: $FRONTEND_ORIGIN" \
+  -H "Access-Control-Request-Method: POST" \
+  -H "Access-Control-Request-Headers: content-type,authorization,x-api-key"
+```
+
+Expected CORS result for credentialed browser calls:
+- status is `2xx` or `204`
+- `access-control-allow-origin` matches `$FRONTEND_ORIGIN`
+- `access-control-allow-credentials: true`
+- `access-control-allow-headers` includes every requested non-simple header
+
+Run the same preflight for each canonical frontend origin, first-party alias,
+and browser-called API/auth backend. Multi-service apps commonly have more than
+one gate: frontend host routing, auth service CORS, app API CORS, app-level
+allowed origins, callback URLs, and checkout return URLs.
+
+Interpretation:
+- `400` or a body like `Disallowed CORS origin`: diff deployed CORS env/secrets
+  against every overlay origin and alias.
+- Preflight passes, then `401`: clear or refresh the browser session, compare
+  cookies/headers, and retry the authenticated route.
+- Preflight passes, then `403`: inspect route guards and the subject's
+  app/company/project access. This is not a CORS failure.
+- Header missing from `access-control-allow-headers`: add the exact browser-sent
+  header to the deployed CORS config and rerun the preflight.
+
 ## Package Release Problems
 
 Checks:

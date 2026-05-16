@@ -58,6 +58,18 @@ client:
           smoke:
             - "curl -fsSI https://example.com/ | grep -i 'location: https://www.example.com/'"
             - "curl -fsS https://www.example.com/health"
+          browser_cors:
+            frontend_origins:
+              - https://www.example.com
+              - https://example.com
+            api_origins:
+              - https://api.example.com
+            preflight_route: /api/auth/login
+            preflight_method: POST
+            preflight_headers:
+              - content-type
+              - authorization
+              - x-api-key
 
   checks: []
 
@@ -87,6 +99,9 @@ Common keys:
 - Pages/edge target keys: `project`, `pages_origin`, `production_branch`,
   `production_domain`, `production_aliases`, `canonical_redirect`,
   `wrangler_config`, `required_github_secrets`, `cli`, `smoke`
+- Optional browser API keys: `browser_cors.frontend_origins`,
+  `browser_cors.api_origins`, `browser_cors.preflight_route`,
+  `browser_cors.preflight_method`, `browser_cors.preflight_headers`
 
 Selection rules:
 

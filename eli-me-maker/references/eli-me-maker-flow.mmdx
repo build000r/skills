@@ -1,0 +1,88 @@
+<!-- mmdx
+{
+  "entry": "main",
+  "links": [
+    {
+      "from": "main",
+      "label": "Ask-cascade calibration",
+      "to": "ask-cascade-detail",
+      "title": "Open the ask-cascade calibration detail"
+    },
+    {
+      "from": "main",
+      "label": "MMDX preference map",
+      "to": "mmdx-map-detail",
+      "title": "Open the MMDX preference map detail"
+    },
+    {
+      "from": "main",
+      "label": "Private eli-me skill",
+      "to": "private-skill-detail",
+      "title": "Open the private skill boundary"
+    }
+  ]
+}
+-->
+
+## chart main Eli-Me Maker Flow
+```mermaid
+flowchart TD
+  maker["Public eli-me-maker skill"]
+  placement["Placement decision"]
+  ask["Ask-cascade calibration"]
+  map["MMDX preference map"]
+  private["Private eli-me skill"]
+  validate["Validate and activate"]
+
+  maker --> placement
+  placement --> ask
+  ask --> map
+  map --> private
+  ask --> private
+  private --> validate
+```
+
+## chart ask-cascade-detail Ask-Cascade Calibration
+```mermaid
+flowchart TD
+  root["Root style fork"]
+  complete["Completion axis"]
+  example["Example type"]
+  compression["Compression"]
+  checkpoint["Checkpoint cadence"]
+  card["Preference card"]
+
+  root --> complete
+  complete --> example
+  example --> compression
+  compression --> checkpoint
+  checkpoint --> card
+```
+
+## chart mmdx-map-detail MMDX Preference Map
+```mermaid
+flowchart TD
+  need["Use only when a map clarifies the preference"]
+  axes["Axes: start shape, proof type, compression, checkpoints"]
+  private["Write private preference maps beside eli-me"]
+  public["Keep public diagrams generic"]
+
+  need --> axes
+  axes --> private
+  axes --> public
+```
+
+## chart private-skill-detail Private Skill Boundary
+```mermaid
+flowchart TD
+  maker["Public maker"]
+  template["Generic template"]
+  answers["Private calibrated answers"]
+  skill["Private eli-me/SKILL.md"]
+  link["Optional workspace activation"]
+
+  maker --> template
+  template --> skill
+  answers --> skill
+  skill --> link
+```

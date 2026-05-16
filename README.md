@@ -1,7 +1,7 @@
 # build000r/skills
 
 <p align="center">
-  <img alt="Catalog" src="https://img.shields.io/badge/catalog-44_skills-111111?style=for-the-badge" />
+  <img alt="Catalog" src="https://img.shields.io/badge/catalog-45_skills-111111?style=for-the-badge" />
   <img alt="Works with Claude Code, Codex, and Cursor" src="https://img.shields.io/badge/agents-Claude_Code%20%7C%20Codex%20%7C%20Cursor-2f6feb?style=for-the-badge" />
   <img alt="Licensing is skill-specific" src="https://img.shields.io/badge/license-skill--specific-6b7280?style=for-the-badge" />
 </p>
@@ -126,6 +126,7 @@ contain `SKILL.md`. You can install one skill, a lane, or the full catalog.
 | [`domain-planner`](./domain-planner/) | Plans multi-repo domain slices and implementation contracts |
 | [`domain-reviewer`](./domain-reviewer/) | Audits live work against a plan and retires completed slices |
 | [`domain-scaffolder`](./domain-scaffolder/) | Scaffolds backend or frontend domain code from accepted slice plans |
+| [`eli-me-maker`](./eli-me-maker/) | Creates a private `eli-me` skill for personalized explanation preferences |
 | [`mmdx-registry-usage-audit`](./mmdx-registry-usage-audit/) | Audits MMDX index freshness, tracker placement, chart links, and preflight validity |
 | [`mutate`](./mutate/) | Runs mutation testing and triages surviving mutants |
 | [`oss-doc-audit`](./oss-doc-audit/) | Audits public docs for drift, grades OSS readiness, and builds ranked cleanup queues |

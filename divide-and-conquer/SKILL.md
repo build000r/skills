@@ -70,6 +70,13 @@ Because execution is swarm/NTM-coordinated, `vibing-with-ntm` is mandatory for
 every divide-and-conquer run. Activate it through `sbp` when needed, then follow
 its operator, reservation, transport, and review-loop guidance.
 
+Before any `ntm spawn`, prove the NTM project name resolves to the repo you
+intend to edit. NTM derives pane working directories from
+`projects_base/session_name`; a wave name that does not map to the target repo
+can launch workers in a sibling or empty checkout. This root preflight belongs
+to `divide-and-conquer` because it is an execution-safety gate, not a live
+operator-tending concern. See [NTM Project Root Preflight](#ntm-project-root-preflight).
+
 Use this skill for large-ish, UI-facing, multi-file, naturally parallel, or
 review-sensitive tasks even when the user did not explicitly ask for a swarm.
 Cheap cwd/workflow routing and worker-request cleanup should use the
@@ -122,6 +129,13 @@ Route every ready node before spawning workers:
 Execution artifacts belong alongside the active client overlay in
 `skillbox-config`, not in the repo root and not in `/tmp`.
 
+Repo hygiene is a hard requirement. New divide-and-conquer waves MUST NOT write
+or ask workers to write `WORKGRAPH.md`, `EXECUTION_CONTEXT.md`,
+`WG-*_RESULT.md`, `DAC_FINAL_RESULT.md`, `.dac/`, or `.ntm/` inside the product
+repo unless the user explicitly asks for a repo-local proof artifact. Product
+repos should receive product changes and intentional `.beads/issues.jsonl`
+updates only.
+
 Resolve client context with the shared helper first:
 
 ```bash
@@ -150,7 +164,7 @@ Where:
 
 Store these optional/generated artifacts in the run directory:
 - `EPIC_ID.txt` — the `br` epic ID for this run; sole pointer back to the source-of-truth state in `.beads/`
-- `WORKGRAPH.md` — generated view (regenerate with `br_helpers.py render-workgraph --epic {id} --out WORKGRAPH.md`); never edit by hand
+- `WORKGRAPH.md` — generated view (regenerate with `br_helpers.py render-workgraph --epic {id} --out <absolute-run-dir>/WORKGRAPH.md`); never edit by hand
 - `EXECUTION_CONTEXT.md` — optional generated dispatch summary rendered from Beads; never the authoritative worker contract
 - `WG-*_RESULT.md` — per-node worker evidence attachments (changed files, validation output, blockers); status and contract remain in `br`
 - `DAC_FINAL_RESULT.md` — final integration evidence summary
@@ -161,6 +175,12 @@ durable graph: list its children with `br_helpers.py ready --label slice:{name}`
 and skip re-minting nodes. Always create a fresh invocation run directory for
 this execution's artifacts and write `EPIC_ID.txt` pointing at the reused
 epic.
+
+Live pane state, transcript tails, attention-feed output, restarts, rate-limit
+status, queue-dry checks, and swarm tending notes belong to `vibing-with-ntm`
+and the NTM runtime. Export only the concise evidence needed for reconciliation
+into this run directory. Do not mirror the full NTM session into the product
+repo.
 
 ## Modes
 
@@ -216,6 +236,38 @@ execution.
 - Default to `high`; use `medium` only for clearly bounded read-only nodes and
   `xhigh` for integration review or ambiguous repairs
 
+### NTM Project Root Preflight
+
+Run this before every wave spawn, including review waves:
+
+```bash
+repo_root="$(git rev-parse --show-toplevel)"
+pwd
+rg '^projects_base' ~/.config/ntm/config.toml
+ntm list --json
+```
+
+Then verify the proposed `$WAVE_PROJECT` resolves to `repo_root`. If
+`projects_base/$WAVE_PROJECT` is not the target checkout, do not spawn the wave
+by basename. Fix the NTM project mapping first, choose a supported session name
+that maps to the actual repo, or block the Beads node with the exact root
+resolution problem.
+
+Record the result in the dispatch contract:
+
+```text
+NTM root preflight:
+- repo_root: <absolute git root>
+- wave_project: <ntm session name>
+- projects_base mapping: <verified target path or blocker>
+- result: pass | blocked
+```
+
+`ntm spawn` success, an idle pane, or a worker saying it is in the right repo is
+not sufficient proof. After dispatch, verify pane output or a robot inspection
+shows the node brief landed in the intended checkout before counting the node
+as in flight.
+
 ## Process
 
 ### 1. Analyze the Task
@@ -247,7 +299,7 @@ Before inventing a split, check whether the slice already has a `br` epic with
 open children:
 
 ```bash
-python3 ~/.claude/skills/_shared/scripts/br_helpers.py ready --label slice:{slug} > /tmp/dac-ready.json
+frontier_json="$(python3 ~/.claude/skills/_shared/scripts/br_helpers.py ready --label slice:{slug})"
 ```
 
 If the epic exists and the ready frontier is non-empty:
@@ -266,7 +318,7 @@ If no epic exists and orchestration is still relevant:
   treat it as guidance for what *content* each node carries, not where state lives.
 - Keep the slice focused on this execution, usually 2-8 nodes
 - Write `EPIC_ID.txt` to the run directory, then regenerate `WORKGRAPH.md` as a
-  view: `br_helpers.py render-workgraph --epic $(cat EPIC_ID.txt) --out WORKGRAPH.md`
+  view: `br_helpers.py render-workgraph --epic $(cat <absolute-run-dir>/EPIC_ID.txt) --out <absolute-run-dir>/WORKGRAPH.md`
 - Immediately run `br_helpers.py ready --label slice:{slug}` and treat the
   result as wave 1
 
@@ -344,6 +396,11 @@ Optionally render `EXECUTION_CONTEXT.md` inside the run directory after the
 Beads contract is complete. Treat it as a cached view for humans and transport
 debugging. Never hand-edit it to add worker-only context.
 
+Before dispatch, verify the run directory is outside the product repo root and
+under the resolved invocation root. If it resolves to the repo root, `.dac/`,
+`.ntm/`, `/tmp`, or any untracked repo-local scratch directory, stop and repair
+the artifact root before spawning workers.
+
 ### Transport Hygiene
 
 If the swarm transport looks wrong, fix that before blaming the node brief.
@@ -354,8 +411,9 @@ If the swarm transport looks wrong, fix that before blaming the node brief.
   idle shell after dispatch, treat it as contaminated. Respawn that pane and
   resend the node brief before advancing the wave.
 - Prefer artifact-aware checks over coarse activity labels: a node is not
-  meaningfully in flight until its expected `WG-*_RESULT.md` path is plausible
-  and the pane output matches the assigned node.
+  meaningfully in flight until its expected absolute
+  `<absolute-run-dir>/WG-*_RESULT.md` path is plausible and the pane output matches the
+  assigned node.
 - When the failure surface is NTM itself rather than decomposition or prompt
   quality, consult `vibing-with-ntm` or `ntm` if available instead of
   improvising ad hoc transport rituals.
@@ -401,7 +459,8 @@ node with a blank assignee, repair attribution with `br update <id> --assignee
 
 Every worker prompt MUST include:
 1. A node brief rendered from Beads (`br_helpers.py render-node-brief <id>`)
-2. The exact `br` issue ID for the node, plus the run directory path for evidence artifacts
+2. The exact `br` issue ID for the node, plus the absolute run directory path
+   for evidence artifacts
 3. The node's `concern`, `depends_on`, `writes`, `done_when`, `validate_cmds`,
    and `risk_gate` (read these from `br show {id}` if not inlined)
 4. The hard ownership rule: edit only the declared `writes`
@@ -414,8 +473,10 @@ Every worker prompt MUST include:
    - On blocked: `br update {id} -s blocked --notes "{reason}"`
    - On done: `br close {id} --reason "{summary}" --suggest-next --json`
 6. The attribution preamble: `export BR_AGENT_NAME=<role> BR_HARNESS=<harness> BR_MODEL=<model>` before any `br` mutation
-7. The stop rule: if required edits escape `writes`, leave the issue in_progress, write the smallest Beads graph change proposal in the result artifact, and do NOT close the issue
-8. The result artifact contract below
+7. The artifact boundary: write evidence only to the absolute run directory,
+   never to the product repo root, `.dac/`, `.ntm/`, or `/tmp`
+8. The stop rule: if required edits escape `writes`, leave the issue in_progress, write the smallest Beads graph change proposal in the result artifact, and do NOT close the issue
+9. The result artifact contract below
 
 ### Node Worker Prompt Contract
 
@@ -426,7 +487,7 @@ You own one divide-and-conquer node inside an execution swarm.
 
 Source of truth: br (run `br show <issue-id>` for the live contract)
 Issue ID: <prefix>-wg-001-<slug>-<hash>
-Run directory: <path under skillbox-config>
+Run directory: <absolute path under skillbox-config invocation root>
 Concern: <concern>
 Depends on: <ids already satisfied, or None>
 Writes: <expected paths/globs, or None>
@@ -458,19 +519,24 @@ Rules:
   until it shows `status=in_progress` and `assignee=<worker-id>`
 - Work only inside the repo and inside your declared write scope
 - Do not commit; the integration wave commits everything together
+- Do not create repo-local orchestration artifacts. No repo-root
+  `WORKGRAPH.md`, `EXECUTION_CONTEXT.md`, `WG-*_RESULT.md`,
+  `DAC_FINAL_RESULT.md`, `.dac/`, or `.ntm/`.
 - If you need edits outside `writes`, do NOT close the issue. Report the
   smallest Beads graph update needed and leave status=in_progress for the orchestrator
 - Run your validate commands before declaring success
 - On done: `br close <id> --reason "<summary>" --suggest-next --json` and write
-  `WG-001_RESULT.md` in the invocation run directory with the required sections
+  `<absolute-run-dir>/WG-001_RESULT.md` with the required sections
 - On blocked: `br update <id> -s blocked --notes "<reason>"` and write the
-  blocker section in WG-001_RESULT.md
+  blocker section in `<absolute-run-dir>/WG-001_RESULT.md`
 ```
 
 ### Node Result Artifact
 
 Every worker MUST write `<NODE_ID>_RESULT.md` such as `WG-001_RESULT.md` in the
-invocation run directory:
+absolute invocation run directory. If the worker cannot write there, it must
+stop and report the artifact-root blocker instead of writing a fallback file in
+the product repo, `.dac/`, `.ntm/`, or `/tmp`:
 
 ```markdown
 # WG-001 Result
@@ -507,8 +573,9 @@ CronCreate(
   prompt: "Check divide-and-conquer wave $WAVE_PROJECT. Run:
     1. ntm --robot-is-working=$WAVE_PROJECT
     2. ntm --robot-tail=$WAVE_PROJECT --lines=80
-    3. ls -la <run_dir>/WG-*_RESULT.md 2>/dev/null
-    4. br show <each-active-issue-id> --json
+    3. test <absolute-run-dir> -ef \"$(git rev-parse --show-toplevel)\" && echo BAD_RUN_DIR || true
+    4. ls -la <absolute-run-dir>/WG-*_RESULT.md 2>/dev/null
+    5. br show <each-active-issue-id> --json
 
   For each active node, determine:
   (a) working / idle / stuck / rate-limited?
@@ -533,13 +600,13 @@ CronCreate(
 **Generic nudge (idle, no result):**
 
 ```bash
-ntm send "$WAVE_PROJECT" --pane="$N" "You own node WG-00N. Finish the node, run its validate commands, and write WG-00N_RESULT.md into the invocation run directory now. Stay inside the declared write scope."
+ntm send "$WAVE_PROJECT" --pane="$N" "You own node WG-00N. Finish the node, run its validate commands, and write WG-00N_RESULT.md only at <absolute-run-dir>/WG-00N_RESULT.md. Do not create repo-root, .dac, .ntm, or /tmp fallback artifacts. Stay inside the declared write scope."
 ```
 
 **Depth nudge (result lacks proof):**
 
 ```bash
-ntm send "$WAVE_PROJECT" --pane="$N" "WG-00N_RESULT.md in the invocation run directory is not sufficient yet. Add the exact files changed, explicit validation commands, and whether the node is done, blocked, or needs_rework."
+ntm send "$WAVE_PROJECT" --pane="$N" "<absolute-run-dir>/WG-00N_RESULT.md is not sufficient yet. Add the exact files changed, explicit validation commands, and whether the node is done, blocked, or needs_rework. Do not write evidence files in the product repo."
 ```
 
 **Boundary nudge (scope drift):**
@@ -557,7 +624,9 @@ Once the wave has produced results, or the timeout is reached:
    ```bash
    ntm --robot-tail="$WAVE_PROJECT" --lines=200
    ```
-3. Read every `WG-*_RESULT.md` in the run directory for the active wave completely
+3. Read every `<absolute-run-dir>/WG-*_RESULT.md` for the active wave completely.
+   Treat repo-root, `.dac/`, `.ntm/`, or `/tmp` result files as misplaced
+   evidence that must be moved to the run directory before reconciliation.
 4. Cross-reference each issue's current state with `br show {id}`. The lead
    should already have claimed each issue before dispatch; never trust worker
    prose, pane activity, or file changes alone.
@@ -573,7 +642,8 @@ Once the wave has produced results, or the timeout is reached:
      the worker forgot)
    - Real blocker: `br update {id} -s blocked --notes "{verified blocker}"`
    - Needs rework: `br reopen {id}` — the issue returns to the ready frontier
-7. Re-render the view: `python3 ~/.claude/skills/_shared/scripts/br_helpers.py render-workgraph --epic $(cat EPIC_ID.txt) --out WORKGRAPH.md`
+7. Re-render the view:
+   `python3 ~/.claude/skills/_shared/scripts/br_helpers.py render-workgraph --epic $(cat <absolute-run-dir>/EPIC_ID.txt) --out <absolute-run-dir>/WORKGRAPH.md`
 8. Re-query the frontier: `python3 ~/.claude/skills/_shared/scripts/br_helpers.py ready --label slice:{slug}`
 9. Launch the next ready wave
 
@@ -617,7 +687,7 @@ Reviewer prompt:
   `.beads/issues.jsonl` reflects current state
 - Commit if there are clean, scoped changes to save (include `.beads/issues.jsonl`,
   exclude `.beads/*.db*`)
-- Write `DAC_FINAL_RESULT.md` in the invocation run directory
+- Write `<absolute-run-dir>/DAC_FINAL_RESULT.md`
 
 `DAC_FINAL_RESULT.md` MUST end with:
 
@@ -645,6 +715,10 @@ When the final review result is available:
 - `WORKGRAPH.md` is a generated view; never hand-edit it — re-render with `br_helpers.py render-workgraph`
 - State changes flow through `br update`/`br close`, not markdown rewrites
 - Invocation artifacts (`EXECUTION_CONTEXT.md`, `WG-*_RESULT.md`, `DAC_FINAL_RESULT.md`, `EPIC_ID.txt`) still live under the overlay-backed invocation root in `skillbox-config`, but only `EPIC_ID.txt` is a pointer to source-of-truth Beads state; the rest are generated views or evidence attachments
+- Never create new repo-local `.dac/`, `.ntm/`, repo-root `WG-*_RESULT.md`,
+  repo-root `WORKGRAPH.md`, repo-root `EXECUTION_CONTEXT.md`, or repo-root
+  `DAC_FINAL_RESULT.md` files. Existing legacy files may be read as historical
+  evidence, but new waves use the overlay-backed invocation root.
 - Ready frontier comes from `br_helpers.py ready` or `scheduler`; do not pre-dispatch blocked nodes
 - `writes` ownership is a hard boundary, not a suggestion
 - Default to NTM swarm execution; do not substitute local ad hoc workers

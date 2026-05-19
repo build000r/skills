@@ -15,6 +15,7 @@ openclaw-client-bootstrap/assets/instances/*/
 !openclaw-client-bootstrap/assets/instances/README.md
 .search_log.json
 .ntm/
+.stash_janitor_workspace/
 *.bak.*
 briefs/
 # local session artifacts from dueling-idea-wizards runs

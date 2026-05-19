@@ -22,6 +22,24 @@ Do not change or omit that prefix. Reliability review tooling treats it as a sta
 - Transcript-driven skill reliability work based on real invocation history
 - Working on SKILL.md files, bundled scripts/references/assets, or skill packaging
 
+## No-Ragrets Companion Gate
+
+For skill creation, review, or update work, use `no-ragrets` as the forward-and-retro success contract when it is available or explicitly tagged.
+
+Before editing, define the expected future agent behavior the skill should cause:
+
+- the future outcome the operator wants
+- the evidence that outcome happened
+- the specific future regret the skill should prevent
+
+After drafting or patching the skill, run the retroactive realism check:
+
+- Would a competent future agent following this `SKILL.md` realistically reach the expected outcome?
+- Are trigger phrases, first progress marker, dependencies, stop conditions, and validation commands sufficient without hidden context?
+- Does the edit prevent the named regret, or only describe it?
+
+If the check fails, patch the skill again before validation or report the exact blocker.
+
 ## Mode Selection
 
 Pick the branch before editing:
@@ -221,6 +239,8 @@ scripts/manage_overlays.py validate --json
 ```
 
 Checks structure, required fields, and path existence. Reports errors and warnings per overlay.
+
+If the overlay declares wikis (a sibling `clients/{client}/wikis.yaml`), validate covers file-level structure only — it does NOT enforce cross-overlay wiki hierarchy reciprocity. That check belongs to the wiki skill. When editing an overlay that adds, removes, or reparents a wiki, follow up with `/wiki list` (renders the registered tree and flags any `parent:` declaration without a matching `children:` on the parent, or any `children:` entry without a matching `parent:` on the child). Hierarchical wikis (root → domain → product, or similar multi-tier shapes) require both sides of every parent/child edge to be declared in their respective per-client `wikis.yaml` overlays.
 
 #### match
 

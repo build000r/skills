@@ -93,6 +93,18 @@ Symlinks need extra care: a symlink in `_sources/articles/` pointing into `conte
 
 When a request implies cross-vault work (`wiki list`, `wiki lint --all`, `wiki migrate --from=X --to=Y`), iterate over the registry. Each vault is operated on under its own local `CLAUDE.md` schema; do not assume one schema across vaults.
 
+### Hierarchy awareness
+
+Wikis can be arranged in a tree. Each per-client overlay entry may declare a `parent:` (the vault id this wiki is a child of). The optional reciprocal `children:` field on the parent's overlay makes the tree traversable in both directions. Two or more tiers are common (a portfolio root → a domain wiki → a product wiki).
+
+Treat the hierarchy as load-bearing, not cosmetic:
+
+- **Cross-vault wikilinks are first-class.** When a concept page in vault A references `[[slug]]` and `slug` lives in vault B, the prose form is `[[slug]] (see <B> wiki)` or `See <B> wiki: [[slug]]`. Obsidian will not resolve the link across vaults, but the breadcrumb keeps the provenance visible to humans and to lint. The top-level `wikis.yaml` may opt into this explicitly with `defaults.cross_vault_links_are_first_class: true`.
+- **Frontmatter array entries** (`sources: []`, `related: []`) holding slugs that now live in another vault are durable provenance — leave them alone. They document the relationship the concept page draws on, even when the slug is no longer locally resolvable.
+- **Schema dialects can differ across tiers.** A `tiered` parent (root-level published articles + `_concepts/`) can have `product` or `domain` children (concept-only). A child may not introduce capabilities its parent doesn't have without explicit operator approval — e.g. a child cannot add a publishing pipeline that pre-empts the parent's pipeline for the same slug.
+- **Reciprocity check.** When operating in a hierarchy-aware mode, verify that every `parent: <id>` on a child has a matching `children: [<this-id>]` entry on the parent's overlay. Asymmetry is a registry lint finding (see `skill-issue` overlay validation).
+- **Traversal scope.** Operations default to the resolved vault. To explicitly include the parent, walk `parent:` once. To explicitly include children, walk `children:`. Avoid silently traversing the whole tree on routine writes; only `--all` lints and the `migrate` operation reach across tiers without an explicit operator request.
+
 ## Operations
 
 The skill has five primary modes plus two registry-aware modes. Determine which from the user's request:
@@ -102,7 +114,7 @@ The skill has five primary modes plus two registry-aware modes. Determine which 
 - "what does the wiki say", "query", "look up", "find", "synthesize" → **query** (for deep adversarial synthesis, use `/wiki-forge`)
 - "lint", "health check", "audit wiki", "find orphans", "stale" → **lint** (add `--all` to lint every registered vault)
 - "exclude", "park this", "mark as rejected", "don't consider", "tried and rejected" → **exclude**
-- "list wikis", "which wikis", "show registry" → **list** (read `wikis.yaml`, report each wiki's id/role/path/parent and flag any registered path that is missing or any unregistered Obsidian vault discovered under a registered tree)
+- "list wikis", "which wikis", "show registry", "show hierarchy", "wiki tree" → **list** (read `wikis.yaml`, report each wiki's id/role/path/parent. Render the hierarchy as an indented tree using each vault's `parent:` (and reciprocal `children:`) declarations: roots at column 0, children indented under their parent, grandchildren indented further. Flag any registered path that is missing, any unregistered Obsidian vault discovered under a registered tree, any `parent: <id>` that does not appear in the registry, and any `parent`/`children` asymmetry where one side declares the relationship and the other does not.)
 - "migrate concept", "move to child wiki", "promote to parent" → **migrate** (move a concept page between vaults, rewriting frontmatter to the destination's `schema_dialect` and leaving a breadcrumb cross-link in the source)
 
 If the request is operation-free, use orient mode. If the request names multiple
@@ -328,6 +340,7 @@ Prefer updating existing concept pages over creating new ones. A query that touc
    - **Focus-sweep hygiene** — more than one `status: active` sweep, no active sweep when the working set clearly changed, or sweep links that point to missing notes
    - **Skill-hub backlinks** — every skill source in `_sources/skills/` must contain a `[[skill-issue]]` wikilink so the skill cluster traces back to the meta-skill hub. Resolve each symlink and grep the target `SKILL.md`; flag any skill (other than `skill-issue` itself) that omits the backlink. Suggested fix: append a `## Related` section with `- [[skill-issue]]` (or add the bullet to an existing `## Related`).
    - **Exclusion staleness** — scan `_ops/exclusion-ledger.md` for rows whose `reconsider_after` has passed while `status` is still `active`. These are former NO decisions due for re-evaluation. Suggested fix: run `/wiki ingest` on the excluded concept (which will flip the row to `reconsidered` via ingest step 1) or extend the `reconsider_after` date with a short justification appended to the reason cell.
+   - **Outbound cross-vault drift** — for each `[[slug]]` wikilink in this vault's prose (concept pages, root-level articles, source notes), check whether `slug` resolves locally. If not, check whether it resolves in any registered parent, child, or sibling vault. When a remote match exists, the link should be rewritten to the cross-vault breadcrumb form `[[slug]] (see <other-vault-id> wiki)` so the provenance is visible. Skip frontmatter array entries (`sources:`, `related:`) — those are durable provenance and stay as bare slugs. Skip the wiki's own `log.md` (historical entries reference the old shape intentionally). Suggested fix: rewrite each occurrence to breadcrumb form and append a lint summary to `log.md`.
 4. Append lint report to `log.md`
 5. Present findings to user with suggested fixes
 6. Apply fixes only with human confirmation
@@ -377,6 +390,41 @@ acknowledgment.
   readmits them.
 - When a `reconsidered` entry leads to a successful ingest, flip status to
   `readmitted` and append the readmission date to the reason cell.
+
+### Migrate
+
+Move a concept page (or a root-level article) from one registered vault to another. Use when a slug's natural home is a different tier of the hierarchy — typically a portfolio-level page that has accumulated enough depth to belong in a domain or product child, or a child-vault page that has generalized to belong in the parent.
+
+**Input:** a slug, a source vault id, and a destination vault id. The skill resolves both vaults through the registry; either may be the cwd vault, neither has to be.
+
+**Pre-flight checks (required, in order):**
+
+1. **Hierarchy sanity.** Confirm source and destination are in the same tree (share a common ancestor in the registry, or one is the other's ancestor). If they are unrelated branches, ask before proceeding — moving between unrelated trees is rare and usually means the slug should be split into two concept pages.
+2. **Autoblog awareness.** Run the autoblog check on both source and destination. If the source path matches an autoblog source with no publication gate, removing the file will 404 the published URL on next build — surface this explicitly. If the destination path matches an autoblog source with no publication gate, the file will auto-publish on next build at the destination URL.
+3. **URL intent.** If the source file's frontmatter declares a `url:` field pointing at a public URL, the move retires that URL. Ask before proceeding unless the operator already approved a "clean move" policy in the surrounding session.
+4. **Schema dialect compatibility.** Read both vaults' `CLAUDE.md` to learn page-type conventions. If the destination dialect lacks a page type the source uses (e.g. source is a `tiered` published article, destination is a `product` wiki with concepts only), either (a) place at the closest matching destination page type and warn that the page has been demoted, or (b) ask the operator which destination page type to use.
+5. **Exclusion ledger check.** If the slug is on the destination's `_ops/exclusion-ledger.md` as `active`, treat as an override and ask before writing.
+
+**Steps:**
+
+1. Move the file (`mv`) from source to destination. If the destination uses a different page-type directory than the source (e.g. source is root-level, destination uses `_concepts/`), place in the destination's matching directory.
+2. **Rewrite frontmatter to the destination dialect.** If the destination's `CLAUDE.md` defines a different frontmatter contract, normalize: drop fields the destination doesn't use, add defaults the destination requires, retarget any `url:` field to the destination's planned-publishing surface (or strip it if the destination has none). Preserve `title`, `description`, and any provenance-bearing fields.
+3. **Add migration provenance.** Insert two frontmatter fields:
+   - `migratedFrom: "<source-vault-id>/<original-path>"`
+   - `migratedOn: "<YYYY-MM-DD>"`
+4. **Auto-rewrite inbound prose wikilinks in the source vault.** This step is mandatory, not optional. Grep the source vault for every `[[<slug>]]` occurrence (and alias forms `[[<slug>|display]]`). For each prose occurrence (not frontmatter, not the source vault's `log.md`):
+   - Bare wikilink in flowing prose → add `(see <destination-vault-id> wiki)` parenthetical right after the wikilink.
+   - Bare wikilink as the grammatical subject → same parenthetical; do not restructure the sentence.
+   - Alias form `[[<slug>|display]]` → preserve the alias, add the parenthetical.
+   - Wikilinks inside frontmatter `sources:` / `related:` arrays → leave as-is (durable provenance per the hierarchy-awareness rules).
+   - Backtick code mentions like `` `<slug>` `` → leave as-is (not wikilinks).
+   - The source vault's `log.md` → leave as-is (historical entries are intentional).
+5. **Update both logs.** Append a migration entry to the source vault's `log.md` (what left, where it went, why) and to the destination vault's `log.md` (what arrived, from where, frontmatter changes).
+6. **Update both indexes if applicable.** If the source vault's `index.md` listed the slug in a section the wiki owns (per the source's `CLAUDE.md`), remove the row. If the destination vault's `index.md` lists slugs in a section the wiki owns, add a row. Some vaults reserve sections for other skills (e.g. a Papers section owned by a research-paper skill) — leave those alone and flag as follow-up.
+7. **Run the outbound cross-vault drift lint check** on the source vault, scoped to the migrated slug, to confirm the auto-rewrite caught every occurrence. Report counts: files modified, occurrences rewritten, occurrences skipped (with reason).
+8. **Do NOT recursively migrate referenced slugs.** If the migrated page wikilinks to other slugs, those stay in their current vaults; the new home in the destination just inherits cross-vault breadcrumbs to them as needed.
+
+**Closeout:** report the move (source → destination), the auto-rewrite count, any flagged follow-ups (autoblog warnings, Papers-section drift, schema-dialect demotions), and any inbound wikilinks that could not be unambiguously rewritten.
 
 ## Wiring New Sources
 

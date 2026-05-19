@@ -100,6 +100,27 @@ transports are acceptable only when the skill-local workflow names them.
 - Missing worker substrate: stop and surface the missing prerequisite instead
   of executing audit, implementation, or hardening phases without worker isolation
 
+### NTM Root Preflight
+
+Before spawning an NTM-backed implementation or review wave, the orchestrator
+must prove the session name resolves to the intended checkout. NTM derives pane
+working directories from `projects_base/session_name`; a convenience wave name
+can otherwise launch workers in the wrong repo.
+
+Minimum check:
+
+```bash
+repo_root="$(git rev-parse --show-toplevel)"
+rg '^projects_base' ~/.config/ntm/config.toml
+ntm list --json
+```
+
+If `projects_base/<session-name>` does not resolve to `repo_root`, do not spawn
+by basename. Fix the mapping, choose a supported session name, or block the
+work item with the exact root-resolution failure. A successful `ntm spawn`,
+idle pane, or worker self-report is not sufficient proof; verify the node brief
+landed in the intended checkout before counting the node in flight.
+
 When a skill can choose models, use the cheapest reliable router first:
 cwd/workflow routing, skill-tag extraction, cleaned-request drafting, and
 read-only clerk/preflight work should route through the workspace
@@ -180,3 +201,11 @@ When a workflow emits or consumes handoff artifacts, keep ownership explicit:
 - `COMPLETED.md`: post-completion user-story summary
 
 Each artifact should have one clear owner at each phase.
+
+Swarm runtime evidence belongs in the overlay-backed invocation root or the NTM
+runtime, not in product repo roots. New domain/DAC waves should not create
+repo-local `.dac/`, `.ntm/`, loose `WG-*_RESULT.md`, `EXECUTION_CONTEXT.md`,
+`WORKGRAPH.md`, or `DAC_FINAL_RESULT.md` files unless the user explicitly asks
+for a repo-local proof artifact. Use `vibing-with-ntm` for live pane state,
+operator ticks, stuck-pane recovery, queue-dry checks, and concise session
+exports.

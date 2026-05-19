@@ -32,9 +32,13 @@ Before drafting, define one brief for X and one brief for LinkedIn:
 - **Primary discovery surface**: the one surface this draft should feel native to
 - **Credibility requirement**: what proof has to appear near the top
 - **Share trigger hypothesis**: practical value, surprise, identity, concern, or another reason this would travel
+- **Belief violated**: one sentence stating the broad assumption the opening contradicts. Aim for a belief held outside the primary reader's sub-niche — a belief in their broader category or, when honest to the paper, one held by most adults. A hook that only sub-niche readers feel is a hook with a low ceiling. Stating the violated belief here forces it to be explicit before drafting.
+- **Industry bridge**: one sentence mapping the universal mechanism in the opening to the reader's specific role. The bridge lands by sentence 4 in short form (LinkedIn Post) and inside the first 150 words in long form (X Article, LinkedIn Article). Without an early bridge, a viral-shaped opening fails to convert because the reader exits thinking about the universal entity, not the offer.
 - **CTA**: the one action the draft should ask for
 
 If the client overlay supplies defaults for any of these, use them. Otherwise infer them from the topic and project context.
+
+The belief-violated / industry-bridge fields are downstream of practitioner authority, not a substitute for it: the opening violates a belief the practitioner's authority gives them standing to overturn, and the bridge is where the practitioner's specific judgment lands. They are not a license to write contrarian bait. If you cannot defend the belief violation from the paper's evidence, weaken the violation rather than strengthen the rhetoric.
 
 For LinkedIn, also define:
 
@@ -100,6 +104,9 @@ Reject and rewrite the X article if:
 - The draft contains scaffolding text the user would have to delete before pasting
 - The formatting depends on advanced Markdown that the composer may flatten awkwardly
 - The draft drifts into a full content strategy, channel calendar, or unsupported virality advice
+- The opening sentence only violates a belief held inside the reader's sub-niche, when the paper's evidence could honestly support a broader violation
+- The first 150 words do not contain an industry bridge mapping the universal mechanism back to the reader's specific role
+- The conclusion ends with a generic "what do you think" question instead of a single, screenshot-able takeaway line a reader could paste into their team chat
 
 ## Companion LinkedIn Article
 
@@ -152,6 +159,9 @@ Reject and rewrite the LinkedIn article if:
 - The structure does not reward continued reading
 - The CTA is generic or bait-y
 - The draft expands into a full distribution plan, calendar, or paid strategy
+- The opening only violates a sub-niche belief, when the paper's evidence could honestly support a broader violation
+- The industry bridge from the universal mechanism to the reader's specific role does not land inside the first 150 words
+- The conclusion ends with a generic discussion prompt instead of a single, screenshot-able takeaway line a professional could send to their team
 
 ## Companion LinkedIn Post
 
@@ -179,12 +189,13 @@ Turn the paper into one LinkedIn feed post that stops the right reader, delivers
 
 ### Default LinkedIn Post Structure
 
-1. **Hook**: Clear role/problem/outcome signal in the first 1-3 lines
-2. **Problem**: Why this matters now
-3. **Proof or mechanism**: strongest data point, case, or framework
-4. **Practical takeaway**: what the reader should do, test, or reconsider
-5. **CTA**: one specific question or next step
-6. **Hashtags (optional)**: limited, relevant, and placed at the end
+1. **Hook (line 1)**: A sentence that violates the broadest belief the paper's evidence can honestly contradict. Aim for a belief held in the reader's broader category or, when truly defensible, one held by most adults. Sub-niche-only hooks cap the ceiling.
+2. **Mechanism extension (lines 2-3)**: Name the hidden mechanism the violation reveals.
+3. **Industry bridge (sentence 4)**: Map the universal mechanism onto the primary reader's specific role. Without this bridge by sentence 4, a viral-shaped opening fails to convert.
+4. **Proof or framework**: strongest data point, case, or compact framework.
+5. **Practical takeaway**: what the reader should do, test, or reconsider.
+6. **Closer**: a single screenshot-able takeaway line a reader could paste into their team chat. Optionally followed by a specific, non-bait CTA.
+7. **Hashtags (optional)**: limited, relevant, and placed at the end.
 
 ### Self-Check
 
@@ -196,3 +207,6 @@ Reject and rewrite the LinkedIn post if:
 - The line breaks feel gimmicky instead of readable
 - The CTA is generic, bait-y, or asks for too much
 - The hashtags dominate the draft or dilute the point
+- The opening sentence only violates a belief held inside the reader's sub-niche, when the paper's evidence supports a broader violation
+- The industry bridge from the universal mechanism to the reader's specific role does not land by sentence 4
+- The closer is a "what do you think" question instead of a single screenshot-able takeaway line a reader could send to their team

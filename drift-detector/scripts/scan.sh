@@ -698,15 +698,22 @@ scan_tsx_ui_guidelines() {
   local out="$tmp/tsx_ui_guideline_violations.jsonl"
   : > "$out"
 
+  # inline_text_size: only match actual text-SIZE / leading-SIZE tokens, not
+  # color tokens like text-muted-foreground, text-foreground, text-primary, or
+  # text-{slate,gray,...}-N. The token must be one of the known size names or
+  # an arbitrary [value] expression.
   emit_tagged_matches "$out" rule_id inline_text_size \
     -g '*.{tsx,jsx,html,vue,svelte,astro}' \
-    -e '<(span|a|strong|em|code)\b[^>]*\b(className|class)=("|\x27|\x60)[^"\x27\x60]*\b(text|leading)-' \
+    -e '<(span|a|strong|em|code)\b[^>]*\b(className|class)=("|\x27|\x60)[^"\x27\x60]*\b(text-(xs|sm|base|lg|xl|[2-9]xl|\[)|leading-(none|tight|snug|normal|relaxed|loose|[0-9]|\[))' \
     "${scope[@]}"
+  # redundant_display: skip responsive-conditional overrides such as
+  # `hidden md:block`; only match bare display tokens at the start of the class
+  # value or after whitespace.
   emit_tagged_matches "$out" rule_id redundant_display \
     -g '*.{tsx,jsx,html,vue,svelte,astro}' \
-    -e '<(div|p|h[1-6])\b[^>]*\b(className|class)=("|\x27|\x60)[^"\x27\x60]*\bblock\b' \
-    -e '<(span|a)\b[^>]*\b(className|class)=("|\x27|\x60)[^"\x27\x60]*\binline\b' \
-    -e '<(button|input|select)\b[^>]*\b(className|class)=("|\x27|\x60)[^"\x27\x60]*\binline-block\b' \
+    -e '<(div|p|h[1-6])\b[^>]*\b(className|class)=("|\x27|\x60)([^"\x27\x60]*[[:space:]])?block([[:space:]]|"|\x27|\x60|$)' \
+    -e '<(span|a)\b[^>]*\b(className|class)=("|\x27|\x60)([^"\x27\x60]*[[:space:]])?inline([[:space:]]|"|\x27|\x60|$)' \
+    -e '<(button|input|select)\b[^>]*\b(className|class)=("|\x27|\x60)([^"\x27\x60]*[[:space:]])?inline-block([[:space:]]|"|\x27|\x60|$)' \
     "${scope[@]}"
   # Tailwind-version-aware deprecation list. Always-flag utilities (preferred
   # shorter form since v2.1, or non-utility patterns): flex-shrink-, flex-grow-,
@@ -738,9 +745,15 @@ scan_tsx_ui_guidelines() {
     -g '*.{tsx,jsx,html,vue,svelte,astro}' \
     -e '<th\b[^>]*\b(className|class)=("|\x27|\x60)[^"\x27\x60]*\buppercase\b' \
     "${scope[@]}"
+  # table_vertical_divider: only flag the unambiguous table-divider case
+  # (`divide-x` is rarely used outside tables) and `border-l/border-r` when the
+  # element is clearly a table cell or header. Layout panels use border-l/
+  # border-r legitimately as side rails; matching them without table context
+  # creates false positives.
   emit_tagged_matches "$out" rule_id table_vertical_divider \
     -g '*.{tsx,jsx,html,vue,svelte,astro}' \
-    -e '\b(border-l|border-r|divide-x)\b' \
+    -e '<(table|thead|tbody|tr|th|td|TableRow|TableCell|TableHead)\b[^>]*\b(className|class)=("|\x27|\x60)[^"\x27\x60]*\b(border-l|border-r|divide-x)\b' \
+    -e '\bdivide-x-(\d|reverse)' \
     "${scope[@]}"
   emit_tagged_matches "$out" rule_id button_text_base \
     -g '*.{tsx,jsx,html,vue,svelte,astro}' \

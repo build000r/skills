@@ -27,6 +27,27 @@ material. Treat this skill as the source of truth.
 Cross-skill worker, handoff, and shared-file ownership rules come from
 `references/orchestration-contract.md`.
 
+## Operator Companion Gates
+
+Use [`_shared/references/domain-companion-gates.md`](../_shared/references/domain-companion-gates.md)
+for optional operator-level gates around this public skill.
+
+- Keep scaffolding narrow: consume an accepted plan and upstream `br` issue
+  rather than re-planning the slice.
+- Use `no-ragrets` as a compact entry check for substantive scaffolding: name
+  the regret this scaffold prevents and the evidence that satisfies the
+  upstream issue.
+- Use `beads-br` for claim, blocker, close, and sync mechanics.
+- Use `beads-bv` only when scaffolding exposes graph inconsistency such as a
+  wrong ready issue, missing dependency, duplicate fix, stale blocker, or
+  priority conflict.
+- Hand broader code/docs/vision drift back to `domain-reviewer` or
+  `domain-planner`; do not run broad `reality-check-for-project` inline.
+
+These companion skills may be operator-private or globally installed. Keep them
+as body-level gates in this public skill unless an operator-private overlay
+intentionally makes them hard dependencies.
+
 ## Beads Discipline (All Surfaces)
 
 This skill executes work that originated as `br` (beads_rust) issues — usually
@@ -352,3 +373,8 @@ Before marking complete:
 - `domain-planner` -- creates the plan this skill implements
 - `divide-and-conquer` -- owns Beads frontier selection and worker dispatch for substantive scaffolding
 - `domain-reviewer` -- audits the implementation against the plan
+- `no-ragrets` -- optional operator gate for scaffolding success and regret-avoidance checks
+- `reality-check-for-project` -- optional operator handoff when scaffolding exposes broader code/docs/vision drift
+- `beads-workflow` -- optional operator handoff when missing upstream graph structure must be created before scaffolding
+- `beads-br` -- optional operator gate for `br` claim, blocker, close, and sync mechanics
+- `beads-bv` -- optional operator gate for Beads graph consistency and ready-frontier review

@@ -35,6 +35,28 @@ Do not change or omit that prefix.
 for the cross-skill contract on worker ownership, background-task handling,
 public retirement naming, and the domain suite's `100/100` convergence rule.
 
+## Operator Companion Gates
+
+Use [`_shared/references/domain-companion-gates.md`](../_shared/references/domain-companion-gates.md)
+for optional operator-level gates around this public skill.
+
+- Use `reality-check-for-project` for "what's left", retire, closeout, or
+  status checks where the real question is whether shipped code delivers the
+  project vision, not only whether one plan is locally satisfied.
+- Use `no-ragrets` before turning audit findings into remediation Beads: name
+  the future failure being avoided and the evidence that the fix graph will
+  prevent it.
+- Use `beads-br` for finding/fix issue creation, claims, blockers, closeout,
+  and sync mechanics.
+- Use `beads-workflow` when audit findings or reality-check results need to
+  become a multi-issue remediation graph rather than one direct fix issue.
+- Use `beads-bv` before launching fix waves to check dependency order, ready
+  frontier, blocked nodes, and stale priority.
+
+These companion skills may be operator-private or globally installed. Keep them
+as body-level gates in this public skill unless an operator-private overlay
+intentionally makes them hard dependencies.
+
 ## Auth Service Requirements (All Modes)
 
 The shared auth/payments/identity service (`{auth_packages_root}` from the client overlay) is the canonical authentication, payments, and identity layer.
@@ -286,3 +308,8 @@ constructing worker prompts.
 - **domain-planner** -- Creates the plans this skill audits
 - **domain-scaffolder** -- Generates backend or frontend code from plan using explicit surface selection
 - **divide-and-conquer** -- Decompose multi-agent work into independent parallel concerns
+- **no-ragrets** -- Optional operator gate for remediation success and regret-avoidance checks
+- **reality-check-for-project** -- Optional operator gate for strategic code/docs/Beads alignment
+- **beads-workflow** -- Optional operator gate for multi-issue remediation graph conversion
+- **beads-br** -- Optional operator gate for `br` issue lifecycle mechanics
+- **beads-bv** -- Optional operator gate for Beads graph health, priority, and ready-frontier review

@@ -43,6 +43,25 @@ needed `domain-scaffolder`/`domain-reviewer` handoffs, but `/divide-and-conquer`
 owns the ready frontier, claims, worker waves, and status updates once
 implementation begins.
 
+## Operator Companion Gates
+
+Use [`_shared/references/domain-companion-gates.md`](../_shared/references/domain-companion-gates.md)
+for the optional operator-level gates around this public skill.
+
+- Use `no-ragrets` at slice start to define future outcome, evidence, and
+  failure avoided before locking the plan premise.
+- Use `reality-check-for-project` before new plan work when existing code,
+  roadmap docs, plans, or Beads may already cover or contradict the slice.
+- Use `beads-workflow` after plan acceptance to convert the accepted slice into
+  a self-contained `br` epic and child graph.
+- Use `beads-br` for concrete `br` lifecycle mechanics and `beads-bv` to check
+  ready frontier, graph health, priority, and blockers before
+  `/divide-and-conquer` executes the graph.
+
+These companion skills may be operator-private or globally installed. Do not
+add them as hard public `depends_on` entries unless this skill is being wrapped
+or overlaid for an operator-private environment.
+
 ## Plan Storage
 
 Plan storage is resolved from the skillbox client overlay. Each client defines plan paths in its `overlay.yaml`, and the `focus` command generates a resolved `context.yaml` with absolute paths:
@@ -849,6 +868,11 @@ are copied automatically by `~/.claude/skills/domain-planner/scripts/init_slice.
 - **domain-scaffolder** — Generate backend or frontend code from plan using the explicit surface selection
 - **domain-reviewer** — Audit implementation against plan, retire completed slices
 - **divide-and-conquer** — Decompose multi-agent work into independent parallel concerns
+- **no-ragrets** — Optional operator gate for future-success, evidence, and regret-avoidance checks.
+- **reality-check-for-project** — Optional operator gate for code/docs/Beads strategic alignment before planning or closeout.
+- **beads-workflow** — Optional operator gate for plan-to-`br` graph conversion and polish.
+- **beads-br** — Optional operator gate for `br` issue lifecycle mechanics.
+- **beads-bv** — Optional operator gate for Beads graph health, priority, and ready-frontier review.
 - **escalate** — Owns the external-reality gate for Subagent C and routes to `thesis-gtm`, `deep-research-prompt`, `web-check`, or `skip`.
 - **thesis-gtm** — Destination chosen by `escalate` when the slice premise is really a product-thesis / buyer / GTM question.
 - **deep-research-prompt** — Destination chosen by `escalate` for narrower live external unknowns that need an Oracle-ready prompt plus execution wrapper.

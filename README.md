@@ -1,7 +1,7 @@
 # build000r/skills
 
 <p align="center">
-  <img alt="Catalog" src="https://img.shields.io/badge/catalog-45_skills-111111?style=for-the-badge" />
+  <img alt="Catalog" src="https://img.shields.io/badge/catalog-46_skills-111111?style=for-the-badge" />
   <img alt="Works with Claude Code, Codex, and Cursor" src="https://img.shields.io/badge/agents-Claude_Code%20%7C%20Codex%20%7C%20Cursor-2f6feb?style=for-the-badge" />
   <img alt="Licensing is skill-specific" src="https://img.shields.io/badge/license-skill--specific-6b7280?style=for-the-badge" />
 </p>
@@ -134,6 +134,7 @@ contain `SKILL.md`. You can install one skill, a lane, or the full catalog.
 | [`reproduce`](./reproduce/) | Uses a command-first QA ladder before handing testing back |
 | [`skill-issue`](./skill-issue/) | Creates, validates, improves, and packages skills |
 | [`skill-registry-usage-audit`](./skill-registry-usage-audit/) | Audits skill manifests, skill-repos.yaml, SBP/MCP visibility, bundles, and placement scope |
+| [`smart`](./smart/) | Chooses the single highest-leverage next move or goal contract from repo evidence |
 
 ### Domain Slice Loop
 

@@ -1,0 +1,235 @@
+<!-- mmdx
+{
+  "entry": "main",
+  "links": [
+    {
+      "from": "main",
+      "label": "P0 Reality Check",
+      "to": "reality-gap",
+      "title": "Open current reality and gap evidence"
+    },
+    {
+      "from": "main",
+      "label": "P0 Goal Contract",
+      "to": "goal-contract",
+      "title": "Open lofty goal contract"
+    },
+    {
+      "from": "main",
+      "label": "Build-vs-Clone Calls",
+      "to": "routing",
+      "title": "Open planning and skill routing"
+    },
+    {
+      "from": "main",
+      "label": "P0 Plan-Space Ambition",
+      "to": "ambition-loop",
+      "title": "Open ambition and refinement cadence"
+    },
+    {
+      "from": "main",
+      "label": "P1 Hardening 1",
+      "to": "hardening-loop",
+      "title": "Open recurring hardening loop"
+    },
+    {
+      "from": "main",
+      "label": "P2 UX Refinement",
+      "to": "ux-refinement",
+      "title": "Open user-experience refinement loop"
+    },
+    {
+      "from": "main",
+      "label": "P2 Proof Gate",
+      "to": "proof-gate",
+      "title": "Open final proof gate"
+    }
+  ]
+}
+-->
+
+## chart main Smart Goal Gantt
+```mermaid
+gantt
+  title Smart Goal Tracker - Replace With Project Goal
+  dateFormat  YYYY-MM-DD
+  axisFormat  %b %d
+
+  section Now: Reality
+  P0 Reality Check        :crit, reality-check, 2026-05-03, 1d
+  Wiki Direction          :active, wiki-direction, 2026-05-03, 1d
+  Build-vs-Clone Calls    :bvc, after wiki-direction, 1d
+
+  section Goal Contract
+  P0 Goal Contract        :crit, goal-contract, after reality-check, 1d
+  Success Criteria        :criteria, after goal-contract, 1d
+  Tracker Baseline        :milestone, baseline, after criteria, 0d
+
+  section Plan Space
+  Domain Plan or Describe :active, plan, after baseline, 2d
+  P0 Plan-Space Ambition  :crit, ambition, after plan, 2d
+  Beads Baseline          :beads, after ambition, 1d
+
+  section Execution Waves
+  P1 Wave 1               :wave1, after beads, 4d
+  P1 Hardening 1          :crit, harden1, after wave1, 2d
+  P1 Reality Recheck      :milestone, recheck1, after harden1, 0d
+  P2 Wave 2               :wave2, after recheck1, 5d
+  P2 UX Refinement        :ux, after wave2, 3d
+  P2 Hardening 2          :crit, harden2, after ux, 2d
+  P2 Proof Gate           :milestone, proof-gate, after harden2, 0d
+
+  section Finish
+  Docs and Examples       :docs, after proof-gate, 2d
+  Final Polish Round      :polish, after docs, 2d
+  Commit and Reality Check:crit, final-check, after polish, 1d
+  Lofty Goal Met          :milestone, goal-met, after final-check, 0d
+```
+
+## chart goal-contract Lofty Goal Contract
+```mermaid
+flowchart TD
+  now["CURRENT: reality-check baseline"]
+  gaps["GAPS: implementation, proof, UX, performance, docs"]
+  goal["LOFTY END GOAL: polished, tested, refined, useful"]
+  bars["QUALITY BARS: unit, e2e, mutation or CRAP, accessibility, docs"]
+  proof["DONE: validation, commit, post-commit reality check agrees"]
+
+  now --> gaps --> goal --> bars --> proof
+
+  classDef current fill:#e0f2fe,stroke:#0284c7,color:#0c4a6e,stroke-width:2px
+  classDef gap fill:#fee2e2,stroke:#dc2626,color:#7f1d1d,stroke-width:2px
+  classDef goal fill:#ede9fe,stroke:#7c3aed,color:#3b0764,stroke-width:2px
+  classDef proof fill:#dcfce7,stroke:#16a34a,color:#14532d,stroke-width:2px
+  class now current
+  class gaps gap
+  class goal,bars goal
+  class proof proof
+```
+
+## chart reality-gap Current Reality and Gap Evidence
+```mermaid
+flowchart LR
+  docs["Docs vision"]
+  code["Code reality"]
+  beads["Bead coverage"]
+  wiki["Wiki direction"]
+  gap["TRACKER BASELINE"]
+
+  docs --> gap
+  code --> gap
+  beads --> gap
+  wiki --> gap
+
+  gap --> working["OK: working now"]
+  gap --> partial["MED: partial or unproven"]
+  gap --> blocked["HIGH: blockers"]
+  gap --> missing["HIGH: no bead or no proof"]
+
+  classDef ok fill:#dcfce7,stroke:#16a34a,color:#14532d
+  classDef med fill:#fef3c7,stroke:#d97706,color:#78350f
+  classDef high fill:#fee2e2,stroke:#dc2626,color:#7f1d1d,stroke-width:2px
+  classDef neutral fill:#f8fafc,stroke:#64748b,color:#0f172a
+  class docs,code,beads,wiki,gap neutral
+  class working ok
+  class partial med
+  class blocked,missing high
+```
+
+## chart routing Planning and Skill Routing
+```mermaid
+flowchart TD
+  start["Start from current reality"]
+  wiki{"Could wiki guidance steer this?"}
+  bvc["Apply build-vs-clone placement calls"]
+  criteria{"Are pass/fail criteria unclear?"}
+  domain{"Is this multi-repo or domain-slice work?"}
+  describe["Use describe"]
+  planner["Use domain-planner"]
+  mmdx["Create MMDX Gantt stack"]
+  beads["Create Beads via divide-and-conquer"]
+
+  start --> wiki
+  wiki -->|yes| bvc
+  wiki -->|no| bvc
+  bvc --> criteria
+  criteria -->|yes| describe --> mmdx
+  criteria -->|no| domain
+  domain -->|yes| planner --> mmdx
+  domain -->|no| mmdx
+  mmdx --> beads
+
+  classDef decision fill:#ede9fe,stroke:#7c3aed,color:#3b0764,stroke-width:2px
+  classDef action fill:#f8fafc,stroke:#64748b,color:#0f172a
+  class wiki,criteria,domain decision
+  class start,bvc,describe,planner,mmdx,beads action
+```
+
+## chart ambition-loop Plan-Space Ambition and Refinement
+```mermaid
+flowchart TD
+  baseline["Reality baseline"]
+  first["First goal contract"]
+  ambition1["Ambition round 1: raise the ceiling"]
+  ambition2["Ambition round 2: remove incrementalism"]
+  depth["Domain-specific depth"]
+  tasks["Beads with dependencies"]
+  refine["Refinement rounds until no meaningful gaps"]
+  frontier["Ready implementation frontier"]
+
+  baseline --> first --> ambition1 --> ambition2 --> depth --> tasks --> refine --> frontier
+
+  classDef current fill:#e0f2fe,stroke:#0284c7,color:#0c4a6e,stroke-width:2px
+  classDef ambition fill:#ede9fe,stroke:#7c3aed,color:#3b0764,stroke-width:2px
+  classDef ready fill:#dcfce7,stroke:#16a34a,color:#14532d,stroke-width:2px
+  class baseline,first current
+  class ambition1,ambition2,depth,refine ambition
+  class tasks,frontier ready
+```
+
+## chart hardening-loop Recurring Smart Hardening Loop
+```mermaid
+stateDiagram-v2
+  [*] --> Describe
+  Describe --> Reproduce
+  Reproduce --> RiskScore
+  RiskScore --> Implement
+  Implement --> Tests
+  Tests --> RealityCheck
+  RealityCheck --> NextWave: gaps remain
+  RealityCheck --> ProofGate: evidence passes
+  NextWave --> Describe
+  ProofGate --> [*]
+```
+
+## chart ux-refinement User Experience Refinement Loop
+```mermaid
+flowchart TD
+  workflow["Target-user workflow pass"]
+  polish["Interaction and copy polish"]
+  visual["Visual consistency and responsive proof"]
+  a11y["Accessibility and keyboard proof"]
+  e2e["E2E or screenshot proof"]
+  recheck["Reality check UX claims"]
+
+  workflow --> polish --> visual --> a11y --> e2e --> recheck
+```
+
+## chart proof-gate Final Proof Gate
+```mermaid
+flowchart TD
+  tests["All relevant tests pass"]
+  e2e["E2E flows prove the core experience"]
+  risk["Risk score or mutation gaps addressed"]
+  docs["Docs and examples match reality"]
+  commit["Commit if authorized"]
+  reality["Post-commit reality check agrees"]
+  done["LOFTY GOAL MET"]
+
+  tests --> e2e --> risk --> docs --> commit --> reality --> done
+
+  classDef required fill:#fee2e2,stroke:#dc2626,color:#7f1d1d,stroke-width:2px
+  classDef done fill:#dcfce7,stroke:#16a34a,color:#14532d,stroke-width:3px
+  class tests,e2e,risk,docs,commit,reality required
+  class done done
+```

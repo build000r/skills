@@ -21,7 +21,7 @@ trap cleanup EXIT
 
 usage() {
   cat <<'EOF'
-Usage: status.sh local|prod
+Usage: status.sh local|prod [service_id]
 
 Resolves configuration from the skillbox client overlay (via resolve_context.py).
 
@@ -33,12 +33,14 @@ Overlay deploy keys used:
 EOF
 }
 
-if [[ $# -lt 1 ]]; then
+if [[ $# -lt 1 || $# -gt 2 ]]; then
   usage
   exit 1
 fi
 
 MODE="$1"
+STATUS_SERVICE="${2:-${STATUS_SERVICE:-}}"
+export STATUS_SERVICE
 
 # --- Configuration resolution ------------------------------------------------
 
@@ -72,19 +74,28 @@ try_overlay() {
   local services_filter
   services_filter="$(printf '%s' "$json" | python3 -c "
 import sys, json
+import os
 d = json.load(sys.stdin)
 svcs = d.get('services', {})
 names = ['NAMES']
-for s in svcs.values():
-    name = (
-        s.get('container_name')
-        or s.get('upstream_container')
-        or s.get('compose_service_worker')
-        or s.get('compose_service')
-        or ''
-    )
-    if name:
-        names.append(name)
+generic = {'api', 'app', 'web', 'worker', 'db', 'redis'}
+target = os.environ.get('STATUS_SERVICE', '')
+for service_id, s in svcs.items():
+    if target and service_id != target:
+        continue
+    for key in (
+        'container_name',
+        'upstream_container',
+        'worker_container',
+        'db_container',
+        'redis_container',
+    ):
+        name = s.get(key) or ''
+        if name:
+            names.append(name)
+    service_name = s.get('compose_service') or ''
+    if service_name and service_name not in generic:
+        names.append(service_name)
 print('(' + '|'.join(names) + ')')
 " 2>/dev/null)" || true
   PROD_CONTAINER_FILTER="${services_filter:-}"
@@ -93,8 +104,12 @@ print('(' + '|'.join(names) + ')')
   local checks
   checks="$(printf '%s' "$json" | python3 -c "
 import sys, json
+import os
 d = json.load(sys.stdin)
+target = os.environ.get('STATUS_SERVICE', '')
 for service_id, s in d.get('services', {}).items():
+    if target and service_id != target:
+        continue
     label = s.get('label') or service_id
     url = s.get('health_url', '')
     if url:
@@ -110,10 +125,14 @@ for service_id, s in d.get('services', {}).items():
   local prod_checks
   prod_checks="$(printf '%s' "$json" | python3 -c "
 import sys, json
+import os
 d = json.load(sys.stdin)
+target = os.environ.get('STATUS_SERVICE', '')
 for service_id, s in d.get('services', {}).items():
+    if target and service_id != target:
+        continue
     label = s.get('label') or service_id
-    container = s.get('container_name') or s.get('upstream_container') or s.get('compose_service', '')
+    container = s.get('container_name') or s.get('upstream_container') or ''
     port = s.get('internal_port', '')
     if container and port:
         print(f'{label}|{container}|http://localhost:{port}/health')
@@ -171,6 +190,15 @@ run_prod() {
   fi
 }
 
+shell_quote() {
+  python3 - "$1" <<'PY'
+import shlex
+import sys
+
+print(shlex.quote(sys.argv[1]))
+PY
+}
+
 check_health() {
   local label="$1"
   local url="$2"
@@ -188,7 +216,33 @@ check_container_health() {
   local container="$2"
   local url="$3"
   local status
-  status="$(run_prod "docker exec $container sh -lc 'curl -s -o /dev/null -w \"%{http_code}\" --connect-timeout 3 --max-time 5 \"$url\"'" 2>/dev/null || echo 000)"
+  local probe quoted_probe quoted_container quoted_url
+  probe="$(cat <<'SH'
+url="$1"
+if command -v curl >/dev/null 2>&1; then
+  curl -s -o /dev/null -w "%{http_code}" --connect-timeout 3 --max-time 5 "$url"
+elif command -v python3 >/dev/null 2>&1 || command -v python >/dev/null 2>&1; then
+  py_bin="$(command -v python3 2>/dev/null || command -v python)"
+  "$py_bin" - "$url" <<'PY'
+import sys
+import urllib.request
+
+url = sys.argv[1]
+try:
+    with urllib.request.urlopen(url, timeout=5) as response:
+        print(response.status, end="")
+except Exception:
+    print("000", end="")
+PY
+else
+  printf '000'
+fi
+SH
+)"
+  quoted_probe="$(shell_quote "$probe")"
+  quoted_container="$(shell_quote "$container")"
+  quoted_url="$(shell_quote "$url")"
+  status="$(run_prod "docker exec $quoted_container sh -lc $quoted_probe sh $quoted_url" 2>/dev/null || echo 000)"
   status="$(printf '%s' "$status" | tail -n1 | tr -d '[:space:]')"
   if [[ "$status" == "200" ]]; then
     printf '  [ok]   %-24s %s (%s)\n' "$label" "$url" "$container"
@@ -214,7 +268,7 @@ print_prod_status() {
   echo "=== Container Status ==="
   local filter="${PROD_CONTAINER_FILTER:-}"
   if [[ -n "$filter" ]]; then
-    run_prod "docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' | grep -E '$filter' || true"
+    run_prod "docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' | grep -E '^$filter[[:space:]]' || true"
   else
     echo "  No PROD_CONTAINER_FILTER configured"
   fi

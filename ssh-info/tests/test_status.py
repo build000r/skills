@@ -116,6 +116,54 @@ class SshInfoStatusTests(unittest.TestCase):
             self.assertIn("site", result.stdout)
             self.assertNotIn("unknown", result.stdout)
 
+    def test_local_status_can_scope_to_one_service(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(os.path.realpath(tmpdir))
+            repo = root / "service"
+            repo.mkdir()
+
+            overlay = {
+                "version": 1,
+                "client": {
+                    "id": "example",
+                    "label": "Example",
+                    "default_cwd": str(repo),
+                    "repos": [],
+                    "logs": [],
+                    "context": {
+                        "cwd_match": [str(repo)],
+                        "deploy": {
+                            "services": {
+                                "api": {
+                                    "label": "Example API",
+                                    "health_url": "http://127.0.0.1:1/health",
+                                },
+                                "worker": {
+                                    "label": "Example Worker",
+                                    "health_url": "http://127.0.0.1:1/worker-health",
+                                },
+                            }
+                        },
+                    },
+                    "checks": [],
+                },
+            }
+            overlay_path = root / "skillbox-config" / "clients" / "example" / "overlay.yaml"
+            overlay_path.parent.mkdir(parents=True)
+            overlay_path.write_text(yaml.safe_dump(overlay, sort_keys=False), encoding="utf-8")
+
+            result = subprocess.run(
+                ["bash", str(SCRIPT), "local", "api"],
+                cwd=repo,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, msg=result.stderr)
+            self.assertIn("Example API", result.stdout)
+            self.assertNotIn("Example Worker", result.stdout)
+
     def test_prod_status_prefers_upstream_container_over_compose_service(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(os.path.realpath(tmpdir))
@@ -205,6 +253,93 @@ bash -c "$*"
             self.assertNotIn("other-api", result.stdout)
             self.assertIn("example-api", docker_log.read_text(encoding="utf-8"))
             self.assertNotIn("exec api ", docker_log.read_text(encoding="utf-8"))
+
+    def test_prod_container_health_falls_back_to_python_when_curl_is_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(os.path.realpath(tmpdir))
+            repo = root / "service"
+            repo.mkdir()
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+
+            docker_sh = bin_dir / "docker"
+            docker_sh.write_text(
+                """#!/usr/bin/env bash
+if [[ "$1" == "ps" ]]; then
+  printf 'NAMES\\tSTATUS\\tPORTS\\nexample-api\\tUp 1 minute\\t8000/tcp\\n'
+  exit 0
+fi
+if [[ "$1" == "exec" ]]; then
+  if [[ "$5" == *"command -v curl"* && "$5" == *"command -v python"* ]]; then
+    printf '200'
+    exit 0
+  fi
+  printf '000'
+  exit 1
+fi
+exit 1
+""",
+                encoding="utf-8",
+            )
+            docker_sh.chmod(0o755)
+            ssh_sh = bin_dir / "ssh"
+            ssh_sh.write_text(
+                f"""#!/usr/bin/env bash
+while [[ "$1" == "-o" ]]; do
+  shift 2
+done
+if [[ "$1" == "-i" ]]; then
+  shift 2
+fi
+host="$1"
+shift
+PATH={bin_dir}:$PATH bash -c "$*"
+""",
+                encoding="utf-8",
+            )
+            ssh_sh.chmod(0o755)
+
+            overlay = {
+                "version": 1,
+                "client": {
+                    "id": "example",
+                    "label": "Example",
+                    "default_cwd": str(repo),
+                    "repos": [],
+                    "logs": [],
+                    "context": {
+                        "cwd_match": [str(repo)],
+                        "deploy": {
+                            "droplet_ssh": "example-host",
+                            "services": {
+                                "api": {
+                                    "label": "Example API",
+                                    "upstream_container": "example-api",
+                                    "internal_port": 8000,
+                                }
+                            }
+                        },
+                    },
+                    "checks": [],
+                },
+            }
+            overlay_path = root / "skillbox-config" / "clients" / "example" / "overlay.yaml"
+            overlay_path.parent.mkdir(parents=True)
+            overlay_path.write_text(yaml.safe_dump(overlay, sort_keys=False), encoding="utf-8")
+
+            env = os.environ.copy()
+            env["PATH"] = f"{bin_dir}:{env['PATH']}"
+            result = subprocess.run(
+                ["bash", str(SCRIPT), "prod"],
+                cwd=repo,
+                capture_output=True,
+                text=True,
+                check=False,
+                env=env,
+            )
+
+            self.assertEqual(result.returncode, 0, msg=result.stderr)
+            self.assertIn("[ok]   Example API", result.stdout)
 
     def test_prod_status_uses_explicit_deploy_lane_and_temp_identity(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

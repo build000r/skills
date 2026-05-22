@@ -30,6 +30,21 @@ OFFICIAL_DEFAULT_FRAGMENT = (
 )
 
 
+class FakeHTTPResponse:
+    def __init__(self, body: str | dict[str, object], status: int = 200) -> None:
+        self.status = status
+        self._body = mmd.json.dumps(body).encode("utf-8") if isinstance(body, dict) else body.encode("utf-8")
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+    def read(self) -> bytes:
+        return self._body
+
+
 class MmdTests(unittest.TestCase):
     def test_matches_mermaid_live_official_snapshot(self) -> None:
         state = mmd.build_state(OFFICIAL_DEFAULT_CODE)
@@ -168,6 +183,233 @@ flowchart TD
         self.assertEqual(exit_code, 0)
         self.assertTrue(fragment.startswith("pako:"))
         self.assertEqual(mmd.decode_state(fragment)["code"], "flowchart TD\n  A --> B\n")
+
+    def test_publish_link_dry_run_prints_payload_without_network(self) -> None:
+        with tempfile.NamedTemporaryFile("w", suffix=".mmd", delete=False) as handle:
+            handle.write("flowchart TD\n  A --> B\n")
+            path = handle.name
+        stdout = StringIO()
+
+        try:
+            with patch.object(mmd.request, "urlopen") as urlopen:
+                with redirect_stdout(stdout):
+                    exit_code = mmd.main(
+                        [
+                            "publish-link",
+                            path,
+                            "--username",
+                            "operator",
+                            "--slug",
+                            "abc123",
+                            "--title",
+                            "Demo diagram",
+                            "--dry-run",
+                            "--no-preflight",
+                        ]
+                    )
+        finally:
+            Path(path).unlink(missing_ok=True)
+
+        body = mmd.json.loads(stdout.getvalue())
+        self.assertEqual(exit_code, 0)
+        urlopen.assert_not_called()
+        self.assertEqual(body["endpoint"], "https://buildooor.com/api/app-links/operator/abc123")
+        self.assertEqual(body["url"], "https://buildooor.com/mmdx/operator/abc123")
+        self.assertEqual(body["source_kind"], "mermaid")
+        self.assertEqual(body["payload"]["title"], "Demo diagram")
+        self.assertEqual(body["payload"]["metadata"]["diagram_state_format"], "mermaid-live-pako")
+        self.assertEqual(mmd.decode_state(body["payload"]["metadata"]["diagram_state"])["code"], "flowchart TD\n  A --> B\n")
+
+    def test_publish_link_updates_and_verifies_live_fragment(self) -> None:
+        with tempfile.NamedTemporaryFile("w", suffix=".mmdx", delete=False) as handle:
+            handle.write(
+                """<!-- mmdx
+{"entry":"main","links":[]}
+-->
+## chart main Main Chart
+```mermaid
+flowchart TD
+  A[Local] --> B[Published]
+```
+"""
+            )
+            path = handle.name
+        stdout = StringIO()
+        captured: dict[str, object] = {}
+
+        def fake_urlopen(req, timeout=0):
+            self.assertEqual(timeout, 20.0)
+            if isinstance(req, request.Request) and req.get_method() == "PATCH":
+                captured["request"] = req
+                payload = mmd.json.loads(req.data.decode("utf-8"))
+                captured["payload"] = payload
+                return FakeHTTPResponse(
+                    {
+                        "success": True,
+                        "data": {
+                            "username": "operator",
+                            "slug": "abc123",
+                            "target_path": "/diagrams",
+                        },
+                    }
+                )
+            self.assertEqual(req.full_url, "https://buildooor.com/mmdx/operator/abc123")
+            fragment = captured["payload"]["metadata"]["diagram_state"]
+            next_data = {
+                "props": {
+                    "pageProps": {
+                        "initialDiagramFragment": fragment,
+                    }
+                }
+            }
+            return FakeHTTPResponse(
+                f'<html><script id="__NEXT_DATA__" type="application/json">{mmd.json.dumps(next_data)}</script></html>'
+            )
+
+        try:
+            with patch.object(mmd.request, "urlopen", side_effect=fake_urlopen):
+                with redirect_stdout(stdout):
+                    exit_code = mmd.main(
+                        [
+                            "publish-link",
+                            path,
+                            "--username",
+                            "operator",
+                            "--slug",
+                            "abc123",
+                            "--access-token",
+                            "access_123",
+                            "--no-preflight",
+                        ]
+                    )
+        finally:
+            Path(path).unlink(missing_ok=True)
+
+        self.assertEqual(exit_code, 0)
+        sent = captured["request"]
+        self.assertEqual(sent.full_url, "https://buildooor.com/api/app-links/operator/abc123")
+        headers = {key.lower(): value for key, value in sent.header_items()}
+        self.assertEqual(headers["authorization"], "Bearer access_123")
+        self.assertEqual(headers["origin"], "https://buildooor.com")
+        payload = captured["payload"]
+        self.assertEqual(payload["resource_kind"], "mmdx-diagram")
+        self.assertEqual(payload["metadata"]["source_kind"], "mmdx")
+        self.assertIn("Updated https://buildooor.com/mmdx/operator/abc123", stdout.getvalue())
+        self.assertIn("live_verification=OK", stdout.getvalue())
+
+    def test_publish_link_requires_token_before_mutation(self) -> None:
+        with tempfile.NamedTemporaryFile("w", suffix=".mmd", delete=False) as handle:
+            handle.write("flowchart TD\n  A --> B\n")
+            path = handle.name
+        stderr = StringIO()
+
+        try:
+            with patch.dict(mmd.os.environ, {}, clear=True):
+                with patch.object(mmd.request, "urlopen") as urlopen:
+                    with redirect_stderr(stderr):
+                        exit_code = mmd.main(
+                            [
+                                "publish-link",
+                                path,
+                                "--username",
+                                "operator",
+                                "--slug",
+                                "abc123",
+                                "--no-preflight",
+                            ]
+                        )
+        finally:
+            Path(path).unlink(missing_ok=True)
+
+        self.assertEqual(exit_code, 1)
+        urlopen.assert_not_called()
+        self.assertIn("publish-link requires --access-token", stderr.getvalue())
+
+    def test_publish_link_accepts_spaps_access_token_env(self) -> None:
+        with patch.dict(mmd.os.environ, {"SPAPS_ACCESS_TOKEN": "spaps_access_123"}, clear=True):
+            args = mmd.parse_args(
+                [
+                    "publish-link",
+                    "diagram.mmd",
+                    "--username",
+                    "operator",
+                    "--slug",
+                    "abc123",
+                ]
+            )
+
+        self.assertEqual(mmd.resolve_publish_access_token(args), "spaps_access_123")
+
+    def test_publish_link_rejects_non_https_api_base_before_sending_token(self) -> None:
+        with tempfile.NamedTemporaryFile("w", suffix=".mmd", delete=False) as handle:
+            handle.write("flowchart TD\n  A --> B\n")
+            path = handle.name
+        stderr = StringIO()
+
+        try:
+            with patch.object(mmd.request, "urlopen") as urlopen:
+                with redirect_stderr(stderr):
+                    exit_code = mmd.main(
+                        [
+                            "publish-link",
+                            path,
+                            "--username",
+                            "operator",
+                            "--slug",
+                            "abc123",
+                            "--api-base-url",
+                            "http://api.example.test/api/app-links",
+                            "--access-token",
+                            "access_123",
+                            "--no-preflight",
+                        ]
+                    )
+        finally:
+            Path(path).unlink(missing_ok=True)
+
+        self.assertEqual(exit_code, 1)
+        urlopen.assert_not_called()
+        self.assertIn("API base URL must be https", stderr.getvalue())
+
+    def test_publish_link_allows_localhost_http_api_base(self) -> None:
+        mmd.require_secure_publish_api_base_url("http://localhost:3000/api/app-links")
+        mmd.require_secure_publish_api_base_url("http://127.0.0.1:3000/api/app-links")
+
+    def test_publish_link_fails_on_live_fragment_mismatch(self) -> None:
+        with tempfile.NamedTemporaryFile("w", suffix=".mmd", delete=False) as handle:
+            handle.write("flowchart TD\n  A --> B\n")
+            path = handle.name
+        stderr = StringIO()
+
+        def fake_urlopen(req, timeout=0):
+            if isinstance(req, request.Request) and req.get_method() == "PATCH":
+                return FakeHTTPResponse({"success": True, "data": {"username": "operator", "slug": "abc123"}})
+            next_data = {"props": {"pageProps": {"initialDiagramFragment": mmd.encode_state(mmd.build_state("flowchart TD\n  X --> Y\n"))}}}
+            return FakeHTTPResponse(
+                f'<script id="__NEXT_DATA__" type="application/json">{mmd.json.dumps(next_data)}</script>'
+            )
+
+        try:
+            with patch.object(mmd.request, "urlopen", side_effect=fake_urlopen):
+                with redirect_stderr(stderr):
+                    exit_code = mmd.main(
+                        [
+                            "publish-link",
+                            path,
+                            "--username",
+                            "operator",
+                            "--slug",
+                            "abc123",
+                            "--access-token",
+                            "access_123",
+                            "--no-preflight",
+                        ]
+                    )
+        finally:
+            Path(path).unlink(missing_ok=True)
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("live initialDiagramFragment does not match local source", stderr.getvalue())
 
     def test_main_preflight_only_reports_diagram_type(self) -> None:
         with tempfile.NamedTemporaryFile("w", suffix=".mmd", delete=False) as handle:

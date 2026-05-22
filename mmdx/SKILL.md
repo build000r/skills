@@ -5,6 +5,23 @@ description: Choose, author, encode, stack, and open Mermaid/MMDX diagrams. Use 
 
 # Buildooor MMDX Diagram Links
 
+## Invocation Contract
+
+Start the first progress update with the exact prefix `Using mmdx`.
+
+## Verification / Closeout
+
+Before closing an MMDX implementation change, run the narrow checks that cover the touched surface. For CLI/script changes, run:
+
+```bash
+python3 {{SKILL_DIR}}/scripts/test_mmd.py
+python3 {{SKILL_DIR}}/scripts/mmd.py {{SKILL_DIR}}/examples/release-gantt-stack.mmdx --preflight-only
+python3 {{SKILL_DIR}}/scripts/mmd.py {{SKILL_DIR}}/examples/release-gantt-stack.mmdx --fragment-only --no-preflight
+python3 {{SKILL_DIR}}/../skill-issue/scripts/quick_validate.py {{SKILL_DIR}}
+```
+
+For authored diagrams, validate or open the exact `.mmd`/`.mmdx` the user will consume and report the file path plus the generated URL or live short link. Do not mark a publish-link task complete unless dry-run or live verification has proven the target username/slug and source hash.
+
 ## Quick Start
 
 Create the best Mermaid diagram from a prose brief:
@@ -62,6 +79,34 @@ Decode an existing Mermaid Live/buildooor diagrams fragment or URL:
 ```bash
 python3 {{SKILL_DIR}}/scripts/mmd.py --decode 'https://mermaid.live/edit#pako:...'
 ```
+
+## Authenticated MMDX Persistence
+
+Browser and agent auth are two entrances to the same protected MMDX persistence surface.
+
+- Browser pako flow: open the generated `/diagrams#pako:...` URL, click the bottom MMDX `save` control for a durable private version, verify the email magic link if prompted, then return to `/diagrams`. The viewer preserves the pako state in the URL or `mmdxResume` localStorage fallback and resumes the pending save after auth.
+- Browser short-link flow: click the top-right `save` control when the user wants a shareable short link for the current pako state, not a private version history record.
+- Agent/CLI private-version flow: authenticate the operator or agent through the existing SPAPS device-code flow, then post the saved `.mmd`/`.mmdx` source to Buildooor's `/api/mmdx/diagrams` or `/api/mmdx/diagrams/:id/versions` API with the bearer token. Do not build a separate MMDX auth system or ask a browser user to run device-code auth.
+- Agent/CLI existing-short-link flow: after editing a local `.mmd`/`.mmdx`, republish the already-saved short link with `publish-link`. First run the existing SPAPS device-code login (`spaps login --server-url <spaps-url> --client-id <app-slug>`), then pass the stored token via `--access-token-command "spaps token --server-url <spaps-url>"`. Direct env alternatives are `BUILDOOOR_ACCESS_TOKEN`, `SPAPS_ACCESS_TOKEN`, or `--access-token`.
+
+```bash
+python3 {{SKILL_DIR}}/scripts/mmd.py publish-link path/to/file.mmdx \
+  --username buildooor \
+  --slug mmdx-68I8Xjv1v3FK \
+  --title "PDS Project Status Crux" \
+  --access-token-command "spaps token --server-url https://api.sweetpotato.dev"
+```
+
+Dry-run the exact payload without touching production:
+
+```bash
+python3 {{SKILL_DIR}}/scripts/mmd.py publish-link path/to/file.mmdx \
+  --username buildooor \
+  --slug mmdx-68I8Xjv1v3FK \
+  --dry-run
+```
+
+`publish-link` preflights the source, encodes the same `pako:` state used by `/diagrams`, PATCHes the authenticated Buildooor app-link proxy, then fetches the live `/mmdx/<username>/<slug>` page and verifies `__NEXT_DATA__.initialDiagramFragment` matches the local state. It must fail closed if auth, the update API, or live verification is unavailable. Do not SSH into production or patch SPAPS database rows to update a short link.
 
 ## MMDX Directory Index
 

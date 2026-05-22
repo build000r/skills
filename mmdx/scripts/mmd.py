@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import argparse
 import base64
+import hashlib
+import html
 import http.server
 import json
 import os
@@ -22,11 +24,14 @@ from pathlib import Path
 from typing import Any
 from urllib import request
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 
 DEFAULT_BASE_URL = "https://buildooor.com/diagrams"
 DEFAULT_VIEW_URL = "https://buildooor.com/diagrams"
+DEFAULT_APP_LINKS_API_BASE_URL = "https://buildooor.com/api/app-links"
+DEFAULT_MMDX_SHORT_LINK_BASE_URL = "https://buildooor.com/mmdx"
+DEFAULT_PUBLISH_TIMEOUT_SECONDS = 20.0
 SCRIPT_DIR = Path(__file__).resolve().parent
 PARSER_SCRIPT = SCRIPT_DIR / "validate_mermaid.mjs"
 PARSER_PACKAGE = SCRIPT_DIR / "package.json"
@@ -163,6 +168,37 @@ def get_mmdx_entry_code(document: dict[str, Any]) -> str:
     raise ValueError(f"MMDX entry chart {entry!r} was not found")
 
 
+def build_state_for_source(
+    path: str,
+    code: str,
+    *,
+    config: str | None = None,
+    theme: str = "default",
+    grid: bool = True,
+    pan_zoom: bool = True,
+    rough: bool = False,
+    handoff: dict[str, Any] | None = None,
+    source: dict[str, Any] | None = None,
+    paid_resource: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], str, dict[str, Any] | None]:
+    mmdx_document = build_mmdx_document(code) if is_mmdx_input(path, code) else None
+    diagram_code = get_mmdx_entry_code(mmdx_document) if mmdx_document else code
+    source_kind = "mmdx" if mmdx_document else "mermaid"
+    state = build_state(
+        diagram_code,
+        config=config,
+        theme=theme,
+        grid=grid,
+        pan_zoom=pan_zoom,
+        rough=rough,
+        handoff=handoff,
+        source=source,
+        mmdx=mmdx_document,
+        paid_resource=paid_resource,
+    )
+    return state, source_kind, mmdx_document
+
+
 def preflight_mmdx_document(document: dict[str, Any], *, auto_install: bool = True) -> list[dict[str, Any]]:
     results = []
     for chart in document["charts"]:
@@ -260,6 +296,21 @@ def origin_from_url(url: str) -> str:
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise ValueError(f"expected an http(s) URL for handoff origin, got: {url}")
     return f"{parsed.scheme}://{parsed.netloc}"
+
+
+def append_url_segments(base_url: str, *segments: str) -> str:
+    return "/".join(
+        [base_url.rstrip("/"), *[quote(segment.strip("/"), safe="") for segment in segments if segment.strip("/")]]
+    )
+
+
+def require_secure_publish_api_base_url(url: str) -> None:
+    parsed = urlparse(url)
+    if parsed.scheme == "https" and parsed.netloc:
+        return
+    if parsed.scheme == "http" and parsed.hostname in {"localhost", "127.0.0.1", "::1"}:
+        return
+    raise ValueError("publish-link API base URL must be https, except for localhost development")
 
 
 def resolve_handoff_origin(*, explicit_origin: str | None, output_base_url: str) -> str:
@@ -787,7 +838,76 @@ def preflight_mermaid(code: str, *, auto_install: bool = True) -> dict[str, Any]
         raise ValueError(f"Mermaid parser returned invalid JSON: {result.stdout}") from exc
 
 
+def parse_publish_link_args(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog="mmd.py publish-link",
+        description="Publish a .mmd/.mmdx source update to an existing Buildooor MMDX short link.",
+    )
+    parser.add_argument("path", help="Mermaid .mmd/.mmdx file path, or '-' for stdin")
+    parser.add_argument("--username", required=True, help="short-link owner username")
+    parser.add_argument("--slug", required=True, help="existing short-link slug to update")
+    parser.add_argument("--title", help="short-link title; defaults to the source file stem")
+    parser.add_argument(
+        "--api-base-url",
+        default=os.environ.get("BUILDOOOR_APP_LINKS_API_BASE_URL", DEFAULT_APP_LINKS_API_BASE_URL),
+        help="Buildooor app-links API base URL",
+    )
+    parser.add_argument(
+        "--live-base-url",
+        default=os.environ.get("BUILDOOOR_MMDX_LIVE_BASE_URL", DEFAULT_MMDX_SHORT_LINK_BASE_URL),
+        help="Buildooor MMDX short-link base URL used for verification",
+    )
+    parser.add_argument(
+        "--origin",
+        default=os.environ.get("BUILDOOOR_ORIGIN", origin_from_url(DEFAULT_MMDX_SHORT_LINK_BASE_URL)),
+        help="Origin header to send to the Buildooor proxy",
+    )
+    parser.add_argument(
+        "--access-token",
+        default=os.environ.get("BUILDOOOR_ACCESS_TOKEN") or os.environ.get("SPAPS_ACCESS_TOKEN"),
+        help="bearer token from the existing Buildooor/SPAPS auth flow",
+    )
+    parser.add_argument(
+        "--access-token-command",
+        default=os.environ.get("BUILDOOOR_ACCESS_TOKEN_COMMAND") or os.environ.get("SPAPS_TOKEN_COMMAND"),
+        help="command that prints a bearer token from the existing device-code auth flow",
+    )
+    parser.add_argument("--dry-run", action="store_true", help="print the update payload without mutating remote state")
+    parser.add_argument(
+        "--skip-live-verify",
+        action="store_true",
+        help="skip fetching the live short link after publishing",
+    )
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        default=DEFAULT_PUBLISH_TIMEOUT_SECONDS,
+        help="HTTP timeout in seconds",
+    )
+    parser.add_argument("--theme", default="default", help="Mermaid config theme name")
+    parser.add_argument("--config", help="Mermaid config JSON string or path to a JSON file")
+    parser.add_argument("--rough", action="store_true", help="enable Mermaid Live rough rendering")
+    parser.add_argument("--no-grid", action="store_true", help="disable the editor grid")
+    parser.add_argument("--no-pan-zoom", action="store_true", help="disable pan/zoom")
+    parser.add_argument(
+        "--no-preflight",
+        action="store_true",
+        help="skip Mermaid parser validation before encoding",
+    )
+    parser.add_argument(
+        "--no-parser-install",
+        action="store_true",
+        help="do not auto-install the parser dependency if missing",
+    )
+    args = parser.parse_args(argv)
+    args.command = "publish-link"
+    return args
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
+    if argv and argv[0] == "publish-link":
+        return parse_publish_link_args(argv[1:])
+
     parser = argparse.ArgumentParser(
         description="Generate buildooor diagrams pako URLs from .mmd or .mmdx source files."
     )
@@ -875,6 +995,236 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def default_publish_title(path: str, source_kind: str) -> str:
+    if path == "-":
+        return "MMDX diagram" if source_kind == "mmdx" else "Mermaid diagram"
+    stem = Path(path).expanduser().stem.strip()
+    return stem or ("MMDX diagram" if source_kind == "mmdx" else "Mermaid diagram")
+
+
+def build_publish_payload(args: argparse.Namespace, code: str) -> tuple[dict[str, Any], str, str, str]:
+    state, source_kind, _mmdx_document = build_state_for_source(
+        args.path,
+        code,
+        config=args.config,
+        theme=args.theme,
+        grid=not args.no_grid,
+        pan_zoom=not args.no_pan_zoom,
+        rough=args.rough,
+    )
+    fragment = encode_state(state)
+    source_sha256 = hashlib.sha256(code.encode("utf-8")).hexdigest()
+    metadata: dict[str, Any] = {
+        "diagram_state": fragment,
+        "diagram_state_format": "mermaid-live-pako",
+        "source_kind": source_kind,
+        "source_sha256": source_sha256,
+    }
+    if args.path != "-":
+        metadata["source_path"] = str(Path(args.path).expanduser())
+
+    payload = {
+        "app_slug": "mmdx",
+        "resource_kind": "mmdx-diagram" if source_kind == "mmdx" else "mermaid-diagram",
+        "target_path": "/diagrams",
+        "title": args.title or default_publish_title(args.path, source_kind),
+        "metadata": metadata,
+    }
+    return payload, fragment, source_kind, source_sha256
+
+
+def resolve_publish_access_token(args: argparse.Namespace) -> str:
+    token = (args.access_token or "").strip()
+    if token:
+        return token
+
+    command = (args.access_token_command or "").strip()
+    if command:
+        completed = subprocess.run(
+            shlex.split(command),
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if completed.returncode != 0:
+            message = completed.stderr.strip() or completed.stdout.strip() or f"exit {completed.returncode}"
+            raise RuntimeError(f"access token command failed: {message}")
+        lines = [line.strip() for line in completed.stdout.splitlines() if line.strip()]
+        if lines:
+            return lines[-1]
+        raise RuntimeError("access token command did not print a token")
+
+    raise ValueError(
+        "publish-link requires --access-token, BUILDOOOR_ACCESS_TOKEN, SPAPS_ACCESS_TOKEN, "
+        "or --access-token-command from the existing device-code auth flow"
+    )
+
+
+def read_json_response(response: Any) -> dict[str, Any]:
+    raw = response.read().decode("utf-8")
+    if not raw.strip():
+        return {}
+    payload = json.loads(raw)
+    if not isinstance(payload, dict):
+        raise ValueError("API response must be a JSON object")
+    return payload
+
+
+def read_http_error_json(exc: HTTPError) -> dict[str, Any]:
+    raw = exc.read().decode("utf-8", errors="replace")
+    if not raw.strip():
+        return {}
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        return {"error": raw.strip()}
+    return payload if isinstance(payload, dict) else {"error": payload}
+
+
+def response_error_message(payload: dict[str, Any], fallback: str) -> str:
+    error_payload = payload.get("error")
+    if isinstance(error_payload, dict):
+        message = error_payload.get("message") or error_payload.get("code")
+        if isinstance(message, str) and message.strip():
+            return message.strip()
+    if isinstance(error_payload, str) and error_payload.strip():
+        return error_payload.strip()
+    message = payload.get("message")
+    if isinstance(message, str) and message.strip():
+        return message.strip()
+    return fallback
+
+
+def patch_app_link(
+    endpoint: str,
+    payload: dict[str, Any],
+    *,
+    access_token: str,
+    origin: str,
+    timeout: float,
+) -> dict[str, Any]:
+    req = request.Request(
+        endpoint,
+        data=json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {access_token}",
+            "Origin": origin,
+            "User-Agent": "buildooor-mmdx-publish-link/1.0",
+        },
+        method="PATCH",
+    )
+    try:
+        with request.urlopen(req, timeout=timeout) as response:
+            return read_json_response(response)
+    except HTTPError as exc:
+        payload = read_http_error_json(exc)
+        message = response_error_message(payload, "failed to update short link")
+        raise RuntimeError(f"publish update failed ({exc.code}): {message}") from exc
+    except URLError as exc:
+        raise RuntimeError(f"publish update failed: {exc.reason}") from exc
+
+
+def find_key_recursive(value: Any, key: str) -> Any:
+    if isinstance(value, dict):
+        if key in value:
+            return value[key]
+        for item in value.values():
+            found = find_key_recursive(item, key)
+            if found is not None:
+                return found
+    elif isinstance(value, list):
+        for item in value:
+            found = find_key_recursive(item, key)
+            if found is not None:
+                return found
+    return None
+
+
+def extract_next_data_fragment(page_html: str) -> str:
+    match = re.search(
+        r"<script\b[^>]*\bid=[\"']__NEXT_DATA__[\"'][^>]*>(.*?)</script>",
+        page_html,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
+    if not match:
+        raise RuntimeError("live verification failed: __NEXT_DATA__ script was not found")
+    next_data = json.loads(html.unescape(match.group(1)))
+    fragment = find_key_recursive(next_data, "initialDiagramFragment")
+    if not isinstance(fragment, str) or not fragment:
+        raise RuntimeError("live verification failed: initialDiagramFragment was not found")
+    return fragment
+
+
+def fetch_live_diagram_fragment(live_url: str, *, timeout: float) -> str:
+    req = request.Request(
+        live_url,
+        headers={"User-Agent": "buildooor-mmdx-publish-link/1.0"},
+    )
+    try:
+        with request.urlopen(req, timeout=timeout) as response:
+            return extract_next_data_fragment(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        raise RuntimeError(f"live verification failed ({exc.code}) while fetching {live_url}") from exc
+    except URLError as exc:
+        raise RuntimeError(f"live verification failed while fetching {live_url}: {exc.reason}") from exc
+
+
+def publish_link(args: argparse.Namespace) -> int:
+    code = _read_text(args.path)
+    if not args.no_preflight:
+        preflight_source_code(code, args.path, auto_install=not args.no_parser_install)
+
+    payload, fragment, source_kind, source_sha256 = build_publish_payload(args, code)
+    if not args.dry_run:
+        require_secure_publish_api_base_url(args.api_base_url)
+    endpoint = append_url_segments(args.api_base_url, args.username, args.slug)
+    live_url = append_url_segments(args.live_base_url, args.username, args.slug)
+
+    if args.dry_run:
+        print(
+            json.dumps(
+                {
+                    "dry_run": True,
+                    "endpoint": endpoint,
+                    "url": live_url,
+                    "username": args.username,
+                    "slug": args.slug,
+                    "source_kind": source_kind,
+                    "source_sha256": source_sha256,
+                    "payload": payload,
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
+        return 0
+
+    access_token = resolve_publish_access_token(args)
+    patch_app_link(
+        endpoint,
+        payload,
+        access_token=access_token,
+        origin=args.origin,
+        timeout=args.timeout,
+    )
+
+    if args.skip_live_verify:
+        verification = "skipped"
+    else:
+        live_fragment = fetch_live_diagram_fragment(live_url, timeout=args.timeout)
+        if live_fragment != fragment:
+            raise RuntimeError("live verification failed: live initialDiagramFragment does not match local source")
+        verification = "OK"
+
+    print(f"Updated {live_url}")
+    print(f"source_kind={source_kind}")
+    print(f"source_sha256={source_sha256}")
+    print(f"diagram_state_format=mermaid-live-pako")
+    print(f"live_verification={verification}")
+    return 0
+
+
 def _resolve_paid_resource(args: argparse.Namespace) -> dict[str, str] | None:
     metadata = _parse_paid_resource_metadata(args.paid_resource)
     paid_intent = bool(
@@ -955,6 +1305,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(sys.argv[1:] if argv is None else argv)
 
     try:
+        if getattr(args, "command", None) == "publish-link":
+            return publish_link(args)
+
         if args.handoff_server:
             if args.handoff_port is None or not args.handoff_token or not args.tmux_target:
                 raise ValueError("--handoff-server requires --handoff-port, --handoff-token, and --tmux-target")
@@ -993,9 +1346,8 @@ def main(argv: list[str] | None = None) -> int:
             raise ValueError("missing .mmd/.mmdx path; pass a file path, '-' for stdin, or --decode")
 
         code = _read_text(args.path)
-        mmdx_document = build_mmdx_document(code) if is_mmdx_input(args.path, code) else None
-        diagram_code = get_mmdx_entry_code(mmdx_document) if mmdx_document else code
         if not args.no_preflight:
+            mmdx_document = build_mmdx_document(code) if is_mmdx_input(args.path, code) else None
             if mmdx_document:
                 parse_results = preflight_mmdx_document(mmdx_document, auto_install=not args.no_parser_install)
             else:
@@ -1031,8 +1383,9 @@ def main(argv: list[str] | None = None) -> int:
                 paid_resource=paid_resource,
             )
 
-        state = build_state(
-            diagram_code,
+        state, _source_kind, _mmdx_document = build_state_for_source(
+            args.path,
+            code,
             config=args.config,
             theme=args.theme,
             grid=not args.no_grid,
@@ -1040,7 +1393,6 @@ def main(argv: list[str] | None = None) -> int:
             rough=args.rough,
             handoff=handoff,
             source=source_metadata,
-            mmdx=mmdx_document,
             paid_resource=paid_resource_metadata,
         )
         fragment = encode_state(state)

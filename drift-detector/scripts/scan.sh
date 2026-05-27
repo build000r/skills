@@ -573,22 +573,29 @@ canonical_family_for_export() {
   local key
   key="$(printf '%s %s' "$file" "$name" | tr '[:upper:]' '[:lower:]')"
   local primary
-  case "$key" in
-    *widget*) primary="widget" ;;
-    *table*|*column*|*sort*|*grid*) primary="table" ;;
-    *card*|*panel*|*surface*) primary="card" ;;
-    *input*|*textarea*|*select*|*field*|*label*|*switch*|*combobox*) primary="form-control" ;;
-    *dropdown*|*menu*|*popover*|*command*) primary="dropdown" ;;
-    *tab*) primary="tabs" ;;
-    *pagination*|*pager*) primary="pagination" ;;
-    *badge*|*chip*) primary="badge" ;;
-    *avatar*) primary="avatar" ;;
-    *dialog*|*modal*|*drawer*|*sheet*) primary="modal" ;;
-    *button*|*toggle*) primary="button" ;;
-    *filter*|*search*) primary="filter-bar" ;;
-    *skeleton*|*loading*|*empty*|*error*) primary="state" ;;
-    *) primary="unknown" ;;
-  esac
+  local file_key name_key
+  file_key="$(printf '%s' "$file" | tr '[:upper:]' '[:lower:]')"
+  name_key="$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]')"
+  if [[ "$name_key" == filterbar* ]] && { [[ "$file_key" == src/components/ui/filter-bar* ]] || [[ "$file_key" == */src/components/ui/filter-bar* ]]; }; then
+    primary="filter-bar"
+  else
+    case "$key" in
+      *widget*) primary="widget" ;;
+      *table*|*column*|*sort*|*grid*) primary="table" ;;
+      *card*|*panel*|*surface*) primary="card" ;;
+      *input*|*textarea*|*select*|*field*|*label*|*switch*|*combobox*) primary="form-control" ;;
+      *dropdown*|*menu*|*popover*|*command*) primary="dropdown" ;;
+      *tab*) primary="tabs" ;;
+      *pagination*|*pager*) primary="pagination" ;;
+      *badge*|*chip*) primary="badge" ;;
+      *avatar*) primary="avatar" ;;
+      *dialog*|*modal*|*drawer*|*sheet*) primary="modal" ;;
+      *button*|*toggle*) primary="button" ;;
+      *filter*|*search*) primary="filter-bar" ;;
+      *skeleton*|*loading*|*empty*|*error*) primary="state" ;;
+      *) primary="unknown" ;;
+    esac
+  fi
   printf '%s\n' "$primary"
   # Secondary family for Widget-prefixed primitives, classified by stripped suffix.
   if [ "$primary" = "widget" ] && [[ "$name" =~ ^Widget ]]; then
@@ -772,19 +779,40 @@ scan_tsx_ui_guidelines() {
   filter_token_sources "$out"
 }
 
+restore_scan_shell_options() {
+  local had_errexit="$1"
+  local had_pipefail="$2"
+  if [ "$had_errexit" -eq 1 ]; then
+    set -e
+  else
+    set +e
+  fi
+  if [ "$had_pipefail" -eq 1 ]; then
+    set -o pipefail
+  else
+    set +o pipefail
+  fi
+}
+
 scan_tsx_unused_canonical() {
   # Emits one JSONL record per (canonical family, suspect_file) pair.
   # Record shape:
   #   { file, family, canonical_root, canonical_file, missing_exports[], motif_signals[] }
   # Disable set -e inside this function — many sub-pipelines may exit non-zero
   # on no-match (rg, jq) and we treat those as valid empty results.
+  local had_errexit=0
+  local had_pipefail=0
+  [[ $- == *e* ]] && had_errexit=1
+  if set -o | grep -q '^pipefail[[:space:]]*on'; then
+    had_pipefail=1
+  fi
   set +e
   set +o pipefail
   local out="$tmp/tsx_unused_canonical.jsonl"
   : > "$out"
 
   mapfile -t roots < <(discover_canonical_roots_tsx)
-  [ ${#roots[@]} -gt 0 ] || return 0
+  [ ${#roots[@]} -gt 0 ] || { restore_scan_shell_options "$had_errexit" "$had_pipefail"; return 0; }
 
   # Build canonical export map: per root + family, collect exports separately.
   # Aggregation is per-family (NOT per-root): a suspect file clears the family
@@ -807,7 +835,7 @@ scan_tsx_unused_canonical() {
       done < <(canonical_family_for_export "$export_file" "$export_name")
     done < <(extract_named_exports_tsx "$root")
   done
-  [ -s "$exports_tsv" ] || return 0
+  [ -s "$exports_tsv" ] || { restore_scan_shell_options "$had_errexit" "$had_pipefail"; return 0; }
 
   local motif_pairs="$tmp/tsx_motif_pairs.tsv"
   if [ -s "$tmp/tsx_component_motifs.jsonl" ]; then
@@ -815,7 +843,7 @@ scan_tsx_unused_canonical() {
   else
     : > "$motif_pairs"
   fi
-  [ -s "$motif_pairs" ] || return 0
+  [ -s "$motif_pairs" ] || { restore_scan_shell_options "$had_errexit" "$had_pipefail"; return 0; }
 
   # Build canonical-root prefix list (so we can exclude files inside canonical roots)
   local roots_alt
@@ -880,8 +908,7 @@ scan_tsx_unused_canonical() {
     printf '%s\n' "$rec" >> "$out"
   done < "$motif_pairs"
 
-  set -e
-  set -o pipefail
+  restore_scan_shell_options "$had_errexit" "$had_pipefail"
 }
 
 scan_tsx() {

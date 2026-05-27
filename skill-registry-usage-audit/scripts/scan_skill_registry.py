@@ -412,9 +412,37 @@ def check_overlay(path: Path, data: Any, issues: list[dict[str, str]]) -> None:
     if not isinstance(data, dict):
         add_issue(issues, "MEDIUM", "overlay-drift", path, "overlay.yaml is not a YAML object.")
         return
-    for field in ("cwd_match", "default_cwd"):
-        value = data.get(field)
-        if isinstance(value, str) and path_like(value):
+
+    def iter_field_values(field: str, value: Any):
+        if isinstance(value, str):
+            yield field, value
+        elif isinstance(value, list):
+            for item in value:
+                if isinstance(item, str):
+                    yield field, item
+
+    def nested_dict(value: Any, key: str) -> dict[str, Any]:
+        if isinstance(value, dict) and isinstance(value.get(key), dict):
+            return value[key]
+        return {}
+
+    client = nested_dict(data, "client")
+    context = nested_dict(data, "context")
+    client_context = nested_dict(client, "context")
+
+    fields = [
+        ("cwd_match", data.get("cwd_match")),
+        ("default_cwd", data.get("default_cwd")),
+        ("context.cwd_match", context.get("cwd_match")),
+        ("client.cwd_match", client.get("cwd_match")),
+        ("client.default_cwd", client.get("default_cwd")),
+        ("client.context.cwd_match", client_context.get("cwd_match")),
+    ]
+
+    for field, raw_value in fields:
+        for label, value in iter_field_values(field, raw_value):
+            if not path_like(value):
+                continue
             candidate = resolve_path(path.parent, value)
             if not candidate.exists():
                 add_issue(
@@ -422,7 +450,7 @@ def check_overlay(path: Path, data: Any, issues: list[dict[str, str]]) -> None:
                     "HIGH",
                     "overlay-drift",
                     path,
-                    f"{field} points at a missing path: {value}",
+                    f"{label} points at a missing path: {value}",
                 )
     scan_roots = data.get("scan_roots", [])
     if isinstance(scan_roots, list):

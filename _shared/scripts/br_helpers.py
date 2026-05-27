@@ -12,8 +12,8 @@ CLI usage (every command emits JSON on stdout, non-zero exit on failure):
 
   br_helpers.py ensure                              # init .beads/ + AGENTS.md if missing
   br_helpers.py status                              # `br doctor` + `br where` summary
-  br_helpers.py ready [--limit N] [--label …]       # `br ready --robot`
-  br_helpers.py scheduler [--limit N]               # `br scheduler --robot`
+  br_helpers.py ready [--limit N] [--label …]       # `br ready --json`
+  br_helpers.py scheduler [--limit N]               # `br scheduler --json`
   br_helpers.py mint-node exec-001-backend-api 'Backend API' \\
       --concern backend-api --repo backend \\
       --writes 'src/domain/**' --done-when '...' \\
@@ -24,7 +24,7 @@ CLI usage (every command emits JSON on stdout, non-zero exit on failure):
   br_helpers.py render-node-brief {id}               # Worker prompt from Beads
   br_helpers.py claim {id}                          # atomic in_progress
   br_helpers.py block {id} 'reason text'
-  br_helpers.py done {id} 'summary'                 # close --suggest-next --robot
+  br_helpers.py done {id} 'summary'                 # close --suggest-next --json
   br_helpers.py render-workgraph [--epic id] [--out WORKGRAPH.md]
   br_helpers.py flush                               # br sync --flush-only
 
@@ -47,7 +47,7 @@ from pathlib import Path
 from typing import Any, Iterable, Optional
 
 
-BR = shutil.which("br") or "/Users/b/.local/bin/br"
+BR = shutil.which("br") or "br"
 
 
 # ----------------------------- core shell-out -----------------------------
@@ -191,7 +191,7 @@ def status() -> dict:
     where = _run(["where"], check=False)
     if where.returncode != 0:
         return {"healthy": False, "reason": "no_beads_dir", "where": where.stderr.strip()}
-    doctor = _run(["doctor", "--robot"], check=False)
+    doctor = _run(["doctor", "--json"], check=False)
     return {
         "healthy": doctor.returncode == 0,
         "where": where.stdout.strip(),

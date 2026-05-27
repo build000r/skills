@@ -46,3 +46,10 @@ broadcast-verify/
 .beads/*.db-shm
 .beads/*.db-wal
 *-register/
+
+# bv (beads viewer) local config and caches
+.bv/
+
+# repo-local private skill activations are generated locally
+.claude/skills/reality-check-for-project
+.codex/skills/reality-check-for-project

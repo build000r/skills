@@ -1,0 +1,96 @@
+<!-- mmdx
+{
+  "entry": "main",
+  "shortLink": { "username": "buildooor", "slug": "skills-project-status" },
+  "links": [
+    { "from": "main", "label": "Open proof status", "to": "proof-status", "title": "Open OSS skills proof status" },
+    { "from": "main", "label": "Open primary flows", "to": "primary-flows", "title": "Open OSS skills primary flows" },
+    { "from": "main", "label": "Open next move", "to": "next-move", "title": "Open OSS skills next move" }
+  ]
+}
+-->
+
+## chart main OSS Skills Project Status Crux
+```mermaid
+flowchart LR
+  vision["build000r skills: reusable public agent workflows"]:::gray
+  targeted["GREEN targeted pytest passed 70 tests"]:::green
+  dirty["YELLOW existing dirty br_helpers and mmdx edits need closeout: skills-portfolio-reality-idea-plan-zkd.8"]:::yellow
+  full["YELLOW full catalog validation and public-clone audit: skills-portfolio-reality-idea-plan-zkd.7"]:::yellow
+  perf["YELLOW validation packaging profiling: skills-portfolio-reality-idea-plan-zkd.9"]:::yellow
+  vision --> targeted --> full --> dirty
+  targeted --> perf
+  classDef green fill:#dff7df,stroke:#20833a,stroke-width:2px,color:#0f2f18
+  classDef yellow fill:#fff3bf,stroke:#b7791f,stroke-width:2px,color:#3a2a00
+  classDef gray fill:#eef2f7,stroke:#64748b,stroke-width:1px,color:#111827
+```
+
+## chart epic-gantt OSS Skills Epic Status
+```mermaid
+gantt
+  title OSS skills status as of 2026-05-28
+  dateFormat YYYY-MM-DD
+  section GREEN Proven
+  GREEN targeted br helpers and mmdx tests :done, 2026-05-28, 1d
+  section YELLOW Planned
+  YELLOW publish status zkd.6 :active, 2026-05-28, 1d
+  YELLOW full catalog audit zkd.7 :active, 2026-05-29, 2d
+  YELLOW dirty regression closeout zkd.8 :active, 2026-05-31, 2d
+  YELLOW profiling and helper refactor zkd.9 zkd.10 :active, 2026-06-02, 2d
+```
+
+## chart epic-map OSS Skills Dependency Map
+```mermaid
+flowchart TD
+  readme["GREEN README defines skill monorepo"]:::green
+  tests["GREEN targeted pytest suite"]:::green
+  full["YELLOW full catalog validation zkd.7"]:::yellow
+  dirty["YELLOW portability runtime backlog depends on full audit zkd.8"]:::yellow
+  perf["YELLOW validation packaging install profiling zkd.9"]:::yellow
+  refactor["YELLOW br and MMDX helper refactor zkd.10"]:::yellow
+  readme --> tests --> full --> dirty
+  tests --> perf --> refactor
+  classDef green fill:#dff7df,stroke:#20833a,stroke-width:2px,color:#0f2f18
+  classDef yellow fill:#fff3bf,stroke:#b7791f,stroke-width:2px,color:#3a2a00
+```
+
+## chart primary-flows OSS Skills Primary Flows
+```mermaid
+flowchart TD
+  agent["Agent or operator"]:::gray
+  catalog["GREEN discovers public skill catalog"]:::green
+  install["YELLOW public clone install and packaging audit zkd.7"]:::yellow
+  run["GREEN targeted MMDX and br helper tests"]:::green
+  closeout["YELLOW dirty portability closeout zkd.8"]:::yellow
+  agent --> catalog --> install --> run --> closeout
+  classDef green fill:#dff7df,stroke:#20833a,stroke-width:2px,color:#0f2f18
+  classDef yellow fill:#fff3bf,stroke:#b7791f,stroke-width:2px,color:#3a2a00
+  classDef gray fill:#eef2f7,stroke:#64748b,stroke-width:1px,color:#111827
+```
+
+## chart proof-status OSS Skills Proof Status
+```mermaid
+flowchart TD
+  read["GREEN AGENTS and README read"]:::green
+  tests["GREEN pytest _shared br helpers and mmdx test_mmd passed 70"]:::green
+  full["YELLOW full catalog quick validation not run zkd.7"]:::yellow
+  dirty["YELLOW existing dirty files preserved zkd.8"]:::yellow
+  perf["YELLOW no validation packaging timing baseline zkd.9"]:::yellow
+  read --> tests --> full --> dirty --> perf
+  classDef green fill:#dff7df,stroke:#20833a,stroke-width:2px,color:#0f2f18
+  classDef yellow fill:#fff3bf,stroke:#b7791f,stroke-width:2px,color:#3a2a00
+```
+
+## chart next-move OSS Skills Next Move
+```mermaid
+flowchart TD
+  rank["Power-map: customer is agent user needing reusable reliable workflows"]:::gray
+  one["1 run full catalog public-clone audit zkd.7"]:::yellow
+  two["2 close dirty portability regression backlog zkd.8"]:::yellow
+  three["3 profile validation packaging install paths zkd.9"]:::yellow
+  four["4 refactor br and MMDX helpers with goldens zkd.10"]:::yellow
+  rank --> one --> two --> three --> four
+  classDef yellow fill:#fff3bf,stroke:#b7791f,stroke-width:2px,color:#3a2a00
+  classDef gray fill:#eef2f7,stroke:#64748b,stroke-width:1px,color:#111827
+```
+

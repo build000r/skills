@@ -130,6 +130,62 @@ Design-related includes UI/UX, visual design, design systems, CSS/tokens,
 responsive behavior, screenshots, visual parity, product interaction copy, and
 fresh-eyes review of those surfaces.
 
+### Grok CLI Routing Lanes
+
+Current `ntm spawn` exposes pane classes such as `--cc`, `--cod`, and `--gmi`;
+do not invent a `--grok` flag. When Grok should participate, use it as one of
+these explicit sidecar lanes and reconcile the output back into the owning
+workflow:
+
+- **Availability preflight:** verify `command -v grok` and inspect the current
+  CLI shape with `grok --help` before promising a Grok lane. If the route needs
+  Swimmers, verify the Swimmers service/client path separately; a working Grok
+  binary alone does not prove hidden-session dispatch works.
+- **Dispatcher lane:** use the workspace sibling `voice-to-text` dispatcher for
+  cheap cwd selection, skill-tag extraction, cleaned worker requests, and other
+  read-only routing/preflight decisions. It runs Grok headlessly with
+  `--prompt-file`, JSON output, no subagents, disabled web search, and a
+  read-only sandbox. Treat this as routing evidence, not execution authority.
+- **Swimmers hidden-session lane:** when a Grok worker needs a maintained
+  session or should receive follow-up prompts, spawn it through Swimmers with
+  `spawn_tool: "grok"` (or the `voice-to-text` Swimmers client helper). Swimmers
+  already uses prompt files for the initial request and honors `SWIMMERS_GROK_BIN`
+  for the Grok binary override.
+- **Direct headless lane:** for a bounded one-shot analysis, run Grok CLI
+  directly with a prompt file and capture the response into the caller's normal
+  artifact path. Keep it read-only unless the caller has an explicit write
+  scope and validation contract.
+
+Direct read-only one-shot shape:
+
+```bash
+grok --prompt-file "$PROMPT_FILE" \
+  --cwd "$REPO_ROOT" \
+  --output-format json \
+  --no-alt-screen \
+  --no-memory \
+  --no-subagents \
+  --disable-web-search \
+  --tools "" \
+  --sandbox read-only \
+  --deny Bash \
+  --deny Edit \
+  --deny Write
+```
+
+Record the route in the caller's dispatch contract:
+
+```text
+Model route: Grok dispatcher       # pure routing/preflight
+Model route: Grok CLI sidecar      # bounded read-only analysis/ideation
+Model route: Grok CLI writer       # only with explicit write scope
+```
+
+Grok sidecars do not show up as NTM panes in `ntm --robot-*` state. The
+orchestrator must verify them through Swimmers session state, direct process
+exit/output, expected artifact files, and the workflow's source of truth
+(`br`, report checklist, or equivalent) before counting them done.
+
 ## Fresh-Eyes Review Gates
 
 Fresh-context review is mandatory. At minimum, the initial implementation audit

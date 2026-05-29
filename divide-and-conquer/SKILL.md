@@ -29,6 +29,16 @@ Shared cross-skill rules live in
 Use that file for worker ownership, background-task collection, and detached
 handoff semantics.
 
+Before building the graph or spawning a swarm, apply the `no-ragrets`
+Edge-Capture Contract: name the nearest valuable artifact or decision, name the
+proof that would show it improved, gather enough evidence to move confidently
+in source order, and justify the coordination cost of each worker wave. Bias
+toward useful agent coverage for non-trivial work; do not shrink the graph just
+to save tokens. If the artifact or proof is unclear but the initiative is still
+promising, route the uncertainty through `wiki-duel`, `dueling-idea-wizards`,
+`describe`, or a small discovery wave instead of stopping for human
+solidification.
+
 Beads node synthesis and describe-style node contract guidance live in
 [references/workgraph-synthesis.md](references/workgraph-synthesis.md).
 
@@ -79,24 +89,32 @@ operator-tending concern. See [NTM Project Root Preflight](#ntm-project-root-pre
 
 Use this skill for large-ish, UI-facing, multi-file, naturally parallel, or
 review-sensitive tasks even when the user did not explicitly ask for a swarm.
-Cheap cwd/workflow routing and worker-request cleanup should use the
-workspace sibling `voice-to-text` Grok dispatcher when that runtime is
-available. Design-related execution nodes must run on Claude Opus; non-design
-execution nodes must run on Codex unless the user explicitly overrides the
-routing. Require a final fresh-eyes reviewer pass before completion.
+Cheap cwd/workflow routing, worker-request cleanup, and read-only
+clerk/preflight sidecars should use Grok through the shared Grok CLI routing
+lanes in `../_shared/references/orchestration-contract.md` when available:
+`voice-to-text` dispatcher first, Swimmers hidden Grok session when a maintained
+sidecar is useful, and direct headless Grok only for bounded one-shots. NTM does
+not currently provide a `--grok` spawn flag, so Grok is a sidecar route rather
+than an NTM pane class. Design-related execution nodes must run on Claude Opus;
+non-design execution nodes must run on Codex unless the user explicitly
+overrides the routing. Require a final fresh-eyes reviewer pass before
+completion.
 
 ## Model Routing Is Mandatory
 
 Route every ready node before spawning workers:
 
-- **Grok dispatcher for routing/preflight.** The `voice-to-text` dispatcher is
-  the preferred cheap router for cwd selection, skill-tag extraction, request
-  cleanup, broad evidence bucketing, and other read-only clerk work. It already
-  invokes Grok headlessly for the route decision and, through Swimmers, can
-  spawn a hidden Grok worker for the cleaned request. Record this as
-  `Model route: Grok dispatcher` when a Beads node is only doing router or
-  preflight work. Do not treat a Grok dispatcher result as authority to bypass
-  Beads hydration, ownership, validation, or the final review gate.
+- **Grok dispatcher or sidecar for routing/preflight.** The `voice-to-text`
+  dispatcher is the preferred cheap router for cwd selection, skill-tag
+  extraction, request cleanup, broad evidence bucketing, and other read-only
+  clerk work. When the node needs a maintained Grok session, use the Swimmers
+  hidden-session lane with `spawn_tool: "grok"`; for a bounded one-shot, use
+  direct headless Grok with a prompt file. Record `Model route: Grok dispatcher`
+  for pure routing/preflight and `Model route: Grok CLI sidecar` for a
+  Grok-authored read-only evidence artifact. Do not pass `--grok` to
+  `ntm spawn`; current NTM Grok participation is sidecar-only. Do not treat a
+  Grok dispatcher result as authority to bypass Beads hydration, ownership,
+  validation, or the final review gate.
 - **Claude Opus only for design-related work.** Treat a node as design-related
   when it touches UI/UX, visual design, design systems, frontend screen or
   component layout, CSS/tokens, responsive behavior, screenshots, visual
@@ -110,12 +128,14 @@ Route every ready node before spawning workers:
   material acceptance criterion. Split mixed nodes before launch when the model
   routing would otherwise be unclear.
 - Record the selected route in the Beads dispatch contract and worker prompt:
-  `Model route: Grok dispatcher`, `Model route: Claude Opus`, or
-  `Model route: Codex gpt-5.5`.
+  `Model route: Grok dispatcher`, `Model route: Grok CLI sidecar`,
+  `Model route: Claude Opus`, or `Model route: Codex gpt-5.5`.
 
 ## Related Skills
 
 - [[skill-issue]]
+- `no-ragrets` for the Edge-Capture Contract before broad work, reusable workflow
+  changes, or worker-wave execution
 - `ntm` for command reference, session inspection, and swarm debugging
 - `vibing-with-ntm` for swarm orchestration patterns, pane hygiene, and
   transport-layer recovery when the problem is NTM rather than the workgraph
@@ -217,6 +237,7 @@ execution.
 | `--cc=N:opus` | auto | Claude Opus panes for design-related nodes |
 | `--cod=N:gpt-5.5` | auto | Codex panes for the current wave |
 | `--gmi=N` | 0 | Optional Gemini panes |
+| Grok sidecars | 0 | External Grok CLI lanes via `voice-to-text`/Swimmers or direct headless Grok; not an `ntm spawn` flag |
 | `--max-workers=N` | 10 | Hard cap per wave |
 | `--wave-timeout-min=N` | 45 | Hard timeout for a wave before collect-and-triage |
 | `--monitor-cron` | every 3 minutes | Swarm health checks and nudges |
@@ -226,8 +247,8 @@ execution.
 - Size each wave from the current ready frontier, not from the full graph
 - Default to one worker per ready node
 - If the frontier exceeds `--max-workers`, split it into multiple subwaves
-- Keep Grok dispatcher/preflight nodes read-only unless the user explicitly
-  asks for Grok to own a writer node with a concrete write scope
+- Keep Grok dispatcher/preflight/sidecar nodes read-only unless the user
+  explicitly asks for Grok to own a writer node with a concrete write scope
 - Route design-related execution nodes to Claude Opus and non-design execution
   nodes to Codex
 - Use `gpt-5.5` whenever you set a Codex model explicitly
@@ -349,7 +370,8 @@ ready node is not launchable until `br show {id} --json` or
 - `writes`, `done_when`, `validate_cmds`, `risk_gate`, non-goals, and stop rules
 - global constraints: no remote push, no cross-repo edits, no write-scope theft
 - model route per node: Grok dispatcher for read-only router/preflight nodes,
-  Claude Opus for design-related nodes, Codex gpt-5.5 for other execution nodes
+  Grok CLI sidecar for Grok-authored read-only artifacts, Claude Opus for
+  design-related nodes, Codex gpt-5.5 for other execution nodes
 - expected Beads assignee per node (`BR_AGENT_NAME`) and the exact claim
   verification command
 
@@ -382,6 +404,11 @@ ntm spawn "$WAVE_PROJECT" \
 
 If either count is zero, omit that flag rather than spawning an empty worker
 class. Never satisfy a design-related node by increasing `NUM_NON_DESIGN`.
+Grok sidecar nodes are launched after the same Beads claim handshake, through
+the `voice-to-text`/Swimmers Grok lane or a direct headless Grok one-shot, and
+are tracked by their issue ID plus result artifact. Do not inflate the Codex
+count to cover a Grok-routed node, and do not wait on `ntm --robot-*` as proof
+that a Grok sidecar completed.
 
 Wait for the swarm to be ready:
 
@@ -505,6 +532,7 @@ Risk gate:
 - none | <gate>
 Model route:
 - Grok dispatcher for read-only router/preflight nodes
+- Grok CLI sidecar for Grok-authored read-only evidence artifacts
 - Claude Opus for design-related nodes
 - Codex gpt-5.5 for other execution nodes
 Expected Beads assignee:
@@ -724,7 +752,9 @@ When the final review result is available:
 - Default to NTM swarm execution; do not substitute local ad hoc workers
 - Cwd/workflow routing, skill-tag extraction, cleaned-request drafting, and
   read-only clerk/preflight nodes should use the `voice-to-text` Grok
-  dispatcher when available
+  dispatcher when available; Grok-authored sidecar artifacts should use
+  Swimmers hidden Grok sessions or direct headless Grok and reconcile through
+  the normal Beads/result-artifact contract
 - Design-related nodes and design/fresh-eyes review nodes must use Claude Opus;
   non-design execution nodes must use Codex gpt-5.5 by default
 - The lead must claim every dispatched node for the assigned worker and verify

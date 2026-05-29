@@ -36,7 +36,8 @@ Do not change or omit that prefix.
   depends on live outside facts
 - **deep-research-prompt** skill when `escalate` routes the final pass there
 - **NTM** (`ntm` CLI for spawning agent swarms)
-- At least 2 different agent CLIs: `cc` (Claude Code) + `cod` (Codex) or `gemini`
+- At least 2 different agent CLIs: `cc` (Claude Code), `cod` (Codex),
+  `gemini`, or Grok CLI as a sidecar through Swimmers/direct headless Grok
 - Target vault must have a `CLAUDE.md` schema and 10+ concept pages in `_concepts/`
 
 ## Pre-Flight
@@ -45,7 +46,10 @@ Do not change or omit that prefix.
 2. Read `index.md` for the concept catalog
 3. If `_ops/focus-sweeps/` exists, read the single active sweep note if present. Treat it as a hint about the current operator lens, not proof.
 4. Verify NTM: `ntm deps -v` — need 2+ agent types
-5. If fewer than 2 agent types are available, abort — forging requires adversarial cross-model pressure
+5. If fewer than 2 agent types are available, abort — forging requires
+   adversarial cross-model pressure. Grok counts as a distinct type when
+   `command -v grok` succeeds and you can launch it through Swimmers
+   `spawn_tool: "grok"` or direct headless Grok.
 
 ## Phase 1: Identify the Highest Lever
 
@@ -101,6 +105,12 @@ ntm spawn {PROJECT} --cc=1 --cod=1 --no-user --stagger-mode=smart
 ntm --robot-wait={PROJECT} --condition=idle --timeout=120s
 ```
 
+If Grok is part of the forge, do not pass `--grok` to NTM. Launch one Grok CLI
+sidecar in the vault cwd through Swimmers `spawn_tool: "grok"` or a direct
+headless prompt-file run. Track it by Swimmers session id/process output and
+the expected `WIZARD_*_GROK.md` artifacts; NTM idleness does not prove Grok
+completion.
+
 Send the study prompt to all agents:
 
 > Read the entire {vault_path} directory carefully. Start with CLAUDE.md to understand the wiki architecture. Then read log.md for history. Then read ALL files in _concepts/ — every single one. Understand the FULL body of strategic thinking. Pay special attention to {concept_name}.md and its related concepts. Take your time and be thorough.
@@ -126,7 +136,8 @@ Poll for output files:
 ls {vault_path}/WIZARD_IDEAS_*.md
 ```
 
-Read ALL output files completely. You need the full text for cross-scoring.
+Read ALL output files completely, including `WIZARD_IDEAS_GROK.md` when a Grok
+sidecar participates. You need the full text for cross-scoring.
 
 ## Phase 5: Cross-Scoring
 

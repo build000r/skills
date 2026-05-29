@@ -169,7 +169,10 @@ For each low-confidence candidate, invoke `/dueling-idea-wizards` with a focused
 
 > Two artifacts in {target}: {A} and {B}. One model argues they should {merge|split|stay separate|compose}. The other argues the opposite. Each defends with: which of the four DRY signals supports their position, what breaks under the opposite choice, and one concrete example from the corpus.
 
-The duel produces a recommendation with consensus level. Record it in the audit report.
+The duel produces a recommendation with consensus level. Record it in the audit
+report. If Grok CLI is available, let `/dueling-idea-wizards` include it through
+its normal Grok sidecar lane; wiki-dry should not define a separate Grok
+transport.
 
 For wiki targets where the contested artifacts make claims about external reality (markets, regulation, live competitive structure), consider a `wiki-forge`-style external-reality pass after the duel — but this is optional and only when the merge/split decision is gated by external facts, not internal corpus structure.
 

@@ -45,6 +45,10 @@ Prefer shape 1 by default. Use shape 2 only when the user has asked to focus the
 
 Then let `/dueling-idea-wizards` run its standard phases without modification. Do not override its scoring, reveal, or synthesis logic — wiki-duel's job ends once the grounding is injected.
 
+If Grok CLI is available, let `/dueling-idea-wizards` include it through its
+normal Grok sidecar lane. Wiki-duel should not invent a separate Grok transport;
+it only supplies the grounding brief.
+
 ## Output
 
 Report:

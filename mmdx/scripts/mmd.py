@@ -36,6 +36,10 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 PARSER_SCRIPT = SCRIPT_DIR / "validate_mermaid.mjs"
 PARSER_PACKAGE = SCRIPT_DIR / "package.json"
 PARSER_MODULE = SCRIPT_DIR / "node_modules" / "mermaid"
+# Bounds so a hung node/npm toolchain fails fast instead of consuming the
+# caller's whole timeout budget (e.g. the status-proof mmdx_preflight gate).
+PARSER_INSTALL_TIMEOUT_S = 180
+PARSER_PARSE_TIMEOUT_S = 45
 DEFAULT_HANDOFF_HOST = "127.0.0.1"
 DEFAULT_HANDOFF_TTL_SECONDS = 10 * 60
 MAX_HANDOFF_BODY_BYTES = 512 * 1024
@@ -864,22 +868,39 @@ def setup_parser_dependencies(*, auto_install: bool = True) -> None:
         raise RuntimeError("npm was not found; install npm or pass --no-preflight")
     if not PARSER_PACKAGE.exists():
         raise RuntimeError(f"missing parser package manifest: {PARSER_PACKAGE}")
-    subprocess.run(
-        ["npm", "install", "--silent", "--no-audit", "--no-fund"],
-        cwd=SCRIPT_DIR,
-        check=True,
-    )
+    try:
+        subprocess.run(
+            ["npm", "install", "--silent", "--no-audit", "--no-fund"],
+            cwd=SCRIPT_DIR,
+            check=True,
+            timeout=PARSER_INSTALL_TIMEOUT_S,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(
+            f"npm install for the Mermaid parser timed out after {PARSER_INSTALL_TIMEOUT_S}s; "
+            "run `python3 mmd.py --setup-parser` manually or pass --no-preflight"
+        ) from exc
 
 
 def preflight_mermaid(code: str, *, auto_install: bool = True) -> dict[str, Any]:
     setup_parser_dependencies(auto_install=auto_install)
-    result = subprocess.run(
-        ["node", str(PARSER_SCRIPT)],
-        input=code,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
+    try:
+        result = subprocess.run(
+            ["node", str(PARSER_SCRIPT)],
+            input=code,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=PARSER_PARSE_TIMEOUT_S,
+        )
+    except subprocess.TimeoutExpired as exc:
+        # A hung parser must fail fast with a clear cause, not silently consume
+        # the caller's whole timeout budget (e.g. the status-proof mmdx gate).
+        raise ValueError(
+            f"Mermaid parser ({PARSER_SCRIPT.name}) did not return within "
+            f"{PARSER_PARSE_TIMEOUT_S}s; the node/DOM toolchain may be hung "
+            "(check the jsdom version pin in scripts/package.json)"
+        ) from exc
     if result.returncode != 0:
         message = result.stderr.strip() or result.stdout.strip() or "Mermaid parser failed"
         raise ValueError(message)

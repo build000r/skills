@@ -1,6 +1,10 @@
 ---
 name: smart
-description: Ask the single most accretive question about the current project/conversation. Use when tagged with /smart, when the user wants to identify the highest-leverage next move, most impactful addition, or smartest thing to do next, when the user asks for smart goal mode, ambitious goal tracker, Gantt or ganntt plan, or when the user wants /smart to continue, iterate, or loop through bounded rounds until a concrete goal or success criterion is met.
+description: Identify the single most accretive, highest-leverage next move, then by default define a goal sequence that encompasses it, turn it into a set of no-ragrets beads, and pursue the goal. Use when tagged with /smart, when the user wants to identify the highest-leverage next move, most impactful addition, or smartest thing to do next, when the user asks for smart goal mode, ambitious goal tracker, Gantt or ganntt plan, or when the user wants /smart to continue, iterate, or loop through bounded rounds until a concrete goal or success criterion is met.
+depends_on:
+  - no-ragrets          # Step 2 wraps each goal in the regret-minimization success contract
+  - beads-workflow      # Step 2 converts the goal sequence into a br Beads graph
+  - divide-and-conquer  # Step 3 pursues substantial slices through the ready frontier
 ---
 
 # Smart
@@ -71,6 +75,48 @@ Ground yourself in everything available — the conversation so far, the codebas
 
 > **What is the single smartest, most radically innovative, accretive, useful, and compelling thing you could do or suggest at this point to get us on the right track?**
 
+## Default Operating Procedure
+
+Every `smart` call runs this three-step procedure by default. The accretive
+analysis above is the **input**, not the deliverable: do not stop at a single
+one-line recommendation when these steps can carry the user further.
+
+1. **Define a goal sequence that encompasses all of that.** Synthesize the
+   repo-integrity pass, the single highest-leverage move, and the adjacent
+   concerns into an *ordered sequence of goals* that gets the project "on the
+   right track" — not one isolated suggestion. Use `smart` goal-mode thinking
+   ([references/smart-goal-mode.md](references/smart-goal-mode.md)) to set the
+   altitude (`one-shot`, `milestone`, or `program`) and name the lofty end goal,
+   the current reality, and the ordered goals between them. The first goal is the
+   single smartest move; later goals are the hardening, proof, and follow-through
+   that make that move actually land.
+
+2. **Turn it into a set of `$no-ragrets` beads.** Run each goal in the sequence
+   through the `no-ragrets` success contract (`Outcome` / `Evidence` /
+   `Failure avoided`) and mint it as a `br` bead with dependency edges, so the
+   sequence becomes a regret-minimized, self-contained Beads graph. Embed the
+   contract in each bead's description and acceptance criteria, label them
+   `chain:smart`, and lay in the ready-frontier order with `br dep add`. Use
+   `beads-workflow` for the plan→beads conversion and `/divide-and-conquer` to
+   mint or consume the epic/child issues for any substantial slice. The Beads/BV
+   graph is the durable source of truth; markdown stays a generated view. If
+   `.beads/` is unavailable, say durable bead tracking is blocked and stop at the
+   goal sequence — do not invent a repo-root, overlay-local, or session-local
+   fallback path.
+
+3. **Pursue the goal.** Begin executing the ready frontier instead of handing the
+   sequence back as advice. Route bounded single changes to direct local work;
+   route large-ish, multi-file, UI-facing, parallel, or review-sensitive slices
+   through `/divide-and-conquer` (with `/vibing-with-ntm` for any swarm), honoring
+   the Orchestration Boundary below. Drive the Smart Loop Frame until the success
+   criteria are met, passing the Completion Gate
+   (`validate -> commit -> reality-check-for-project`) before claiming completion,
+   or pause with an explicit resume condition.
+
+Collapse the sequence to a single goal/bead only when the smartest move is
+genuinely one bounded action (the `no-ragrets` fast path). Otherwise the default
+is the full sequence: defined, contracted, and pursued.
+
 ## Smart Goal Mode
 
 If the user says `smart goal`, asks for an ambitious goal tracker, or asks for a
@@ -94,7 +140,7 @@ For `higher-level goal`, `lofty goal`, hardening loop, or adjacent-concern reque
 
 4. **Be bold.** This isn't a code review. The user wants the move they haven't thought of — the one that unblocks three other things, or the refactor that makes the next five features trivial, or the simplification that deletes 400 lines. Swing for impact.
 
-5. **One answer.** Not a list of five options. Pick the single best one and commit to it. If you must caveat, do it in one sentence after the recommendation.
+5. **One committed direction.** Not a menu of five competing options — pick the single best move and commit to it. That committed move is the spine of the goal sequence in the Default Operating Procedure: it becomes the first goal, then the sequence adds the hardening, proof, and follow-through that make it land. A goal sequence is one direction broken into ordered goals, not five alternatives. If you must caveat, do it in one sentence after the recommendation.
 
 6. **Direct-commit workflow.** Default to direct commits, not pull requests. The operator owns their repos and pushes to main. Only use PR language when the context explicitly involves contributing to someone else's repo with contribution rules. Say "commit" or "change", not "PR".
 
@@ -223,11 +269,13 @@ recommendation. Always define:
 4. `resume_condition` — the exact answer, artifact, command result, repo
    evidence, or next-state condition needed before the loop can continue.
 
-Default to a one-shot loop: choose the single smartest move, define the evidence
-that would make it successful, and hand back the first executable step. Enter
-multi-iteration loop mode only when the user explicitly asks to continue, keep
-going, iterate for `N` rounds, or steer toward a higher-level goal until a
-concrete success condition is met.
+By default, run the Default Operating Procedure: define the goal sequence, mint
+the `no-ragrets` beads, and pursue the ready frontier through this loop frame.
+Collapse to a one-shot single-move loop only when the smartest move is genuinely
+one bounded action — define the evidence that would make it successful and hand
+back the first executable step. Enter explicit multi-iteration loop mode when the
+user asks to continue, keep going, iterate for `N` rounds, or steer toward a
+higher-level goal until a concrete success condition is met.
 
 For high-altitude loops, `loop_goal` and `success_criteria` describe the end vision. Example: `a well-maintained, performant codebase` can be the goal while `/describe`, `/reproduce`, `/crap`, `/mutate`, `/testing-metamorphic`, `/profiling-software-performance`, `/extreme-software-optimization`, `/divide-and-conquer`, and `/vibing-with-ntm` are the iteration routes. A low-hanging-fruit fix can complete the iteration, not the whole loop, unless the final proof and completion gate also pass.
 
@@ -480,6 +528,7 @@ the main recommendation.
 
 `/smart` is allowed to recommend one move, but it is not allowed to hand back vibes. Before closing:
 
+0. Confirm the Default Operating Procedure ran: a goal sequence was defined, minted as `no-ragrets` beads (`Outcome` / `Evidence` / `Failure avoided` per bead, `chain:smart` label, dependency order), and pursuit started — or name which step was intentionally collapsed (single bounded move) or blocked (no `.beads/`).
 1. Name the concrete repo signals that drove the recommendation.
 2. State whether the move is hardening-first or why hardening was skipped.
 3. If the move depends on validation, name the exact repo-native command or explicit blocker instead of saying "test this later."
@@ -497,7 +546,9 @@ python3 skill-issue/scripts/quick_validate.py path/to/smart
 
 ---
 
-**The move:** [1-2 sentence headline of what to do]
+**The move:** [1-2 sentence headline of what to do — the first goal in the sequence]
+
+**Goal sequence:** [Required by default. The ordered goals that encompass the move, one terse line each (first goal = the move, later goals = hardening/proof/follow-through). State the altitude: `one-shot`, `milestone`, or `program`. Collapse to a single line only when the smartest move is genuinely one bounded action.]
 
 **Chain context:** [One terse sentence tying this move to the prior smart link, the latest modes-of-reasoning takeaway, and the material repo delta since the last chain entry. Omit only for the first link.]
 
@@ -534,6 +585,10 @@ python3 skill-issue/scripts/quick_validate.py path/to/smart
 **First step:** [The literal first thing to do — a command to run, a file to open, a skill to invoke]
 
 **Next `/smart` condition:** [Optional. The condition that makes another `/smart` pass useful instead of blindly continuing.]
+
+**No-ragrets beads:** [Required by default. The `br` IDs minted for the goal sequence, each carrying an `Outcome` / `Evidence` / `Failure avoided` contract and `chain:smart` label, with the ready-frontier order. If `.beads/` is unavailable, say durable bead tracking is blocked and that the run stopped at the goal sequence.]
+
+**Pursuit:** [Required by default. The execution posture taken: direct local work on the first ready bead, a `/divide-and-conquer` wave, or paused with a resume condition. Name what has actually started, not just what is planned.]
 
 **Already in motion:** [If you routed Beads or `/divide-and-conquer` workers, list what and why. Omit this line if nothing was launched.]
 
@@ -588,4 +643,7 @@ Read the most recent entry on the next invocation. Append new links; do not rewr
 
 ## Related
 
+- [[no-ragrets]] — Step 2 success contract (`Outcome` / `Evidence` / `Failure avoided`) wrapped around each goal
+- [[beads-workflow]] — Step 2 plan→Beads conversion that mints the goal sequence
+- [[divide-and-conquer]] — Step 3 ready-frontier pursuit for substantial slices
 - [[skill-issue]]

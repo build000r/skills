@@ -48,6 +48,10 @@ from typing import Any, Iterable, Optional
 
 
 BR = shutil.which("br") or "br"
+BR_AGENTS_MARKER = "<!-- br-agent-instructions-v1 -->"
+CURATED_AGENTS_MARKERS = (
+    "<!-- bv-agent-instructions-v2 -->",
+)
 
 
 # ----------------------------- core shell-out -----------------------------
@@ -173,6 +177,22 @@ def _lines_from_text(text: Optional[str]) -> list[str]:
 # ----------------------------- bootstrap -----------------------------
 
 
+def _agents_update_policy(repo: Path) -> tuple[bool, Optional[str]]:
+    """Return whether `br agents --add --force` can safely rewrite AGENTS.md."""
+    agents_path = repo / "AGENTS.md"
+    if not agents_path.exists():
+        return True, None
+    text = agents_path.read_text(encoding="utf-8", errors="replace")
+    if BR_AGENTS_MARKER in text:
+        return True, None
+    for marker in CURATED_AGENTS_MARKERS:
+        if marker in text:
+            return False, f"existing_curated_agents_block:{marker}"
+    if "agent-instructions" in text:
+        return False, "existing_non_br_agent_instructions"
+    return True, None
+
+
 def ensure_initialized(repo: Path | str = ".") -> dict:
     """Make sure `.beads/` exists and AGENTS.md has the workflow block."""
     repo = Path(repo).resolve()
@@ -180,10 +200,20 @@ def ensure_initialized(repo: Path | str = ".") -> dict:
     initialized = beads_dir.is_dir()
     if not initialized:
         _run(["init"], capture=False)
-    # Idempotent: --force skips the prompt; --add upserts the block.
-    _run(["agents", "--add", "--force"], check=False, capture=False)
+    should_update_agents, agents_skip_reason = _agents_update_policy(repo)
+    agents_updated = False
+    if should_update_agents:
+        # Idempotent: --force skips the prompt; --add upserts the br-owned block.
+        _run(["agents", "--add", "--force"], check=False, capture=False)
+        agents_updated = True
     where = _run(["where"], check=False).stdout.strip()
-    return {"initialized": initialized, "beads_dir": str(beads_dir), "where": where}
+    return {
+        "initialized": initialized,
+        "beads_dir": str(beads_dir),
+        "where": where,
+        "agents_updated": agents_updated,
+        "agents_skip_reason": agents_skip_reason,
+    }
 
 
 def status() -> dict:

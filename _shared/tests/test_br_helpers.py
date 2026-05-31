@@ -1,3 +1,4 @@
+import tempfile
 import unittest
 from importlib.machinery import SourceFileLoader
 from pathlib import Path
@@ -178,6 +179,36 @@ class BrHelpersTests(unittest.TestCase):
         self.assertIn("branch: main", notes)
         self.assertIn("run_dir: /run", notes)
         self.assertIn("expected_assignee: worker-2", notes)
+
+    def test_ensure_initialized_preserves_curated_agents_block(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / ".beads").mkdir()
+            agents = repo / "AGENTS.md"
+            original = "\n".join([
+                "# Project Agents",
+                "",
+                "<!-- bv-agent-instructions-v2 -->",
+                "custom bv workflow",
+                "<!-- end-bv-agent-instructions -->",
+                "",
+            ])
+            agents.write_text(original, encoding="utf-8")
+            calls = []
+
+            def fake_run(args, **kwargs):
+                calls.append(args)
+                if args == ["where"]:
+                    return SimpleNamespace(stdout=str(repo), stderr="", returncode=0)
+                return SimpleNamespace(stdout="", stderr="", returncode=0)
+
+            with mock.patch.object(MODULE, "_run", fake_run):
+                result = MODULE.ensure_initialized(repo)
+
+            self.assertEqual(agents.read_text(encoding="utf-8"), original)
+            self.assertNotIn(["agents", "--add", "--force"], calls)
+            self.assertFalse(result["agents_updated"])
+            self.assertIn("existing_curated_agents_block", result["agents_skip_reason"])
 
 
 if __name__ == "__main__":

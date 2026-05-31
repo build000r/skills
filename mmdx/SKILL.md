@@ -89,6 +89,18 @@ Browser and agent auth are two entrances to the same protected MMDX persistence 
 - Agent/CLI private-version flow: authenticate the operator or agent through the existing SPAPS device-code flow, then post the saved `.mmd`/`.mmdx` source to Buildooor's `/api/mmdx/diagrams` or `/api/mmdx/diagrams/:id/versions` API with the bearer token. Do not build a separate MMDX auth system or ask a browser user to run device-code auth.
 - Agent/CLI existing-short-link flow: after editing a local `.mmd`/`.mmdx`, republish the already-saved short link with `publish-link`. First run the existing SPAPS device-code login (`spaps login --server-url <spaps-url> --client-id <app-slug>`), then pass the stored token via `--access-token-command "spaps token --server-url <spaps-url>"`. Direct env alternatives are `BUILDOOOR_ACCESS_TOKEN`, `SPAPS_ACCESS_TOKEN`, or `--access-token`.
 
+List owned durable MMDX diagrams before choosing a slug or diagram id:
+
+```bash
+python3 {{SKILL_DIR}}/scripts/mmd.py list \
+  --access-token-command "spaps token --server-url https://api.sweetpotato.dev"
+```
+
+`list` reads the authenticated owner library and prints `id`, `slug`, `title`,
+`visibility`, and `updated_at`. Use `--json` when a downstream agent needs the
+raw owner-list payload, and `--dry-run` to verify the resolved URL and redacted
+headers without touching the network.
+
 ```bash
 python3 {{SKILL_DIR}}/scripts/mmd.py publish-link path/to/file.mmdx \
   --username buildooor \

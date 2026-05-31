@@ -30,6 +30,7 @@ from urllib.parse import quote, urlparse
 DEFAULT_BASE_URL = "https://buildooor.com/diagrams"
 DEFAULT_VIEW_URL = "https://buildooor.com/diagrams"
 DEFAULT_APP_LINKS_API_BASE_URL = "https://buildooor.com/api/app-links"
+DEFAULT_MMDX_API_BASE_URL = "https://buildooor.com/api/mmdx"
 DEFAULT_MMDX_SHORT_LINK_BASE_URL = "https://buildooor.com/mmdx"
 DEFAULT_PUBLISH_TIMEOUT_SECONDS = 20.0
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -359,13 +360,17 @@ def append_url_segments(base_url: str, *segments: str) -> str:
     )
 
 
-def require_secure_publish_api_base_url(url: str) -> None:
+def require_secure_api_base_url(url: str, label: str) -> None:
     parsed = urlparse(url)
     if parsed.scheme == "https" and parsed.netloc:
         return
     if parsed.scheme == "http" and parsed.hostname in {"localhost", "127.0.0.1", "::1"}:
         return
-    raise ValueError("publish-link API base URL must be https, except for localhost development")
+    raise ValueError(f"{label} API base URL must be https, except for localhost development")
+
+
+def require_secure_publish_api_base_url(url: str) -> None:
+    require_secure_api_base_url(url, "publish-link")
 
 
 def resolve_handoff_origin(*, explicit_origin: str | None, output_base_url: str) -> str:
@@ -976,9 +981,49 @@ def parse_publish_link_args(argv: list[str]) -> argparse.Namespace:
     return args
 
 
+def parse_list_args(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog="mmd.py list",
+        description="List authenticated owner MMDX diagrams from the Buildooor MMDX service.",
+    )
+    parser.add_argument(
+        "--api-base-url",
+        default=os.environ.get("BUILDOOOR_MMDX_API_BASE_URL", DEFAULT_MMDX_API_BASE_URL),
+        help="Buildooor MMDX API base URL",
+    )
+    parser.add_argument(
+        "--origin",
+        default=os.environ.get("BUILDOOOR_ORIGIN", origin_from_url(DEFAULT_MMDX_SHORT_LINK_BASE_URL)),
+        help="Origin header to send to the Buildooor proxy",
+    )
+    parser.add_argument(
+        "--access-token",
+        default=os.environ.get("BUILDOOOR_ACCESS_TOKEN") or os.environ.get("SPAPS_ACCESS_TOKEN"),
+        help="bearer token from the existing Buildooor/SPAPS auth flow",
+    )
+    parser.add_argument(
+        "--access-token-command",
+        default=os.environ.get("BUILDOOOR_ACCESS_TOKEN_COMMAND") or os.environ.get("SPAPS_TOKEN_COMMAND"),
+        help="command that prints a bearer token from the existing device-code auth flow",
+    )
+    parser.add_argument("--json", action="store_true", help="print the raw owner-list JSON response")
+    parser.add_argument("--dry-run", action="store_true", help="print request metadata without calling the network")
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        default=DEFAULT_PUBLISH_TIMEOUT_SECONDS,
+        help="HTTP timeout in seconds",
+    )
+    args = parser.parse_args(argv)
+    args.command = "list"
+    return args
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     if argv and argv[0] == "publish-link":
         return parse_publish_link_args(argv[1:])
+    if argv and argv[0] == "list":
+        return parse_list_args(argv[1:])
 
     parser = argparse.ArgumentParser(
         description="Generate buildooor diagrams pako URLs from .mmd or .mmdx source files."
@@ -1105,7 +1150,7 @@ def build_publish_payload(args: argparse.Namespace, code: str) -> tuple[dict[str
     return payload, fragment, source_kind, source_sha256
 
 
-def resolve_publish_access_token(args: argparse.Namespace) -> str:
+def resolve_publish_access_token(args: argparse.Namespace, *, command_name: str = "publish-link") -> str:
     token = (args.access_token or "").strip()
     if token:
         return token
@@ -1127,7 +1172,7 @@ def resolve_publish_access_token(args: argparse.Namespace) -> str:
         raise RuntimeError("access token command did not print a token")
 
     raise ValueError(
-        "publish-link requires --access-token, BUILDOOOR_ACCESS_TOKEN, SPAPS_ACCESS_TOKEN, "
+        f"{command_name} requires --access-token, BUILDOOOR_ACCESS_TOKEN, SPAPS_ACCESS_TOKEN, "
         "or --access-token-command from the existing device-code auth flow"
     )
 
@@ -1195,6 +1240,78 @@ def patch_app_link(
         raise RuntimeError(f"publish update failed ({exc.code}): {message}") from exc
     except URLError as exc:
         raise RuntimeError(f"publish update failed: {exc.reason}") from exc
+
+
+def dry_run_auth_metadata(args: argparse.Namespace) -> dict[str, str]:
+    if (args.access_token or "").strip():
+        return {"Authorization": "Bearer <redacted>", "source": "argument-or-env"}
+    if (args.access_token_command or "").strip():
+        return {"Authorization": "Bearer <resolved by access-token-command>", "source": "command"}
+    return {"Authorization": "<missing>", "source": "missing"}
+
+
+def get_mmdx_owner_list(
+    endpoint: str,
+    *,
+    access_token: str,
+    origin: str,
+    timeout: float,
+) -> dict[str, Any]:
+    req = request.Request(
+        endpoint,
+        headers={
+            "Accept": "application/json",
+            "Authorization": f"Bearer {access_token}",
+            "Origin": origin,
+            "User-Agent": "buildooor-mmdx-list/1.0",
+        },
+        method="GET",
+    )
+    try:
+        with request.urlopen(req, timeout=timeout) as response:
+            return read_json_response(response)
+    except HTTPError as exc:
+        payload = read_http_error_json(exc)
+        message = response_error_message(payload, "failed to list MMDX diagrams")
+        raise RuntimeError(f"MMDX list failed ({exc.code}): {message}") from exc
+    except URLError as exc:
+        raise RuntimeError(f"MMDX list failed: {exc.reason}") from exc
+
+
+def owner_diagram_items(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    items = payload.get("items")
+    if not isinstance(items, list):
+        return []
+    return [item for item in items if isinstance(item, dict)]
+
+
+def table_value(value: Any) -> str:
+    if value is None:
+        return ""
+    return str(value)
+
+
+def owner_diagram_row(item: dict[str, Any]) -> list[str]:
+    return [
+        table_value(item.get("id")),
+        table_value(item.get("chart_slug") or item.get("slug")),
+        table_value(item.get("title")),
+        table_value(item.get("visibility")),
+        table_value(item.get("updated_at") or item.get("latest_version_created_at")),
+    ]
+
+
+def print_owner_diagram_table(payload: dict[str, Any]) -> None:
+    headers = ["id", "slug", "title", "visibility", "updated_at"]
+    rows = [owner_diagram_row(item) for item in owner_diagram_items(payload)]
+    widths = [
+        max(len(headers[index]), *(len(row[index]) for row in rows)) if rows else len(headers[index])
+        for index in range(len(headers))
+    ]
+    print("  ".join(header.ljust(widths[index]) for index, header in enumerate(headers)))
+    print("  ".join("-" * width for width in widths))
+    for row in rows:
+        print("  ".join(row[index].ljust(widths[index]) for index in range(len(headers))))
 
 
 def find_key_recursive(value: Any, key: str) -> Any:
@@ -1297,6 +1414,48 @@ def publish_link(args: argparse.Namespace) -> int:
     return 0
 
 
+def list_mmdx_diagrams(args: argparse.Namespace) -> int:
+    require_secure_api_base_url(args.api_base_url, "list")
+    endpoint = append_url_segments(args.api_base_url, "diagrams")
+
+    if args.dry_run:
+        auth_metadata = dry_run_auth_metadata(args)
+        print(
+            json.dumps(
+                {
+                    "dry_run": True,
+                    "endpoint": endpoint,
+                    "method": "GET",
+                    "upstream_path": "/v1/mmdx/diagrams",
+                    "headers": {
+                        "Accept": "application/json",
+                        "Authorization": auth_metadata["Authorization"],
+                        "Origin": args.origin,
+                        "User-Agent": "buildooor-mmdx-list/1.0",
+                    },
+                    "auth_source": auth_metadata["source"],
+                    "network": False,
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
+        return 0
+
+    access_token = resolve_publish_access_token(args, command_name="list")
+    payload = get_mmdx_owner_list(
+        endpoint,
+        access_token=access_token,
+        origin=args.origin,
+        timeout=args.timeout,
+    )
+    if args.json:
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+    else:
+        print_owner_diagram_table(payload)
+    return 0
+
+
 def _resolve_paid_resource(args: argparse.Namespace) -> dict[str, str] | None:
     metadata = _parse_paid_resource_metadata(args.paid_resource)
     paid_intent = bool(
@@ -1379,6 +1538,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if getattr(args, "command", None) == "publish-link":
             return publish_link(args)
+        if getattr(args, "command", None) == "list":
+            return list_mmdx_diagrams(args)
 
         if args.handoff_server:
             if args.handoff_port is None or not args.handoff_token or not args.tmux_target:

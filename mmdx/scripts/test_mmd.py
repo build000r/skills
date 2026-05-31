@@ -358,6 +358,111 @@ flowchart TD
 
         self.assertEqual(mmd.resolve_publish_access_token(args), "spaps_access_123")
 
+    def test_list_dry_run_prints_request_metadata_without_network_or_token_leak(self) -> None:
+        stdout = StringIO()
+
+        with patch.object(mmd.request, "urlopen") as urlopen:
+            with redirect_stdout(stdout):
+                exit_code = mmd.main(["list", "--dry-run", "--access-token", "secret-token"])
+
+        body = mmd.json.loads(stdout.getvalue())
+        self.assertEqual(exit_code, 0)
+        urlopen.assert_not_called()
+        self.assertEqual(body["endpoint"], "https://buildooor.com/api/mmdx/diagrams")
+        self.assertEqual(body["method"], "GET")
+        self.assertEqual(body["upstream_path"], "/v1/mmdx/diagrams")
+        self.assertEqual(body["headers"]["Authorization"], "Bearer <redacted>")
+        self.assertEqual(body["headers"]["Origin"], "https://buildooor.com")
+        self.assertNotIn("secret-token", stdout.getvalue())
+
+    def test_list_dry_run_does_not_require_token(self) -> None:
+        stdout = StringIO()
+
+        with patch.dict(mmd.os.environ, {}, clear=True):
+            with patch.object(mmd.request, "urlopen") as urlopen:
+                with redirect_stdout(stdout):
+                    exit_code = mmd.main(["list", "--dry-run"])
+
+        body = mmd.json.loads(stdout.getvalue())
+        self.assertEqual(exit_code, 0)
+        urlopen.assert_not_called()
+        self.assertEqual(body["headers"]["Authorization"], "<missing>")
+        self.assertEqual(body["auth_source"], "missing")
+
+    def test_list_requires_token_before_network(self) -> None:
+        stderr = StringIO()
+
+        with patch.dict(mmd.os.environ, {}, clear=True):
+            with patch.object(mmd.request, "urlopen") as urlopen:
+                with redirect_stderr(stderr):
+                    exit_code = mmd.main(["list"])
+
+        self.assertEqual(exit_code, 1)
+        urlopen.assert_not_called()
+        self.assertIn("list requires --access-token", stderr.getvalue())
+
+    def test_list_prints_owner_diagram_table(self) -> None:
+        stdout = StringIO()
+        captured: dict[str, object] = {}
+
+        def fake_urlopen(req, timeout=0):
+            captured["request"] = req
+            captured["timeout"] = timeout
+            return FakeHTTPResponse(
+                {
+                    "profile": {"username": "operator"},
+                    "items": [
+                        {
+                            "id": "diag_1",
+                            "chart_slug": "architecture-overview",
+                            "title": "Architecture overview",
+                            "visibility": "private",
+                            "updated_at": "2026-05-28T05:00:00Z",
+                        }
+                    ],
+                }
+            )
+
+        with patch.object(mmd.request, "urlopen", side_effect=fake_urlopen):
+            with redirect_stdout(stdout):
+                exit_code = mmd.main(["list", "--access-token", "access_123"])
+
+        sent = captured["request"]
+        headers = {key.lower(): value for key, value in sent.header_items()}
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(captured["timeout"], 20.0)
+        self.assertEqual(sent.get_method(), "GET")
+        self.assertEqual(sent.full_url, "https://buildooor.com/api/mmdx/diagrams")
+        self.assertEqual(headers["authorization"], "Bearer access_123")
+        self.assertEqual(headers["origin"], "https://buildooor.com")
+        self.assertIn("id", stdout.getvalue())
+        self.assertIn("slug", stdout.getvalue())
+        self.assertIn("diag_1", stdout.getvalue())
+        self.assertIn("architecture-overview", stdout.getvalue())
+        self.assertIn("private", stdout.getvalue())
+
+    def test_list_json_emits_raw_owner_payload(self) -> None:
+        stdout = StringIO()
+        payload = {
+            "profile": {"username": "operator"},
+            "items": [
+                {
+                    "id": "diag_1",
+                    "chart_slug": "architecture-overview",
+                    "title": "Architecture overview",
+                    "visibility": "private",
+                    "updated_at": "2026-05-28T05:00:00Z",
+                }
+            ],
+        }
+
+        with patch.object(mmd.request, "urlopen", return_value=FakeHTTPResponse(payload)):
+            with redirect_stdout(stdout):
+                exit_code = mmd.main(["list", "--access-token", "access_123", "--json"])
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(mmd.json.loads(stdout.getvalue()), payload)
+
     def test_publish_link_rejects_non_https_api_base_before_sending_token(self) -> None:
         with tempfile.NamedTemporaryFile("w", suffix=".mmd", delete=False) as handle:
             handle.write("flowchart TD\n  A --> B\n")

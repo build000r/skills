@@ -94,6 +94,8 @@ cass search "Grok sidecar available locally but not useful" --robot --limit 10 -
 cass search "grok sidecar did not contribute sources verified directly" --robot --limit 10 --days 30
 cass search "grok 0.2.14 fwc dcg MCP spawn errors usable discovery leads" --robot --limit 10 --days 30
 cass search "grok sidecar source discovery no verified X metrics" --robot --limit 10 --days 30
+cass search "grok useful lead URLs verified against primary sources diagram versioning" --robot --limit 10 --days 30
+cass search "grok could not establish durable per-version Mermaid link claim" --robot --limit 10 --days 30
 cass search "docs(dac): add grok sidecar routing notes" --robot --limit 10 --days 90
 cass search "docs(dac): record grok no-output sidecar risk" --robot --limit 10 --days 90
 ```
@@ -141,6 +143,7 @@ different pattern.
 | `ingredient_server` GTM SEO research Bead `ingredient_server-deep-research-gtm-ingredient-seo-content-moat-rdjj` | Direct headless G1 source-discovery sidecar | First run failed because the CLI sent unsupported `reasoningEffort`; retry completed with empty output. Grok did not contribute sources. | Treat direct Grok source discovery as optional. Retry once only when non-blocking, then verify sources directly and record the bad route. | `grok unsupported reasoningEffort sidecar source discovery`, `Grok sidecar available locally but not useful` |
 | `buildooor-backend` GEO research Bead `buildooor-backend-deep-research-gtm-geo-ai-search-mmdx-9zk` | Direct headless G1 source-discovery sidecar | `grok --help` worked, but the bounded source-discovery run returned no useful stdout. All cited material was verified directly by the worker. | Do not count an installed Grok binary as useful evidence. Require non-empty stdout or a concrete artifact before giving it credit in closeout. | `grok --help worked no useful stdout source discovery`, `grok sidecar did not contribute sources verified directly` |
 | `opensource/skillbox` OSS CLI distribution Bead `skillbox-deep-research-gtm-oss-cli-distribution-cef` | Direct headless G1 source-discovery sidecar | `grok 0.2.14` ran and returned a few usable discovery leads, but emitted `fwc`/`dcg` MCP spawn errors and did not provide verified X metrics. | Grok can be useful for first-pass source discovery, but keep metric claims untrusted until primary sources verify them. MCP spawn errors should cap the route at G1. | `grok 0.2.14 fwc dcg MCP spawn errors usable discovery leads`, `grok sidecar source discovery no verified X metrics` |
+| `buildooor-backend` diagram-versioning landscape Bead `buildooor-backend-deep-research-diagram-versioning-landscape-2y5` | Direct headless G1 source-discovery sidecar | Grok produced useful lead URLs, but every claim still needed primary-source verification. It could not establish the exact durable per-version Mermaid link claim, so that stayed an evidence gap. | Good Grok evidence is a lead list, not a conclusion. Use it to widen source discovery, then keep unverifiable claims marked `not found` or `inferred`. | `grok useful lead URLs verified against primary sources diagram versioning`, `grok could not establish durable per-version Mermaid link claim` |
 
 ## Current Routing Notes
 

@@ -213,11 +213,11 @@ Do not confuse long silence with failure. Deep Research runs can take tens of
 minutes with little or no terminal output after the prompt is visible in the
 conversation and the composer is empty. If the run is not blocking the next
 local action, delegate sparse monitoring to a subagent or background watcher,
-poll around every 5-10 minutes, and keep working on non-overlapping tasks. A
-reasonable monitor report is: Oracle status, reattach command, output-file
-existence and size, and first/last headings once the file appears. Do not call
-the run stalled before about 45 minutes without concrete Oracle/browser error
-evidence.
+wait about 30 minutes before the first poll, then poll around every 15 minutes,
+and keep working on non-overlapping tasks. A reasonable monitor report is:
+Oracle status, reattach command, output-file existence and size, and first/last
+headings once the file appears. Do not call the run stalled before about 2
+hours without concrete Oracle/browser error evidence.
 
 ## When to not use this
 

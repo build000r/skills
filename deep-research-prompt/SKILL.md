@@ -407,8 +407,9 @@ time after a valid submission. Treat silence as normal unless there is concrete
 error evidence from Oracle, the browser, or the target conversation. If the
 research result is not the immediate blocker for the next local action, hand
 the waiting to a monitor subagent or background watcher and continue the
-caller/orchestration workflow. Poll sparingly, every 5-10 minutes, and do not
-diagnose a stall before roughly 45 minutes just because the terminal has no new
+caller/orchestration workflow. Do not start polling until roughly 30 minutes
+after launch; after that, poll sparingly, about every 15 minutes. Do not
+diagnose a stall before roughly 2 hours just because the terminal has no new
 output. The monitor owns only status, output-file existence/size, reattach
 command, and completion notice unless the caller explicitly gives it a repo
 write scope.

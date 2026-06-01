@@ -242,6 +242,14 @@ auto-generated `context.yaml`.
 dispatch, monitoring, collection, and synthesis; the swarm workers do the node
 execution.
 
+The lead is handoff-first. It should not personally implement or deeply audit a
+leaf Bead merely because it selected that Bead. For non-trivial work, the lead
+claims the node for a named worker, dispatches the Beads-rendered brief, then
+moves on to admitting/tending the next ready node or subgoal while monitoring
+evidence. Lead-authored edits are reserved for graph tightening, orchestration
+artifacts, final integration, shared-file arbitration, and tiny emergency
+unblocks that are explicitly recorded as root-owned.
+
 ### Runtime knobs
 
 | Argument | Default | Description |
@@ -900,6 +908,10 @@ When the final review result is available:
 - The lead must claim every dispatched node for the assigned worker and verify
   `status=in_progress` plus assignee before edits begin; unclaimed pane activity
   does not count as in-flight work
+- The lead must not collapse into a leaf worker. After dispatching one Bead or
+  subgoal, continue selecting, claiming, dispatching, and tending other ready
+  work unless the root is performing final integration or a recorded emergency
+  unblock
 - One worker per ready node; one wave per ready frontier
 - If the frontier is too large, batch it; do not oversubscribe the swarm
 - Prefer 2-8 meaningful nodes; 10 is the hard cap per wave

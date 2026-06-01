@@ -53,6 +53,28 @@ The orchestrator owns:
 The orchestrator stays thin. It uses fresh-context workers for heavy work
 through `divide-and-conquer`, NTM, or another explicit worker substrate.
 
+### Handoff-First Root Boundary
+
+When a worker substrate is available, the root orchestrator must hand execution
+Beads to workers or subgoal controllers instead of personally doing leaf-node
+work. The root may inspect enough code to select, tighten, claim, dispatch, and
+verify a node, but implementation, audit sweeps, random-fix sequences, and
+fresh-eyes review belong to assigned workers with explicit Beads ownership.
+
+Root-owned work is limited to:
+
+- selecting the next ready frontier from Beads/BV
+- tightening fuzzy node contracts before dispatch
+- claiming Beads on behalf of specific workers
+- launching/tending worker sessions and subgoal controllers
+- reconciling artifacts, validation, and Beads state
+- doing final integration, shared-file arbitration, commit batching, and user
+  closeout
+
+The root may apply a tiny emergency patch only when it is needed to unblock the
+swarm, is faster than launching a worker, and is recorded as root-owned
+integration work. It must not turn that exception into a leaf-work loop.
+
 ### End-To-End Delivery Default
 
 When the user asks to implement a domain slice, the orchestrator owns the whole

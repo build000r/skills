@@ -15,6 +15,15 @@ This skill is a detached transport wrapper, not an NTM-style swarm
 orchestrator. Use it only when detached single-session survivability is the
 actual requirement.
 
+## First Progress Marker
+
+Start the first progress update with the exact prefix `Using codex-tmux`.
+
+Preferred format:
+
+`Using codex-tmux to run a detached Codex session. First I will launch the tmux
+worker and capture the result handle.`
+
 Shared cross-skill rules live in
 [references/orchestration-contract.md](references/orchestration-contract.md).
 Use that file for detached review and background-result collection semantics.
@@ -188,6 +197,28 @@ Returns the result JSON written by the wrapper script. Shape:
 ## Result File
 
 The wrapper script always writes a result JSON, even on failure. It detects new commits by comparing HEAD before and after the Codex run. On error, the tmux session stays alive for `tmux a -t <session>` inspection.
+
+## Verification And Closeout
+
+Before reporting completion, inspect the result JSON with `run.py result` or
+the background waiter output and verify:
+
+- the tmux session name and result file match the launch output
+- the Codex process exited or produced an explicit blocker
+- any commit hash reported by the wrapper is present in the target repo
+- no required background waiter is still running unnoticed
+- any caller-requested validation command, such as `pytest`, has been run or
+  explicitly reported as unavailable
+
+If the result file is missing, report `completed_no_result` as a transport
+failure and inspect the live tmux tail before deciding whether to relaunch.
+
+## Degraded Mode
+
+If `tmux` is unavailable, do not pretend this skill ran. Fall back to direct
+Codex only when detached survivability is no longer required, and state that
+the work will not survive the caller session. If the Codex binary is missing,
+surface the prerequisite blocker with the exact launch command that failed.
 
 ## Completion Signals
 

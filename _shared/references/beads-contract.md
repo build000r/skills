@@ -62,6 +62,7 @@ prints under `prefix:`.
 | Surface | Convention | Example |
 |---|---|---|
 | Slice (multi-node delivery) | `--type epic --slug {slice-name}` | `{prefix}-epic-key-insights-7f3a` |
+| Subgoal controller | `--type task --labels slice:{slice},subgoal:{slug},subgoal-role:controller` | `{prefix}-subgoal-auth-hardening-4e71` |
 | Execution node | `--slug exec-{NNN}-{kebab-title}` `--parent {epic-id}` | `{prefix}-exec-001-backend-api-9c2e` |
 | Audit finding | `--type bug --parent {node-id}` `--labels finding:{kind}` | `{prefix}-finding-permissions-mismatch-1a4b` |
 | Smart recommendation | `--type task --labels chain:smart` | `{prefix}-smart-2026-05-10-d8e1` |
@@ -73,6 +74,15 @@ Use `--labels` consistently:
 - `wave:{n}` — which execution wave the node belongs to
 - `risk:{none|human|external}` — risk gate
 - `slice:{name}` — slice tag for cross-cutting queries
+- `subgoal:{name}` — non-blocking delegation scope inside a slice
+- `subgoal-role:{controller|leaf}` — whether the issue is the durable
+  subgoal controller or normal executable work inside that subgoal
+- `subgoal-depth:{n}` — child-orchestrator depth; default is `1`
+
+Subgoal labels are grouping and delegation metadata, not dependency edges.
+Every subgoal controller and leaf must also keep the root `slice:{name}` label
+so the root orchestrator can query, validate, and close the whole slice without
+reconstructing state from NTM sessions or markdown artifacts.
 
 ## Lifecycle Mapping
 
@@ -132,6 +142,40 @@ evidence attachments only.
 | Dispatch prompt | rendered from `br_helpers.py render-node-brief <id>` |
 | Worker proof / validation output | comments or `WG-*_RESULT.md` evidence attachment referenced from comments |
 | Final integration proof | comments, close reason, and optional `DAC_FINAL_RESULT.md` evidence attachment |
+
+### Subgoal Controller Field Mapping
+
+A subgoal controller is a Beads issue that lets a root orchestrator delegate a
+filtered ready frontier without making runtime pane state authoritative.
+Controller issues are normal `br` issues with the labels above plus the
+following fields:
+
+| Controller field | Canonical Beads location |
+|---|---|
+| Subgoal id | `notes: subgoal_id:` matching `subgoal:{slug}` |
+| Parent/root slice | root `slice:{slug}` label and `notes: parent_slice:` when useful |
+| Parent invocation run dir | `notes: parent_run_dir:` |
+| Subgoal run dir | `notes: subgoal_run_dir:`; usually under `<parent-run-dir>/subgoals/<slug>` |
+| Frontier filter | `notes: frontier_filter:` such as `slice:{root},subgoal:{slug}` |
+| Child orchestrator identity | `notes: child_orchestrator:` when delegated; blank in multiplexed mode |
+| NTM project/session | `notes: ntm_project:` after launch |
+| Worker budget | `notes: max_workers:` for this subgoal |
+| Recursion/depth cap | `notes: max_subgoal_depth:` when overriding the default depth of `1` |
+| Isolation mode | `notes: isolation:` such as `checkout` or `worktree` |
+| Status artifact | `notes: status_artifact:` pointing at `SUBGOAL_RESULT.md` |
+| Subgoal write scope | `design` block headed `writes:`; outer bound for every leaf in the subgoal |
+| Root-owned shared files | `design` block headed `shared_files:`; never child-owned |
+| Stop rules and escalation | `design` blocks headed `stop_rules:` and `escalation:` |
+
+Leaf issues inside a subgoal remain normal execution nodes. They add
+`subgoal:{slug}` and `subgoal-role:leaf` labels, keep the root `slice:{root}`
+label, and still carry concrete `writes`, `done_when`, `validate`, model route,
+run directory, and expected assignee fields.
+
+Before any implementation relies on filtered subgoal frontiers, prove the live
+`br ready --label A --label B` behavior is AND semantics or apply helper-side
+AND filtering after a broader query. If the installed `br` ORs labels or the
+behavior is ambiguous, fail closed and do not launch subgoal cohorts.
 
 Before dispatch, `br_helpers.py hydrate-node <id>` should return the fields
 needed to render a worker brief. If rich fields are missing, update the Bead

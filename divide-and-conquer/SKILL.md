@@ -1,6 +1,6 @@
 ---
 name: divide-and-conquer
-description: Decompose complex work into a Beads-backed execution graph with generated `WORKGRAPH.md` views, then run an NTM-style swarm by ready frontier with no write overlap. Use before parallel execution for large-ish, UI-facing, multi-file, multi-domain, naturally parallel, naturally orchestrated, or review-sensitive tasks.
+description: Decompose complex work into a Beads-backed execution graph with generated `WORKGRAPH.md` views, then run an NTM-style swarm by ready frontier with no write overlap. Use before parallel execution for large-ish, UI-facing, multi-file, multi-domain, naturally parallel, naturally orchestrated, subgoal-oriented, or review-sensitive tasks.
 license: MIT
 metadata:
   requires_beads: true
@@ -17,6 +17,13 @@ reconcile `br` state -> advance waves -> run final integration review
 (close-eligible epic, flush JSONL) -> commit `.beads/issues.jsonl` with the
 slice changes -> report. Markdown files are generated views or evidence
 attachments only. No approval gates.
+
+For massive runs, this skill can add a subgoal tier between the root slice and
+leaf execution nodes. A subgoal is a Beads-backed delegation boundary over a
+filtered ready frontier, represented by a durable subgoal controller issue plus
+`slice:{root}` and `subgoal:{slug}` labels. Use subgoals when a single
+orchestrator would otherwise serialize independent frontiers or fill its
+context tending one child process at a time.
 
 ## Default Marker
 
@@ -41,6 +48,10 @@ solidification.
 
 Beads node synthesis and describe-style node contract guidance live in
 [references/workgraph-synthesis.md](references/workgraph-synthesis.md).
+Subgoal synthesis and split patterns live in the same reference set; the shared
+definition and label grammar live in
+[`_shared/references/orchestration-contract.md`](../_shared/references/orchestration-contract.md)
+and [`_shared/references/beads-contract.md`](../_shared/references/beads-contract.md).
 
 ## Beads Is the Source of Truth
 
@@ -114,7 +125,9 @@ Route every ready node before spawning workers:
   Grok-authored read-only evidence artifact. Do not pass `--grok` to
   `ntm spawn`; current NTM Grok participation is sidecar-only. Do not treat a
   Grok dispatcher result as authority to bypass Beads hydration, ownership,
-  validation, or the final review gate.
+  validation, or the final review gate. For task-selection heuristics and CASS
+  query examples, see
+  [references/grok-sidecar-selection.md](references/grok-sidecar-selection.md).
 - **Claude Opus only for design-related work.** Treat a node as design-related
   when it touches UI/UX, visual design, design systems, frontend screen or
   component layout, CSS/tokens, responsive behavior, screenshots, visual
@@ -257,6 +270,103 @@ execution.
 - Default to `high`; use `medium` only for clearly bounded read-only nodes and
   `xhigh` for integration review or ambiguous repairs
 
+## Subgoal Mode
+
+Use subgoal mode when the root ready frontier is too large or too naturally
+parallel for one lead to supervise as a single wave sequence. The purpose is to
+run multiple independent child frontiers at the same time while keeping Beads as
+the source of truth and keeping final integration root-owned.
+
+Do not use subgoals for ordinary 2-8 node slices, strict dependency chains, or
+work whose subgoal-level write scopes overlap. In those cases, widen the normal
+ready frontier, split into subwaves, or keep the graph sequential.
+
+### Subgoal Shape
+
+Represent each subgoal with:
+
+- one **subgoal controller** issue labeled `slice:{root}`,
+  `subgoal:{slug}`, and `subgoal-role:controller`
+- leaf execution issues labeled `slice:{root}`, `subgoal:{slug}`, and
+  `subgoal-role:leaf`
+- controller notes fields for `subgoal_id:`, `frontier_filter:`,
+  `parent_run_dir:`, `subgoal_run_dir:`, `child_orchestrator:`,
+  `ntm_project:`, `max_workers:`, `max_subgoal_depth:`, `isolation:`, and
+  `status_artifact:`
+- controller design blocks for `writes:`, `shared_files:`, `stop_rules:`, and
+  `escalation:`
+
+The root `slice:{root}` label must remain on every controller and leaf. Do not
+model subgoals as parent-child readiness edges unless the installed `br`
+version has been proven to support non-blocking hierarchy.
+
+### Subgoal Admission
+
+Before launching a subgoal cohort:
+
+1. Prove the live `br ready --label slice:{root} --label subgoal:{slug}`
+   behavior is AND semantics, or apply helper-side AND filtering after a broader
+   query. If this cannot be proven, fail closed and do not launch subgoals.
+2. Partition the ready frontier by `subgoal:{slug}` and exclude leaves without
+   the root `slice:{root}` label.
+3. Verify subgoal-level `writes:` do not overlap across the active cohort and no
+   active leaf depends on another active subgoal.
+4. Treat `shared_files:` as root-owned and sequential. Child orchestrators may
+   propose edits to shared files but may not apply them.
+5. Run `vibing-with-ntm`'s `swarm-load-guard.sh` once for the whole workspace
+   run and admit only as many subgoals and leaf workers as the global budget can
+   support. Do not re-run the load check independently inside each subgoal and
+   treat every local pass as permission to spawn.
+
+### Execution Modes
+
+Default mode is **meta-lead multiplexing**:
+
+- The root lead keeps one context but admits several ready subgoal controllers
+  at once.
+- It launches or tends one compact NTM session per active subgoal, each scoped
+  by that controller's `frontier_filter:`.
+- It monitors controller state and concise subgoal status, not every child leaf
+  pane tail.
+
+Escalation mode is **delegated child orchestration**:
+
+- Use this only when subgoal count, depth, or context pressure is already too
+  high for meta-lead multiplexing.
+- The initial child substrate is NTM child orchestrator sessions; do not add a
+  second substrate until the NTM path has a proven recovery contract.
+- The root claims the controller issue for the child orchestrator before
+  dispatch and verifies the claim with `br show`.
+- The child orchestrator may claim, block, and close only leaf issues matching
+  both `slice:{root}` and its assigned `subgoal:{slug}`.
+- The child writes `SUBGOAL_RESULT.md` inside `subgoal_run_dir:` and proposes
+  any cross-subgoal graph change there instead of mutating topology directly.
+
+Optional isolation:
+
+- `isolation: checkout` is the default.
+- `isolation: worktree` is appropriate when static write-scope proof is weak or
+  the subgoal is large. Worktrees move overlap risk to a loud merge/integration
+  step; they do not make overlapping edits impossible. Define a single
+  root-owned `.beads/` mutation policy before using worktrees.
+
+### Subgoal Completion
+
+Never accept a subgoal as done from controller status, child prose, or
+`SUBGOAL_RESULT.md` alone. The root accepts completion only after an independent
+gate proves:
+
+```text
+br ready --label slice:{root} --label subgoal:{slug} is empty
+AND no in-flight leaf set changed for at least two operator ticks
+AND expected validation and SUBGOAL_RESULT.md evidence exist
+AND the latest child output has no unresolved blocker or convergence-warning language
+```
+
+Then the root performs cross-subgoal integration, validates shared files, flushes
+Beads, runs the final review wave, and commits. Subgoal workers and child
+orchestrators do not commit.
+
 ### NTM Project Root Preflight
 
 Run this before every wave spawn, including review waves:
@@ -314,7 +424,25 @@ execution should stay narrow.
 If the split itself is unclear, use `ask-cascade` on the first blocking
 strategic fork before inventing nodes or launching a swarm.
 
-### 3. Load or Synthesize the Beads Epic
+### 3. Decide Whether Subgoals Are Relevant
+
+Before minting or dispatching a very large graph, decide whether normal waves
+are enough:
+
+- If the ready frontier is at or below `--max-workers`, writes are disjoint, and
+  one lead can tend one session, use the normal ready-frontier path.
+- If the work naturally separates by repo, service, domain, layer, or read-only
+  investigation group, and those groups can advance independently, add subgoal
+  controllers.
+- If the work is a strict discovery -> act chain or shares migrations,
+  generated files, global runtime state, or a single validation bottleneck, keep
+  it inside one frontier and encode dependencies instead of inventing subgoals.
+
+When subgoals are relevant, mint or tighten the controller issues before leaf
+dispatch. The controller is the durable boundary; NTM session names and
+`SUBGOAL_RESULT.md` artifacts are derived views/evidence.
+
+### 4. Load or Synthesize the Beads Epic
 
 Before inventing a split, check whether the slice already has a `br` epic with
 open children:
@@ -346,7 +474,7 @@ If no epic exists and orchestration is still relevant:
 The rendered `WORKGRAPH.md` is a scratch view, not a second plan document.
 State changes flow through `br update`/`br close`; never hand-edit the markdown.
 
-### 4. Tighten Fuzzy Nodes Before Swarm Launch
+### 5. Tighten Fuzzy Nodes Before Swarm Launch
 
 Use `describe` only when a node is still fuzzy, not as mandatory ceremony for
 every node.
@@ -359,7 +487,7 @@ When a ready node still has vague `done_when`, `validate_cmds`, or non-goals:
 - Update the issue in place: `br update {id} --acceptance-criteria '…' --notes 'validate: …' --design '…'`
 - Re-query the frontier with `br_helpers.py ready --label slice:{slug}` before launching the wave
 
-### 5. Hydrate the Beads Dispatch Contract
+### 6. Hydrate the Beads Dispatch Contract
 
 Before spawning the swarm, make Beads hold the complete dispatch contract. A
 ready node is not launchable until `br show {id} --json` or
@@ -387,7 +515,7 @@ If `hydrate-node` reports missing dispatch fields, update the issue first with
 `EXECUTION_CONTEXT.md`. That file may be rendered for humans or transport
 debugging, but workers must receive a Beads-rendered node brief.
 
-### 6. Spawn the Wave Swarm
+### 7. Spawn the Wave Swarm
 
 For each ready frontier wave, launch an NTM swarm sized to that wave.
 
@@ -445,7 +573,7 @@ If the swarm transport looks wrong, fix that before blaming the node brief.
   quality, consult `vibing-with-ntm` or `ntm` if available instead of
   improvising ad hoc transport rituals.
 
-### 7. Dispatch Node-Specific Prompts
+### 8. Dispatch Node-Specific Prompts
 
 Send each worker a unique node prompt. Stagger dispatch by 15-20 seconds to
 avoid thundering-herd effects:
@@ -590,7 +718,7 @@ One paragraph on what changed.
 - Only if blocked or needs_rework
 ```
 
-### 8. Monitor the Wave
+### 9. Monitor the Wave
 
 Set up monitoring immediately after dispatch:
 
@@ -643,7 +771,7 @@ ntm send "$WAVE_PROJECT" --pane="$N" "<absolute-run-dir>/WG-00N_RESULT.md is not
 ntm send "$WAVE_PROJECT" --pane="$N" "Do not code past your declared write scope. If the node truly needs broader edits, stop and propose the smallest Beads graph change instead."
 ```
 
-### 9. Collect Results and Advance the Graph
+### 10. Collect Results and Advance the Graph
 
 Once the wave has produced results, or the timeout is reached:
 
@@ -677,7 +805,7 @@ Once the wave has produced results, or the timeout is reached:
 
 Do not mark a node done based only on a worker's self-report.
 
-### 10. Repeat Until the Graph Is Exhausted or Truly Blocked
+### 11. Repeat Until the Graph Is Exhausted or Truly Blocked
 
 Continue wave by wave until one of these is true:
 - All execution nodes are `done`
@@ -687,7 +815,7 @@ Continue wave by wave until one of these is true:
 If a node's result reveals a better decomposition, update the graph before the
 next wave instead of forcing the old split.
 
-### 11. Run a Final Integration and Review Wave
+### 12. Run a Final Integration and Review Wave
 
 After all execution nodes are complete, run one final integration wave through
 the same swarm runtime. Do not default to `/codex:rescue`.
@@ -728,7 +856,7 @@ Reviewer prompt:
 }
 ```
 
-### 12. Report to User
+### 13. Report to User
 
 When the final review result is available:
 
@@ -748,6 +876,18 @@ When the final review result is available:
   `DAC_FINAL_RESULT.md` files. Existing legacy files may be read as historical
   evidence, but new waves use the overlay-backed invocation root.
 - Ready frontier comes from `br_helpers.py ready` or `scheduler`; do not pre-dispatch blocked nodes
+- Subgoal frontiers require both `slice:{root}` and `subgoal:{slug}` filters;
+  prove multi-label `br ready` AND semantics or use helper-side AND filtering
+  before launch
+- Subgoal controller issues are durable delegation boundaries. NTM session
+  names and `SUBGOAL_RESULT.md` files are derived evidence, not topology
+- The root owns subgoal creation, shared files, cross-subgoal graph shape,
+  final integration, final validation, Beads flush, and commit
+- Child orchestrators may claim/close/block only leaf issues in their assigned
+  `slice:{root},subgoal:{slug}` frontier and must propose cross-subgoal changes
+  to the root instead of mutating topology directly
+- Do not accept a subgoal as done from controller status or child prose; run the
+  independent completion gate before rollup
 - `writes` ownership is a hard boundary, not a suggestion
 - Default to NTM swarm execution; do not substitute local ad hoc workers
 - Cwd/workflow routing, skill-tag extraction, cleaned-request drafting, and

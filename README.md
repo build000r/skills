@@ -48,7 +48,7 @@ re-inventing the same workflow on every run.
 | Deterministic helpers where prompts are not enough | App-backed helpers can live beside the monorepo when they need their own runtime or release cadence |
 | Deployable asset bundles | Runtime kits and embedded child skills in [`openclaw-client-bootstrap`](./openclaw-client-bootstrap/) |
 | Pick-your-surface installs | Install one skill, a lane, the whole catalog, or symlink a local checkout |
-| Honest boundaries | Skill-specific licensing, partial packaging in `dist/`, and explicit limitations |
+| Honest boundaries | Skill-specific licensing, local package builds, and explicit limitations |
 
 ## Quick Example
 
@@ -245,7 +245,6 @@ human re-enters only for ambiguity, risk, or escalation
 | [`deep-research-prompt`](./deep-research-prompt/) | Builds Oracle-ready Deep Research and image-creation prompts for external research tools, ChatGPT image generation, visual reference sheets, and "make a prompt for another agent" handoffs |
 | [`remotion`](./remotion/) | Encodes practical Remotion guidance for React video work and SVG-first motion architecture |
 | [`research-paper`](./research-paper/) | Produces dense research pages plus social companions |
-| [`swimmers-sprite`](./swimmers-sprite/) | Generates thronglet sprite packs from master pixel assets |
 | [`trend-to-content`](./trend-to-content/) | Turns search and social trends into research, PSEO, and video ideas |
 
 `clawgs` now lives as a sibling repo at `../clawgs/` when you need the Rust-backed
@@ -257,10 +256,10 @@ log extraction and thought-emission helper.
 | --- | --- |
 | [`openclaw-client-bootstrap`](./openclaw-client-bootstrap/) | Builds production-ready OpenClaw client kits with runtime assets |
 | [`openclaw-docs-audit`](./openclaw-docs-audit/) | Audits bootstrap docs and config against upstream OpenClaw changes |
-| [`unclawg-internet`](./unclawg-internet/) | Runs onboarding, device auth, and setup for OpenClaw agents |
-| [`unclawg-discover`](./unclawg-discover/) | Finds leads and social-listening candidates |
-| [`unclawg-feed`](./unclawg-feed/) | Generates replies and submits approval requests |
-| [`unclawg-respond`](./unclawg-respond/) | Processes revision feedback and fulfills approved edits |
+| [`unclawg-internet`](./openclaw-client-bootstrap/assets/runtime-skills/unclawg-internet/) | Runs onboarding, device auth, and setup for OpenClaw agents |
+| [`unclawg-discover`](./openclaw-client-bootstrap/assets/runtime-skills/unclawg-discover/) | Finds leads and social-listening candidates |
+| [`unclawg-feed`](./openclaw-client-bootstrap/assets/runtime-skills/unclawg-feed/) | Generates replies and submits approval requests |
+| [`unclawg-respond`](./openclaw-client-bootstrap/assets/runtime-skills/unclawg-respond/) | Processes revision feedback and fulfills approved edits |
 
 ## Installation
 
@@ -325,15 +324,12 @@ Install `clawgs` separately from the sibling checkout when you need it locally:
 OpenClaw loop:
 
 ```bash
-for skill in \
-  unclawg-internet \
-  unclawg-discover \
-  unclawg-feed \
-  unclawg-respond
-do
-  npx skills add build000r/skills -s "$skill"
-done
+npx skills add build000r/skills -s openclaw-client-bootstrap
 ```
+
+The Unclawg runtime skills are bundled inside
+`openclaw-client-bootstrap/assets/runtime-skills/`, not installed as separate
+top-level catalog entries.
 
 ### 4. Use A Local Checkout During Development
 
@@ -354,15 +350,21 @@ You can also point it at a checkout explicitly:
 ./scripts/link-skills.sh /path/to/skills
 ```
 
-### 5. Use Prebuilt `.skill` Artifacts For Selected Skills
+### 5. Build `.skill` Artifacts Locally
 
-The repo currently ships packaged artifacts for some skills in `dist/`.
+Packaged `.skill` files are generated locally and ignored by git. Build them
+from the source checkout when you need a distributable artifact:
+
+```bash
+python3 skill-issue/scripts/package_skill.py describe ./dist
+```
 
 ```bash
 ls dist/*.skill
 ```
 
-Do not assume every skill has a packaged artifact. The repo is mixed-mode.
+Do not expect a public clone to contain prebuilt `dist/*.skill` files. The
+source directories are the install surface.
 
 ## Quick Start
 
@@ -382,7 +384,8 @@ Do not assume every skill has a packaged artifact. The repo is mixed-mode.
 | `./scripts/link-skills.sh /path/to/skills` | Links a different checkout path explicitly | `./scripts/link-skills.sh ~/repos/skills` |
 | `../clawgs/scripts/install.sh` | Installs the sibling `clawgs` helper app | `../clawgs/scripts/install.sh` |
 | `../clawgs/scripts/check.sh` | Verifies the sibling `clawgs` install | `../clawgs/scripts/check.sh` |
-| `ls dist/*.skill` | Shows packaged artifacts for selected skills | `ls dist/*.skill` |
+| `python3 skill-issue/scripts/package_skill.py <skill> ./dist` | Builds a local `.skill` package | `python3 skill-issue/scripts/package_skill.py describe ./dist` |
+| `ls dist/*.skill` | Shows locally generated packaged artifacts | `ls dist/*.skill` |
 
 ## Configuration
 
@@ -434,7 +437,7 @@ Skills that commonly rely on client overlays include:
 - [`skill-registry-usage-audit`](./skill-registry-usage-audit/)
 - [`ssh-info`](./ssh-info/)
 - [`trend-to-content`](./trend-to-content/)
-- [`unclawg-discover`](./unclawg-discover/)
+- [`openclaw-client-bootstrap`](./openclaw-client-bootstrap/)
 
 ## Architecture
 
@@ -540,16 +543,17 @@ need their own install and verification steps. For the sibling `clawgs` repo, ru
 
 ### I want packaged artifacts for every skill
 
-That is not the current shape of the repo. `dist/` contains selected `.skill`
-artifacts only. Use the GitHub install path or local symlink workflow for the
-rest.
+That is not the current shape of the repo. `dist/` is a local generated output
+directory and is not tracked in the public clone. Use the GitHub install path,
+local symlink workflow, or `skill-issue/scripts/package_skill.py` to build the
+artifacts you need.
 
 ## Limitations
 
 - This is a mixed-mode monorepo, not a polished package registry or docs site.
 - Some skills depend on private local context, so they are incomplete until you add a skillbox client overlay.
 - Some skills are personal or operator-heavy by design and may not generalize cleanly outside the author's environment.
-- Not every skill has a packaged `.skill` build in `dist/`.
+- Packaged `.skill` builds are local generated artifacts, not tracked source.
 - Licensing is skill-specific rather than centrally normalized.
 - The contribution policy is intentionally closed.
 

@@ -13,6 +13,23 @@ Start the first progress update with:
 
 `Using unified-brand-system ...`
 
+## Verification And Closeout
+
+Before calling a brand system complete, verify:
+
+- token files were written to the intended project paths
+- every foreground/background pair named in the token contract passes the stated
+  contrast floor
+- typography, spacing, radius, and elevation have one declared source of truth
+- hardcoded colors/radii/shadows targeted by the rollout were replaced or
+  explicitly deferred
+- the final response names the files changed and the next visual or build check
+- any changed helper code or templates have a targeted `pytest` or project
+  native test before closeout
+
+If project files cannot be written or inspected, return the token contract as a
+draft artifact and state which verification steps are still missing.
+
 ## What This Skill Owns
 
 - **Tokens**: HSL CSS variables using shadcn's naming contract (`--background`, `--foreground`, `--primary`, etc.) so Radix-based shadcn components work without further mapping.

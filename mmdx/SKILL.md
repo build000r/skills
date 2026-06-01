@@ -89,6 +89,40 @@ Browser and agent auth are two entrances to the same protected MMDX persistence 
 - Agent/CLI private-version flow: authenticate the operator or agent through the existing SPAPS device-code flow, then post the saved `.mmd`/`.mmdx` source to Buildooor's `/api/mmdx/diagrams` or `/api/mmdx/diagrams/:id/versions` API with the bearer token. Do not build a separate MMDX auth system or ask a browser user to run device-code auth.
 - Agent/CLI existing-short-link flow: after editing a local `.mmd`/`.mmdx`, republish the already-saved short link with `publish-link`. First run the existing SPAPS device-code login (`spaps login --server-url <spaps-url> --client-id <app-slug>`), then pass the stored token via `--access-token-command "spaps token --server-url <spaps-url>"`. Direct env alternatives are `BUILDOOOR_ACCESS_TOKEN`, `SPAPS_ACCESS_TOKEN`, or `--access-token`.
 
+Agent auth prerequisite: before claiming that durable agent-side save or short-link publishing is blocked,
+check whether `BUILDOOOR_ACCESS_TOKEN`, `SPAPS_ACCESS_TOKEN`,
+`BUILDOOOR_ACCESS_TOKEN_COMMAND`, or `SPAPS_TOKEN_COMMAND` is available in the
+current shell. `mmd.py list` and `mmd.py publish-link` read those variables by
+default.
+
+If the token is missing on an operator machine, use the `skill-issue` shell-profile
+secret pattern: keep the bearer token in the OS keychain or another secret store,
+then export it from `~/.zshrc`/`~/.bash_profile` so every project shell sees it.
+Do not put raw bearer tokens in a repo, skill file, checked-in shell snippet, or
+agent transcript.
+
+macOS Keychain setup example:
+
+```bash
+security add-generic-password -U -a "$USER" -s buildooor-access-token -w '<token>'
+```
+
+Then source it from the operator shell profile:
+
+```bash
+if [[ -z "${BUILDOOOR_ACCESS_TOKEN:-}" ]] && command -v security >/dev/null 2>&1; then
+  _buildooor_access_token="$(security find-generic-password -a "$USER" -s buildooor-access-token -w 2>/dev/null || true)"
+  if [[ -n "$_buildooor_access_token" ]]; then
+    export BUILDOOOR_ACCESS_TOKEN="$_buildooor_access_token"
+  fi
+  unset _buildooor_access_token
+fi
+```
+
+If both Buildooor and SPAPS names are used on the machine, prefer exporting the
+specific token name the tool expects. For the bundled MMDX CLI either
+`BUILDOOOR_ACCESS_TOKEN` or `SPAPS_ACCESS_TOKEN` is sufficient.
+
 List owned durable MMDX diagrams before choosing a slug or diagram id:
 
 ```bash

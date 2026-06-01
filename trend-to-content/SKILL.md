@@ -7,6 +7,15 @@ description: Transform social and search trends into research, PSEO pages, video
 
 Transform trending topics into content at scale: PSEO pages, videos, and copy.
 
+## First Progress Marker
+
+Start the first progress update with the exact prefix `Using trend-to-content`.
+
+Preferred format:
+
+`Using trend-to-content to turn trend evidence into content options. First I
+will resolve the lane, source, and output mode.`
+
 ## Use This For
 
 - Trend research for a niche, audience, or content pipeline
@@ -38,8 +47,8 @@ Project-specific config (brand name, voice, tone, target audience, content pipel
 
 Required env vars (should be in `~/.zshrc`):
 ```bash
-export VIRLO_API_KEY="virlo_tkn_..."       # Trend research
-export ELEVENLABS_API_KEY="sk_..."          # Text-to-speech for video voiceovers
+# VIRLO_API_KEY: trend research token
+# ELEVENLABS_API_KEY: text-to-speech token for video voiceovers
 ```
 
 **If env vars are empty in Bash** (Claude Code runs bash, not zsh — `source ~/.zshrc` will break):
@@ -293,6 +302,23 @@ HOOK: [First line that stops the scroll]
 BODY: [3-5 key points]
 CTA: [Engagement driver]
 ```
+
+## Verification And Closeout
+
+Before presenting final recommendations or generated content, verify:
+
+- the trend source is named (`Virlo`, web search, supplied data, or manual
+  input)
+- the audience/lane and content mode are explicit
+- any API-backed claim includes enough evidence to rerun or inspect the source
+- generated PSEO/video/copy artifacts have a target path or publishing boundary
+- missing credentials are reported as degraded research, not hidden as low
+  confidence
+- any changed helper code or templates have a targeted `pytest` or project
+  native test before closeout
+
+If live trend sources are unavailable, continue only with clearly marked
+fallback evidence and avoid claiming recency that was not verified.
 
 ---
 

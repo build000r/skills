@@ -80,6 +80,67 @@ Rules per node:
   design work or Codex gpt-5.5 for non-design work.
 - Read-only nodes: omit `--writes` entirely
 
+## Mint Subgoals For Massive Runs
+
+Use this only when the root slice naturally separates into independently
+runnable frontiers. Subgoals are Beads-backed delegation scopes, not markdown
+headings, NTM session names, or parent-child readiness edges.
+
+The durable shape is:
+
+```text
+root slice epic
+  subgoal controller: slice:{root},subgoal:auth,subgoal-role:controller
+    leaf issues: slice:{root},subgoal:auth,subgoal-role:leaf
+  subgoal controller: slice:{root},subgoal:billing,subgoal-role:controller
+    leaf issues: slice:{root},subgoal:billing,subgoal-role:leaf
+```
+
+Until helper commands exist for this exact shape, mint the controller as a
+normal `br` issue using the shared field mapping in
+`_shared/references/beads-contract.md`. The future helper surface should be:
+
+```bash
+python3 ~/.claude/skills/_shared/scripts/br_helpers.py mint-subgoal \
+  auth-hardening 'Subgoal: auth hardening' \
+  --slice "$SLICE_SLUG" \
+  --writes 'backend/auth/**' \
+  --shared-file 'backend/migrations/**' \
+  --parent-run-dir "$run_dir" \
+  --subgoal-run-dir "$run_dir/subgoals/auth" \
+  --frontier-filter "slice:${SLICE_SLUG},subgoal:auth" \
+  --max-workers 3 \
+  --isolation checkout \
+  --status-artifact "$run_dir/subgoals/auth/SUBGOAL_RESULT.md"
+```
+
+Subgoal leaf nodes are normal execution nodes plus the subgoal labels:
+
+```bash
+python3 ~/.claude/skills/_shared/scripts/br_helpers.py mint-node \
+  wg-001-auth-session 'Harden auth session handling' \
+  --epic "$EPIC" --concern auth --repo current-repo \
+  --writes 'backend/auth/**' \
+  --done-when 'Auth sessions are validated and tested' \
+  --validate 'pytest tests/auth -q' \
+  --model-route 'Codex gpt-5.5' \
+  --repo-path "$PWD" --branch "$(git rev-parse --abbrev-ref HEAD)" \
+  --run-dir "$run_dir/subgoals/auth" \
+  --expected-assignee 'dac-auth-worker-001' \
+  --label "slice:${SLICE_SLUG}" \
+  --label 'subgoal:auth' \
+  --label 'subgoal-role:leaf'
+```
+
+Before any launch, prove filtered frontier semantics. If
+`br ready --label slice:${SLICE_SLUG} --label subgoal:auth` does not return only
+auth leaves, or if the behavior cannot be proven for the installed `br`, fail
+closed and use helper-side AND filtering before dispatch.
+
+Subgoal controller closeout is root-owned. A child orchestrator can write
+`SUBGOAL_RESULT.md` and close leaf issues, but the root accepts the controller
+only after independent convergence proof.
+
 ## When To Trigger `describe`
 
 Trigger a node-level `describe` pass before swarm launch when any of these are

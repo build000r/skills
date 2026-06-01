@@ -75,6 +75,62 @@ Safe first wave:
 
 Do not launch `WG-003` until `WG-001` is done and independently validated.
 
+### 6. Subgoal Controller Split
+
+For massive runs, split first by subgoal when each group can advance its own
+ready frontier. A subgoal is represented by a controller issue plus
+`slice:{root}`, `subgoal:{slug}`, and `subgoal-role:*` labels. The controller
+owns the group-level write boundary, child-orchestrator assignment, run
+directory, isolation mode, and status artifact.
+
+Good subgoal boundaries:
+
+```text
+SUBGOAL auth       writes: backend/auth/**             leaves: auth tests, token flow
+SUBGOAL billing    writes: backend/billing/**          leaves: invoice tests, qbo adapter
+SUBGOAL docs       writes: docs/**                     leaves: README, migration guide
+```
+
+Safe when:
+- every active subgoal has disjoint controller-level `writes`
+- shared files are named in `shared_files:` and remain root-owned
+- `br ready --label slice:{root} --label subgoal:{slug}` is proven to return
+  only that subgoal's leaves, or helper-side AND filtering is used
+- each child can validate its leaves without waiting on a sibling's output
+
+The root can run several subgoal controllers at once in meta-lead multiplexing
+mode, then escalate one controller to an NTM child orchestrator when its own
+frontier is large enough to justify another lead.
+
+### 7. Repo-Disjoint Workspace Split
+
+When a root outcome spans multiple repositories, one subgoal per repo is often
+the safest first split.
+
+```text
+SUBGOAL backend-api       repo: api        writes: api/**
+SUBGOAL frontend-app      repo: web        writes: web/**
+SUBGOAL mobile-client     repo: ios        writes: ios/**
+```
+
+Cross-repo integration, release validation, and shared public docs stay
+root-owned unless they have their own explicit subgoal and write scope.
+
+### 8. Read-Only Subgoal Fanout
+
+Several subgoals can be read-only when the root needs broad discovery before
+writer nodes are safe.
+
+```text
+SUBGOAL auth-inventory       writes: []
+SUBGOAL billing-inventory    writes: []
+SUBGOAL ui-inventory         writes: []
+ROOT writer                  blocked on all inventories
+```
+
+Results feed back into Beads as tightened leaf nodes or controller updates. Do
+not launch writer subgoals until the discovery outputs are reconciled.
+
 ## Unsafe Patterns (Do NOT Split)
 
 ### Same-File Edits
@@ -107,6 +163,20 @@ WG-001: Modify the database schema
 WG-002: Modify queries that use that schema
 ```
 
+### Shared Migration Or Generated Files Across Subgoals
+
+Two subgoals that both need a shared migration, generated client, lockfile,
+manifest, or central config are not independently launchable unless the shared
+file is root-owned and sequenced.
+
+```text
+BAD:
+SUBGOAL auth       writes: backend/auth/** backend/migrations/**
+SUBGOAL billing    writes: backend/billing/** backend/migrations/**
+```
+
+Make the migration a root-owned leaf or a separate sequential subgoal.
+
 ### Discovery-Then-Act In Parallel
 
 Cannot parallelize when the action depends on what is discovered.
@@ -123,6 +193,10 @@ Before finalizing a graph, verify:
 
 - [ ] Each node is scoped by concern or goal, not by micro-file edits
 - [ ] No two nodes' `writes` overlap
+- [ ] For subgoal mode, no two active controllers' `writes` overlap
+- [ ] Subgoal leaves keep both `slice:{root}` and `subgoal:{slug}` labels
+- [ ] Multi-label `br ready` behavior is proven to be AND semantics, or a
+      helper applies AND filtering before dispatch
 - [ ] No node needs another node's output to begin unless the dependency is explicit
 - [ ] Each node has all context it needs in Beads fields/comments, and
       `br_helpers.py hydrate-node <id>` can expose it before dispatch
@@ -139,6 +213,8 @@ Before finalizing a graph, verify:
       `br show` reports `status=in_progress` plus that assignee before edits
       begin
 - [ ] The whole ready frontier can launch in one wave without conflict
+- [ ] In subgoal mode, the root accepts controller completion only after an
+      independent convergence gate, not child self-report
 - [ ] The orchestrator can independently validate each node after collection
 - [ ] Recombining results requires no merge arbitration
 
@@ -149,3 +225,5 @@ Before finalizing a graph, verify:
 - Sweet spot: 2-5 meaningful execution nodes, sometimes plus read-only research nodes
 - Read-only nodes: can be more numerous, but still need crisp output contracts
 - Writer nodes: fewer is better to minimize overlap and integration risk
+- Subgoals: use them only when each controller is large enough to justify its
+  own frontier. For small graphs, a normal wide frontier is cheaper and safer.

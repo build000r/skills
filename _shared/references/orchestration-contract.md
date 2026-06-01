@@ -149,8 +149,8 @@ workflow:
 - **Swimmers hidden-session lane:** when a Grok worker needs a maintained
   session or should receive follow-up prompts, spawn it through Swimmers with
   `spawn_tool: "grok"` (or the `voice-to-text` Swimmers client helper). Swimmers
-  already uses prompt files for the initial request and honors `SWIMMERS_GROK_BIN`
-  for the Grok binary override.
+  already uses prompt files for the initial request and honors `SWIMMERS_DISPATCHER_GROK_BIN`
+  for the Grok binary override (defaults to `grok` on PATH).
 - **Direct headless lane:** for a bounded one-shot analysis, run Grok CLI
   directly with a prompt file and capture the response into the caller's normal
   artifact path. Keep it read-only unless the caller has an explicit write
@@ -204,6 +204,77 @@ role model or success criteria.
 - Scope work by concern or domain, not arbitrary file lists
 - Do not launch dependent workers in the same batch
 - Read-only parallelism is preferred when discovery can be separated safely
+
+## Subgoal Tier
+
+For massive slices, a root orchestrator may delegate a label-filtered subset of
+the Beads graph to a subgoal controller. A subgoal is a delegation boundary over
+an independently runnable ready frontier, not a second source of truth, an NTM
+session name, a markdown heading, or a dependency edge by default.
+
+Subgoals are appropriate when a single root loop would otherwise serialize
+independent frontiers. They are not appropriate for a strict dependency chain or
+for sibling work that cannot prove write-scope separation.
+
+Canonical roles:
+
+- **Root orchestrator:** owns subgoal creation, cross-subgoal dependency shape,
+  shared files, global load budget, final integration, final validation, Beads
+  flush, and commit.
+- **Subgoal controller:** durable Beads issue that carries the subgoal identity,
+  write scope, frontier filter, run directory, child-orchestrator assignment,
+  concurrency budget, isolation mode, and status artifact.
+- **Child orchestrator:** optional NTM-backed operator for one subgoal. It may
+  claim, block, and close only leaf issues matching both the root `slice:*` and
+  its assigned `subgoal:*` label.
+- **Leaf worker:** normal execution worker scoped to one Beads node inside the
+  subgoal frontier.
+
+Required invariants:
+
+- Subgoal grouping uses labels and controller issues. Do not rely on
+  parent-child issue hierarchy as a readiness dependency unless the installed
+  Beads version has been proven to support non-blocking hierarchy.
+- Every subgoal leaf and controller must retain the root `slice:{slug}` label
+  and add exactly one `subgoal:{slug}` label. The root slice label is what makes
+  global rollup and final integration queryable.
+- A child orchestrator may not create, delete, or reassign subgoals, edit shared
+  files, or mutate cross-subgoal topology directly. It writes the smallest graph
+  change proposal into the subgoal result artifact and leaves the affected work
+  open or blocked for the root.
+- Launch multiple subgoals only when their subgoal-level write scopes are
+  disjoint, no active leaf depends on another active subgoal, and the workspace
+  load budget covers the planned child orchestrators plus leaf workers.
+- The load gate is global to the workspace run, not per subgoal. Re-running a
+  per-subgoal load check and spawning every admitted cohort can recreate the
+  same proof-starvation failures that swarm load guards exist to prevent.
+- The default maximum depth is one child-orchestrator layer below the root.
+  Deeper nesting requires an explicit max-depth override in the controller
+  issue and a reason recorded in the run artifact.
+
+Convergence rolls up from subgoals, but controller status is only evidence. The
+root accepts a subgoal as converged only after an independent gate proves:
+
+```text
+filtered ready frontier is empty
+AND no in-flight leaf set has changed for at least two operator ticks
+AND expected subgoal artifacts and validation evidence exist
+AND the latest child output has no unresolved blocker or convergence-warning language
+```
+
+Skill-local implementations may add stronger checks, such as scoped `git diff`
+or `git log` probes, but they must not accept a subgoal solely because a child
+worker or controller says it is done.
+
+Nested restart ownership:
+
+- In default multiplexed mode, the root owns every pane because there are no
+  child orchestrator sessions.
+- In delegated mode, the root owns the child orchestrator session as a
+  controller-level resource. The child orchestrator owns its own leaf worker
+  panes. Root recovery may replace a dead child orchestrator; it should not
+  nudge individual child leaf panes unless stopping runaway work or recovering a
+  dead controller.
 
 ## Ask Vs Auto-Proceed
 

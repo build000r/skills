@@ -7,6 +7,15 @@ description: Review and score your AI prompting quality. Analyzes Claude Code an
 
 Evaluate user prompting quality across AI coding tools. Supports Claude Code, Codex, AMP, OpenCode, and any other tool.
 
+## First Progress Marker
+
+Start the first progress update with the exact prefix `Using prompt-reviewer`.
+
+Preferred format:
+
+`Using prompt-reviewer to score the requested prompt history. First I will
+resolve the source and date range before extracting sessions.`
+
 ## Use This For
 
 - Scoring prompt quality for the current conversation or extracted session history
@@ -218,6 +227,23 @@ python3 {skill_dir}/scripts/save_review.py \
 **--week** (for backfills): Override the week recorded. Without this, saves use today's week.
 
 Always run this after scoring. Scores accumulate in `~/.claude/prompt-review-history.jsonl`.
+
+## Verification And Closeout
+
+Before reporting a review as complete, verify the extraction and scoring
+surfaces agree:
+
+- session source, provider, date range, and project filter are named
+- session and prompt counts are nonzero, unless the result is explicitly
+  "nothing found"
+- all nine rubric axes have scores and evidence
+- saved-history writes succeeded when history persistence was requested
+- trend output uses the same provider/week filter as the review
+- script changes to extraction, scoring, or trend helpers have a targeted
+  `pytest` run before closeout
+
+If extraction is unavailable or returns no sessions, say so directly and score
+only the visible/pasted conversation if that still satisfies the user's ask.
 
 Provider values: `claude`, `codex`, `amp`, `opencode`, `other`
 

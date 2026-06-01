@@ -10,7 +10,8 @@ run with citations.
 
 The owner of this skill wants Deep research on by default for the research
 prompts this skill produces. Oracle doesn't support that natively yet, so the
-skill ships a small CDP helper that does the click.
+skill ships small CDP helpers: one to toggle the tool and one to watch for the
+eventual dossier after submission.
 
 ## The helper
 
@@ -43,6 +44,62 @@ Environment knobs:
 The helper uses WebSockets over CDP. On current Node versions it uses the
 built-in `WebSocket`; on older Node versions it falls back to the `ws` npm
 module if available.
+
+## Completion capture helper
+
+`assets/scripts/await-deep-research.mjs` connects to the same Chrome DevTools
+endpoint and resolves the same ChatGPT target contract:
+
+- `ORACLE_CDP_HOST` (default `127.0.0.1`)
+- `ORACLE_CDP_PORT` (default `9222`)
+- `ORACLE_CHATGPT_TARGET_ID`
+- `ORACLE_CHATGPT_URL_MATCH` or `DEEP_RESEARCH_CHATGPT_URL_MATCH`
+
+By default, it waits about 30 minutes before the first poll, polls every 15
+minutes, and stops at about 2 hours unless it sees concrete browser/ChatGPT
+error evidence first. When it detects assistant/research output with no obvious
+active "researching/searching/stop generating" UI and that output is unchanged
+across the configured stable polls, it prints the final text to stdout. Set
+`DEEP_RESEARCH_OUTPUT=/path/to/result.md` or pass `--output /path/to/result.md`
+to also write the capture to disk.
+
+Example after Oracle submission:
+
+```bash
+DEEP_RESEARCH_OUTPUT=/tmp/<slug>-deep-research-result.md \
+ORACLE_CHATGPT_URL_MATCH="<unique-project-or-conversation-path>" \
+  node "$SKILL_DIR/assets/scripts/await-deep-research.mjs"
+```
+
+If the operator or monitor did not start the helper until roughly 30 minutes
+after launch, use `--no-initial-delay` so it polls immediately and then follows
+the 15 minute cadence:
+
+```bash
+DEEP_RESEARCH_OUTPUT=/tmp/<slug>-deep-research-result.md \
+ORACLE_CHATGPT_URL_MATCH="<unique-project-or-conversation-path>" \
+  node "$SKILL_DIR/assets/scripts/await-deep-research.mjs" --no-initial-delay
+```
+
+Exit codes:
+
+| Exit | Reason |
+|------|--------|
+| 0    | Assistant/research output captured |
+| 2    | No `chatgpt.com` tab on the given DevTools port |
+| 5    | CDP connection or eval failed |
+| 7    | Multiple matching `chatgpt.com` tabs found; completion target is ambiguous |
+| 8    | Requested ChatGPT target selector matched no tab |
+| 9    | Timed out before active signals cleared or output stabilized |
+| 10   | Timed out with no assistant output visible |
+| 11   | Concrete ChatGPT/browser error text was visible |
+| 12   | Failed to write `DEEP_RESEARCH_OUTPUT` / `--output` |
+| 64   | Invalid helper arguments |
+
+The watcher is intentionally conservative. It is not a guarantee that ChatGPT's
+Deep Research UI is stable; it is a best-effort DOM poller that fails with a
+specific reason instead of pretending Oracle's immediate capture is the final
+dossier.
 
 ## Oracle routing guard
 
@@ -196,8 +253,20 @@ End-to-end flow for Oracle execute mode:
    composer/conversation lacks the Deep Research chip, or if the reply starts
    like a normal answer rather than a research run with external-source
    behavior, treat the run as failed. Do not report "Deep Research started."
+   A user-turn-only conversation is submission evidence, not generation
+   evidence. Verify an assistant turn, active "researching/searching/stop
+   generating" UI, or another visible Deep Research progress surface before
+   calling the run launched.
 
-7. **Surface the session slug** for reattach, do not re-print the prompt.
+7. **Capture the eventual dossier when needed.** If the report itself is the
+   deliverable, start or schedule `await-deep-research.mjs` against the same
+   target with `DEEP_RESEARCH_OUTPUT` set. Let it wait about 30 minutes before
+   the first poll, poll about every 15 minutes, and avoid calling the run
+   stalled before about 2 hours unless Oracle or the browser shows concrete
+   error evidence.
+
+8. **Surface the session slug** for reattach, do not re-print the prompt. If
+   the watcher is running, also surface the watcher command and output path.
 
 ## Verification after the run starts
 
@@ -206,8 +275,9 @@ After Oracle submits the prompt, the user can reattach with
 sources or uses a generic "I'll answer based on what I know" opener, Deep
 research did not actually apply. The most common causes are: Oracle submitted
 in a different tab than the toggled tab, the click landed on the wrong item
-(exit code 6 catches the DOM case), or ChatGPT silently downgraded because quota
-or tool state changed. Treat this as a real failure and tell the user.
+(exit code 6 catches the DOM case), ChatGPT asked a clarifying question instead
+of starting, or ChatGPT silently downgraded because quota or tool state changed.
+Treat this as a real failure and tell the user.
 
 Do not confuse long silence with failure. Deep Research runs can take tens of
 minutes with little or no terminal output after the prompt is visible in the
@@ -217,7 +287,9 @@ wait about 30 minutes before the first poll, then poll around every 15 minutes,
 and keep working on non-overlapping tasks. A reasonable monitor report is:
 Oracle status, reattach command, output-file existence and size, and first/last
 headings once the file appears. Do not call the run stalled before about 2
-hours without concrete Oracle/browser error evidence.
+hours without concrete Oracle/browser error evidence. The bundled watcher
+implements this cadence; use manual polling only when CDP access is unavailable
+or ChatGPT's DOM has drifted beyond the helper's selectors.
 
 ## When to not use this
 
@@ -232,9 +304,12 @@ hours without concrete Oracle/browser error evidence.
 
 ## Known fragility
 
-The CDP selector logic in `toggle-deep-research.mjs` targets DOM shapes
-observed in ChatGPT as of the date this file was committed. ChatGPT ships UI
-changes frequently. Verification mode (`--verbose`) exists so failures come
-back with the actual DOM state; if the helper starts exiting 3 or 4 after a
-ChatGPT release, update the selector lists in `pageScript()` rather than
-patching Oracle.
+The CDP selector logic in `toggle-deep-research.mjs` and
+`await-deep-research.mjs` targets DOM shapes observed in ChatGPT as of the date
+the helpers were committed. ChatGPT ships UI changes frequently. Verification
+mode (`--verbose`) exists so failures come back with the actual DOM state; if
+the toggle helper starts exiting 3 or 4 after a ChatGPT release, update the
+selector lists in its `pageScript()` rather than patching Oracle. If the watcher
+starts timing out with no assistant output despite visible completed reports,
+update its assistant-message and active-state selectors before trusting its
+status.

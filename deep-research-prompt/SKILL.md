@@ -107,8 +107,29 @@ This is what the skill does when `oracle` is on PATH and neither `paste-only` no
    tab. If Oracle opened or switched to a different project/conversation than
    the resolved target, submitted in a tab without the Deep Research chip, or
    the response begins like a normal non-research answer, treat the run as
-   failed. Do not claim Deep Research ran.
-8. Return to the user a short "Oracle session started" line with the slug and the `oracle session <slug>` reattach command. Do **not** also print the prompt block — that is what the user explicitly said not to do.
+   failed. Do not claim Deep Research ran. A user-turn-only conversation is
+   not enough: verify at least one generation signal, such as an assistant
+   turn, active "researching/searching/stop generating" UI, or another visible
+   Deep Research progress surface. If the immediate state is only the posted
+   user prompt, report generation as unverified and rely on the watcher; if it
+   remains user-turn-only until watcher timeout, the run failed to produce a
+   dossier.
+8. For runs where the actual dossier is the deliverable, add the optional
+   completion-capture phase after submission:
+   ```
+   DEEP_RESEARCH_OUTPUT=/tmp/<slug>-deep-research-result.md \
+     ORACLE_CHATGPT_URL_MATCH="<unique-project-or-conversation-path>" \
+     node "$SKILL_DIR/assets/scripts/await-deep-research.mjs"
+   ```
+   This watcher connects to the same Chrome DevTools port, waits about 30
+   minutes before its first poll, then polls about every 15 minutes until the
+   final assistant/research text appears stable or about 2 hours have elapsed.
+   It writes the captured report to stdout and to `DEEP_RESEARCH_OUTPUT` when
+   set. If the caller already waited about 30 minutes before starting the
+   watcher, add `--no-initial-delay`. Treat non-zero exit as a real capture
+   failure; the helper is CDP/UI fragile and is not proof that Deep Research
+   completed unless it actually extracted the assistant output.
+9. Return to the user a short "Oracle session started" line with the slug and the `oracle session <slug>` reattach command. If the watcher was started, also name the output path and the monitor command. Do **not** also print the prompt block — that is what the user explicitly said not to do.
 
 If any of steps 3–7 fail, report the failure plainly and **do not** silently fall back to paste mode; ask the user whether to retry, patch, or fall back.
 
@@ -297,7 +318,8 @@ Fill in the chosen skeleton with task-specific content.
 3. **The research question** (numbered list) — the concrete fields the research agent must answer per entity.
 4. **Output format** — exact markdown structure the research agent must produce. Show it with inline example headings and bullet labels, not just description. Prose description alone produces prose drift.
 5. **Hard constraints** — the anti-hallucination stanza plus task-specific constraints.
-6. **What to report back when done** — 3-5 concrete completion criteria.
+6. **No clarifying-question directive** — include this exact intent in the prompt: "Do not ask clarifying questions before starting. Begin the research and report immediately unless a hard constraint makes the task impossible; if a constraint is impossible, state the blocker and proceed with the closest valid scoped report."
+7. **What to report back when done** — 3-5 concrete completion criteria.
 
 **For image creation prompts (Image execute mode and Image paste-mode fallback):** the contract is the same — self-announcing first line, single fenced code block, hard constraints, completion criteria — but the section list differs because the deliverable is an image, not a report. Required sections in order:
 
@@ -327,6 +349,9 @@ Every deep research prompt carries a version of this block, tuned for the subjec
 - Every factual claim must be traceable to a cited source. If you cannot find a direct citation, say "not found" or "inferred from [X]" — do not make it up.
 - Do not invent citations, identifiers, or dates. If you cite something, the URL must actually open to that thing.
 - Do not write finished prose for the end audience. The output is facts and citations, not marketing copy or plain-language pages.
+- Do not ask clarifying questions before starting. Begin the research/report
+  immediately unless a hard constraint makes the task impossible; if so, state
+  the blocker and produce the closest valid scoped report.
 - Do not pad. If multiple entities have substantively identical findings, say so in the executive summary and let the reader decide whether all deserve downstream work.
 - Be honest about complexity — name the specific framework / transition / methodology nuance the research agent must not flatten.
 - Be honest about uncertainty. A row marked "confidence: low, needs human review" is more valuable than a confident-sounding fabrication.
@@ -410,9 +435,10 @@ the waiting to a monitor subagent or background watcher and continue the
 caller/orchestration workflow. Do not start polling until roughly 30 minutes
 after launch; after that, poll sparingly, about every 15 minutes. Do not
 diagnose a stall before roughly 2 hours just because the terminal has no new
-output. The monitor owns only status, output-file existence/size, reattach
-command, and completion notice unless the caller explicitly gives it a repo
-write scope.
+output. Prefer the bundled watcher for this sparse polling:
+`DEEP_RESEARCH_OUTPUT=<path> node "$SKILL_DIR/assets/scripts/await-deep-research.mjs"`.
+The monitor owns only status, output-file existence/size, reattach command, and
+completion notice unless the caller explicitly gives it a repo write scope.
 
 **Route-blocked execute attempt (Oracle present but unsafe for tab-local tool):** one line naming mode, slug, prompt/spec file, guard command/result, and that no Oracle browser submission was made because the installed Oracle would open a fresh ChatGPT tab without the tool state. If the user expected execution, include the route-independent fallback/control probe that was actually attempted, the command/session/output path, and whether it produced the requested artifact. Offer only explicit next choices: manual Deep Research/Image paste, upgrade/patch Oracle for target-id or pre-submit-hook support, a supported fallback image/research lane, or normal non-Deep-Research Oracle if the user accepts that downgrade. Do not print the prompt/spec block unless the user explicitly chooses paste-mode fallback.
 
@@ -440,6 +466,11 @@ Do not summarize the prompt content in prose after the block. The user will read
 - When the guard passed, the Deep Research toggle was applied to the exact tab/composer Oracle submitted in; if multiple `chatgpt.com` tabs existed, the run stopped before submission or the ambiguity was explicitly resolved
 - When Oracle was invoked, the real command includes `--engine browser` with `--remote-chrome`, a concrete `--browser-model-strategy`, a slug, and the prompt file
 - When the guard passed, the Deep Research tool toggle helper was invoked after the submit tab existed and before Oracle submitted (or an explicit reason why it was skipped is logged)
+- If the final dossier is part of the requested deliverable, completion capture
+  is either delegated to `assets/scripts/await-deep-research.mjs` with an
+  output path or explicitly left as a monitor/blocker; do not call immediate
+  Oracle output the completed dossier unless the report text was actually
+  extracted
 - The chat reply contains no prompt code block, no "paste this" instruction, and no "copy the block below" phrasing
 - Oracle session slug is surfaced for reattach
 - Long-running waits were either bounded by the current task's critical path or
@@ -493,6 +524,9 @@ If any item fails, fix before sending. Read `references/anti-patterns.md` for th
 - `assets/scripts/run-image-execute.sh` — shared runner for staged Create image / Oracle run directories (`spec.md`, `source/`, `result/`)
 - `assets/scripts/check-oracle-tab-local-route.mjs` — guard that blocks automatic Oracle submission when the installed Oracle cannot prove same-tab routing for ChatGPT tab-local tools
 - `assets/scripts/toggle-deep-research.mjs` — CDP helper that clicks ChatGPT's composer Deep research toggle on a running Chrome
+- `assets/scripts/await-deep-research.mjs` — optional CDP watcher that waits on
+  a submitted Deep Research conversation and extracts the final assistant
+  report once it appears stable
 - `assets/scripts/toggle-chatgpt-image.mjs` — CDP helper that clicks ChatGPT's composer Create image toggle on a running Chrome
 
 ## Verification / Closeout Contract

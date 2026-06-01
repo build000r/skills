@@ -88,6 +88,10 @@ cass search "grok sidecar generated worker prompt Beads write scope" --robot --l
 cass search "grok sidecar read-only post-commit review artifact" --robot --limit 10 --days 30
 cass search "grok sidecar shared worktree active NTM panes conflict" --robot --limit 10 --days 30
 cass search "grok -p max turns no output read-only sidecar" --robot --limit 10 --days 30
+cass search "grok unsupported reasoningEffort sidecar source discovery" --robot --limit 10 --days 30
+cass search "grok --help worked no useful stdout source discovery" --robot --limit 10 --days 30
+cass search "Grok sidecar available locally but not useful" --robot --limit 10 --days 30
+cass search "grok sidecar did not contribute sources verified directly" --robot --limit 10 --days 30
 cass search "docs(dac): add grok sidecar routing notes" --robot --limit 10 --days 90
 cass search "docs(dac): record grok no-output sidecar risk" --robot --limit 10 --days 90
 ```
@@ -123,6 +127,17 @@ If CASS shows Grok doing well on a new task family, add a concrete row here only
 after a stronger model reviewed the artifact and the validation command passed.
 If CASS shows Grok needed correction, keep the task in G0/G1 or route it to
 Codex/Claude and record the correction in the lesson packet.
+
+## 2026-06-01 Live Sidecar Observations
+
+These examples came from a Beads-backed multi-repo research wave. They are
+negative/mixed evidence, so they should narrow Grok autonomy until CASS shows a
+different pattern.
+
+| Context | Grok route | Outcome | Reusable rule | CASS search terms |
+| --- | --- | --- | --- | --- |
+| `ingredient_server` GTM SEO research Bead `ingredient_server-deep-research-gtm-ingredient-seo-content-moat-rdjj` | Direct headless G1 source-discovery sidecar | First run failed because the CLI sent unsupported `reasoningEffort`; retry completed with empty output. Grok did not contribute sources. | Treat direct Grok source discovery as optional. Retry once only when non-blocking, then verify sources directly and record the bad route. | `grok unsupported reasoningEffort sidecar source discovery`, `Grok sidecar available locally but not useful` |
+| `buildooor-backend` GEO research Bead `buildooor-backend-deep-research-gtm-geo-ai-search-mmdx-9zk` | Direct headless G1 source-discovery sidecar | `grok --help` worked, but the bounded source-discovery run returned no useful stdout. All cited material was verified directly by the worker. | Do not count an installed Grok binary as useful evidence. Require non-empty stdout or a concrete artifact before giving it credit in closeout. | `grok --help worked no useful stdout source discovery`, `grok sidecar did not contribute sources verified directly` |
 
 ## Current Routing Notes
 

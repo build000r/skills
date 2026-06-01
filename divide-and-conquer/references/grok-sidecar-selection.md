@@ -81,6 +81,9 @@ cass search "ntm spawn --grok sidecar" --robot --limit 10 --days 30
 cass search "grok invalid_token uidotsh skillbox MCP" --robot --limit 10 --days 30
 cass search "grok cli prompt-file sandbox read-only" --robot --limit 10 --days 30
 cass search "Grok dispatcher cwd selection skill-tag extraction" --robot --limit 10 --days 30
+cass search "grok sidecar generated worker prompt Beads write scope" --robot --limit 10 --days 30
+cass search "grok sidecar read-only post-commit review artifact" --robot --limit 10 --days 30
+cass search "grok sidecar shared worktree active NTM panes conflict" --robot --limit 10 --days 30
 ```
 
 When a search returns useful sessions, capture the lesson rather than copying
@@ -97,6 +100,29 @@ Evidence artifact:
 Validation command:
 Correction needed by lead:
 Reusable rule:
+```
+
+## Current Routing Notes
+
+When a live run has multiple NTM panes writing in the same git worktree, do not
+use Grok as an implementation or integration sidecar for code changes. The
+useful Grok lane in that situation is G0/G1: clean up dispatch prompts, identify
+likely write-overlap risks from Beads metadata, or produce a read-only evidence
+inventory that the lead can verify before sending work to Codex or Claude.
+
+Example low-risk prompts to search for or reuse:
+
+```text
+Given br ready output and git status, identify which ready Beads have overlapping
+write scopes. Return only a table with bead id, likely touched paths, conflict
+risk, and suggested serial/parallel routing.
+
+Given a messy user request, extract the repo cwd, named skills, required
+validation commands, commit policy, and worker-safe prompt skeleton. Do not
+invent implementation details.
+
+Given a post-commit diff summary, list likely review hotspots and exact files to
+inspect. Do not declare the commit safe.
 ```
 
 ## Operator Rule

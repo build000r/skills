@@ -88,6 +88,8 @@ cass search "grok sidecar generated worker prompt Beads write scope" --robot --l
 cass search "grok sidecar read-only post-commit review artifact" --robot --limit 10 --days 30
 cass search "grok sidecar shared worktree active NTM panes conflict" --robot --limit 10 --days 30
 cass search "grok -p max turns no output read-only sidecar" --robot --limit 10 --days 30
+cass search "docs(dac): add grok sidecar routing notes" --robot --limit 10 --days 90
+cass search "docs(dac): record grok no-output sidecar risk" --robot --limit 10 --days 90
 ```
 
 When a search returns useful sessions, capture the lesson rather than copying
@@ -105,6 +107,22 @@ Validation command:
 Correction needed by lead:
 Reusable rule:
 ```
+
+## Local Evidence References
+
+Use these repo-local commits as breadcrumbs before widening Grok from G0/G1 to
+G2. They are not substitutes for CASS, but they give stable terms to search:
+
+| Reference | Search terms | Lesson to confirm in CASS |
+| --- | --- | --- |
+| `47a5b29 docs(orchestration): route grok sidecars` | `grok sidecar routing shared orchestration contract` | Grok is a routing/preflight lane, not an NTM pane class. |
+| `b1ccf0d docs(dac): add grok sidecar routing notes` | `docs(dac) grok sidecar routing notes` | Good work is bounded, read-only, and independently checkable. |
+| `8404d52 docs(dac): record grok no-output sidecar risk` | `grok -p max turns no output read-only sidecar` | Direct headless Grok can consume turns and return no usable packet; record the failure and fall back. |
+
+If CASS shows Grok doing well on a new task family, add a concrete row here only
+after a stronger model reviewed the artifact and the validation command passed.
+If CASS shows Grok needed correction, keep the task in G0/G1 or route it to
+Codex/Claude and record the correction in the lesson packet.
 
 ## Current Routing Notes
 

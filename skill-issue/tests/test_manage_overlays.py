@@ -159,6 +159,30 @@ def test_match_with_explicit_config_root_remains_scoped(tmp_path: Path) -> None:
     assert json.loads(result.stdout)["matches"] == []
 
 
+def test_list_reports_non_mapping_overlay_without_crashing(tmp_path: Path) -> None:
+    root = tmp_path / "clients"
+    bad_overlay = root / "bad" / "overlay.yaml"
+    bad_overlay.parent.mkdir(parents=True)
+    bad_overlay.write_text("- not\n- a mapping\n", encoding="utf-8")
+
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), "--config-root", str(root), "list", "--json"],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    data = json.loads(result.stdout)
+    assert data["overlays"] == [
+        {
+            "client_id": "bad",
+            "path": str(bad_overlay),
+            "error": "overlay.yaml must contain a YAML mapping, got list",
+        }
+    ]
+
+
 def test_create_defaults_to_repo_local_buildooor_root(tmp_path: Path) -> None:
     repo = tmp_path / "repos" / "project"
     repo.mkdir(parents=True)

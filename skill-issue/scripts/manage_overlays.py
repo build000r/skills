@@ -85,6 +85,10 @@ def load_overlays(config_root: Path) -> list[dict]:
         if overlay_file.is_file():
             try:
                 data = yaml.safe_load(overlay_file.read_text())
+                if not isinstance(data, dict):
+                    raise ValueError(
+                        f"overlay.yaml must contain a YAML mapping, got {type(data).__name__}"
+                    )
                 overlays.append({
                     "client_id": client_dir.name,
                     "path": str(overlay_file),

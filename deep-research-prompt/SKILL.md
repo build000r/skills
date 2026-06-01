@@ -402,6 +402,17 @@ Pick the shape based on the mode you chose:
 
 Do not print the prompt text. Do not print a fenced block. Do not print a copy instruction.
 
+**Long-running Oracle supervision:** Deep Research can sit silently for a long
+time after a valid submission. Treat silence as normal unless there is concrete
+error evidence from Oracle, the browser, or the target conversation. If the
+research result is not the immediate blocker for the next local action, hand
+the waiting to a monitor subagent or background watcher and continue the
+caller/orchestration workflow. Poll sparingly, every 5-10 minutes, and do not
+diagnose a stall before roughly 45 minutes just because the terminal has no new
+output. The monitor owns only status, output-file existence/size, reattach
+command, and completion notice unless the caller explicitly gives it a repo
+write scope.
+
 **Route-blocked execute attempt (Oracle present but unsafe for tab-local tool):** one line naming mode, slug, prompt/spec file, guard command/result, and that no Oracle browser submission was made because the installed Oracle would open a fresh ChatGPT tab without the tool state. If the user expected execution, include the route-independent fallback/control probe that was actually attempted, the command/session/output path, and whether it produced the requested artifact. Offer only explicit next choices: manual Deep Research/Image paste, upgrade/patch Oracle for target-id or pre-submit-hook support, a supported fallback image/research lane, or normal non-Deep-Research Oracle if the user accepts that downgrade. Do not print the prompt/spec block unless the user explicitly chooses paste-mode fallback.
 
 **Paste-mode fallback / Perplexity / Claude Research:**
@@ -430,6 +441,8 @@ Do not summarize the prompt content in prose after the block. The user will read
 - When the guard passed, the Deep Research tool toggle helper was invoked after the submit tab existed and before Oracle submitted (or an explicit reason why it was skipped is logged)
 - The chat reply contains no prompt code block, no "paste this" instruction, and no "copy the block below" phrasing
 - Oracle session slug is surfaced for reattach
+- Long-running waits were either bounded by the current task's critical path or
+  delegated to a monitor while the caller continued useful non-overlapping work
 
 **Image execute mode checks:**
 

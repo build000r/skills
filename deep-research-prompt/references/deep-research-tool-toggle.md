@@ -209,6 +209,16 @@ in a different tab than the toggled tab, the click landed on the wrong item
 (exit code 6 catches the DOM case), or ChatGPT silently downgraded because quota
 or tool state changed. Treat this as a real failure and tell the user.
 
+Do not confuse long silence with failure. Deep Research runs can take tens of
+minutes with little or no terminal output after the prompt is visible in the
+conversation and the composer is empty. If the run is not blocking the next
+local action, delegate sparse monitoring to a subagent or background watcher,
+poll around every 5-10 minutes, and keep working on non-overlapping tasks. A
+reasonable monitor report is: Oracle status, reattach command, output-file
+existence and size, and first/last headings once the file appears. Do not call
+the run stalled before about 45 minutes without concrete Oracle/browser error
+evidence.
+
 ## When to not use this
 
 - When `oracle` is not on PATH at all — the skill falls back to paste mode and

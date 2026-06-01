@@ -77,6 +77,12 @@ Search CASS for prior Grok behavior before broadening its permissions. Good
 queries are specific enough to surface runs with commands, artifacts, and
 failure modes:
 
+Start broad when the exact recipe returns zero hits. Some CASS indexes tokenize
+newer notes differently, so run `cass search "*grok*" --robot --limit 20
+--days 90` or `cass search "grok sidecar" --robot --limit 20 --days 90` first,
+then narrow using the phrases below after you identify a relevant session,
+workspace, or commit breadcrumb.
+
 ```bash
 cass search "grok sidecar routing and mcp auth fix" --robot --limit 10 --days 30
 cass search "create_hidden_grok_session SWIMMERS_DISPATCHER_GROK_BIN" --robot --limit 10 --days 30

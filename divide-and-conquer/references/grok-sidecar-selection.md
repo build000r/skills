@@ -53,6 +53,9 @@ Bad signs:
 - completion depends on an NTM idle state instead of a result artifact
 - the task spans several repos without a root-owned integration plan
 - validation needs credentials the sidecar should not see
+- direct `grok -p` runs burn the turn cap and return no usable packet; retry
+  once with a higher cap only if the work is still non-blocking, then fall back
+  to a normal read-only explorer and record the bad route
 
 ## Leeway Tiers
 
@@ -84,6 +87,7 @@ cass search "Grok dispatcher cwd selection skill-tag extraction" --robot --limit
 cass search "grok sidecar generated worker prompt Beads write scope" --robot --limit 10 --days 30
 cass search "grok sidecar read-only post-commit review artifact" --robot --limit 10 --days 30
 cass search "grok sidecar shared worktree active NTM panes conflict" --robot --limit 10 --days 30
+cass search "grok -p max turns no output read-only sidecar" --robot --limit 10 --days 30
 ```
 
 When a search returns useful sessions, capture the lesson rather than copying

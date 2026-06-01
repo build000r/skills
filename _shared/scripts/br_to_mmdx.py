@@ -37,7 +37,6 @@ import argparse
 import json
 import os
 import re
-import shutil
 import subprocess
 import sys
 import time
@@ -48,7 +47,11 @@ from typing import Any, Iterable
 HOME = Path.home()
 DEFAULT_SCAN_ROOTS = [HOME / "repos"]
 DEFAULT_OUT_DIR = HOME / ".claude" / "skills" / "smart" / "chains"
-BR = shutil.which("br") or "/Users/b/.local/bin/br"
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+import br_helpers  # noqa: E402
 
 
 # --------------------------- repo discovery ---------------------------
@@ -80,33 +83,10 @@ def find_beads_repos(roots: Iterable[Path]) -> list[Path]:
 
 def br_list(repo: Path, labels: list[str]) -> list[dict]:
     """Return all issues (open + closed) in `repo` matching every label."""
-    args = [BR, "list", "--all", "--json"]
-    for label in labels:
-        args += ["--label", label]
     try:
-        proc = subprocess.run(
-            args,
-            cwd=str(repo),
-            capture_output=True,
-            text=True,
-            check=False,
-            env={**os.environ, "BR_AGENT_NAME": "br_to_mmdx"},
-        )
-    except FileNotFoundError:
-        print(f"  br not found at {BR}", file=sys.stderr)
+        return br_helpers.list_issues(cwd=repo, labels=labels, include_closed=True)
+    except (FileNotFoundError, subprocess.CalledProcessError, json.JSONDecodeError):
         return []
-    if proc.returncode != 0:
-        return []
-    out = proc.stdout.strip()
-    if not out:
-        return []
-    try:
-        data = json.loads(out)
-    except json.JSONDecodeError:
-        return []
-    if isinstance(data, list):
-        return data
-    return data.get("issues") or []
 
 
 # --------------------------- modeling ---------------------------

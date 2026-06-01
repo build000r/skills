@@ -105,6 +105,21 @@ class BrHelpersTests(unittest.TestCase):
         self.assertIn("repo_path: /repo", rendered)
         self.assertIn("global_constraints: No remote push", rendered)
 
+    def test_list_issues_normalizes_br_list_envelope_with_cwd_and_labels(self) -> None:
+        calls = []
+
+        def fake_run(args, **kwargs):
+            calls.append((args, kwargs))
+            return SimpleNamespace(stdout='{"issues": [{"id": "skills-exec-001"}]}')
+
+        repo = Path("/repo")
+        with mock.patch.object(MODULE, "_run", fake_run):
+            issues = MODULE.list_issues(cwd=repo, labels=["chain:smart"], include_closed=True)
+
+        self.assertEqual(issues, [{"id": "skills-exec-001"}])
+        self.assertEqual(calls[0][0], ["list", "--all", "--label", "chain:smart", "--json"])
+        self.assertEqual(calls[0][1]["cwd"], repo)
+
     def test_update_node_preserves_existing_notes_on_partial_validate_update(self) -> None:
         calls = []
 

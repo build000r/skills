@@ -57,7 +57,13 @@ CURATED_AGENTS_MARKERS = (
 # ----------------------------- core shell-out -----------------------------
 
 
-def _run(args: list[str], *, check: bool = True, capture: bool = True) -> subprocess.CompletedProcess:
+def _run(
+    args: list[str],
+    *,
+    check: bool = True,
+    capture: bool = True,
+    cwd: Path | str | None = None,
+) -> subprocess.CompletedProcess:
     """Invoke `br` with attribution env vars threaded through."""
     env = os.environ.copy()
     env.setdefault("BR_AGENT_NAME", env.get("BR_AGENT_NAME", "skill-runtime"))
@@ -68,10 +74,11 @@ def _run(args: list[str], *, check: bool = True, capture: bool = True) -> subpro
         capture_output=capture,
         text=True,
         env=env,
+        cwd=str(cwd) if cwd is not None else None,
     )
 
 
-def _json(args: list[str]) -> Any:
+def _json(args: list[str], *, cwd: Path | str | None = None) -> Any:
     """Run a `br` subcommand with --json and parse the envelope.
 
     `--json` is the universal flag in `br`'s global options; `--robot` is a
@@ -80,7 +87,7 @@ def _json(args: list[str]) -> Any:
     """
     if "--json" not in args:
         args = [*args, "--json"]
-    proc = _run(args)
+    proc = _run(args, cwd=cwd)
     out = proc.stdout.strip()
     if not out:
         return None
@@ -252,6 +259,29 @@ def scheduler_ranked(*, limit: int = 20) -> list[dict]:
         return data
     if isinstance(data, dict):
         return data.get("recommendations") or data.get("issues") or []
+    return []
+
+
+def list_issues(
+    *,
+    labels: Iterable[str] = (),
+    include_closed: bool = False,
+    parent: str | None = None,
+    cwd: Path | str | None = None,
+) -> list[dict]:
+    """Return `br list --json` issues with shared envelope normalization."""
+    args = ["list"]
+    if parent:
+        args += ["--parent", parent]
+    if include_closed:
+        args += ["--all"]
+    for label in labels:
+        args += ["--label", label]
+    data = _json(args, cwd=cwd)
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        return data.get("issues") or []
     return []
 
 
@@ -598,15 +628,8 @@ def render_workgraph(*, epic: Optional[str] = None, include_closed: bool = True)
     The view is generated, not authoritative. Skills regenerate it from
     `br list --json` on demand and never edit it in place.
     """
-    args = ["list"]
-    if epic:
-        args += ["--parent", epic]
-    if include_closed:
-        # `br list` defaults to open-only; -a/--all includes closed.
-        args += ["--all"]
     try:
-        data = _json(args)
-        issues = data if isinstance(data, list) else data.get("issues", [])
+        issues = list_issues(parent=epic, include_closed=include_closed)
     except subprocess.CalledProcessError:
         if not epic:
             raise

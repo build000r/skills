@@ -27,12 +27,18 @@ def pick_blueprint(scan: dict) -> dict:
             "reason": "No repos found — defaulting to skill-builder for a clean workspace",
         }
 
-    # Find the "primary" repo — prefer one with a dev server, else the first
+    # Find the "primary" repo: prefer dev servers, then cloneable repos, then
+    # the first local-only repo as a clean-workspace fallback.
     primary = None
     for r in repos:
         if r.get("service"):
             primary = r
             break
+    if not primary:
+        for r in repos:
+            if r.get("remote"):
+                primary = r
+                break
     if not primary:
         primary = repos[0]
 

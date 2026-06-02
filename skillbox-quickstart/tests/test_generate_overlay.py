@@ -93,6 +93,9 @@ class OverlayGenerationTests(unittest.TestCase):
         blueprint = generate_overlay.pick_blueprint(scan)
         overlay = generate_overlay.build_overlay("demo", scan, blueprint)
 
+        self.assertEqual(blueprint["blueprint"], "git-repo")
+        self.assertEqual(blueprint["primary_repo"]["name"], "remote")
+        self.assertEqual(overlay["client"]["default_cwd"], "${CLIENT_ROOT}/remote")
         self.assertEqual(
             [(repo["id"], repo["required"]) for repo in overlay["client"]["repos"]],
             [("remote", True)],

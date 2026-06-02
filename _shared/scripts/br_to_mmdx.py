@@ -43,6 +43,7 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -233,14 +234,10 @@ def mermaid_text(s: str, n: int = 38) -> str:
 def parse_iso(ts: str) -> float | None:
     if not ts:
         return None
-    # Trim Z and fractional seconds for portability with strptime.
-    ts = ts.replace("Z", "+0000")
-    for fmt in ("%Y-%m-%dT%H:%M:%S.%f%z", "%Y-%m-%dT%H:%M:%S%z"):
-        try:
-            return time.mktime(time.strptime(ts, fmt))
-        except ValueError:
-            continue
-    return None
+    try:
+        return datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
 
 
 def fmt_date(ts: str) -> str:

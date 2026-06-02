@@ -118,6 +118,18 @@ flowchart TD
         self.assertNotIn('label"] --> injected', rendered)
         self.assertNotIn('quote"]', rendered)
 
+    def test_link_duration_h_respects_timezone_offsets(self) -> None:
+        link = MODULE.Link(
+            issue_id="bd-1",
+            title="Equivalent offset timestamps",
+            status="closed",
+            created_at="2026-06-01T12:00:00-0700",
+            updated_at="2026-06-01T19:00:00Z",
+            labels=["loop:smart"],
+        )
+
+        self.assertEqual(MODULE.link_duration_h(link), 1)
+
     def test_render_mmdx_disambiguates_colliding_normalized_loop_ids(self) -> None:
         loops = [
             MODULE.Loop(

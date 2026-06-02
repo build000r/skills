@@ -73,6 +73,16 @@ def detect_service_command(repo_path: Path, stacks: list[str]) -> dict | None:
     return None
 
 
+def is_git_repo_root(path: Path) -> bool:
+    """Return true for regular repos, submodules, and worktrees."""
+    if not (path / ".git").exists():
+        return False
+    top_level = run(["git", "rev-parse", "--show-toplevel"], cwd=str(path))
+    if not top_level:
+        return False
+    return Path(top_level).resolve() == path.resolve()
+
+
 def scan_repos(roots: list[Path], max_depth: int = 3) -> list[dict]:
     """Find git repos under scan roots."""
     repos = []
@@ -93,7 +103,7 @@ def scan_repos(roots: list[Path], max_depth: int = 3) -> list[dict]:
                 if not d.startswith(".") and d not in ("node_modules", "venv", ".venv", "target", "__pycache__", "vendor")
             ]
             p = Path(dirpath)
-            if (p / ".git").exists():
+            if is_git_repo_root(p):
                 real = p.resolve()
                 if real in seen:
                     continue

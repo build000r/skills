@@ -42,6 +42,31 @@ class ScanReposTests(unittest.TestCase):
         self.assertEqual(repos[0]["remote"], "git@example.com:demo.git")
         self.assertEqual(repos[0]["branch"], "feature")
 
+    def test_scan_repos_ignores_non_repo_with_git_file(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            fake_repo = root / "fake"
+            fake_repo.mkdir()
+            (fake_repo / ".git").write_text("not a gitdir pointer\n", encoding="utf-8")
+
+            repos = scan_environment.scan_repos([root])
+
+        self.assertEqual(repos, [])
+
+    def test_scan_repos_ignores_nested_git_file_inside_parent_repo(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            parent = root / "parent"
+            nested = parent / "nested"
+
+            git(["init", "-q", str(parent)], root)
+            nested.mkdir()
+            (nested / ".git").write_text("not this directory's git metadata\n", encoding="utf-8")
+
+            repos = scan_environment.scan_repos([nested])
+
+        self.assertEqual(repos, [])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -69,6 +69,24 @@ class PackageSkillTests(unittest.TestCase):
             self.assertIn("sample-skill/references/guide.md", archive_members)
             self.assertNotIn("sample-skill/modes/private.local.md", archive_members)
 
+    def test_package_skill_fallback_honors_root_anchored_gitignore_patterns(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            skill_dir = Path(tmpdir) / "sample-skill"
+            self._write_skill(skill_dir)
+            (skill_dir / ".gitignore").write_text("/modes/\n", encoding="utf-8")
+            (skill_dir / "references" / "guide.md").write_text("public guide\n", encoding="utf-8")
+            (skill_dir / "modes" / "private.local.md").write_text("private mode\n", encoding="utf-8")
+
+            output_dir = Path(tmpdir) / "dist"
+            archive_path = PACKAGE_MODULE.package_skill(skill_dir, output_dir)
+
+            self.assertIsNotNone(archive_path)
+            archive_members = self._read_archive_members(archive_path)
+
+            self.assertIn("sample-skill/SKILL.md", archive_members)
+            self.assertIn("sample-skill/references/guide.md", archive_members)
+            self.assertNotIn("sample-skill/modes/private.local.md", archive_members)
+
     def test_validate_skill_skips_repo_gitignored_private_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             repo = Path(tmpdir)

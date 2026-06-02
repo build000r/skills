@@ -106,6 +106,10 @@ def _matches_patterns(rel_path: str, patterns) -> bool:
         normalized_pattern = pattern.strip().rstrip("/")
         if not normalized_pattern:
             continue
+        if normalized_pattern.startswith("/"):
+            normalized_pattern = normalized_pattern.lstrip("/")
+            if not normalized_pattern:
+                continue
         if normalized_pattern in parts or normalized_rel_path.startswith(f"{normalized_pattern}/"):
             return True
         if fnmatch(normalized_rel_path, normalized_pattern) or fnmatch(name, normalized_pattern):

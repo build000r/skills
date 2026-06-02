@@ -90,6 +90,32 @@ flowchart TD
 
         self.assertEqual(MODULE.render_mmdx([loop]), expected)
 
+    def test_render_loop_drilldown_escapes_user_controlled_mermaid_text(self) -> None:
+        loop = MODULE.Loop(
+            loop_id="smart",
+            repo="repo",
+            links=[
+                MODULE.Link(
+                    issue_id="bd-1",
+                    title='Close label"] --> injected\n<script>',
+                    status="open",
+                    created_at="2026-06-01T12:00:00-0700",
+                    updated_at="2026-06-01T12:00:00-0700",
+                    labels=["loop:smart", 'loop-status:waiting"now'],
+                    resume_condition='quote"] and <tag>',
+                    loop_status='waiting"now',
+                ),
+            ],
+        )
+
+        rendered = MODULE.render_loop_drilldown(loop)
+
+        self.assertIn("Close label&quot;] --&gt; injected &lt;script&gt;", rendered)
+        self.assertIn("<b>waiting&quot;now</b>", rendered)
+        self.assertIn("quote&quot;] and &lt;tag&gt;", rendered)
+        self.assertNotIn('label"] --> injected', rendered)
+        self.assertNotIn('quote"]', rendered)
+
 
 if __name__ == "__main__":
     unittest.main()

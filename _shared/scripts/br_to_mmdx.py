@@ -34,6 +34,7 @@ It does not mutate any beads state.
 from __future__ import annotations
 
 import argparse
+import html
 import json
 import os
 import re
@@ -192,8 +193,14 @@ def gantt_status(link: Link) -> str:
 
 
 def short(s: str, n: int = 38) -> str:
+    s = " ".join(str(s).split())
     s = s.replace(":", "·").replace("`", "'")
     return s if len(s) <= n else s[: n - 1] + "…"
+
+
+def mermaid_text(s: str, n: int = 38) -> str:
+    """Escape user-controlled text before placing it in a Mermaid label."""
+    return html.escape(short(s, n), quote=True)
 
 
 def parse_iso(ts: str) -> float | None:
@@ -253,7 +260,11 @@ def render_loop_drilldown(loop: Loop) -> str:
     for i, link in enumerate(loop.links):
         nid = f"l{i}"
         status_pill = link.loop_status or link.status
-        body = f"{short(link.title, 60)}<br/><b>{status_pill}</b><br/><i>{fmt_date(link.created_at)}</i>"
+        body = (
+            f"{mermaid_text(link.title, 60)}<br/>"
+            f"<b>{mermaid_text(status_pill)}</b><br/>"
+            f"<i>{fmt_date(link.created_at)}</i>"
+        )
         shape = f'{nid}["{body}"]'
         cls = "open" if link.is_open else "done"
         if link.status == "blocked":
@@ -267,7 +278,7 @@ def render_loop_drilldown(loop: Loop) -> str:
     if open_links and open_links[-1].resume_condition:
         last = loop.links.index(open_links[-1])
         lines.append(
-            f'  resume["resume when:<br/>{short(open_links[-1].resume_condition, 70)}"]:::resume'
+            f'  resume["resume when:<br/>{mermaid_text(open_links[-1].resume_condition, 70)}"]:::resume'
         )
         lines.append(f"  l{last} -.-> resume")
     lines.append("  classDef open fill:#fde68a,stroke:#b45309,color:#1c1917")

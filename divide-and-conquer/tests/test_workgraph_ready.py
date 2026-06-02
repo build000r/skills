@@ -237,6 +237,62 @@ class WorkgraphReadyTests(unittest.TestCase):
         self.assertIn("<empty>: duplicate node ID", issues)
         self.assertIn("WG-002: ambiguous duplicate dependency IDs: <empty>", issues)
 
+    def test_blank_or_missing_node_ids_are_not_ready(self) -> None:
+        ready, waiting, issues = MODULE.classify_nodes(
+            [
+                {
+                    "id": "  ",
+                    "title": "Blank id",
+                    "depends_on": [],
+                    "writes": [],
+                    "done_when": ["Blank node finished"],
+                    "validate_cmds": ["pytest tests/test_blank.py"],
+                    "status": "todo",
+                },
+                {
+                    "title": "Missing id",
+                    "depends_on": [],
+                    "writes": [],
+                    "done_when": ["Missing node finished"],
+                    "validate_cmds": ["pytest tests/test_missing.py"],
+                    "status": "todo",
+                },
+            ]
+        )
+
+        self.assertEqual(ready, [])
+        self.assertEqual(len(waiting), 2)
+        self.assertIn("<empty>: invalid node ID", issues)
+        self.assertIn("<missing>: missing node ID", issues)
+
+    def test_null_dependency_is_not_resolved_by_missing_node_id(self) -> None:
+        ready, waiting, issues = MODULE.classify_nodes(
+            [
+                {
+                    "title": "Done without id",
+                    "depends_on": [],
+                    "writes": [],
+                    "done_when": ["Done node finished"],
+                    "validate_cmds": ["pytest tests/test_done.py"],
+                    "status": "done",
+                },
+                {
+                    "id": "WG-002",
+                    "title": "Depends on null",
+                    "depends_on": [None],
+                    "writes": [],
+                    "done_when": ["Dependent finished"],
+                    "validate_cmds": ["pytest tests/test_dependent.py"],
+                    "status": "todo",
+                },
+            ]
+        )
+
+        self.assertEqual(ready, [])
+        self.assertEqual(len(waiting), 2)
+        self.assertIn("<missing>: missing node ID", issues)
+        self.assertIn("WG-002: invalid dependency IDs: <null>", issues)
+
 
 if __name__ == "__main__":
     unittest.main()

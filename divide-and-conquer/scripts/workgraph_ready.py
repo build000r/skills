@@ -142,14 +142,22 @@ def _node_contract_issues(node: dict) -> list[str]:
 
 
 def _display_node_id(node_id: object) -> str:
-    if isinstance(node_id, str) and not node_id:
+    if node_id is None:
+        return "<null>"
+    if isinstance(node_id, str) and not node_id.strip():
         return "<empty>"
     return str(node_id)
 
 
+def _valid_node_id(node_id: object) -> bool:
+    return isinstance(node_id, str) and bool(node_id.strip())
+
+
 def classify_nodes(nodes: list[dict]) -> tuple[list[dict], list[dict], list[str]]:
     issues: list[str] = []
-    node_id_counts = Counter(node.get("id") for node in nodes if "id" in node)
+    node_id_counts = Counter(
+        node.get("id") for node in nodes if "id" in node and node.get("id") is not None
+    )
     duplicate_ids = {node_id for node_id, count in node_id_counts.items() if count > 1}
     for node_id in sorted(duplicate_ids, key=_display_node_id):
         issues.append(f"{_display_node_id(node_id)}: duplicate node ID")
@@ -157,9 +165,10 @@ def classify_nodes(nodes: list[dict]) -> tuple[list[dict], list[dict], list[str]
     done_ids = {
         node.get("id")
         for node in nodes
-        if str(node.get("status", "")).strip().lower() in DONE_STATES
+        if _valid_node_id(node.get("id"))
+        and str(node.get("status", "")).strip().lower() in DONE_STATES
     }
-    node_ids = {node.get("id") for node in nodes}
+    node_ids = {node.get("id") for node in nodes if _valid_node_id(node.get("id"))}
 
     ready_nodes: list[dict] = []
     waiting_nodes: list[dict] = []
@@ -167,6 +176,14 @@ def classify_nodes(nodes: list[dict]) -> tuple[list[dict], list[dict], list[str]
     for node in nodes:
         node_id = node.get("id")
         status = str(node.get("status", "")).strip().lower()
+        if "id" not in node:
+            issues.append("<missing>: missing node ID")
+            waiting_nodes.append(node)
+            continue
+        if not _valid_node_id(node_id):
+            issues.append(f"{_display_node_id(node_id)}: invalid node ID")
+            waiting_nodes.append(node)
+            continue
         if node_id in duplicate_ids:
             waiting_nodes.append(node)
             continue
@@ -176,9 +193,18 @@ def classify_nodes(nodes: list[dict]) -> tuple[list[dict], list[dict], list[str]
             issues.append(f"{node_id}: depends_on must be a list")
             waiting_nodes.append(node)
             continue
-        missing = [dep for dep in deps if dep not in node_ids]
+        invalid_deps = [dep for dep in deps if not _valid_node_id(dep)]
+        if invalid_deps:
+            issues.append(
+                f"{node_id}: invalid dependency IDs: "
+                f"{', '.join(_display_node_id(dep) for dep in invalid_deps)}"
+            )
+        missing = [dep for dep in deps if _valid_node_id(dep) and dep not in node_ids]
         if missing:
-            issues.append(f"{node_id}: missing dependency IDs: {', '.join(missing)}")
+            issues.append(
+                f"{node_id}: missing dependency IDs: "
+                f"{', '.join(_display_node_id(dep) for dep in missing)}"
+            )
         ambiguous = [dep for dep in deps if dep in duplicate_ids]
         if ambiguous:
             issues.append(

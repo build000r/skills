@@ -127,6 +127,76 @@ Define done before patching.
             self.assertEqual(catalog[0]["name"], "describe")
             self.assertEqual(catalog[0]["catalog_root"], str(root.resolve()))
 
+    def test_load_skill_catalog_skips_empty_or_non_string_descriptions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir) / "skills"
+            self.write_skill(
+                root,
+                "valid-skill",
+                "Use valid skills when checking catalog description filtering.",
+                "# Valid Skill",
+            )
+            cases = {
+                "empty-description": 'description: ""',
+                "whitespace-description": 'description: "   "',
+                "number-description": "description: 123",
+            }
+            for name, description_line in cases.items():
+                skill_dir = root / name
+                skill_dir.mkdir(parents=True, exist_ok=True)
+                (skill_dir / "SKILL.md").write_text(
+                    "\n".join(
+                        [
+                            "---",
+                            f"name: {name}",
+                            description_line,
+                            "---",
+                            "",
+                            f"# {name}",
+                            "",
+                        ]
+                    ),
+                    encoding="utf-8",
+                )
+
+            bundle = PORTFOLIO.load_skill_catalog_bundle(skills_root=root)
+
+            self.assertEqual([skill["name"] for skill in bundle["catalog"]], ["valid-skill"])
+            self.assertEqual(
+                sorted(Path(skill["path"]).parent.name for skill in bundle["invalid_skills_skipped"]),
+                ["empty-description", "number-description", "whitespace-description"],
+            )
+
+    def test_load_skill_catalog_parses_folded_yaml_description(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir) / "skills"
+            skill_dir = root / "folded-description"
+            skill_dir.mkdir(parents=True, exist_ok=True)
+            (skill_dir / "SKILL.md").write_text(
+                "\n".join(
+                    [
+                        "---",
+                        "name: folded-description",
+                        "description: >-",
+                        "  Use folded YAML descriptions when the trigger surface",
+                        "  needs to stay readable across multiple frontmatter lines.",
+                        "---",
+                        "",
+                        "# Folded Description",
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            catalog = PORTFOLIO.load_skill_catalog(skills_root=root)
+
+            self.assertEqual(len(catalog), 1)
+            self.assertEqual(
+                catalog[0]["description"],
+                "Use folded YAML descriptions when the trigger surface needs to stay readable across multiple frontmatter lines.",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

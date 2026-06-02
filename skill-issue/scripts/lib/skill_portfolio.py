@@ -19,6 +19,8 @@ from itertools import combinations
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 COVERAGE_INDEX_PATHS = (
     "~/.claude/skills/SKILLS_COVERAGE.yaml",
     "~/.codex/skills/SKILLS_COVERAGE.yaml",
@@ -167,26 +169,23 @@ def _tokenize(text: str) -> list[str]:
     return tokens
 
 
-def _frontmatter(text: str) -> tuple[dict[str, str], str]:
-    """Extract a simple YAML frontmatter block and return the remaining body."""
+def _frontmatter(text: str) -> tuple[dict[str, Any], str]:
+    """Extract a YAML frontmatter block and return the remaining body."""
     stripped = text.lstrip()
     if not stripped.startswith("---\n"):
         return {}, text
 
-    parts = stripped.split("\n---\n", 1)
-    if len(parts) != 2:
+    match = re.match(r"^---\n(.*?)\n---(?:\n|$)", stripped, re.DOTALL)
+    if not match:
         return {}, text
 
-    block, body = parts
-    data: dict[str, str] = {}
-    for line in block.splitlines()[1:]:
-        if ":" not in line:
-            continue
-        key, value = line.split(":", 1)
-        key = key.strip()
-        value = value.strip().strip("'").strip('"')
-        if key:
-            data[key] = value
+    body = stripped[match.end():]
+    try:
+        data = yaml.safe_load(match.group(1)) or {}
+    except yaml.YAMLError:
+        return {}, body
+    if not isinstance(data, dict):
+        return {}, body
     return data, body
 
 
@@ -251,8 +250,14 @@ def _load_skill_metadata(skill_path: Path, catalog_root: Path) -> dict[str, Any]
     """Load one skill metadata record from disk."""
     text = skill_path.read_text(encoding="utf-8")
     frontmatter, body = _frontmatter(text)
-    name = frontmatter.get("name") or skill_path.parent.name
-    description = frontmatter.get("description", "")
+    raw_name = frontmatter.get("name")
+    name = raw_name.strip() if isinstance(raw_name, str) and raw_name.strip() else skill_path.parent.name
+    raw_description = frontmatter.get("description")
+    if not isinstance(raw_description, str):
+        raise ValueError("missing or non-string description")
+    description = raw_description.strip()
+    if not description:
+        raise ValueError("missing or empty description")
     heading = _first_heading(body) or name
     trigger_phrases = _quoted_phrases(description)
     discovery_text = " ".join(
@@ -293,11 +298,13 @@ def load_skill_catalog_bundle(
             "catalog_roots": [],
             "catalog_root_details": [],
             "duplicate_skills_skipped": [],
+            "invalid_skills_skipped": [],
             "catalog": [],
         }
     skills = []
     root_details = []
     duplicates = []
+    invalid_skills = []
     alias_owner: dict[str, dict[str, Any]] = {}
 
     for root in catalog_roots:
@@ -310,7 +317,17 @@ def load_skill_catalog_bundle(
             if not skill_path.exists():
                 continue
 
-            skill = _load_skill_metadata(skill_path, root)
+            try:
+                skill = _load_skill_metadata(skill_path, root)
+            except ValueError as exc:
+                invalid_skills.append(
+                    {
+                        "path": str(skill_path),
+                        "catalog_root": str(root),
+                        "reason": str(exc),
+                    }
+                )
+                continue
             aliases = _skill_aliases(skill)
             collisions = sorted({alias for alias in aliases if alias in alias_owner})
             if collisions:
@@ -345,6 +362,7 @@ def load_skill_catalog_bundle(
         "catalog_roots": [str(root) for root in catalog_roots],
         "catalog_root_details": root_details,
         "duplicate_skills_skipped": duplicates,
+        "invalid_skills_skipped": invalid_skills,
         "catalog": skills,
     }
 

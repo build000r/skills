@@ -45,7 +45,7 @@ class SkillPortfolioOpportunityTests(unittest.TestCase):
                 [
                     "---",
                     f"name: {name}",
-                    f'description: "{description}"',
+                    f"description: {json.dumps(description)}",
                     "---",
                     "",
                     body.strip(),

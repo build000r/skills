@@ -66,6 +66,9 @@ class OverlayGenerationTests(unittest.TestCase):
         self.assertEqual(overlay["client"]["default_cwd"], "${CLIENT_ROOT}/app")
         self.assertFalse(repos["library"]["required"])
         self.assertTrue(repos["app"]["required"])
+        self.assertEqual(overlay["client"]["services"][0]["repo"], "app")
+        self.assertFalse(overlay["client"]["services"][0]["required"])
+        self.assertNotIn("cwd", overlay["client"]["services"][0])
 
     def test_first_included_repo_is_required_when_earlier_repos_are_skipped(self) -> None:
         scan = {
@@ -121,7 +124,45 @@ class OverlayGenerationTests(unittest.TestCase):
             "file:///tmp/local-app",
         )
         self.assertTrue(overlay["client"]["repos"][0]["required"])
-        self.assertEqual(overlay["client"]["services"][0]["cwd"], "${CLIENT_ROOT}/local-app")
+        self.assertEqual(overlay["client"]["services"][0]["repo"], "local-app")
+        self.assertNotIn("cwd", overlay["client"]["services"][0])
+
+    def test_service_is_not_emitted_for_skipped_local_only_repo(self) -> None:
+        scan = {
+            "repos": [
+                {
+                    "name": "local-primary",
+                    "path": "/tmp/local-primary",
+                    "remote": None,
+                    "branch": "main",
+                    "stacks": ["node"],
+                    "service": {
+                        "command": "npm run dev",
+                        "source": "package.json scripts.dev",
+                    },
+                },
+                {
+                    "name": "local-secondary",
+                    "path": "/tmp/local-secondary",
+                    "remote": None,
+                    "branch": "main",
+                    "stacks": ["node"],
+                    "service": {
+                        "command": "npm run start",
+                        "source": "package.json scripts.start",
+                    },
+                },
+            ]
+        }
+
+        blueprint = generate_overlay.pick_blueprint(scan)
+        overlay = generate_overlay.build_overlay("demo", scan, blueprint)
+
+        self.assertEqual(
+            [service["id"] for service in overlay["client"]["services"]],
+            ["local-primary-dev"],
+        )
+        self.assertEqual(overlay["client"]["services"][0]["repo"], "local-primary")
 
 
 if __name__ == "__main__":

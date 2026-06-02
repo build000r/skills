@@ -149,8 +149,9 @@ def build_overlay(client_id: str, scan: dict, blueprint_rec: dict) -> dict:
             services.append({
                 "id": f"{repo['name']}-dev",
                 "kind": "http",
+                "repo": repo["name"],
+                "required": False,
                 "command": svc["command"],
-                "cwd": f"${{CLIENT_ROOT}}/{repo['name']}",
                 "profiles": ["core"],
             })
     if services:

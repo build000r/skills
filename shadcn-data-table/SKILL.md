@@ -25,14 +25,14 @@ Start the first progress update with:
 
 ## What This Skill Does NOT Own
 
-- Design tokens or brand system — consume from `unified-brand-system`.
+- Design tokens or brand system — consume the project's existing brand-token contract.
 - Charts and KPI cards — use `chart-crimes` for persuasive charts, `tufte-ui-review` for quantitative review.
 - Detecting existing table variant drift across a codebase — that is `drift-detector`.
 - Backend query/pagination APIs — note the contract the table needs, do not design the API here.
 
 ## Companion Skills
 
-- `unified-brand-system` — defines the tokens this skill consumes (radius, spacing, muted/foreground, border).
+- Brand-token contract — defines the tokens this skill consumes (radius, spacing, muted/foreground, border).
 - `tufte-ui-review` — run it on the finished table for a quantitative-clarity pass.
 - `drift-detector` — run after adoption to catch table-variant drift across the repo.
 - `chart-crimes` — sibling for the chart next to the table; same token contract.
@@ -163,7 +163,7 @@ Keep `columns` as data, not JSX-heavy logic. Cells that need interactivity impor
 - Screen reader: header cells have `scope="col"`; sort state announced via `aria-sort`.
 - Fitts: row-level actions are full-row click targets or a ≥ 32px action button, never 12px icons.
 - Tabular numerics align on the decimal (`tabular-nums`).
-- No hardcoded colors; nothing leaks through `unified-brand-system` tokens.
+- No hardcoded colors; nothing leaks outside the project brand tokens.
 
 ## UX Psychology References
 

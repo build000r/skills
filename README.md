@@ -1,7 +1,7 @@
 # build000r/skills
 
 <p align="center">
-  <img alt="Catalog" src="https://img.shields.io/badge/catalog-46_skills-111111?style=for-the-badge" />
+  <img alt="Catalog" src="https://img.shields.io/badge/catalog-44_skills-111111?style=for-the-badge" />
   <img alt="Works with Claude Code, Codex, and Cursor" src="https://img.shields.io/badge/agents-Claude_Code%20%7C%20Codex%20%7C%20Cursor-2f6feb?style=for-the-badge" />
   <img alt="Licensing is skill-specific" src="https://img.shields.io/badge/license-skill--specific-6b7280?style=for-the-badge" />
 </p>
@@ -116,7 +116,6 @@ contain `SKILL.md`. You can install one skill, a lane, or the full catalog.
 | [`ask-cascade`](./ask-cascade/) | Orders user-facing questions from high-level dependencies down to details |
 | [`audit-plans`](./audit-plans/) | Audits plans, order, focus, and backlog state |
 | [`build-vs-clone`](./build-vs-clone/) | Decides whether work belongs in an existing repo, shared home, or new build |
-| [`cli-ergonomics`](./cli-ergonomics/) | Builds or reviews agent-facing CLIs for compact output, strong defaults, and clean shell UX |
 | [`codex-tmux`](./codex-tmux/) | Runs Codex in persistent tmux sessions for long jobs |
 | [`commit`](./commit/) | Batches working changes into clean, high-level commits |
 | [`crap`](./crap/) | Ranks risky hotspots with CRAP-style scoring |

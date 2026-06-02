@@ -92,7 +92,7 @@ Fix: persist density per-table in localStorage and expose the toggle in the tool
 ### Hex colors in the table
 
 Symptom: `className="text-[#6b7280]"` sprinkled through cells.
-Fix: consume `text-muted-foreground` from the brand tokens. If a needed role is missing, extend `unified-brand-system`; do not patch locally.
+Fix: consume `text-muted-foreground` from the brand tokens. If a needed role is missing, extend the brand-token contract; do not patch locally.
 
 ### Custom header treatment per table
 

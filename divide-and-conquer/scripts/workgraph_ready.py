@@ -49,9 +49,17 @@ def extract_json_block(text: str) -> dict:
     return json.loads(match.group(1))
 
 
+def _prefix_info(path_pattern: str) -> tuple[str, bool]:
+    match = re.search(r"[*?\[]", path_pattern)
+    raw_prefix = path_pattern[: match.start()] if match else path_pattern
+    prefix = raw_prefix.rstrip("/")
+    partial_segment_glob = bool(match and raw_prefix and not raw_prefix.endswith("/"))
+    return prefix, partial_segment_glob
+
+
 def normalize_prefix(path_pattern: str) -> str:
-    prefix = re.split(r"[*?\[]", path_pattern, maxsplit=1)[0]
-    return prefix.rstrip("/")
+    prefix, _ = _prefix_info(path_pattern)
+    return prefix
 
 
 def prefix_contains(parent: str, child: str) -> bool:
@@ -63,11 +71,18 @@ def writes_overlap(left: list[str], right: list[str]) -> bool:
         for b in right:
             if a == b:
                 return True
-            a_prefix = normalize_prefix(a)
-            b_prefix = normalize_prefix(b)
+            a_prefix, a_partial_segment_glob = _prefix_info(a)
+            b_prefix, b_partial_segment_glob = _prefix_info(b)
             if not a_prefix or not b_prefix:
                 continue
             if prefix_contains(a_prefix, b_prefix) or prefix_contains(b_prefix, a_prefix):
+                return True
+            if (
+                a_partial_segment_glob
+                and b_prefix.startswith(a_prefix)
+                or b_partial_segment_glob
+                and a_prefix.startswith(b_prefix)
+            ):
                 return True
     return False
 

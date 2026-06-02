@@ -87,6 +87,28 @@ class PackageSkillTests(unittest.TestCase):
             self.assertIn("sample-skill/references/guide.md", archive_members)
             self.assertNotIn("sample-skill/modes/private.local.md", archive_members)
 
+    def test_package_skill_fallback_root_anchored_patterns_do_not_match_nested_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            skill_dir = Path(tmpdir) / "sample-skill"
+            self._write_skill(skill_dir)
+            (skill_dir / ".gitignore").write_text("/modes/\n/secret.txt\n", encoding="utf-8")
+            (skill_dir / "modes" / "private.local.md").write_text("private mode\n", encoding="utf-8")
+            (skill_dir / "secret.txt").write_text("root private file\n", encoding="utf-8")
+            (skill_dir / "references" / "modes").mkdir(parents=True, exist_ok=True)
+            (skill_dir / "references" / "modes" / "public.md").write_text("public nested file\n", encoding="utf-8")
+            (skill_dir / "references" / "secret.txt").write_text("public nested file\n", encoding="utf-8")
+
+            output_dir = Path(tmpdir) / "dist"
+            archive_path = PACKAGE_MODULE.package_skill(skill_dir, output_dir)
+
+            self.assertIsNotNone(archive_path)
+            archive_members = self._read_archive_members(archive_path)
+
+            self.assertIn("sample-skill/references/modes/public.md", archive_members)
+            self.assertIn("sample-skill/references/secret.txt", archive_members)
+            self.assertNotIn("sample-skill/modes/private.local.md", archive_members)
+            self.assertNotIn("sample-skill/secret.txt", archive_members)
+
     def test_package_skill_fallback_honors_gitignore_negation_patterns(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             skill_dir = Path(tmpdir) / "sample-skill"

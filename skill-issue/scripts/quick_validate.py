@@ -166,15 +166,18 @@ def validate_skill(skill_path, strict=False):
     if not isinstance(name, str):
         return False, f"Name must be a string, got {type(name).__name__}"
     name = name.strip()
-    if name:
-        # Check naming convention (hyphen-case: lowercase with hyphens)
-        if not re.match(r'^[a-z0-9-]+$', name):
-            return False, f"Name '{name}' should be hyphen-case (lowercase letters, digits, and hyphens only)"
-        if name.startswith('-') or name.endswith('-') or '--' in name:
-            return False, f"Name '{name}' cannot start/end with hyphen or contain consecutive hyphens"
-        # Check name length (max 64 characters per spec)
-        if len(name) > 64:
-            return False, f"Name is too long ({len(name)} characters). Maximum is 64 characters."
+    if not name:
+        return False, "Missing or empty 'name' in frontmatter"
+    # Check naming convention (hyphen-case: lowercase with hyphens)
+    if not re.match(r'^[a-z0-9-]+$', name):
+        return False, f"Name '{name}' should be hyphen-case (lowercase letters, digits, and hyphens only)"
+    if name.startswith('-') or name.endswith('-') or '--' in name:
+        return False, f"Name '{name}' cannot start/end with hyphen or contain consecutive hyphens"
+    # Check name length (max 64 characters per spec)
+    if len(name) > 64:
+        return False, f"Name is too long ({len(name)} characters). Maximum is 64 characters."
+    if name != skill_path.name:
+        return False, f"Name '{name}' must match skill directory name '{skill_path.name}'"
 
     # Extract and validate description
     description = frontmatter.get('description', '')

@@ -79,6 +79,49 @@ class QuickValidateBehaviorContractTests(unittest.TestCase):
         self.assertTrue(valid)
         self.assertEqual(message, "Skill is valid!")
 
+    def test_empty_frontmatter_name_fails_validation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            skill_dir = Path(tmpdir) / "empty-name"
+            skill_dir.mkdir(parents=True, exist_ok=True)
+            (skill_dir / "SKILL.md").write_text(
+                "\n".join(
+                    [
+                        "---",
+                        'name: ""',
+                        'description: "Package a sample skill for tests and use when validating empty name safety."',
+                        "---",
+                        "",
+                        "# Empty Name",
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            valid, message = VALIDATE_MODULE.validate_skill(skill_dir)
+
+        self.assertFalse(valid)
+        self.assertEqual(message, "Missing or empty 'name' in frontmatter")
+
+    def test_frontmatter_name_must_match_directory_name(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            skill_dir = self.write_skill(
+                Path(tmpdir),
+                "directory-name",
+                "Package a sample skill for tests and use when validating name mismatch safety.",
+                "# Directory Name",
+            )
+            skill_md = skill_dir / "SKILL.md"
+            skill_md.write_text(
+                skill_md.read_text(encoding="utf-8").replace("name: directory-name", "name: other-name"),
+                encoding="utf-8",
+            )
+
+            valid, message = VALIDATE_MODULE.validate_skill(skill_dir)
+
+        self.assertFalse(valid)
+        self.assertEqual(message, "Name 'other-name' must match skill directory name 'directory-name'")
+
     def test_minimal_scaffold_todo_placeholders_fail_validation(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             skill_dir = self.write_skill(

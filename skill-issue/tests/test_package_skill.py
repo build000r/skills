@@ -105,6 +105,22 @@ class PackageSkillTests(unittest.TestCase):
             self.assertTrue(valid)
             self.assertEqual(message, "Skill is valid!")
 
+    def test_package_skill_rejects_frontmatter_directory_name_mismatch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            skill_dir = Path(tmpdir) / "directory-name"
+            self._write_skill(skill_dir)
+            skill_md = skill_dir / "SKILL.md"
+            skill_md.write_text(
+                skill_md.read_text(encoding="utf-8").replace("name: sample-skill", "name: other-name"),
+                encoding="utf-8",
+            )
+
+            output_dir = Path(tmpdir) / "dist"
+            archive_path = PACKAGE_MODULE.package_skill(skill_dir, output_dir)
+
+            self.assertIsNone(archive_path)
+            self.assertFalse((output_dir / "directory-name.skill").exists())
+
     def _init_git_repo(self, repo: Path) -> None:
         subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
 

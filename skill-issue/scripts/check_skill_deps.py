@@ -35,17 +35,18 @@ CODE_BLOCK = re.compile(r"```(?:bash|sh|zsh|python|py)\s*\n(.*?)```", re.DOTALL)
 PHASE_HDR = re.compile(r"^#{2,4}\s+(Phase\s+\d|Step\s+\d|\d+\.)", re.IGNORECASE | re.MULTILINE)
 FILE_PATH = re.compile(r"[\w./-]+\.(md|py|sh|yaml|yml|json|toml|jsonl)\b")
 DEFAULT_ROOTS = ["~/.claude/skills", "~/.codex/skills"]
+FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---(?:\n|$)", re.DOTALL)
 
 
 def _load_frontmatter(text: str) -> dict:
     if not text.startswith("---\n"):
         return {}
-    end = text.find("\n---\n", 4)
-    if end == -1:
+    match = FRONTMATTER_RE.match(text)
+    if not match:
         return {}
     fm: dict = {}
     in_list_key: str | None = None
-    for line in text[4:end].splitlines():
+    for line in match.group(1).splitlines():
         if in_list_key and line.startswith("  - "):
             fm.setdefault(in_list_key, []).append(line[4:].strip().strip("\"'"))
             continue
@@ -85,7 +86,8 @@ def _scan_skills(roots: list[str]) -> dict[str, dict]:
 
 
 def _interface_surfaces(text: str) -> dict[str, set[str]]:
-    body = text.split("\n---\n", 1)[-1] if text.startswith("---\n") else text
+    match = FRONTMATTER_RE.match(text) if text.startswith("---\n") else None
+    body = text[match.end():] if match else text
     commands: set[str] = set()
     for block in CODE_BLOCK.findall(body):
         for line in block.splitlines():

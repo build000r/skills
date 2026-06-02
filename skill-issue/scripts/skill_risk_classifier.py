@@ -33,16 +33,17 @@ SAFETY_MARKERS = re.compile(
     r"\b(safety|guardrail|destructive|irreversible|risk.?gate|permission|allowed.?tools?|dangerous)\b",
     re.IGNORECASE,
 )
+FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---(?:\n|$)", re.DOTALL)
 
 
 def _split_frontmatter(text: str) -> tuple[dict, str]:
     if not text.startswith("---\n"):
         return {}, text
-    end = text.find("\n---\n", 4)
-    if end == -1:
+    match = FRONTMATTER_RE.match(text)
+    if not match:
         return {}, text
-    raw = text[4:end]
-    body = text[end + 5 :]
+    raw = match.group(1)
+    body = text[match.end():]
     fm: dict[str, str] = {}
     for line in raw.splitlines():
         if ":" in line and not line.startswith(" "):

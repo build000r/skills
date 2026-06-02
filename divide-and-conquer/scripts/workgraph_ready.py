@@ -25,6 +25,7 @@ WORKGRAPH.md is expected to contain a fenced ```json block with:
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 import json
 import re
 from pathlib import Path
@@ -142,6 +143,11 @@ def _node_contract_issues(node: dict) -> list[str]:
 
 def classify_nodes(nodes: list[dict]) -> tuple[list[dict], list[dict], list[str]]:
     issues: list[str] = []
+    node_id_counts = Counter(node.get("id") for node in nodes if node.get("id"))
+    duplicate_ids = {node_id for node_id, count in node_id_counts.items() if count > 1}
+    for node_id in sorted(duplicate_ids):
+        issues.append(f"{node_id}: duplicate node ID")
+
     done_ids = {
         node.get("id")
         for node in nodes
@@ -155,6 +161,10 @@ def classify_nodes(nodes: list[dict]) -> tuple[list[dict], list[dict], list[str]
     for node in nodes:
         node_id = node.get("id")
         status = str(node.get("status", "")).strip().lower()
+        if node_id in duplicate_ids:
+            waiting_nodes.append(node)
+            continue
+
         deps = node.get("depends_on", [])
         if not isinstance(deps, list):
             issues.append(f"{node_id}: depends_on must be a list")
@@ -163,8 +173,12 @@ def classify_nodes(nodes: list[dict]) -> tuple[list[dict], list[dict], list[str]
         missing = [dep for dep in deps if dep not in node_ids]
         if missing:
             issues.append(f"{node_id}: missing dependency IDs: {', '.join(missing)}")
+        ambiguous = [dep for dep in deps if dep in duplicate_ids]
+        if ambiguous:
+            issues.append(f"{node_id}: ambiguous duplicate dependency IDs: {', '.join(ambiguous)}")
 
         unresolved = [dep for dep in deps if dep not in done_ids]
+        unresolved.extend(dep for dep in ambiguous if dep not in unresolved)
 
         if status in DONE_STATES or status in ACTIVE_STATES or status in BLOCKED_STATES:
             waiting_nodes.append(node)

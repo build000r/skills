@@ -161,6 +161,44 @@ class WorkgraphReadyTests(unittest.TestCase):
         self.assertEqual([node["id"] for node in waves[0]["nodes"]], ["WG-001"])
         self.assertEqual([node["id"] for node in waves[1]["nodes"]], ["WG-002"])
 
+    def test_duplicate_node_ids_block_ambiguous_readiness(self) -> None:
+        ready, waiting, issues = MODULE.classify_nodes(
+            [
+                {
+                    "id": "WG-001",
+                    "title": "First copy",
+                    "depends_on": [],
+                    "writes": ["src/one/**"],
+                    "done_when": ["First copy finished"],
+                    "validate_cmds": ["pytest tests/test_one.py"],
+                    "status": "done",
+                },
+                {
+                    "id": "WG-001",
+                    "title": "Second copy",
+                    "depends_on": [],
+                    "writes": ["src/two/**"],
+                    "done_when": ["Second copy finished"],
+                    "validate_cmds": ["pytest tests/test_two.py"],
+                    "status": "todo",
+                },
+                {
+                    "id": "WG-002",
+                    "title": "Depends on ambiguous node",
+                    "depends_on": ["WG-001"],
+                    "writes": ["src/three/**"],
+                    "done_when": ["Dependent finished"],
+                    "validate_cmds": ["pytest tests/test_three.py"],
+                    "status": "todo",
+                },
+            ]
+        )
+
+        self.assertEqual(ready, [])
+        self.assertEqual(len(waiting), 3)
+        self.assertIn("WG-001: duplicate node ID", issues)
+        self.assertIn("WG-002: ambiguous duplicate dependency IDs: WG-001", issues)
+
 
 if __name__ == "__main__":
     unittest.main()

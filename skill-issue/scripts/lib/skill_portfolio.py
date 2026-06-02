@@ -150,6 +150,15 @@ DISCOVERABILITY_MIN_SCORE = 3.0
 MIN_CARD_SCORE = 14
 CATALOG_NAME_RE = re.compile(r"^[a-z0-9-]+$")
 DESCRIPTION_TODO_RE = re.compile(r"^\s*\[?\s*TODO\b", re.IGNORECASE)
+ALLOWED_FRONTMATTER_PROPERTIES = {
+    "name",
+    "description",
+    "type",
+    "license",
+    "allowed-tools",
+    "metadata",
+    "depends_on",
+}
 DEFAULT_SKILLS_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_SKILLS_ROOT_CANDIDATES = (
     DEFAULT_SKILLS_ROOT,
@@ -252,6 +261,13 @@ def _load_skill_metadata(skill_path: Path, catalog_root: Path) -> dict[str, Any]
     """Load one skill metadata record from disk."""
     text = skill_path.read_text(encoding="utf-8")
     frontmatter, body = _frontmatter(text)
+    unexpected_keys = set(frontmatter) - ALLOWED_FRONTMATTER_PROPERTIES
+    if unexpected_keys:
+        raise ValueError(f"unexpected frontmatter keys: {', '.join(sorted(unexpected_keys))}")
+    depends_on = frontmatter.get("depends_on", [])
+    if depends_on is not None:
+        if not isinstance(depends_on, list) or not all(isinstance(dep, str) for dep in depends_on):
+            raise ValueError("depends_on must be a YAML list of skill id strings")
     raw_name = frontmatter.get("name")
     if not isinstance(raw_name, str):
         raise ValueError("missing or non-string name")

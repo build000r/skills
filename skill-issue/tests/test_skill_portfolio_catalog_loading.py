@@ -207,6 +207,73 @@ Define done before patching.
             )
             self.assertEqual(bundle["catalog_root_details"][0]["invalid_skills_skipped"], 6)
 
+    def test_load_skill_catalog_skips_validator_invalid_frontmatter_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir) / "skills"
+            self.write_skill(
+                root,
+                "valid-skill",
+                "Use valid skills when checking catalog frontmatter validation.",
+                "# Valid Skill",
+            )
+            cases = {
+                "unexpected-key": [
+                    "name: unexpected-key",
+                    "description: Use descriptions with supported frontmatter keys only.",
+                    "extra: value",
+                ],
+                "depends-on-string": [
+                    "name: depends-on-string",
+                    "description: Use depends_on lists when declaring skill dependencies.",
+                    "depends_on: describe",
+                ],
+                "depends-on-non-string": [
+                    "name: depends-on-non-string",
+                    "description: Use depends_on lists containing skill id strings only.",
+                    "depends_on:",
+                    "  - describe",
+                    "  - 123",
+                ],
+            }
+            for name, frontmatter_lines in cases.items():
+                skill_dir = root / name
+                skill_dir.mkdir(parents=True, exist_ok=True)
+                (skill_dir / "SKILL.md").write_text(
+                    "\n".join(
+                        [
+                            "---",
+                            *frontmatter_lines,
+                            "---",
+                            "",
+                            f"# {name}",
+                            "",
+                        ]
+                    ),
+                    encoding="utf-8",
+                )
+
+            bundle = PORTFOLIO.load_skill_catalog_bundle(skills_root=root)
+
+            self.assertEqual([skill["name"] for skill in bundle["catalog"]], ["valid-skill"])
+            self.assertEqual(
+                sorted(Path(skill["path"]).parent.name for skill in bundle["invalid_skills_skipped"]),
+                ["depends-on-non-string", "depends-on-string", "unexpected-key"],
+            )
+            reasons = {
+                Path(skill["path"]).parent.name: skill["reason"]
+                for skill in bundle["invalid_skills_skipped"]
+            }
+            self.assertEqual(reasons["unexpected-key"], "unexpected frontmatter keys: extra")
+            self.assertEqual(
+                reasons["depends-on-string"],
+                "depends_on must be a YAML list of skill id strings",
+            )
+            self.assertEqual(
+                reasons["depends-on-non-string"],
+                "depends_on must be a YAML list of skill id strings",
+            )
+            self.assertEqual(bundle["catalog_root_details"][0]["invalid_skills_skipped"], 3)
+
     def test_load_skill_catalog_parses_folded_yaml_description(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir) / "skills"

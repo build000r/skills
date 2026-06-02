@@ -1,3 +1,5 @@
+import json
+import re
 import unittest
 from importlib.machinery import SourceFileLoader
 from pathlib import Path
@@ -115,6 +117,49 @@ flowchart TD
         self.assertIn("quote&quot;] and &lt;tag&gt;", rendered)
         self.assertNotIn('label"] --> injected', rendered)
         self.assertNotIn('quote"]', rendered)
+
+    def test_render_mmdx_disambiguates_colliding_normalized_loop_ids(self) -> None:
+        loops = [
+            MODULE.Loop(
+                loop_id="a-b",
+                repo="repo",
+                links=[
+                    MODULE.Link(
+                        issue_id="bd-1",
+                        title="First loop",
+                        status="open",
+                        created_at="2026-06-01T12:00:00-0700",
+                        updated_at="2026-06-01T12:00:00-0700",
+                        labels=["loop:a-b"],
+                    )
+                ],
+            ),
+            MODULE.Loop(
+                loop_id="a_b",
+                repo="repo",
+                links=[
+                    MODULE.Link(
+                        issue_id="bd-2",
+                        title="Second loop",
+                        status="open",
+                        created_at="2026-06-01T13:00:00-0700",
+                        updated_at="2026-06-01T13:00:00-0700",
+                        labels=["loop:a_b"],
+                    )
+                ],
+            ),
+        ]
+
+        rendered = MODULE.render_mmdx(loops)
+        metadata = json.loads(re.search(r"<!--\s*mmdx\s*(\{.*?\})\s*-->", rendered, re.DOTALL).group(1))
+        link_targets = [link["to"] for link in metadata["links"]]
+        chart_ids = re.findall(r"^## chart ([A-Za-z0-9_-]+)", rendered, re.MULTILINE)
+        gantt_task_ids = re.findall(r":active, ([^,]+), 2026-06-01", rendered)
+
+        self.assertEqual(len(link_targets), len(set(link_targets)))
+        self.assertTrue(all(target.startswith("loop_repo_a_b_") for target in link_targets))
+        self.assertEqual(sorted(link_targets), sorted(chart_ids[1:]))
+        self.assertEqual(len(gantt_task_ids), len(set(gantt_task_ids)))
 
 
 if __name__ == "__main__":

@@ -34,6 +34,7 @@ It does not mutate any beads state.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import html
 import json
 import os
@@ -184,6 +185,32 @@ def safe_id(s: str) -> str:
     return out
 
 
+def loop_key(loop: Loop) -> str:
+    return f"{safe_id(loop.repo)}_{safe_id(loop.loop_id)}"
+
+
+def unique_loop_keys(loops: list[Loop]) -> list[str]:
+    bases = [loop_key(loop) for loop in loops]
+    base_counts = {base: bases.count(base) for base in set(bases)}
+    used: set[str] = set()
+    out: list[str] = []
+
+    for loop, base in zip(loops, bases):
+        candidate = base
+        if base_counts[base] > 1:
+            digest = hashlib.sha1(f"{loop.repo}\0{loop.loop_id}".encode("utf-8")).hexdigest()[:8]
+            candidate = f"{base}_{digest}"
+        if candidate in used:
+            suffix = 2
+            while f"{candidate}_{suffix}" in used:
+                suffix += 1
+            candidate = f"{candidate}_{suffix}"
+        used.add(candidate)
+        out.append(candidate)
+
+    return out
+
+
 def gantt_status(link: Link) -> str:
     if link.status == "blocked":
         return "crit"
@@ -230,7 +257,8 @@ def link_duration_h(link: Link) -> int:
     return min(hours, 24 * 30)  # cap at 30 days for chart legibility
 
 
-def render_main_gantt(loops: list[Loop]) -> str:
+def render_main_gantt(loops: list[Loop], loop_keys: list[str] | None = None) -> str:
+    loop_keys = loop_keys or unique_loop_keys(loops)
     lines = [
         "gantt",
         f"  title BR Chain — {sum(len(l.links) for l in loops)} links across {len(loops)} loops",
@@ -239,11 +267,11 @@ def render_main_gantt(loops: list[Loop]) -> str:
         "",
     ]
     click_lines: list[str] = ["  %% click handlers route to per-loop drilldown"]
-    for loop in loops:
+    for loop, key in zip(loops, loop_keys):
         section = f"{loop.repo} · {loop.loop_id}"
         lines.append(f"  section {short(section, 60)}")
         for i, link in enumerate(loop.links):
-            tid = f"{safe_id(loop.repo)}_{safe_id(loop.loop_id)}_{i}"
+            tid = f"{key}_{i}"
             label = short(link.title, 38)
             lines.append(
                 f"  {label}  :{gantt_status(link)}, {tid}, {fmt_date(link.created_at)}, {link_duration_h(link)}h"
@@ -291,24 +319,25 @@ def render_loop_drilldown(loop: Loop) -> str:
 def render_mmdx(loops: list[Loop]) -> str:
     if not loops:
         return ""
+    loop_keys = unique_loop_keys(loops)
     links = [
         {
             "from": "main",
             "label": short(f"{loop.repo} · {loop.loop_id}", 60),
-            "to": f"loop_{safe_id(loop.repo)}_{safe_id(loop.loop_id)}",
+            "to": f"loop_{key}",
             "title": f"Open {loop.repo} {loop.loop_id} ({len(loop.links)} links, {'open' if loop.open else 'closed'})",
         }
-        for loop in loops
+        for loop, key in zip(loops, loop_keys)
     ]
     meta = {"entry": "main", "links": links}
 
     parts = ["<!-- mmdx", json.dumps(meta, indent=2), "-->", ""]
     parts.append(f"## chart main BR Chain ({len(loops)} loops)")
     parts.append("```mermaid")
-    parts.append(render_main_gantt(loops))
+    parts.append(render_main_gantt(loops, loop_keys))
     parts.append("```")
-    for loop in loops:
-        chart_id = f"loop_{safe_id(loop.repo)}_{safe_id(loop.loop_id)}"
+    for loop, key in zip(loops, loop_keys):
+        chart_id = f"loop_{key}"
         parts.append("")
         parts.append(f"## chart {chart_id} {short(loop.repo + ' · ' + loop.loop_id, 70)}")
         parts.append("```mermaid")

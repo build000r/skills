@@ -194,6 +194,69 @@ def test_match_accepts_scalar_overlay_cwd_match(tmp_path: Path) -> None:
     assert data["matches"][0]["matched_pattern"] == str(repo)
 
 
+def test_match_ignores_empty_scalar_overlay_cwd_match(tmp_path: Path) -> None:
+    repo = (tmp_path / "repos" / "project").resolve()
+    repo.mkdir(parents=True)
+    root = repo / ".buildooor" / "skillbox-config" / "clients"
+    overlay = root / "empty" / "overlay.yaml"
+    overlay.parent.mkdir(parents=True, exist_ok=True)
+    overlay.write_text(
+        yaml.safe_dump(
+            {
+                "version": 1,
+                "client": {
+                    "id": "empty",
+                    "label": "empty",
+                    "context": {"cwd_match": ""},
+                },
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), "match", "--cwd", str(repo), "--json"],
+        cwd=repo,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert json.loads(result.stdout)["matches"] == []
+
+
+def test_match_ignores_empty_context_cwd_match(tmp_path: Path) -> None:
+    repo = (tmp_path / "repos" / "project").resolve()
+    repo.mkdir(parents=True)
+    root = repo / ".buildooor" / "skillbox-config" / "clients"
+    context = root / "empty" / "context.yaml"
+    context.parent.mkdir(parents=True, exist_ok=True)
+    context.write_text(
+        yaml.safe_dump(
+            {
+                "cwd_match": "",
+                "client_id": "empty",
+                "client_dir": str(context.parent),
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), "match", "--cwd", str(repo), "--json"],
+        cwd=repo,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert json.loads(result.stdout)["matches"] == []
+
+
 def test_list_reports_non_mapping_overlay_without_crashing(tmp_path: Path) -> None:
     root = tmp_path / "clients"
     bad_overlay = root / "bad" / "overlay.yaml"

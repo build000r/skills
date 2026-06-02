@@ -117,11 +117,11 @@ def _expanded_match(pattern: str) -> str | None:
     return expanded
 
 
-def _cwd_match_patterns(value) -> list:
+def _cwd_match_patterns(value) -> list[str]:
     if isinstance(value, str):
-        return [value]
+        return [value] if value.strip() else []
     if isinstance(value, list):
-        return value
+        return [item for item in value if isinstance(item, str) and item.strip()]
     return []
 
 
@@ -247,11 +247,7 @@ def find_matches(cwd: str, config_root: Path) -> list[dict]:
             data = yaml.safe_load(ctx_file.read_text()) or {}
         except Exception:
             continue
-        patterns = data.get("cwd_match", [])
-        if isinstance(patterns, str):
-            patterns = [patterns]
-        if not isinstance(patterns, list):
-            continue
+        patterns = _cwd_match_patterns(data.get("cwd_match", []))
         overlay_file = client_dir / "overlay.yaml"
         match_path = overlay_file if overlay_file.is_file() else ctx_file
         for pattern in patterns:

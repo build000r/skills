@@ -146,6 +146,30 @@ class QuickValidateBehaviorContractTests(unittest.TestCase):
         self.assertFalse(valid)
         self.assertEqual(message, "Missing or empty 'description' in frontmatter")
 
+    def test_malformed_frontmatter_closing_delimiter_fails_validation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            skill_dir = Path(tmpdir) / "sample-skill"
+            skill_dir.mkdir(parents=True, exist_ok=True)
+            (skill_dir / "SKILL.md").write_text(
+                "\n".join(
+                    [
+                        "---",
+                        "name: sample-skill",
+                        'description: "Package a sample skill for tests and validate delimiter safety."',
+                        "---not-a-delimiter",
+                        "",
+                        "# Sample Skill",
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            valid, message = VALIDATE_MODULE.validate_skill(skill_dir)
+
+        self.assertFalse(valid)
+        self.assertEqual(message, "Invalid frontmatter format")
+
     def test_minimal_scaffold_todo_placeholders_fail_validation(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             skill_dir = self.write_skill(

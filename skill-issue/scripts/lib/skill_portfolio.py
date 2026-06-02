@@ -182,10 +182,10 @@ def _tokenize(text: str) -> list[str]:
 
 def _frontmatter(text: str) -> tuple[dict[str, Any], str]:
     """Extract and validate a YAML frontmatter block."""
-    if not text.startswith("---"):
+    if not text.startswith("---\n"):
         raise ValueError("No YAML frontmatter found")
 
-    match = re.match(r"^---\n(.*?)\n---", text, re.DOTALL)
+    match = re.match(r"^---\n(.*?)\n---(?:\n|$)", text, re.DOTALL)
     if not match:
         raise ValueError("Invalid frontmatter format")
 

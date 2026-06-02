@@ -309,6 +309,14 @@ Define done before patching.
                     "",
                     "# List Frontmatter",
                 ],
+                "closing-delimiter-suffix": [
+                    "---",
+                    "name: closing-delimiter-suffix",
+                    "description: Use exact frontmatter delimiter lines for skill metadata.",
+                    "---not-a-delimiter",
+                    "",
+                    "# Closing Delimiter Suffix",
+                ],
             }
             for name, lines in cases.items():
                 skill_dir = root / name
@@ -325,7 +333,8 @@ Define done before patching.
             self.assertEqual(reasons["leading-whitespace"], "No YAML frontmatter found")
             self.assertIn("Invalid YAML in frontmatter", reasons["invalid-yaml"])
             self.assertEqual(reasons["list-frontmatter"], "Frontmatter must be a YAML dictionary")
-            self.assertEqual(bundle["catalog_root_details"][0]["invalid_skills_skipped"], 3)
+            self.assertEqual(reasons["closing-delimiter-suffix"], "Invalid frontmatter format")
+            self.assertEqual(bundle["catalog_root_details"][0]["invalid_skills_skipped"], 4)
 
     def test_load_skill_catalog_parses_folded_yaml_description(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

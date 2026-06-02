@@ -159,6 +159,41 @@ def test_match_with_explicit_config_root_remains_scoped(tmp_path: Path) -> None:
     assert json.loads(result.stdout)["matches"] == []
 
 
+def test_match_accepts_scalar_overlay_cwd_match(tmp_path: Path) -> None:
+    repo = tmp_path / "repos" / "project"
+    repo.mkdir(parents=True)
+    root = tmp_path / "repos" / "skillbox-config" / "clients"
+    overlay = root / "project" / "overlay.yaml"
+    overlay.parent.mkdir(parents=True, exist_ok=True)
+    overlay.write_text(
+        yaml.safe_dump(
+            {
+                "version": 1,
+                "client": {
+                    "id": "project",
+                    "label": "project",
+                    "context": {"cwd_match": str(repo)},
+                },
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), "match", "--cwd", str(repo), "--json"],
+        cwd=repo,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    data = json.loads(result.stdout)
+    assert [match["client_id"] for match in data["matches"]] == ["project"]
+    assert data["matches"][0]["matched_pattern"] == str(repo)
+
+
 def test_list_reports_non_mapping_overlay_without_crashing(tmp_path: Path) -> None:
     root = tmp_path / "clients"
     bad_overlay = root / "bad" / "overlay.yaml"

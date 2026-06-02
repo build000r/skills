@@ -117,6 +117,14 @@ def _expanded_match(pattern: str) -> str | None:
     return expanded
 
 
+def _cwd_match_patterns(value) -> list:
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, list):
+        return value
+    return []
+
+
 def cmd_list(config_root: Path, as_json: bool) -> int:
     """List all client overlays."""
     overlays = load_overlays(config_root)
@@ -268,7 +276,7 @@ def find_matches(cwd: str, config_root: Path) -> list[dict]:
             continue
         client = o["data"].get("client", {})
         ctx = client.get("context", {})
-        for pattern in ctx.get("cwd_match", []):
+        for pattern in _cwd_match_patterns(ctx.get("cwd_match", [])):
             expanded = _expanded_match(str(pattern))
             if expanded is None or not _matches_prefix(cwd_path, expanded):
                 continue

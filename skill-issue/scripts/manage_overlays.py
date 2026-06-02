@@ -371,7 +371,7 @@ def cmd_create(client_id: str, cwd: str, config_root: Path, as_json: bool) -> in
             print(msg)
         return 1
 
-    cwd_abs = os.path.abspath(os.path.expandvars(cwd))
+    cwd_abs = str(_start_path(cwd))
 
     overlay = {
         "version": 1,

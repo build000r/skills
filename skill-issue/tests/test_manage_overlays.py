@@ -213,6 +213,39 @@ def test_create_defaults_to_repo_local_buildooor_root(tmp_path: Path) -> None:
     assert target.is_file()
 
 
+def test_create_expands_user_in_cwd_match(tmp_path: Path) -> None:
+    config_root = tmp_path / "clients"
+    expected_cwd = Path.home() / "project"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--config-root",
+            str(config_root),
+            "create",
+            "--client-id",
+            "project",
+            "--cwd",
+            str(Path("~") / "project"),
+            "--json",
+        ],
+        cwd=tmp_path,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    target = config_root / "project" / "overlay.yaml"
+    data = json.loads(result.stdout)
+    assert data["created"] == str(target)
+    assert data["cwd_match"] == [str(expected_cwd)]
+    overlay = yaml.safe_load(target.read_text(encoding="utf-8"))
+    assert overlay["client"]["default_cwd"] == str(expected_cwd)
+    assert overlay["client"]["context"]["cwd_match"] == [str(expected_cwd)]
+
+
 def test_match_uses_path_segment_boundaries(tmp_path: Path) -> None:
     repo = tmp_path / "repos" / "htma_server"
     repo.mkdir(parents=True)

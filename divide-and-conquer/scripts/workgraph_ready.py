@@ -156,7 +156,7 @@ def _valid_node_id(node_id: object) -> bool:
 def classify_nodes(nodes: list[dict]) -> tuple[list[dict], list[dict], list[str]]:
     issues: list[str] = []
     node_id_counts = Counter(
-        node.get("id") for node in nodes if "id" in node and node.get("id") is not None
+        node.get("id") for node in nodes if _valid_node_id(node.get("id"))
     )
     duplicate_ids = {node_id for node_id, count in node_id_counts.items() if count > 1}
     for node_id in sorted(duplicate_ids, key=_display_node_id):

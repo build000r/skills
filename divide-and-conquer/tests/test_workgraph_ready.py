@@ -199,7 +199,7 @@ class WorkgraphReadyTests(unittest.TestCase):
         self.assertIn("WG-001: duplicate node ID", issues)
         self.assertIn("WG-002: ambiguous duplicate dependency IDs: WG-001", issues)
 
-    def test_duplicate_empty_node_ids_are_not_ready(self) -> None:
+    def test_duplicate_empty_node_ids_are_invalid_not_ambiguous(self) -> None:
         ready, waiting, issues = MODULE.classify_nodes(
             [
                 {
@@ -234,8 +234,10 @@ class WorkgraphReadyTests(unittest.TestCase):
 
         self.assertEqual(ready, [])
         self.assertEqual(len(waiting), 3)
-        self.assertIn("<empty>: duplicate node ID", issues)
-        self.assertIn("WG-002: ambiguous duplicate dependency IDs: <empty>", issues)
+        self.assertEqual(issues.count("<empty>: invalid node ID"), 2)
+        self.assertIn("WG-002: invalid dependency IDs: <empty>", issues)
+        self.assertNotIn("<empty>: duplicate node ID", issues)
+        self.assertNotIn("WG-002: ambiguous duplicate dependency IDs: <empty>", issues)
 
     def test_blank_or_missing_node_ids_are_not_ready(self) -> None:
         ready, waiting, issues = MODULE.classify_nodes(

@@ -78,13 +78,15 @@ def build_overlay(client_id: str, scan: dict, blueprint_rec: dict) -> dict:
     """
     repos = scan.get("repos", [])
     primary = blueprint_rec.get("primary_repo")
+    primary_repo_id = primary.get("name") if isinstance(primary, dict) else None
+    default_cwd = f"${{CLIENT_ROOT}}/{primary_repo_id}" if primary_repo_id else "${SKILLBOX_MONOSERVER_ROOT}"
 
     overlay = {
         "version": 1,
         "client": {
             "id": client_id,
             "label": client_id.replace("-", " ").replace("_", " ").title(),
-            "default_cwd": "${SKILLBOX_MONOSERVER_ROOT}",
+            "default_cwd": default_cwd,
             "repos": [],
             "logs": [
                 {
@@ -109,32 +111,41 @@ def build_overlay(client_id: str, scan: dict, blueprint_rec: dict) -> dict:
         },
     }
 
+    included_repo_count = 0
+    included_repo_ids = set()
+
     # Add repos from scan
-    for i, repo in enumerate(repos):
-        if not repo.get("remote"):
-            continue  # Skip local-only repos without remotes
+    for repo in repos:
         repo_id = repo["name"]
+        source_url = repo.get("remote")
+        if not source_url and repo_id == primary_repo_id:
+            source_url = f"file://{repo['path']}"
+        if not source_url:
+            continue  # Skip local-only repos without remotes
         repo_entry = {
             "id": repo_id,
             "kind": "repo",
             "path": f"${{CLIENT_ROOT}}/{repo_id}",
-            "required": i == 0,  # First repo is required
+            "required": repo_id == primary_repo_id
+            or (primary_repo_id is None and included_repo_count == 0),
             "profiles": ["core"],
             "source": {
                 "kind": "git",
-                "url": repo["remote"],
+                "url": source_url,
                 "branch": repo.get("branch", "main"),
             },
             "sync": {"mode": "clone-if-missing"},
             "notes": f"{', '.join(repo['stacks']) if repo['stacks'] else 'unknown stack'}",
         }
         overlay["client"]["repos"].append(repo_entry)
+        included_repo_ids.add(repo_id)
+        included_repo_count += 1
 
     # Add services for repos with dev servers
     services = []
     for repo in repos:
         svc = repo.get("service")
-        if svc and repo.get("remote"):
+        if svc and repo["name"] in included_repo_ids:
             services.append({
                 "id": f"{repo['name']}-dev",
                 "kind": "http",

@@ -34,5 +34,95 @@ class FirstBoxCommandTests(unittest.TestCase):
         self.assertNotIn("dev", argv)
 
 
+class OverlayGenerationTests(unittest.TestCase):
+    def test_overlay_uses_service_repo_as_primary(self) -> None:
+        scan = {
+            "repos": [
+                {
+                    "name": "library",
+                    "path": "/tmp/library",
+                    "remote": "git@example.com:library.git",
+                    "branch": "main",
+                    "stacks": ["python"],
+                },
+                {
+                    "name": "app",
+                    "path": "/tmp/app",
+                    "remote": "git@example.com:app.git",
+                    "branch": "main",
+                    "stacks": ["node"],
+                    "service": {
+                        "command": "npm run dev",
+                        "source": "package.json scripts.dev",
+                    },
+                },
+            ]
+        }
+
+        blueprint = generate_overlay.pick_blueprint(scan)
+        overlay = generate_overlay.build_overlay("demo", scan, blueprint)
+
+        repos = {repo["id"]: repo for repo in overlay["client"]["repos"]}
+        self.assertEqual(overlay["client"]["default_cwd"], "${CLIENT_ROOT}/app")
+        self.assertFalse(repos["library"]["required"])
+        self.assertTrue(repos["app"]["required"])
+
+    def test_first_included_repo_is_required_when_earlier_repos_are_skipped(self) -> None:
+        scan = {
+            "repos": [
+                {
+                    "name": "local-only",
+                    "path": "/tmp/local-only",
+                    "remote": None,
+                    "branch": "main",
+                    "stacks": ["python"],
+                },
+                {
+                    "name": "remote",
+                    "path": "/tmp/remote",
+                    "remote": "git@example.com:remote.git",
+                    "branch": "main",
+                    "stacks": ["python"],
+                },
+            ]
+        }
+
+        blueprint = generate_overlay.pick_blueprint(scan)
+        overlay = generate_overlay.build_overlay("demo", scan, blueprint)
+
+        self.assertEqual(
+            [(repo["id"], repo["required"]) for repo in overlay["client"]["repos"]],
+            [("remote", True)],
+        )
+
+    def test_local_primary_service_repo_is_included_with_file_url(self) -> None:
+        scan = {
+            "repos": [
+                {
+                    "name": "local-app",
+                    "path": "/tmp/local-app",
+                    "remote": None,
+                    "branch": "main",
+                    "stacks": ["node"],
+                    "service": {
+                        "command": "npm run dev",
+                        "source": "package.json scripts.dev",
+                    },
+                }
+            ]
+        }
+
+        blueprint = generate_overlay.pick_blueprint(scan)
+        overlay = generate_overlay.build_overlay("demo", scan, blueprint)
+
+        self.assertEqual(overlay["client"]["default_cwd"], "${CLIENT_ROOT}/local-app")
+        self.assertEqual(
+            overlay["client"]["repos"][0]["source"]["url"],
+            "file:///tmp/local-app",
+        )
+        self.assertTrue(overlay["client"]["repos"][0]["required"])
+        self.assertEqual(overlay["client"]["services"][0]["cwd"], "${CLIENT_ROOT}/local-app")
+
+
 if __name__ == "__main__":
     unittest.main()

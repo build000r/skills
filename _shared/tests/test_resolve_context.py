@@ -102,6 +102,51 @@ class ResolveContextTests(unittest.TestCase):
             {"plan_index": str(overlay_dir / "plans" / "INDEX.md")},
         )
 
+    def test_env_context_wraps_scalar_sections_like_local_context(self) -> None:
+        module = _load_module()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            context_path = Path(tmpdir) / "context.yaml"
+            context_path.write_text(
+                "cwd_match:\n"
+                "  - /tmp\n"
+                "feature_flag: enabled\n",
+                encoding="utf-8",
+            )
+
+            with mock.patch.dict(
+                os.environ,
+                {"SKILLBOX_CLIENT_CONTEXT": str(context_path)},
+                clear=False,
+            ):
+                payload = module.resolve("/tmp", section="feature_flag")
+
+        self.assertEqual(payload, {"value": "enabled"})
+
+    def test_workspace_context_wraps_scalar_sections_like_local_context(self) -> None:
+        module = _load_module()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir).resolve()
+            cwd_root = root / "example"
+            cwd = cwd_root / "app"
+            cwd.mkdir(parents=True)
+            context_path = root / "clients" / "example" / "context.yaml"
+            context_path.parent.mkdir(parents=True)
+            context_path.write_text(
+                "cwd_match:\n"
+                f"  - {cwd_root}\n"
+                "feature_flag: enabled\n",
+                encoding="utf-8",
+            )
+
+            with mock.patch.object(module, "WORKSPACE_CLIENTS_GLOB", str(context_path)):
+                with mock.patch.dict(os.environ, {}, clear=False):
+                    os.environ.pop("SKILLBOX_CLIENT_CONTEXT", None)
+                    payload = module.resolve(str(cwd), section="feature_flag")
+
+        self.assertEqual(payload, {"value": "enabled"})
+
 
 if __name__ == "__main__":
     unittest.main()

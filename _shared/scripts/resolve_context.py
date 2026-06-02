@@ -149,9 +149,7 @@ def _resolve_from_env(section: str | None) -> dict[str, Any] | None:
     if not ctx_path.is_file():
         return None
     data = _load_yaml_file(ctx_path)
-    if section:
-        return data.get(section)  # type: ignore[return-value]
-    return data
+    return _extract_context_payload(data, section)
 
 
 def _resolve_from_scan(cwd: str, section: str | None) -> dict[str, Any] | None:
@@ -190,9 +188,7 @@ def _resolve_from_scan(cwd: str, section: str | None) -> dict[str, Any] | None:
         return None
 
     _, _, data = top[0]
-    if section:
-        return data.get(section)  # type: ignore[return-value]
-    return data
+    return _extract_context_payload(data, section)
 
 
 def _resolve_from_local_overlays(

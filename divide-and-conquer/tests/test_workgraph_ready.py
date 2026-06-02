@@ -92,6 +92,40 @@ class WorkgraphReadyTests(unittest.TestCase):
         self.assertEqual([node["id"] for node in waves[0]["nodes"]], ["WG-001", "WG-002"])
         self.assertEqual([node["id"] for node in waves[1]["nodes"]], ["WG-003"])
 
+    def test_write_overlap_respects_path_boundaries(self) -> None:
+        self.assertFalse(MODULE.writes_overlap(["src/app/**"], ["src/app2/**"]))
+        self.assertTrue(MODULE.writes_overlap(["src/app/**"], ["src/app/routes/**"]))
+
+    def test_sibling_prefix_paths_can_share_a_wave(self) -> None:
+        ready, waiting, issues = MODULE.classify_nodes(
+            [
+                {
+                    "id": "WG-001",
+                    "title": "App",
+                    "depends_on": [],
+                    "writes": ["src/app/**"],
+                    "done_when": ["App updated"],
+                    "validate_cmds": ["pytest tests/test_app.py"],
+                    "status": "todo",
+                },
+                {
+                    "id": "WG-002",
+                    "title": "App 2",
+                    "depends_on": [],
+                    "writes": ["src/app2/**"],
+                    "done_when": ["App 2 updated"],
+                    "validate_cmds": ["pytest tests/test_app2.py"],
+                    "status": "todo",
+                },
+            ]
+        )
+
+        self.assertEqual(len(waiting), 0)
+        self.assertEqual(issues, [])
+        waves = MODULE.group_waves(ready)
+        self.assertEqual(len(waves), 1)
+        self.assertEqual([node["id"] for node in waves[0]["nodes"]], ["WG-001", "WG-002"])
+
 
 if __name__ == "__main__":
     unittest.main()

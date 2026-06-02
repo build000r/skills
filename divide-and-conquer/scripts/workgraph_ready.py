@@ -54,6 +54,10 @@ def normalize_prefix(path_pattern: str) -> str:
     return prefix.rstrip("/")
 
 
+def prefix_contains(parent: str, child: str) -> bool:
+    return child == parent or child.startswith(parent + "/")
+
+
 def writes_overlap(left: list[str], right: list[str]) -> bool:
     for a in left:
         for b in right:
@@ -63,7 +67,7 @@ def writes_overlap(left: list[str], right: list[str]) -> bool:
             b_prefix = normalize_prefix(b)
             if not a_prefix or not b_prefix:
                 continue
-            if a_prefix.startswith(b_prefix) or b_prefix.startswith(a_prefix):
+            if prefix_contains(a_prefix, b_prefix) or prefix_contains(b_prefix, a_prefix):
                 return True
     return False
 

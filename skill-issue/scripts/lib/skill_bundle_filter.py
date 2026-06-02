@@ -22,7 +22,7 @@ def iter_included_skill_files(skill_path: Path):
     skill_path = Path(skill_path).resolve()
     files = sorted((path.resolve() for path in skill_path.rglob("*") if path.is_file()), key=_sort_key)
     ignored = _resolve_gitignored_files(skill_path, files)
-    fallback_patterns = _load_skill_local_ignore_patterns(skill_path)
+    fallback_rules = _load_skill_local_ignore_rules(skill_path)
 
     for file_path in files:
         rel_path = file_path.relative_to(skill_path).as_posix()
@@ -30,7 +30,7 @@ def iter_included_skill_files(skill_path: Path):
             continue
         if file_path in ignored:
             continue
-        if not ignored and _matches_patterns(rel_path, fallback_patterns):
+        if not ignored and _is_ignored_by_rules(rel_path, fallback_rules):
             continue
         yield file_path
 
@@ -84,18 +84,33 @@ def _find_git_root(start_path: Path) -> Path | None:
     return Path(result.stdout.strip()).resolve()
 
 
-def _load_skill_local_ignore_patterns(skill_path: Path) -> set[str]:
+def _load_skill_local_ignore_rules(skill_path: Path) -> list[tuple[bool, bool, str]]:
     gitignore_path = skill_path / ".gitignore"
     if not gitignore_path.exists():
-        return set()
+        return []
 
-    patterns = set()
+    rules: list[tuple[bool, bool, str]] = []
     for line in gitignore_path.read_text(encoding="utf-8", errors="ignore").splitlines():
         line = line.strip()
-        if not line or line.startswith("#") or line.startswith("!"):
+        if not line or line.startswith("#"):
             continue
-        patterns.add(line.rstrip("/"))
-    return patterns
+        negated = line.startswith("!")
+        pattern = line[1:] if negated else line
+        directory_only = pattern.endswith("/")
+        pattern = pattern.rstrip("/")
+        if pattern:
+            rules.append((negated, directory_only, pattern))
+    return rules
+
+
+def _is_ignored_by_rules(rel_path: str, rules: list[tuple[bool, bool, str]]) -> bool:
+    ignored = False
+    for negated, directory_only, pattern in rules:
+        if negated and directory_only:
+            continue
+        if _matches_patterns(rel_path, (pattern,)):
+            ignored = not negated
+    return ignored
 
 
 def _matches_patterns(rel_path: str, patterns) -> bool:

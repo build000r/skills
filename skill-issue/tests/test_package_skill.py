@@ -87,6 +87,35 @@ class PackageSkillTests(unittest.TestCase):
             self.assertIn("sample-skill/references/guide.md", archive_members)
             self.assertNotIn("sample-skill/modes/private.local.md", archive_members)
 
+    def test_package_skill_fallback_honors_gitignore_negation_patterns(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            skill_dir = Path(tmpdir) / "sample-skill"
+            self._write_skill(skill_dir)
+            (skill_dir / ".gitignore").write_text(
+                "*\n"
+                "!SKILL.md\n"
+                "!references/\n"
+                "!references/guide.md\n",
+                encoding="utf-8",
+            )
+            (skill_dir / "references" / "guide.md").write_text("public guide\n", encoding="utf-8")
+            (skill_dir / "references" / "draft.md").write_text("draft notes\n", encoding="utf-8")
+            (skill_dir / "scratch.txt").write_text("ignore me\n", encoding="utf-8")
+
+            output_dir = Path(tmpdir) / "dist"
+            archive_path = PACKAGE_MODULE.package_skill(skill_dir, output_dir)
+
+            self.assertIsNotNone(archive_path)
+            archive_members = self._read_archive_members(archive_path)
+
+            self.assertEqual(
+                archive_members,
+                [
+                    "sample-skill/SKILL.md",
+                    "sample-skill/references/guide.md",
+                ],
+            )
+
     def test_validate_skill_skips_repo_gitignored_private_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             repo = Path(tmpdir)

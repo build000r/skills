@@ -206,14 +206,14 @@ def ensure_initialized(repo: Path | str = ".") -> dict:
     beads_dir = repo / ".beads"
     initialized = beads_dir.is_dir()
     if not initialized:
-        _run(["init"], capture=False)
+        _run(["init"], capture=False, cwd=repo)
     should_update_agents, agents_skip_reason = _agents_update_policy(repo)
     agents_updated = False
     if should_update_agents:
         # Idempotent: --force skips the prompt; --add upserts the br-owned block.
-        _run(["agents", "--add", "--force"], check=False, capture=False)
+        _run(["agents", "--add", "--force"], check=False, capture=False, cwd=repo)
         agents_updated = True
-    where = _run(["where"], check=False).stdout.strip()
+    where = _run(["where"], check=False, cwd=repo).stdout.strip()
     return {
         "initialized": initialized,
         "beads_dir": str(beads_dir),

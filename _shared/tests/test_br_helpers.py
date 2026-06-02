@@ -197,7 +197,7 @@ class BrHelpersTests(unittest.TestCase):
 
     def test_ensure_initialized_preserves_curated_agents_block(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            repo = Path(tmp)
+            repo = Path(tmp).resolve()
             (repo / ".beads").mkdir()
             agents = repo / "AGENTS.md"
             original = "\n".join([
@@ -224,6 +224,28 @@ class BrHelpersTests(unittest.TestCase):
             self.assertNotIn(["agents", "--add", "--force"], calls)
             self.assertFalse(result["agents_updated"])
             self.assertIn("existing_curated_agents_block", result["agents_skip_reason"])
+
+    def test_ensure_initialized_runs_br_commands_in_target_repo(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp).resolve()
+            calls = []
+
+            def fake_run(args, **kwargs):
+                calls.append((args, kwargs))
+                if args == ["where"]:
+                    return SimpleNamespace(stdout=str(repo), stderr="", returncode=0)
+                return SimpleNamespace(stdout="", stderr="", returncode=0)
+
+            with mock.patch.object(MODULE, "_run", fake_run):
+                result = MODULE.ensure_initialized(repo)
+
+            self.assertEqual(result["where"], str(repo))
+            self.assertEqual(calls[0][0], ["init"])
+            self.assertEqual(calls[0][1]["cwd"], repo)
+            self.assertEqual(calls[1][0], ["agents", "--add", "--force"])
+            self.assertEqual(calls[1][1]["cwd"], repo)
+            self.assertEqual(calls[2][0], ["where"])
+            self.assertEqual(calls[2][1]["cwd"], repo)
 
 
 if __name__ == "__main__":

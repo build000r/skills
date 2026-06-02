@@ -60,6 +60,24 @@ class ParseArgsModelPolicyTests(unittest.TestCase):
         self.assertIn("invalid choice", stderr.getvalue())
 
 
+class CodexCommandTests(unittest.TestCase):
+    def test_command_uses_search_and_non_interactive_approvals(self) -> None:
+        command = run._build_codex_command(
+            prompt="noop",
+            repo="/tmp/repo",
+            model="gpt-5.5",
+            reasoning_effort="high",
+            codex_bin="codex",
+        )
+
+        self.assertEqual(
+            command[:4],
+            ["codex", "--search", "exec", "--dangerously-bypass-approvals-and-sandbox"],
+        )
+        self.assertIn("--cd", command)
+        self.assertEqual(command[-1], "noop")
+
+
 class SkillDocModelPolicyTests(unittest.TestCase):
     def test_skill_docs_only_list_codex_native_models(self) -> None:
         skill_doc = (Path(__file__).resolve().parents[1] / "SKILL.md").read_text()

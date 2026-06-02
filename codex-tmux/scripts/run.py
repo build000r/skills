@@ -80,7 +80,8 @@ def _build_codex_command(
     codex_bin: str,
 ) -> list[str]:
     return [
-        codex_bin, "exec",
+        codex_bin, "--search", "exec",
+        "--dangerously-bypass-approvals-and-sandbox",
         "-m", model,
         "-c", f'model_reasoning_effort="{reasoning_effort}"',
         "--cd", repo,

@@ -83,6 +83,9 @@ python3 ~/.claude/skills/codex-tmux/scripts/run.py launch \
 ```
 
 Defaults are `gpt-5.5` and `high` reasoning. For routine or budget-sensitive work, pass `--model gpt-5.4`, `--model gpt-5.4-mini`, or `--model codex-mini-latest`. Raise to `xhigh` when the task is reviewer-grade or ambiguous.
+The launcher runs `codex --search exec --dangerously-bypass-approvals-and-sandbox`
+inside the tmux wrapper so detached research and commit tasks do not hang on
+browser/search or approval prompts.
 
 The script outputs JSON to stdout:
 

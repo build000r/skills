@@ -274,6 +274,59 @@ Define done before patching.
             )
             self.assertEqual(bundle["catalog_root_details"][0]["invalid_skills_skipped"], 3)
 
+    def test_load_skill_catalog_skips_invalid_frontmatter_format_and_yaml(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir) / "skills"
+            self.write_skill(
+                root,
+                "valid-skill",
+                "Use valid skills when checking catalog frontmatter parsing.",
+                "# Valid Skill",
+            )
+            cases = {
+                "leading-whitespace": [
+                    "",
+                    "---",
+                    "name: leading-whitespace",
+                    "description: Use frontmatter at the start of the skill file.",
+                    "---",
+                    "",
+                    "# Leading Whitespace",
+                ],
+                "invalid-yaml": [
+                    "---",
+                    "name: [",
+                    "description: Use valid YAML frontmatter for skill metadata.",
+                    "---",
+                    "",
+                    "# Invalid YAML",
+                ],
+                "list-frontmatter": [
+                    "---",
+                    "- name",
+                    "- description",
+                    "---",
+                    "",
+                    "# List Frontmatter",
+                ],
+            }
+            for name, lines in cases.items():
+                skill_dir = root / name
+                skill_dir.mkdir(parents=True, exist_ok=True)
+                (skill_dir / "SKILL.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+            bundle = PORTFOLIO.load_skill_catalog_bundle(skills_root=root)
+
+            self.assertEqual([skill["name"] for skill in bundle["catalog"]], ["valid-skill"])
+            reasons = {
+                Path(skill["path"]).parent.name: skill["reason"]
+                for skill in bundle["invalid_skills_skipped"]
+            }
+            self.assertEqual(reasons["leading-whitespace"], "No YAML frontmatter found")
+            self.assertIn("Invalid YAML in frontmatter", reasons["invalid-yaml"])
+            self.assertEqual(reasons["list-frontmatter"], "Frontmatter must be a YAML dictionary")
+            self.assertEqual(bundle["catalog_root_details"][0]["invalid_skills_skipped"], 3)
+
     def test_load_skill_catalog_parses_folded_yaml_description(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir) / "skills"

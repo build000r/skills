@@ -181,22 +181,21 @@ def _tokenize(text: str) -> list[str]:
 
 
 def _frontmatter(text: str) -> tuple[dict[str, Any], str]:
-    """Extract a YAML frontmatter block and return the remaining body."""
-    stripped = text.lstrip()
-    if not stripped.startswith("---\n"):
-        return {}, text
+    """Extract and validate a YAML frontmatter block."""
+    if not text.startswith("---"):
+        raise ValueError("No YAML frontmatter found")
 
-    match = re.match(r"^---\n(.*?)\n---(?:\n|$)", stripped, re.DOTALL)
+    match = re.match(r"^---\n(.*?)\n---", text, re.DOTALL)
     if not match:
-        return {}, text
+        raise ValueError("Invalid frontmatter format")
 
-    body = stripped[match.end():]
+    body = text[match.end():]
     try:
         data = yaml.safe_load(match.group(1)) or {}
-    except yaml.YAMLError:
-        return {}, body
+    except yaml.YAMLError as exc:
+        raise ValueError(f"Invalid YAML in frontmatter: {exc}") from exc
     if not isinstance(data, dict):
-        return {}, body
+        raise ValueError("Frontmatter must be a YAML dictionary")
     return data, body
 
 

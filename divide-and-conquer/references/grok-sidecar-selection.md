@@ -157,6 +157,7 @@ different pattern.
 | `buildooor-backend` diagram-versioning landscape Bead `buildooor-backend-deep-research-diagram-versioning-landscape-2y5` | Direct headless G1 source-discovery sidecar | Grok produced useful lead URLs, but every claim still needed primary-source verification. It could not establish the exact durable per-version Mermaid link claim, so that stayed an evidence gap. | Good Grok evidence is a lead list, not a conclusion. Use it to widen source discovery, then keep unverifiable claims marked `not found` or `inferred`. | `grok useful lead URLs verified against primary sources diagram versioning`, `grok could not establish durable per-version Mermaid link claim` |
 | `skillbox-config` operator-config distribution Bead `skillbox-config-deep-research-gtm-operator-config-distribution-qiz` | Direct headless G1 source-discovery sidecar | Grok helped surface candidate sources, but Reddit direct JSON returned 403, no verified X/Discord/Slack engagement was found, and exact-niche HN breakout evidence was not found. The final packet verified evidence through GitHub APIs, HN Algolia, and official/project docs. | Use Grok as a lead finder only. Verify with primary APIs/docs and mark missing engagement channels as evidence gaps instead of filling them with estimates. | `grok source discovery candidates independently verified GitHub API HN Algolia`, `grok sidecar Reddit JSON 403 no verified X Discord Slack engagement` |
 | `buildooor` RTMMDX Grok-art Beads `buildooor-rtmmdx-epic-ql29.7.1` through `.7.4` | No Grok sidecar; Codex workers implemented a feature-flagged Grok adapter/cache/guard with mocked tests | The code path was cheap to verify because the live `grok` dependency stayed behind an off-by-default flag, cache tests asserted zero repeated calls, and fallback tests kept static preview uploads nonblocking. This is not evidence that Grok should own code edits. | Grok-adjacent implementation work can be safe when a stronger coding agent owns the patch and tests mock the CLI boundary. Do not upgrade Grok autonomy from this; at most use Grok G0/G1 to inspect CLI output contracts or source examples. | `buildooor grok art adapter feature flag mocked tests`, `grok adjacent implementation not grok sidecar evidence`, `cache hit zero grok calls static fallback` |
+| Long-running Oracle/deep-research work delegated from a workspace sweep | No Grok watcher; root delegates waiting to a separate controller or scheduler | Treating a slow Oracle/deep-research job as stalled too early wastes attention and can cause duplicate launches. The operator clarified that these jobs can legitimately run a long time. | Do not poll until 30 minutes after launch, then poll every 15 minutes, and do not call the job stalled until 2 hours have elapsed without useful progress. Grok may summarize result artifacts after they exist, but it should not be the liveness judge. | `oracle deep research do not poll until 30 minutes`, `poll every 15 minutes stalled after 2 hours`, `grok not watcher of record oracle deep research`, `delegate waiting continue root loop` |
 
 ## Current Routing Notes
 
@@ -167,11 +168,13 @@ likely write-overlap risks from Beads metadata, or produce a read-only evidence
 inventory that the lead can verify before sending work to Codex or Claude.
 
 Do not use Grok as the watcher of record for long-running Oracle or deep-research
-jobs. Give those jobs a deterministic quiet window before the first check, poll
-on the workflow's explicit cadence, and only call a job stalled after the
-workflow's stated age threshold. Grok may summarize result artifacts after they
-exist, but the scheduler should judge liveness from launch time, process/session
-state, expected artifacts, Beads state, and validation evidence.
+jobs. Give those jobs a deterministic quiet window before the first check: wait
+30 minutes after launch, poll every 15 minutes after that, and do not call the
+job stalled until 2 hours have elapsed without useful progress. Delegate that
+waiting loop to a controller or scheduler so the root orchestrator can continue
+dispatching other Beads. Grok may summarize result artifacts after they exist,
+but the scheduler should judge liveness from launch time, process/session state,
+expected artifacts, Beads state, and validation evidence.
 
 Example low-risk prompts to search for or reuse:
 

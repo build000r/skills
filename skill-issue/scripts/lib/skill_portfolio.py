@@ -148,6 +148,8 @@ STOPWORDS = {
 }
 DISCOVERABILITY_MIN_SCORE = 3.0
 MIN_CARD_SCORE = 14
+CATALOG_NAME_RE = re.compile(r"^[a-z0-9-]+$")
+DESCRIPTION_TODO_RE = re.compile(r"^\s*\[?\s*TODO\b", re.IGNORECASE)
 DEFAULT_SKILLS_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_SKILLS_ROOT_CANDIDATES = (
     DEFAULT_SKILLS_ROOT,
@@ -251,13 +253,32 @@ def _load_skill_metadata(skill_path: Path, catalog_root: Path) -> dict[str, Any]
     text = skill_path.read_text(encoding="utf-8")
     frontmatter, body = _frontmatter(text)
     raw_name = frontmatter.get("name")
-    name = raw_name.strip() if isinstance(raw_name, str) and raw_name.strip() else skill_path.parent.name
+    if not isinstance(raw_name, str):
+        raise ValueError("missing or non-string name")
+    name = raw_name.strip()
+    if not name:
+        raise ValueError("missing or empty name")
+    if not CATALOG_NAME_RE.match(name):
+        raise ValueError("name must be hyphen-case")
+    if name.startswith("-") or name.endswith("-") or "--" in name:
+        raise ValueError("name cannot start/end with hyphen or contain consecutive hyphens")
+    if len(name) > 64:
+        raise ValueError("name is too long")
+    if name != skill_path.parent.name:
+        raise ValueError("name does not match skill directory")
+
     raw_description = frontmatter.get("description")
     if not isinstance(raw_description, str):
         raise ValueError("missing or non-string description")
     description = raw_description.strip()
     if not description:
         raise ValueError("missing or empty description")
+    if DESCRIPTION_TODO_RE.search(description):
+        raise ValueError("description contains TODO placeholder text")
+    if "<" in description or ">" in description:
+        raise ValueError("description contains angle brackets")
+    if len(description) > 1024:
+        raise ValueError("description is too long")
     heading = _first_heading(body) or name
     trigger_phrases = _quoted_phrases(description)
     discovery_text = " ".join(
@@ -310,6 +331,7 @@ def load_skill_catalog_bundle(
     for root in catalog_roots:
         loaded_count = 0
         duplicate_count = 0
+        invalid_count = 0
         for path in sorted(root.iterdir()):
             if not path.is_dir():
                 continue
@@ -320,6 +342,7 @@ def load_skill_catalog_bundle(
             try:
                 skill = _load_skill_metadata(skill_path, root)
             except ValueError as exc:
+                invalid_count += 1
                 invalid_skills.append(
                     {
                         "path": str(skill_path),
@@ -354,6 +377,7 @@ def load_skill_catalog_bundle(
                 "root": str(root),
                 "skills_loaded": loaded_count,
                 "duplicates_skipped": duplicate_count,
+                "invalid_skills_skipped": invalid_count,
             }
         )
 
@@ -587,6 +611,7 @@ def scan_skill_portfolio(
             "roots_loaded": len(catalog_bundle["catalog_roots"]),
             "root_details": catalog_bundle["catalog_root_details"],
             "duplicate_skills_skipped": catalog_bundle["duplicate_skills_skipped"],
+            "invalid_skills_skipped": catalog_bundle["invalid_skills_skipped"],
             "activated_counts": dict(activated_counts),
             "suggested_counts": dict(suggested_counts),
         },
@@ -1063,6 +1088,9 @@ def generate_portfolio_opportunity_report(
             "duplicate_skills_skipped": portfolio_report.get("catalog_summary", {}).get(
                 "duplicate_skills_skipped", []
             ),
+            "invalid_skills_skipped": portfolio_report.get("catalog_summary", {}).get(
+                "invalid_skills_skipped", []
+            ),
         },
         "summary": {
             "cards_generated": len(cards),
@@ -1100,8 +1128,20 @@ def render_portfolio_opportunity_markdown(report: dict[str, Any]) -> str:
     lines.append(f"- Catalog roots: {catalog_summary.get('roots_loaded', 0)}")
     for detail in catalog_summary.get("root_details", []):
         duplicate_count = detail.get("duplicates_skipped", 0)
+        invalid_count = detail.get("invalid_skills_skipped", 0)
         duplicate_suffix = f", duplicates skipped={duplicate_count}" if duplicate_count else ""
-        lines.append(f"- Root loaded: {detail.get('root')} ({detail.get('skills_loaded', 0)} skills{duplicate_suffix})")
+        invalid_suffix = f", invalid skipped={invalid_count}" if invalid_count else ""
+        lines.append(
+            f"- Root loaded: {detail.get('root')} "
+            f"({detail.get('skills_loaded', 0)} skills{duplicate_suffix}{invalid_suffix})"
+        )
+    invalid_skills = catalog_summary.get("invalid_skills_skipped", [])
+    if invalid_skills:
+        lines.append(f"- Invalid skills skipped: {len(invalid_skills)}")
+        for item in invalid_skills[:5]:
+            lines.append(f"- Invalid skill skipped: {item.get('path')} ({item.get('reason')})")
+        if len(invalid_skills) > 5:
+            lines.append(f"- Invalid skill skipped: ... {len(invalid_skills) - 5} more")
     lines.append(f"- Sessions scanned: {source_review.get('sessions_scanned', 0)}")
     lines.append(f"- Sessions analyzed: {source_review.get('sessions_analyzed', 0)}")
     lines.append(f"- Cards returned: {len(cards)}")

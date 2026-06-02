@@ -188,6 +188,7 @@ Order user questions from strategic decisions to implementation details.
             )
             self.assertEqual(report["catalog_summary"]["roots_loaded"], 2)
             self.assertEqual(len(report["catalog_summary"]["root_details"]), 2)
+            self.assertEqual(report["catalog_summary"]["invalid_skills_skipped"], [])
 
             discoverability = next(card for card in report["cards"] if card["issue_type"] == "skill-discoverability-gap")
             self.assertEqual(discoverability["scope"], "deploy-approval")
@@ -209,8 +210,25 @@ Order user questions from strategic decisions to implementation details.
                 "skills_loaded": 3,
                 "roots_loaded": 2,
                 "root_details": [
-                    {"root": "/tmp/public-skills", "skills_loaded": 2, "duplicates_skipped": 0},
-                    {"root": "/tmp/private-skills", "skills_loaded": 1, "duplicates_skipped": 1},
+                    {
+                        "root": "/tmp/public-skills",
+                        "skills_loaded": 2,
+                        "duplicates_skipped": 0,
+                        "invalid_skills_skipped": 0,
+                    },
+                    {
+                        "root": "/tmp/private-skills",
+                        "skills_loaded": 1,
+                        "duplicates_skipped": 1,
+                        "invalid_skills_skipped": 1,
+                    },
+                ],
+                "invalid_skills_skipped": [
+                    {
+                        "path": "/tmp/private-skills/bad-skill/SKILL.md",
+                        "catalog_root": "/tmp/private-skills",
+                        "reason": "missing or empty description",
+                    }
                 ],
             },
             "cards": [
@@ -245,6 +263,9 @@ Order user questions from strategic decisions to implementation details.
         self.assertIn("Catalog roots: 2", markdown)
         self.assertIn("/tmp/private-skills", markdown)
         self.assertIn("duplicates skipped=1", markdown)
+        self.assertIn("invalid skipped=1", markdown)
+        self.assertIn("Invalid skills skipped: 1", markdown)
+        self.assertIn("/tmp/private-skills/bad-skill/SKILL.md (missing or empty description)", markdown)
 
     def test_default_catalog_roots_federate_multiple_existing_roots(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -276,6 +297,54 @@ Order user questions from strategic decisions to implementation details.
         self.assertEqual(
             sorted(skill["name"] for skill in bundle["catalog"]),
             ["describe", "smart"],
+        )
+
+    def test_scan_skill_portfolio_carries_invalid_skill_summary(self) -> None:
+        now = datetime.now(timezone.utc)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            skills_root = root / "skills"
+            codex_dir = root / "codex"
+            claude_dir = root / "claude"
+            self.write_skill(
+                skills_root,
+                "describe",
+                "Turn work into pass/fail test cases before patching.",
+                "# Describe",
+            )
+            invalid_dir = skills_root / "bad-skill"
+            invalid_dir.mkdir(parents=True, exist_ok=True)
+            (invalid_dir / "SKILL.md").write_text(
+                "\n".join(
+                    [
+                        "---",
+                        "name: bad-skill",
+                        'description: ""',
+                        "---",
+                        "",
+                        "# Bad Skill",
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            with self.patch_session_dirs(codex_dir, claude_dir):
+                portfolio = PORTFOLIO.scan_skill_portfolio(
+                    source="both",
+                    since=now - timedelta(days=1),
+                    until=now + timedelta(days=1),
+                    limit=20,
+                    skills_root=skills_root,
+                )
+                report = PORTFOLIO.generate_portfolio_opportunity_report(portfolio)
+
+        self.assertEqual(len(portfolio["catalog_summary"]["invalid_skills_skipped"]), 1)
+        self.assertEqual(portfolio["catalog_summary"]["root_details"][0]["invalid_skills_skipped"], 1)
+        self.assertEqual(
+            report["catalog_summary"]["invalid_skills_skipped"][0]["reason"],
+            "missing or empty description",
         )
 
 

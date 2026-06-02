@@ -96,8 +96,18 @@ This duplicate should not be loaded because the public root already defined it.
             self.assertEqual(
                 bundle["catalog_root_details"],
                 [
-                    {"root": str(public_root.resolve()), "skills_loaded": 2, "duplicates_skipped": 0},
-                    {"root": str(private_root.resolve()), "skills_loaded": 1, "duplicates_skipped": 1},
+                    {
+                        "root": str(public_root.resolve()),
+                        "skills_loaded": 2,
+                        "duplicates_skipped": 0,
+                        "invalid_skills_skipped": 0,
+                    },
+                    {
+                        "root": str(private_root.resolve()),
+                        "skills_loaded": 1,
+                        "duplicates_skipped": 1,
+                        "invalid_skills_skipped": 0,
+                    },
                 ],
             )
             self.assertEqual(len(bundle["duplicate_skills_skipped"]), 1)
@@ -127,7 +137,7 @@ Define done before patching.
             self.assertEqual(catalog[0]["name"], "describe")
             self.assertEqual(catalog[0]["catalog_root"], str(root.resolve()))
 
-    def test_load_skill_catalog_skips_empty_or_non_string_descriptions(self) -> None:
+    def test_load_skill_catalog_skips_invalid_required_frontmatter(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir) / "skills"
             self.write_skill(
@@ -158,14 +168,44 @@ Define done before patching.
                     ),
                     encoding="utf-8",
                 )
+            invalid_name_cases = {
+                "empty-name": 'name: ""',
+                "number-name": "name: 123",
+                "mismatch-name": "name: other-name",
+            }
+            for dirname, name_line in invalid_name_cases.items():
+                skill_dir = root / dirname
+                skill_dir.mkdir(parents=True, exist_ok=True)
+                (skill_dir / "SKILL.md").write_text(
+                    "\n".join(
+                        [
+                            "---",
+                            name_line,
+                            "description: Use valid descriptions when checking catalog name filtering.",
+                            "---",
+                            "",
+                            f"# {dirname}",
+                            "",
+                        ]
+                    ),
+                    encoding="utf-8",
+                )
 
             bundle = PORTFOLIO.load_skill_catalog_bundle(skills_root=root)
 
             self.assertEqual([skill["name"] for skill in bundle["catalog"]], ["valid-skill"])
             self.assertEqual(
                 sorted(Path(skill["path"]).parent.name for skill in bundle["invalid_skills_skipped"]),
-                ["empty-description", "number-description", "whitespace-description"],
+                [
+                    "empty-description",
+                    "empty-name",
+                    "mismatch-name",
+                    "number-description",
+                    "number-name",
+                    "whitespace-description",
+                ],
             )
+            self.assertEqual(bundle["catalog_root_details"][0]["invalid_skills_skipped"], 6)
 
     def test_load_skill_catalog_parses_folded_yaml_description(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

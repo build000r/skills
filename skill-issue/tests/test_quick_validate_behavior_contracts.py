@@ -75,6 +75,60 @@ class QuickValidateBehaviorContractTests(unittest.TestCase):
         self.assertTrue(valid)
         self.assertEqual(message, "Skill is valid!")
 
+    def test_minimal_scaffold_todo_placeholders_fail_validation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            skill_dir = self.write_skill(
+                Path(tmpdir),
+                "todo-skill",
+                "TODO - describe what this skill does and when to use it",
+                """
+# Todo Skill
+
+TODO: Add instructions here.
+""",
+            )
+
+            valid, message = VALIDATE_MODULE.validate_skill(skill_dir)
+
+        self.assertFalse(valid)
+        self.assertEqual(message, "Description contains TODO placeholder text")
+
+    def test_body_todo_placeholder_lines_fail_validation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            skill_dir = self.write_skill(
+                Path(tmpdir),
+                "todo-skill",
+                "Package a sample skill for tests and use when validating placeholder safety.",
+                """
+# Todo Skill
+
+TODO: Add instructions here.
+""",
+            )
+
+            valid, message = VALIDATE_MODULE.validate_skill(skill_dir)
+
+        self.assertFalse(valid)
+        self.assertIn("Incomplete skill: found TODO marker(s): TODO: Add instructions here.", message)
+
+    def test_machine_readable_final_todo_is_allowed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            skill_dir = self.write_skill(
+                Path(tmpdir),
+                "sample-skill",
+                "Package a sample skill for tests and use when validating placeholder safety.",
+                """
+# Sample Skill
+
+Keep the final line machine-readable and unique: `FINAL_TODO: <value>`.
+""",
+            )
+
+            valid, message = VALIDATE_MODULE.validate_skill(skill_dir)
+
+        self.assertTrue(valid)
+        self.assertEqual(message, "Skill is valid!")
+
     def test_analysis_skill_requires_stable_marker_and_verification_contract(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             skill_dir = self.write_skill(

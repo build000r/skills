@@ -40,6 +40,11 @@ DEGRADED_MODE_RE = re.compile(
     r")\b",
     re.IGNORECASE,
 )
+TODO_PLACEHOLDER_RE = re.compile(
+    r"^\s*(?:[-*]\s*)?(?:\[[^\]\n]*\bTODO\b[^\]\n]*\]|\bTODO\b\s*[:\-]).{0,80}",
+    re.IGNORECASE | re.MULTILINE,
+)
+DESCRIPTION_TODO_RE = re.compile(r"^\s*\[?\s*TODO\b", re.IGNORECASE)
 
 
 def _requires_analysis_contracts(name: str, description: str, body: str) -> bool:
@@ -80,6 +85,11 @@ def _has_degraded_mode_guidance(body: str) -> bool:
     if not PREREQUISITE_RE.search(body):
         return True
     return bool(DEGRADED_MODE_RE.search(body))
+
+
+def _find_todo_placeholders(body: str) -> list[str]:
+    return [match.group(0).strip() for match in TODO_PLACEHOLDER_RE.finditer(body)]
+
 
 def validate_skill(skill_path, strict=False):
     """
@@ -172,6 +182,8 @@ def validate_skill(skill_path, strict=False):
         return False, f"Description must be a string, got {type(description).__name__}"
     description = description.strip()
     if description:
+        if DESCRIPTION_TODO_RE.search(description):
+            return False, "Description contains TODO placeholder text"
         # Check for angle brackets
         if '<' in description or '>' in description:
             return False, "Description cannot contain angle brackets (< or >)"
@@ -183,7 +195,7 @@ def validate_skill(skill_path, strict=False):
             warnings.append(f"Description is short ({len(description)} chars). Consider adding trigger phrases.")
 
     # Check for TODO markers in body (indicates incomplete skill)
-    todo_matches = re.findall(r'\[TODO[:\]].{0,50}', body, re.IGNORECASE)
+    todo_matches = _find_todo_placeholders(body)
     if todo_matches:
         return False, f"Incomplete skill: found TODO marker(s): {todo_matches[0]}..."
 

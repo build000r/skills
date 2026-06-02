@@ -28,7 +28,7 @@ Usage:
     # Set explicit model/effort/prefix
     python3 scripts/run.py launch \
         --task "..." --cd ~/repos/myapp \
-        --prefix dac-review --model codex-mini-latest --reasoning-effort xhigh
+        --prefix dac-review --model gpt-5.5 --reasoning-effort xhigh
 """
 
 from __future__ import annotations
@@ -42,9 +42,10 @@ from datetime import datetime
 from pathlib import Path
 from textwrap import dedent
 
-DEFAULT_MODEL = "gpt-5.4"
+DEFAULT_MODEL = "gpt-5.5"
 ALLOWED_MODELS = [
     DEFAULT_MODEL,
+    "gpt-5.4",
     "gpt-5.4-mini",
     "codex-mini-latest",
 ]

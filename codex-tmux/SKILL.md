@@ -63,7 +63,7 @@ No recursive agents. No `claude --resume`. The signal is a dumb tmux primitive.
 
 ## Model Policy
 
-- Default to `gpt-5.4`. For bounded or budget-sensitive work, `gpt-5.4-mini` and `codex-mini-latest` are also allowed. Older `gpt-5.x-codex` variants remain out of scope for this skill.
+- Default to `gpt-5.5`. For bounded or budget-sensitive work, `gpt-5.4`, `gpt-5.4-mini`, and `codex-mini-latest` are also allowed. Older `gpt-5.x-codex` variants remain out of scope for this skill.
 - Default to `high` reasoning. Use `medium` only for clearly bounded work, and `xhigh` for reviews, ambiguity, or high-risk changes.
 - When unsure between two reasoning tiers, choose the next higher one.
 
@@ -82,7 +82,7 @@ python3 ~/.claude/skills/codex-tmux/scripts/run.py launch \
     --cd "<repo working directory>"
 ```
 
-Defaults are `gpt-5.4` and `high` reasoning. For routine or budget-sensitive work, pass `--model gpt-5.4-mini` or `--model codex-mini-latest`. Raise to `xhigh` when the task is reviewer-grade or ambiguous.
+Defaults are `gpt-5.5` and `high` reasoning. For routine or budget-sensitive work, pass `--model gpt-5.4`, `--model gpt-5.4-mini`, or `--model codex-mini-latest`. Raise to `xhigh` when the task is reviewer-grade or ambiguous.
 
 The script outputs JSON to stdout:
 
@@ -154,7 +154,7 @@ python3 scripts/run.py launch \
     --cd ~/repos/myapp \
     [--prefix codex]              # session name prefix (default: codex)
     [--result-dir /tmp/codex-tmux] # where to write results (default: /tmp/codex-tmux)
-    [--model gpt-5.4]             # default model; also allows gpt-5.4-mini and codex-mini-latest
+    [--model gpt-5.5]             # default model; also allows gpt-5.4, gpt-5.4-mini, and codex-mini-latest
     [--reasoning-effort high]     # medium|high|xhigh (default: high; round up when unsure)
     [--codex-bin codex]            # path to codex binary (default: codex)
 ```

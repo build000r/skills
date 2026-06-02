@@ -13,8 +13,15 @@ SPEC.loader.exec_module(run)
 
 
 class ParseArgsModelPolicyTests(unittest.TestCase):
-    def test_default_model_remains_gpt_5_4(self) -> None:
+    def test_default_model_is_gpt_5_5(self) -> None:
         args = run.parse_args(["launch", "--task", "noop", "--cd", "/tmp"])
+
+        self.assertEqual(args.model, "gpt-5.5")
+
+    def test_gpt_5_4_is_allowed(self) -> None:
+        args = run.parse_args(
+            ["launch", "--task", "noop", "--cd", "/tmp", "--model", "gpt-5.4"]
+        )
 
         self.assertEqual(args.model, "gpt-5.4")
 
@@ -57,6 +64,7 @@ class SkillDocModelPolicyTests(unittest.TestCase):
     def test_skill_docs_only_list_codex_native_models(self) -> None:
         skill_doc = (Path(__file__).resolve().parents[1] / "SKILL.md").read_text()
 
+        self.assertIn("`gpt-5.5`", skill_doc)
         self.assertIn("`gpt-5.4`", skill_doc)
         self.assertIn("`gpt-5.4-mini`", skill_doc)
         self.assertIn("`codex-mini-latest`", skill_doc)

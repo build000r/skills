@@ -11,6 +11,7 @@ Examples:
     init_skill.py custom-skill --path /custom/location
 """
 
+import re
 import sys
 from pathlib import Path
 
@@ -196,6 +197,26 @@ Note: This is a text placeholder. Actual assets can be any file type.
 """
 
 
+SKILL_NAME_RE = re.compile(r"^[a-z0-9-]+$")
+MAX_SKILL_NAME_LENGTH = 40
+
+
+def validate_skill_name(skill_name):
+    """Return an error message when a scaffold name violates CLI requirements."""
+    if not skill_name:
+        return "Skill name is required"
+    if len(skill_name) > MAX_SKILL_NAME_LENGTH:
+        return (
+            f"Skill name is too long ({len(skill_name)} characters). "
+            f"Maximum is {MAX_SKILL_NAME_LENGTH} characters."
+        )
+    if not SKILL_NAME_RE.match(skill_name):
+        return "Skill name must use hyphen-case: lowercase letters, digits, and hyphens only"
+    if skill_name.startswith('-') or skill_name.endswith('-') or '--' in skill_name:
+        return "Skill name cannot start/end with hyphen or contain consecutive hyphens"
+    return None
+
+
 def title_case_skill_name(skill_name):
     """Convert hyphenated skill name to Title Case for display."""
     return ' '.join(word.capitalize() for word in skill_name.split('-'))
@@ -213,6 +234,11 @@ def init_skill(skill_name, path, minimal=False):
     Returns:
         Path to created skill directory, or None if error
     """
+    name_error = validate_skill_name(skill_name)
+    if name_error:
+        print(f"❌ Error: {name_error}")
+        return None
+
     # Determine skill directory path
     skill_dir = Path(path).resolve() / skill_name
 

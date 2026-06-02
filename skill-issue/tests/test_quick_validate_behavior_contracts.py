@@ -13,6 +13,10 @@ VALIDATE_MODULE = SourceFileLoader(
     "quick_validate_behavior",
     str((SCRIPTS_DIR / "quick_validate.py").resolve()),
 ).load_module()
+INIT_MODULE = SourceFileLoader(
+    "init_skill_behavior",
+    str((SCRIPTS_DIR / "init_skill.py").resolve()),
+).load_module()
 
 
 class QuickValidateBehaviorContractTests(unittest.TestCase):
@@ -87,6 +91,16 @@ class QuickValidateBehaviorContractTests(unittest.TestCase):
 TODO: Add instructions here.
 """,
             )
+
+            valid, message = VALIDATE_MODULE.validate_skill(skill_dir)
+
+        self.assertFalse(valid)
+        self.assertEqual(message, "Description contains TODO placeholder text")
+
+    def test_default_scaffold_todo_description_is_valid_yaml_string(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            skill_dir = INIT_MODULE.init_skill("todo-skill", tmpdir)
+            self.assertIsNotNone(skill_dir)
 
             valid, message = VALIDATE_MODULE.validate_skill(skill_dir)
 

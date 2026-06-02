@@ -180,6 +180,16 @@ def _tokenize(text: str) -> list[str]:
     return tokens
 
 
+def _is_skill_id(value: Any) -> bool:
+    return (
+        isinstance(value, str)
+        and bool(CATALOG_NAME_RE.match(value))
+        and not value.startswith("-")
+        and not value.endswith("-")
+        and "--" not in value
+    )
+
+
 def _frontmatter(text: str) -> tuple[dict[str, Any], str]:
     """Extract and validate a YAML frontmatter block."""
     if not text.startswith("---\n"):
@@ -267,6 +277,8 @@ def _load_skill_metadata(skill_path: Path, catalog_root: Path) -> dict[str, Any]
     if depends_on is not None:
         if not isinstance(depends_on, list) or not all(isinstance(dep, str) for dep in depends_on):
             raise ValueError("depends_on must be a YAML list of skill id strings")
+        if not all(_is_skill_id(dep) for dep in depends_on):
+            raise ValueError("depends_on entries must be non-empty hyphen-case skill id strings")
     raw_name = frontmatter.get("name")
     if not isinstance(raw_name, str):
         raise ValueError("missing or non-string name")

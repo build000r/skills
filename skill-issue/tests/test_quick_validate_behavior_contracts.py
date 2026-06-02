@@ -79,6 +79,39 @@ class QuickValidateBehaviorContractTests(unittest.TestCase):
         self.assertTrue(valid)
         self.assertEqual(message, "Skill is valid!")
 
+    def test_depends_on_entries_must_be_skill_ids(self) -> None:
+        cases = {
+            "empty": '  - ""',
+            "whitespace": '  - " mmdx "',
+            "underscore": "  - bad_id",
+            "consecutive-hyphen": "  - bad--id",
+        }
+        for label, dep_line in cases.items():
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as tmpdir:
+                skill_dir = Path(tmpdir) / "sample-skill"
+                skill_dir.mkdir(parents=True, exist_ok=True)
+                (skill_dir / "SKILL.md").write_text(
+                    "\n".join(
+                        [
+                            "---",
+                            "name: sample-skill",
+                            'description: "Package a sample skill for tests and validate dependency metadata."',
+                            "depends_on:",
+                            dep_line,
+                            "---",
+                            "",
+                            "# Sample Skill",
+                            "",
+                        ]
+                    ),
+                    encoding="utf-8",
+                )
+
+                valid, message = VALIDATE_MODULE.validate_skill(skill_dir)
+
+            self.assertFalse(valid)
+            self.assertEqual(message, "'depends_on' entries must be non-empty hyphen-case skill id strings")
+
     def test_empty_frontmatter_name_fails_validation(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             skill_dir = Path(tmpdir) / "empty-name"

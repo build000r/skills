@@ -234,6 +234,12 @@ Define done before patching.
                     "  - describe",
                     "  - 123",
                 ],
+                "depends-on-malformed-id": [
+                    "name: depends-on-malformed-id",
+                    "description: Use depends_on lists containing normalized skill id strings only.",
+                    "depends_on:",
+                    '  - " describe "',
+                ],
             }
             for name, frontmatter_lines in cases.items():
                 skill_dir = root / name
@@ -257,7 +263,7 @@ Define done before patching.
             self.assertEqual([skill["name"] for skill in bundle["catalog"]], ["valid-skill"])
             self.assertEqual(
                 sorted(Path(skill["path"]).parent.name for skill in bundle["invalid_skills_skipped"]),
-                ["depends-on-non-string", "depends-on-string", "unexpected-key"],
+                ["depends-on-malformed-id", "depends-on-non-string", "depends-on-string", "unexpected-key"],
             )
             reasons = {
                 Path(skill["path"]).parent.name: skill["reason"]
@@ -272,7 +278,11 @@ Define done before patching.
                 reasons["depends-on-non-string"],
                 "depends_on must be a YAML list of skill id strings",
             )
-            self.assertEqual(bundle["catalog_root_details"][0]["invalid_skills_skipped"], 3)
+            self.assertEqual(
+                reasons["depends-on-malformed-id"],
+                "depends_on entries must be non-empty hyphen-case skill id strings",
+            )
+            self.assertEqual(bundle["catalog_root_details"][0]["invalid_skills_skipped"], 4)
 
     def test_load_skill_catalog_skips_invalid_frontmatter_format_and_yaml(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

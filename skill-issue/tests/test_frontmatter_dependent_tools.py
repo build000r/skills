@@ -142,6 +142,45 @@ class FrontmatterDependentToolTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertEqual(json.loads(result.stdout)["dependents"], [])
 
+    def test_check_skill_deps_ignores_malformed_depends_on_entries_rejected_by_validator(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            source = root / "source"
+            dependent = root / "dependent"
+            source.mkdir()
+            dependent.mkdir()
+            (source / "SKILL.md").write_text(
+                "---\nname: source\ndescription: Use source skills when testing dependency scans.\n---\n",
+                encoding="utf-8",
+            )
+            (dependent / "SKILL.md").write_text(
+                "---\n"
+                "name: dependent\n"
+                "description: Use dependent skills when testing dependency scans.\n"
+                "depends_on:\n"
+                '  - " source "\n'
+                "---\n",
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(CHECK_DEPS),
+                    "--changed-skill",
+                    "source",
+                    "--roots",
+                    str(root),
+                    "--json",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(json.loads(result.stdout)["dependents"], [])
+
     def test_check_skill_deps_rejects_closing_delimiter_suffix(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

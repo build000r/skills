@@ -45,6 +45,17 @@ TODO_PLACEHOLDER_RE = re.compile(
     re.IGNORECASE | re.MULTILINE,
 )
 DESCRIPTION_TODO_RE = re.compile(r"^\s*\[?\s*TODO\b", re.IGNORECASE)
+SKILL_ID_RE = re.compile(r'^[a-z0-9-]+$')
+
+
+def _is_skill_id(value):
+    return (
+        isinstance(value, str)
+        and bool(SKILL_ID_RE.match(value))
+        and not value.startswith('-')
+        and not value.endswith('-')
+        and '--' not in value
+    )
 
 
 def _requires_analysis_contracts(name: str, description: str, body: str) -> bool:
@@ -160,6 +171,8 @@ def validate_skill(skill_path, strict=False):
     if depends_on is not None:
         if not isinstance(depends_on, list) or not all(isinstance(dep, str) for dep in depends_on):
             return False, "'depends_on' must be a YAML list of skill id strings"
+        if not all(_is_skill_id(dep) for dep in depends_on):
+            return False, "'depends_on' entries must be non-empty hyphen-case skill id strings"
 
     # Extract name for validation
     name = frontmatter.get('name', '')

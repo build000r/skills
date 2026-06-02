@@ -39,6 +39,17 @@ PHASE_HDR = re.compile(r"^#{2,4}\s+(Phase\s+\d|Step\s+\d|\d+\.)", re.IGNORECASE 
 FILE_PATH = re.compile(r"[\w./-]+\.(md|py|sh|yaml|yml|json|toml|jsonl)\b")
 DEFAULT_ROOTS = ["~/.claude/skills", "~/.codex/skills"]
 FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---(?:\n|$)", re.DOTALL)
+SKILL_ID_RE = re.compile(r"^[a-z0-9-]+$")
+
+
+def _is_skill_id(value: Any) -> bool:
+    return (
+        isinstance(value, str)
+        and bool(SKILL_ID_RE.match(value))
+        and not value.startswith("-")
+        and not value.endswith("-")
+        and "--" not in value
+    )
 
 
 def _load_frontmatter(text: str) -> dict[str, Any]:
@@ -73,7 +84,7 @@ def _scan_skills(roots: list[str]) -> dict[str, dict]:
             deps = fm.get("depends_on")
             if deps is None:
                 deps = []
-            elif not isinstance(deps, list) or not all(isinstance(dep, str) for dep in deps):
+            elif not isinstance(deps, list) or not all(_is_skill_id(dep) for dep in deps):
                 deps = []
             skills.setdefault(name, {"path": str(md), "depends_on": deps or []})
     return skills

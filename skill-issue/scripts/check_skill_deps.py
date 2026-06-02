@@ -30,6 +30,9 @@ import os
 import re
 import sys
 from pathlib import Path
+from typing import Any
+
+import yaml
 
 CODE_BLOCK = re.compile(r"```(?:bash|sh|zsh|python|py)\s*\n(.*?)```", re.DOTALL)
 PHASE_HDR = re.compile(r"^#{2,4}\s+(Phase\s+\d|Step\s+\d|\d+\.)", re.IGNORECASE | re.MULTILINE)
@@ -38,29 +41,17 @@ DEFAULT_ROOTS = ["~/.claude/skills", "~/.codex/skills"]
 FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---(?:\n|$)", re.DOTALL)
 
 
-def _load_frontmatter(text: str) -> dict:
+def _load_frontmatter(text: str) -> dict[str, Any]:
     if not text.startswith("---\n"):
         return {}
     match = FRONTMATTER_RE.match(text)
     if not match:
         return {}
-    fm: dict = {}
-    in_list_key: str | None = None
-    for line in match.group(1).splitlines():
-        if in_list_key and line.startswith("  - "):
-            fm.setdefault(in_list_key, []).append(line[4:].strip().strip("\"'"))
-            continue
-        in_list_key = None
-        if ":" in line and not line.startswith(" "):
-            k, _, v = line.partition(":")
-            k = k.strip()
-            v = v.strip()
-            if not v:
-                in_list_key = k
-                fm[k] = []
-            else:
-                fm[k] = v.strip("[]").strip()
-    return fm
+    try:
+        fm = yaml.safe_load(match.group(1)) or {}
+    except yaml.YAMLError:
+        return {}
+    return fm if isinstance(fm, dict) else {}
 
 
 def _scan_skills(roots: list[str]) -> dict[str, dict]:
@@ -77,10 +68,13 @@ def _scan_skills(roots: list[str]) -> dict[str, dict]:
                 fm = _load_frontmatter(md.read_text())
             except OSError:
                 continue
-            name = fm.get("name") or entry.name
+            raw_name = fm.get("name")
+            name = raw_name.strip() if isinstance(raw_name, str) and raw_name.strip() else entry.name
             deps = fm.get("depends_on")
-            if isinstance(deps, str):
-                deps = [d.strip().strip("\"'") for d in deps.split(",") if d.strip()]
+            if deps is None:
+                deps = []
+            elif not isinstance(deps, list) or not all(isinstance(dep, str) for dep in deps):
+                deps = []
             skills.setdefault(name, {"path": str(md), "depends_on": deps or []})
     return skills
 

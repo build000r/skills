@@ -24,6 +24,9 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
+
+import yaml
 
 DESTRUCTIVE = re.compile(
     r"\b(rm\s+-rf|rm\s+-f|docker\s+(rm|kill|prune)|sudo\b|kill\s+-9|pkill\b|git\s+push(?!-)|git\s+reset\s+--hard|drop\s+database|truncate\s+table|shutdown\b|reboot\b)",
@@ -36,20 +39,18 @@ SAFETY_MARKERS = re.compile(
 FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---(?:\n|$)", re.DOTALL)
 
 
-def _split_frontmatter(text: str) -> tuple[dict, str]:
+def _split_frontmatter(text: str) -> tuple[dict[str, Any], str]:
     if not text.startswith("---\n"):
         return {}, text
     match = FRONTMATTER_RE.match(text)
     if not match:
         return {}, text
-    raw = match.group(1)
     body = text[match.end():]
-    fm: dict[str, str] = {}
-    for line in raw.splitlines():
-        if ":" in line and not line.startswith(" "):
-            k, _, v = line.partition(":")
-            fm[k.strip()] = v.strip()
-    return fm, body
+    try:
+        fm = yaml.safe_load(match.group(1)) or {}
+    except yaml.YAMLError:
+        return {}, body
+    return (fm if isinstance(fm, dict) else {}), body
 
 
 def _headers(body: str) -> list[str]:

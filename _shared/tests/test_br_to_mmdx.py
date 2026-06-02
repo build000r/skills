@@ -72,16 +72,16 @@ gantt
   axisFormat  %b %d
 
   section repo \u00b7 smart
-  First link  :done, repo_smart_0, 2026-06-01 12:00, 2h
-  Second link  :done, repo_smart_1, 2026-06-01 15:00, 1h
+  First link  :done, repo_smart_0, 2026-06-01 19:00, 2h
+  Second link  :done, repo_smart_1, 2026-06-01 22:00, 1h
 
 ```
 
 ## chart loop_repo_smart repo \u00b7 smart
 ```mermaid
 flowchart TD
-  l0["First link<br/><b>done</b><br/><i>2026-06-01 12:00</i>"]:::done
-  l1["Second link<br/><b>done</b><br/><i>2026-06-01 15:00</i>"]:::done
+  l0["First link<br/><b>done</b><br/><i>2026-06-01 19:00</i>"]:::done
+  l1["Second link<br/><b>done</b><br/><i>2026-06-01 22:00</i>"]:::done
   l0 --> l1
   classDef open fill:#fde68a,stroke:#b45309,color:#1c1917
   classDef blocked fill:#fecaca,stroke:#991b1b,color:#1c1917
@@ -129,6 +129,41 @@ flowchart TD
         )
 
         self.assertEqual(MODULE.link_duration_h(link), 1)
+
+    def test_fmt_date_renders_equivalent_offsets_as_same_utc_label(self) -> None:
+        self.assertEqual(MODULE.fmt_date("2026-06-01T12:00:00-0700"), "2026-06-01 19:00")
+        self.assertEqual(MODULE.fmt_date("2026-06-01T19:00:00Z"), "2026-06-01 19:00")
+
+    def test_group_into_loops_orders_mixed_offset_links_by_instant(self) -> None:
+        loops = MODULE.group_into_loops(
+            {
+                "repo": [
+                    {
+                        "id": "bd-old",
+                        "title": "Old link",
+                        "status": "closed",
+                        "created_at": "2026-06-01T19:00:00Z",
+                        "updated_at": "2026-06-01T19:00:00Z",
+                        "labels": ["loop:smart"],
+                    },
+                    {
+                        "id": "bd-new",
+                        "title": "New link",
+                        "status": "closed",
+                        "created_at": "2026-06-01T12:30:00-0700",
+                        "updated_at": "2026-06-01T12:30:00-0700",
+                        "labels": ["loop:smart"],
+                    },
+                ]
+            }
+        )
+
+        self.assertEqual([link.issue_id for link in loops[0].links], ["bd-old", "bd-new"])
+        self.assertEqual(loops[0].latest.issue_id, "bd-new")
+
+    def test_parse_iso_returns_none_for_invalid_or_empty_timestamps(self) -> None:
+        self.assertIsNone(MODULE.parse_iso(""))
+        self.assertIsNone(MODULE.parse_iso("not-a-timestamp"))
 
     def test_render_mmdx_disambiguates_colliding_normalized_loop_ids(self) -> None:
         loops = [

@@ -43,7 +43,7 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -119,7 +119,7 @@ class Loop:
 
     @property
     def latest(self) -> Link:
-        return sorted(self.links, key=lambda l: l.created_at)[-1]
+        return sorted(self.links, key=lambda l: timestamp_sort_value(l.created_at))[-1]
 
     @property
     def open(self) -> bool:
@@ -171,9 +171,9 @@ def group_into_loops(issues_by_repo: dict[str, list[dict]]) -> list[Loop]:
             loops.setdefault(key, Loop(loop_id=loop_id or "(no loop label)", repo=repo)).links.append(link)
     # Sort each loop's links chronologically.
     for loop in loops.values():
-        loop.links.sort(key=lambda l: l.created_at)
+        loop.links.sort(key=lambda l: timestamp_sort_value(l.created_at))
     # Order loops by latest activity, descending.
-    return sorted(loops.values(), key=lambda lp: lp.latest.updated_at, reverse=True)
+    return sorted(loops.values(), key=lambda lp: timestamp_sort_value(lp.latest.updated_at), reverse=True)
 
 
 # --------------------------- rendering ---------------------------
@@ -240,9 +240,13 @@ def parse_iso(ts: str) -> float | None:
         return None
 
 
+def timestamp_sort_value(ts: str) -> float:
+    return parse_iso(ts) or 0.0
+
+
 def fmt_date(ts: str) -> str:
     epoch = parse_iso(ts) or time.time()
-    return time.strftime("%Y-%m-%d %H:%M", time.localtime(epoch))
+    return datetime.fromtimestamp(epoch, tz=timezone.utc).strftime("%Y-%m-%d %H:%M")
 
 
 def link_duration_h(link: Link) -> int:

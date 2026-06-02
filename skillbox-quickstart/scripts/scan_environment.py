@@ -79,6 +79,7 @@ def scan_repos(roots: list[Path], max_depth: int = 3) -> list[dict]:
     seen = set()
 
     for root in roots:
+        root = root.expanduser().resolve()
         if not root.is_dir():
             continue
         for dirpath, dirnames, _ in os.walk(root):
@@ -92,7 +93,7 @@ def scan_repos(roots: list[Path], max_depth: int = 3) -> list[dict]:
                 if not d.startswith(".") and d not in ("node_modules", "venv", ".venv", "target", "__pycache__", "vendor")
             ]
             p = Path(dirpath)
-            if (p / ".git").is_dir():
+            if (p / ".git").exists():
                 real = p.resolve()
                 if real in seen:
                     continue

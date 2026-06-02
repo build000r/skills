@@ -422,7 +422,7 @@ Your answer can (but doesn't have to) recommend invoking a sibling skill as the 
 | A ranked hot path is known and needs behavior-preserving optimization | `/extreme-software-optimization` — profile-driven optimization with behavior proofs |
 | A SaaS surface is about to ship and needs billing/auth/webhook review | `/security-audit-for-saas` — pre-launch security audit |
 | Code is ready but hasn't shipped | `/deploy` — deploy, health-check, or roll back |
-| The work is on an agent-facing CLI and UX is the gap | `/cli-ergonomics` — tighten compact output, defaults, and shell UX |
+| The work is on an agent-facing CLI and UX is the gap | Run a CLI ergonomics pass — tighten compact output, defaults, and shell UX |
 
 ### When the blocker is external reality
 
@@ -493,7 +493,7 @@ When the repo-integrity pass finds a real gap, name the relevant sibling skills 
 | UI has ad-hoc tokens, duplicate variants, or className soup | `/drift-detector` — rank UI drift and produce a consolidation plan |
 | Performance is the integrity gap — hot paths, p95/p99, bottlenecks | `/profiling-software-performance` — rank hotspots, then `/extreme-software-optimization` to fix |
 | A SaaS surface needs billing/auth/webhook review before shipping | `/security-audit-for-saas` — pre-launch security audit |
-| An agent-facing CLI has poor defaults or noisy output | `/cli-ergonomics` — compact output, strong defaults, clean shell UX |
+| An agent-facing CLI has poor defaults or noisy output | Run a CLI ergonomics pass — compact output, strong defaults, clean shell UX |
 | Claude has been churning or stuck on the same integrity gap | `/divide-and-conquer` — route the investigation or fix as a fresh Beads-backed worker wave |
 | The hardening work is broad enough to need multiple coordinated changes | `/divide-and-conquer` — execute a bounded hardening wave after the gaps are named |
 

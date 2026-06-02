@@ -199,6 +199,44 @@ class WorkgraphReadyTests(unittest.TestCase):
         self.assertIn("WG-001: duplicate node ID", issues)
         self.assertIn("WG-002: ambiguous duplicate dependency IDs: WG-001", issues)
 
+    def test_duplicate_empty_node_ids_are_not_ready(self) -> None:
+        ready, waiting, issues = MODULE.classify_nodes(
+            [
+                {
+                    "id": "",
+                    "title": "First blank",
+                    "depends_on": [],
+                    "writes": ["src/one/**"],
+                    "done_when": ["First blank finished"],
+                    "validate_cmds": ["pytest tests/test_one.py"],
+                    "status": "todo",
+                },
+                {
+                    "id": "",
+                    "title": "Second blank",
+                    "depends_on": [],
+                    "writes": ["src/two/**"],
+                    "done_when": ["Second blank finished"],
+                    "validate_cmds": ["pytest tests/test_two.py"],
+                    "status": "todo",
+                },
+                {
+                    "id": "WG-002",
+                    "title": "Depends on blank duplicate",
+                    "depends_on": [""],
+                    "writes": ["src/three/**"],
+                    "done_when": ["Dependent finished"],
+                    "validate_cmds": ["pytest tests/test_three.py"],
+                    "status": "todo",
+                },
+            ]
+        )
+
+        self.assertEqual(ready, [])
+        self.assertEqual(len(waiting), 3)
+        self.assertIn("<empty>: duplicate node ID", issues)
+        self.assertIn("WG-002: ambiguous duplicate dependency IDs: <empty>", issues)
+
 
 if __name__ == "__main__":
     unittest.main()

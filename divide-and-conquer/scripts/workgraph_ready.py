@@ -141,12 +141,18 @@ def _node_contract_issues(node: dict) -> list[str]:
     return issues
 
 
+def _display_node_id(node_id: object) -> str:
+    if isinstance(node_id, str) and not node_id:
+        return "<empty>"
+    return str(node_id)
+
+
 def classify_nodes(nodes: list[dict]) -> tuple[list[dict], list[dict], list[str]]:
     issues: list[str] = []
-    node_id_counts = Counter(node.get("id") for node in nodes if node.get("id"))
+    node_id_counts = Counter(node.get("id") for node in nodes if "id" in node)
     duplicate_ids = {node_id for node_id, count in node_id_counts.items() if count > 1}
-    for node_id in sorted(duplicate_ids):
-        issues.append(f"{node_id}: duplicate node ID")
+    for node_id in sorted(duplicate_ids, key=_display_node_id):
+        issues.append(f"{_display_node_id(node_id)}: duplicate node ID")
 
     done_ids = {
         node.get("id")
@@ -175,7 +181,10 @@ def classify_nodes(nodes: list[dict]) -> tuple[list[dict], list[dict], list[str]
             issues.append(f"{node_id}: missing dependency IDs: {', '.join(missing)}")
         ambiguous = [dep for dep in deps if dep in duplicate_ids]
         if ambiguous:
-            issues.append(f"{node_id}: ambiguous duplicate dependency IDs: {', '.join(ambiguous)}")
+            issues.append(
+                f"{node_id}: ambiguous duplicate dependency IDs: "
+                f"{', '.join(_display_node_id(dep) for dep in ambiguous)}"
+            )
 
         unresolved = [dep for dep in deps if dep not in done_ids]
         unresolved.extend(dep for dep in ambiguous if dep not in unresolved)

@@ -121,6 +121,25 @@ class PackageSkillTests(unittest.TestCase):
             self.assertIsNone(archive_path)
             self.assertFalse((output_dir / "directory-name.skill").exists())
 
+    def test_package_skill_rejects_empty_frontmatter_description(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            skill_dir = Path(tmpdir) / "sample-skill"
+            self._write_skill(skill_dir)
+            skill_md = skill_dir / "SKILL.md"
+            skill_md.write_text(
+                skill_md.read_text(encoding="utf-8").replace(
+                    "description: Package a sample skill for tests and use when validating gitignored bundle safety.",
+                    'description: ""',
+                ),
+                encoding="utf-8",
+            )
+
+            output_dir = Path(tmpdir) / "dist"
+            archive_path = PACKAGE_MODULE.package_skill(skill_dir, output_dir)
+
+            self.assertIsNone(archive_path)
+            self.assertFalse((output_dir / "sample-skill.skill").exists())
+
     def _init_git_repo(self, repo: Path) -> None:
         subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
 

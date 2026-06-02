@@ -184,18 +184,19 @@ def validate_skill(skill_path, strict=False):
     if not isinstance(description, str):
         return False, f"Description must be a string, got {type(description).__name__}"
     description = description.strip()
-    if description:
-        if DESCRIPTION_TODO_RE.search(description):
-            return False, "Description contains TODO placeholder text"
-        # Check for angle brackets
-        if '<' in description or '>' in description:
-            return False, "Description cannot contain angle brackets (< or >)"
-        # Check description length (max 1024 characters per spec)
-        if len(description) > 1024:
-            return False, f"Description is too long ({len(description)} characters). Maximum is 1024 characters."
-        # Check minimum description length
-        if len(description) < 50:
-            warnings.append(f"Description is short ({len(description)} chars). Consider adding trigger phrases.")
+    if not description:
+        return False, "Missing or empty 'description' in frontmatter"
+    if DESCRIPTION_TODO_RE.search(description):
+        return False, "Description contains TODO placeholder text"
+    # Check for angle brackets
+    if '<' in description or '>' in description:
+        return False, "Description cannot contain angle brackets (< or >)"
+    # Check description length (max 1024 characters per spec)
+    if len(description) > 1024:
+        return False, f"Description is too long ({len(description)} characters). Maximum is 1024 characters."
+    # Check minimum description length
+    if len(description) < 50:
+        warnings.append(f"Description is short ({len(description)} chars). Consider adding trigger phrases.")
 
     # Check for TODO markers in body (indicates incomplete skill)
     todo_matches = _find_todo_placeholders(body)

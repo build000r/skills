@@ -122,6 +122,30 @@ class QuickValidateBehaviorContractTests(unittest.TestCase):
         self.assertFalse(valid)
         self.assertEqual(message, "Name 'other-name' must match skill directory name 'directory-name'")
 
+    def test_empty_frontmatter_description_fails_validation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            skill_dir = Path(tmpdir) / "empty-description"
+            skill_dir.mkdir(parents=True, exist_ok=True)
+            (skill_dir / "SKILL.md").write_text(
+                "\n".join(
+                    [
+                        "---",
+                        "name: empty-description",
+                        'description: ""',
+                        "---",
+                        "",
+                        "# Empty Description",
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            valid, message = VALIDATE_MODULE.validate_skill(skill_dir)
+
+        self.assertFalse(valid)
+        self.assertEqual(message, "Missing or empty 'description' in frontmatter")
+
     def test_minimal_scaffold_todo_placeholders_fail_validation(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             skill_dir = self.write_skill(

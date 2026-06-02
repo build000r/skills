@@ -44,6 +44,9 @@ Do not use Grok as the primary owner for:
 - secret-bearing auth, MCP token repair, deploys, pushes, or production writes
 - broad refactors where correctness depends on subtle local invariants
 - NTM pane tending, stuck-pane recovery, rate-limit diagnosis, or Beads closeout
+- long-running Oracle/deep-research liveness judgment, unless Grok is only
+  summarizing already-collected artifacts after the deterministic poll window
+  has opened
 - tasks that require editing files outside an explicit write scope
 - tasks where the only validation is "the model says it is done"
 
@@ -162,6 +165,13 @@ use Grok as an implementation or integration sidecar for code changes. The
 useful Grok lane in that situation is G0/G1: clean up dispatch prompts, identify
 likely write-overlap risks from Beads metadata, or produce a read-only evidence
 inventory that the lead can verify before sending work to Codex or Claude.
+
+Do not use Grok as the watcher of record for long-running Oracle or deep-research
+jobs. Give those jobs a deterministic quiet window before the first check, poll
+on the workflow's explicit cadence, and only call a job stalled after the
+workflow's stated age threshold. Grok may summarize result artifacts after they
+exist, but the scheduler should judge liveness from launch time, process/session
+state, expected artifacts, Beads state, and validation evidence.
 
 Example low-risk prompts to search for or reuse:
 

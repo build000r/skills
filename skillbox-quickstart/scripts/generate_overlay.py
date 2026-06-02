@@ -11,6 +11,7 @@ Reads scan JSON from stdin. Produces:
 
 import argparse
 import json
+import shlex
 import sys
 import yaml
 from pathlib import Path
@@ -224,12 +225,12 @@ def main():
 
 def build_first_box_cmd(client_id: str, blueprint_rec: dict) -> str:
     """Build the manage.py first-box command."""
-    parts = [f"python3 .env-manager/manage.py first-box {client_id}"]
+    parts = [f"python3 .env-manager/manage.py first-box {shlex.quote(client_id)}"]
     bp = blueprint_rec.get("blueprint")
     if bp:
-        parts.append(f"--blueprint {bp}")
+        parts.append(f"--blueprint {shlex.quote(str(bp))}")
     for k, v in blueprint_rec.get("set_args", {}).items():
-        parts.append(f"--set {k}={v}")
+        parts.append(f"--set {shlex.quote(f'{k}={v}')}")
     parts.append("--format json")
     return " \\\n  ".join(parts)
 

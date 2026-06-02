@@ -131,6 +131,16 @@ def build_mmdx_document(markdown: str) -> dict[str, Any]:
     if not charts:
         raise ValueError("MMDX document must contain at least one '## chart <id>' Mermaid fence")
 
+    seen_chart_ids = set()
+    duplicate_chart_ids = []
+    for chart in charts:
+        chart_id = chart["id"]
+        if chart_id in seen_chart_ids and chart_id not in duplicate_chart_ids:
+            duplicate_chart_ids.append(chart_id)
+        seen_chart_ids.add(chart_id)
+    if duplicate_chart_ids:
+        raise ValueError(f"MMDX chart IDs must be unique: {', '.join(duplicate_chart_ids)}")
+
     chart_ids = {chart["id"] for chart in charts}
     entry = str(metadata.get("entry") or charts[0]["id"])
     if entry not in chart_ids:

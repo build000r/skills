@@ -118,6 +118,23 @@ sequenceDiagram
             ],
         )
 
+    def test_build_mmdx_document_rejects_duplicate_chart_ids(self) -> None:
+        with self.assertRaisesRegex(ValueError, "MMDX chart IDs must be unique: main"):
+            mmd.build_mmdx_document(
+                """## chart main First
+```mermaid
+flowchart TD
+  A[First] --> B[Next]
+```
+
+## chart main Second
+```mermaid
+flowchart TD
+  C[Second] --> D[Done]
+```
+"""
+            )
+
     def test_main_encodes_mmdx_document_with_entry_chart(self) -> None:
         with tempfile.NamedTemporaryFile("w", suffix=".mmdx", delete=False) as handle:
             handle.write(

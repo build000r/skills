@@ -47,16 +47,16 @@ Pick the branch before editing:
 | Request shape | Branch | Default action | Verification |
 |---------------|--------|----------------|--------------|
 | "create a skill", "new skill", "skill template" | create/update | choose placement, initialize or patch the owning skill | `scripts/quick_validate.py <skill>` |
-| "review this skill", "when did we last use it", "improve from past runs" | reliability review | run `review_skill_usage.py`, evidence packets/opportunities, then patch one repeated failure family | regenerate packets/opportunities and validate |
+| "review this skill", "when did we last use it", "improve from past runs" | reliability review | use the configured transcript evidence backend first, run `review_skill_usage.py` as the local scanner, build evidence packets/opportunities, then patch one repeated failure family | regenerate packets/opportunities and validate |
 | "$cass $skill-issue $lube", "rank improvements", "high leverage lube opportunities" | portfolio triage | self-heal named companion skill visibility if needed, then run `scripts/rank_skill_improvements.py` and create Beads for the top actionable cards | Beads exist and top cards map to owning skill files |
 | "create/check/match/migrate overlay" | overlay mode | use `manage_overlays.py`, then print the overlay diagnostic block below | `manage_overlays.py match --cwd ... --json` |
 | "I do not see skill X", "expected skill missing" | visibility miss | invoke SBP recalibration/activation instead of falling back to memory or repo artifacts | show the SBP command result |
 
-For mixed requests, preserve roles: `cass` mines prior-session evidence,
-`skill-issue` owns skill changes, and `lube` frames friction into durable
-unblockers. If a named companion skill is not already visible in the current
-repo/session, run the Missing Skill Visibility flow below before falling back
-or asking the operator to activate it manually.
+For mixed requests, preserve roles: `cass` or the configured evidence backend
+mines prior-session evidence, `skill-issue` owns skill changes, and `lube`
+frames friction into durable unblockers. If a named companion skill is not
+already visible in the current repo/session, run the Missing Skill Visibility
+flow below before falling back or asking the operator to activate it manually.
 
 ## Do Not Use This For
 
@@ -284,10 +284,11 @@ sbp skill activate {skill} --cwd "$PWD"
 
 ### Companion Skill Auto-Activation
 
-When this skill's selected branch names a companion skill (`cass` for
-transcript evidence, `lube` for friction closeout, `sbp` for visibility repair)
-or the user explicitly tags a companion skill in the same request, treat a
-missing local skill link as self-healing project setup.
+When this skill's selected branch names a companion skill (`cass` or a
+configured evidence backend for transcript evidence, `lube` for friction
+closeout, `sbp` for visibility repair) or the user explicitly tags a companion
+skill in the same request, treat a missing local skill link as self-healing
+project setup.
 
 1. Check visibility in the current repo:
 
@@ -382,13 +383,50 @@ Follow these steps in order, skipping only if clearly not applicable.
 
 Use this mode when the user wants to improve a skill from real transcript evidence instead of intuition: "review this skill", "how is this skill doing", "when did we last use this skill", "look at past invocations", or "reduce unnecessary checkpoints."
 
-This mode reads Claude/Codex JSONL logs directly, writes a lightweight last-seen marker, builds operator evidence packets from repeated transcript failures, and saves review snapshots for trend reporting.
+This mode reads from the configured transcript evidence surface first, then uses
+local Claude/Codex JSONL scanning as a fallback or complement. It writes a
+lightweight last-seen marker, builds operator evidence packets from repeated
+transcript failures, and saves review snapshots for trend reporting.
 
 Treat real user-triggered skill invocations as the experiment corpus. Do not fabricate synthetic reruns by default. Patch from live traces, ship once, then watch the next real invocation window.
 
+### Transcript Evidence Backend
+
+Prefer a configured evidence front door over hand-walking raw log stores. In
+operator environments this may be `sbp cass`, `cass`, or another private
+overlay-provided command that searches a central index derived from raw JSONL
+archives. The public skill contract stays generic: it names the search behavior,
+not any operator bucket, endpoint, machine path, access key, secret key, token,
+or private env file.
+
+Credential and storage rules:
+
+- Public `SKILL.md` files must never include object-store bucket names,
+  endpoints, account IDs, credential file paths, access keys, secret keys, API
+  tokens, or private host paths.
+- Private overlays, ignored env files, or runtime-specific wrappers own archive
+  credentials and storage topology.
+- `skill-issue` consumes transcript evidence through search commands and local
+  scanner scripts. It does not upload to, restore from, or administer raw
+  archive storage.
+- Raw JSONL archives are source-of-truth storage. Cass or any other search
+  database is a derived index and can be stale, rebuilt, or unavailable.
+- If the configured evidence backend is unhealthy or unavailable, report the
+  degraded mode and proceed with local transcript scanning when available.
+
+Evidence backend probe pattern:
+
+```bash
+if command -v sbp >/dev/null 2>&1; then
+  sbp cass status --json || true
+elif command -v cass >/dev/null 2>&1; then
+  cass status --json || true
+fi
+```
+
 ### Review Flow
 
-1. Scan transcript history for a target skill:
+1. Scan transcript history for a target skill with the local scanner:
 
 ```bash
 scripts/review_skill_usage.py --skill skill-issue --source both --limit 50 > /tmp/skill-issue-review.json
@@ -407,43 +445,68 @@ scripts/count_tool_invocations.py --source both --since week
 
 This counts raw Codex `function_call` entries and Claude `tool_use` blocks, sorted by count then tool name.
 
-1b. **Mine cross-session patterns via cass** (complements the transcript scan above):
+1b. **Mine cross-session patterns via the configured evidence backend** (complements the transcript scan above):
 
-Use the `cass` skill to search across all indexed sessions for the target skill's invocation patterns, corrections, and usage evolution. This surfaces signal the single-transcript scanner misses — especially ritual detection, cross-project usage, and prompt drift.
+Use `sbp cass` when it exists because it can route to a private, centralized
+transcript index without exposing archive credentials in this public skill.
+Otherwise use the `cass` skill directly. This surfaces signal the
+single-transcript scanner misses, especially ritual detection, cross-project
+usage, and prompt drift.
 
 ```bash
-# If cass is not already visible, self-heal the repo-local link first.
+# If cass is not already visible and direct cass is needed, self-heal the repo-local link first.
 sbp skill activate cass --cwd "$PWD" --dry-run
 sbp skill activate cass --cwd "$PWD"
 
-# Check cass health. If the index is stale but the database exists, search now
-# and refresh in the background with a wall-clock cap from cass's recovery docs.
-cass status --json | jq '{healthy, fresh: .index.fresh, stale: .index.stale, db: .database.exists}'
+# Check the configured evidence backend health.
+if command -v sbp >/dev/null 2>&1; then
+  sbp cass status --json
+elif command -v cass >/dev/null 2>&1; then
+  cass status --json | jq '{healthy, fresh: .index.fresh, stale: .index.stale, db: .database.exists}'
+else
+  echo "No configured transcript evidence backend found; use local transcript scanner only." >&2
+fi
 
-# Find all sessions mentioning this skill (lexical, minimal output)
-cass search "SKILL_NAME" --json --fields minimal --limit 50
+evidence_search() {
+  query="$1"
+  limit="${2:-50}"
+  fields="${3:-minimal}"
+  if command -v sbp >/dev/null 2>&1; then
+    sbp cass search --json --fields "$fields" --limit "$limit" "$query"
+  elif command -v cass >/dev/null 2>&1; then
+    cass search "$query" --json --fields "$fields" --limit "$limit"
+  else
+    return 127
+  fi
+}
+
+# Find all sessions mentioning this skill (lexical, minimal output).
+evidence_search "SKILL_NAME" 50 minimal
 
 # Filter to user prompts (lines 1-3) for invocation pattern analysis
-cass search "SKILL_NAME" --json --fields minimal --limit 50 \
-  | jq '[.hits[] | select(.line_number <= 3)]'
+evidence_search "SKILL_NAME" 50 minimal | jq '[.hits[] | select(.line_number <= 3)]'
 
 # Detect rituals: prompts repeated 10+ times = working methodology
-cass search "SKILL_NAME" --json --fields minimal --limit 100 \
+evidence_search "SKILL_NAME" 100 minimal \
   | jq '[.hits[] | select(.line_number <= 3) | .title[0:80]] | group_by(.) | map({prompt: .[0], count: length}) | sort_by(-.count) | .[0:10]'
 
 # Find correction signals near skill invocations
-cass search "SKILL_NAME" --json --fields minimal --limit 50 \
-  | jq '[.hits[] | select(.line_number > 3 and .line_number < 20)]' \
-  # Then cass view hits with corrections ("no", "not that", "stop", "wrong")
+evidence_search "SKILL_NAME" 50 minimal \
+  | jq '[.hits[] | select(.line_number > 3 and .line_number < 20)]'
+# Then view hits with corrections ("no", "not that", "stop", "wrong").
 ```
 
-**What to extract from cass results:**
+**What to extract from evidence results:**
 - **Ritual count** (>10 = working pattern): If users repeat the same prompt shape to invoke this skill, that's the real trigger — compare it against the skill's `description` field. Mismatch = discoverability gap.
 - **Prompt drift**: If the same user rephrases their invocation across sessions, the skill's trigger conditions or docs may be unclear. Feed into `contract-clarity` evidence packets.
-- **Cross-project spread**: Use `--aggregate workspace` to see which projects use this skill. Single-project usage may indicate the skill is too specialized for its current generality level.
+- **Cross-project spread**: Use backend-supported workspace aggregation when
+  available to see which projects use this skill. Single-project usage may
+  indicate the skill is too specialized for its current generality level.
 - **Correction clusters**: Sessions where user prompts after invocation contain corrections feed directly into `correction_rate` and `contract-clarity` packet families.
 
-If cass index is unhealthy or unavailable, note it and proceed with transcript-only data. Do not block the review on cass availability.
+If the configured evidence backend or Cass index is unhealthy or unavailable,
+note it and proceed with transcript-only data. Do not block the review on Cass
+availability.
 
 2. Read the generated JSON and focus on reliability signals:
 - `ack_rate`: how often the run included an explicit `Using <skill>` marker

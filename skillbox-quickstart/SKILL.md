@@ -68,6 +68,60 @@ Present the recommendation to the user with structured questions:
 
 Use the decisions list from recommendation.json — don't re-derive questions.
 
+### Decision Quality Score
+
+Phase 2 contains subjective judgment about blueprint, repo selection, primary
+repo, and deployment target. Score the recommendation before presenting it so
+the operator sees where confidence is strong or weak.
+
+Objective: choose the setup path most likely to produce a working, maintainable
+skillbox with the fewest avoidable follow-up questions.
+
+Dimensions, scored 0 to 1000:
+
+Use this as a rubric, not a vibe check. The criteria are reliability, utility,
+setup risk, operator fit, simplicity, recoverability, and evidence confidence.
+Scale anchors: 0 means the recommendation is contradicted by scan evidence,
+500 means it is plausible but depends on unresolved assumptions, and 1000
+means the recommendation is directly supported by the scan and repo metadata.
+
+| Dimension | Weight | Low anchor | High anchor |
+| --- | ---: | --- | --- |
+| Blueprint fit | 220 | recommended blueprint conflicts with scan evidence | blueprint directly matches stack, services, and repo topology |
+| Repo boundary confidence | 180 | repo set includes unrelated or missing primary work | included repos, primary repo, and exclusions are evidence-backed |
+| Deployment readiness | 170 | target needs missing Docker/DO/Tailscale/secrets prerequisites | target is feasible from scanned tools and env evidence |
+| Operator friction | 140 | asks broad or repeated questions | asks only unresolved decisions from recommendation.json |
+| Recoverability | 130 | likely failure has no concrete next command | each likely blocker has a named recovery step |
+| Evidence confidence | 110 | recommendation rests on guesses | scan output, repo metadata, and tool checks agree |
+| Simplicity | 50 | overfits a complex custom box | chooses the smallest viable setup |
+
+Formula:
+
+```text
+decision_score = sum(weight_i * score_i) / sum(weight_i)
+decision_loss = 1000 - decision_score
+weighted_loss_i = weight_i * (1000 - score_i)
+```
+
+Decision effect:
+
+- `decision_score >= 800`: present the recommendation as the default and ask
+  only the unresolved questions from `recommendation.json`.
+- `600 <= decision_score < 800`: present the default plus the top two
+  `decision_loss` contributors as caveats.
+- `< 600`: pause before provisioning and ask only the highest-loss strategic
+  question.
+- Missing deployment prerequisites cap `decision_score` at 700 until the
+  blocking tool or secret is resolved.
+- Gate provisioning on the largest `weighted_loss_i`: if the top loss is
+  blueprint fit, repo boundary, or deployment readiness, resolve that issue
+  before generating the overlay; otherwise document it as a caveat.
+
+Anti-gaming note: do not inflate scores to avoid asking the user. The score is a
+loss function for reducing setup failure, not a confidence theater; cite the
+scan evidence behind high values and state false precision when evidence is
+thin.
+
 ## Phase 3: Generate
 
 After user confirms decisions, write the overlay:

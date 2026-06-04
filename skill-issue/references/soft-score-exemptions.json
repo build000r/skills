@@ -1,0 +1,10 @@
+{
+  "dev-sanity": {
+    "reason": "Mode-driven local health checker with command/pass-fail output; subjective scoring would be decorative until a judgment-heavy branch is added.",
+    "validator": "Run dev-sanity's documented local health command for the requested mode."
+  },
+  "ssh-info": {
+    "reason": "Read-only overlay lookup and targeted server-status helper with deterministic connection/container/health outputs.",
+    "validator": "bash ssh-info/scripts/status.sh local or prod should resolve config or fail cleanly."
+  }
+}

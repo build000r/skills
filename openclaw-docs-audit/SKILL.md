@@ -77,6 +77,51 @@ Classify each finding:
 - UX improvements (streaming modes, button styles, etc.)
 - CLI commands that could simplify operations
 
+### Severity Optimization Score
+
+Because severity classification involves judgment, score each finding before
+placing it in Breaking, Recommended, or Nice-to-Have.
+
+Objective: minimize missed deployment-breaking drift while avoiding noisy
+over-escalation.
+
+Dimensions, scored 0 to 1000:
+
+| Dimension | Weight | Low anchor | High anchor |
+| --- | ---: | --- | --- |
+| Startup break risk | 260 | cosmetic or docs-only change | gateway, doctor, or config validation can fail |
+| Security exposure | 240 | no auth/network/sandbox impact | weakens auth, SSRF controls, sandboxing, secrets, or allowlists |
+| Template blast radius | 180 | affects no shipped template or instance | affects client-kit template or multiple tracked instances |
+| Operator actionability | 150 | no concrete local fix is known | exact file/key/command fix is clear |
+| Evidence confidence | 110 | single ambiguous source | release notes plus config docs or validator output agree |
+| Noise control | 60 | likely to create busywork | escalation is proportional to user-visible or deploy risk |
+
+Formula:
+
+```text
+severity_score = sum(weight_i * score_i) / sum(weight_i)
+severity_loss = 1000 - severity_score
+weighted_loss_i = weight_i * (1000 - score_i)
+```
+
+Decision effect:
+
+- `severity_score >= 760`: Breaking unless there is direct validator evidence
+  that the current template remains accepted.
+- `520 <= severity_score < 760`: Recommended.
+- `< 520`: Nice-to-Have.
+- Any `Security exposure >= 800` or `Startup break risk >= 850` caps the
+  finding at no lower than Recommended.
+- If evidence is missing for a high-risk-looking finding, add an evidence gap
+  penalty by reporting the missing source as the top `severity_loss`
+  contributor instead of silently downgrading.
+
+Report the top two weighted loss contributors when a finding is downgraded, so
+the next audit knows what evidence would justify escalation. Anti-gaming note:
+do not Goodhart the score by inflating every dimension; cite concrete release,
+docs, or validation evidence for high values, and call out false precision when
+the sources do not support a confident threshold.
+
 ### Step 5: Produce the report
 
 Output a structured report with:

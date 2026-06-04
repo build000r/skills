@@ -367,6 +367,24 @@ When a platform or package contract changes, do not stop at the first `SKILL.md`
 
 If the changed skill is part of a larger ecosystem, update the dependent skills in the same batch or call out the drift explicitly. Treat those files as one artifact, not separate chores.
 
+### Soft Optimization Scores
+
+When creating, updating, or reviewing a skill that depends on subjective
+judgment, make the judgment optimizable. Define 3 to 7 soft dimensions, score
+each from 0 to 1000, weight them, roll them into an overall score, and report
+the loss that should be reduced next.
+
+Use [references/soft-score-rubric.md](references/soft-score-rubric.md) as the
+default review rubric. Keep two questions separate:
+
+- `skill_quality_score`: how good the skill is as an executable agent workflow
+- `optimization_readiness_score`: whether the skill itself contains a usable
+  scoring/loss model for its subjective decisions
+
+Do not let the number replace evidence. A score is useful only when dimensions,
+anchors, weights, loss contributors, and decision effects are explicit enough
+for the next agent to optimize against.
+
 ## Skill Creation Process
 
 1. Understand the skill with concrete examples
@@ -515,6 +533,41 @@ availability.
 - `risk_gating_rate`: how often users explicitly signaled that the run should have paused for clarification, approval, or outside review before a risky step
 - `correction_rate`: how often the user redirected the run after it started
 - `completion_rate`: how often the transcript reached a clear completion event
+
+2a. Score the target skill with the soft optimization rubric. This complements
+transcript evidence; it does not replace it.
+
+```bash
+scripts/score_skill_contract.py <path/to/skill-folder> --json > /tmp/<skill>-soft-score.json
+```
+
+For catalog-wide audits, run:
+
+```bash
+scripts/score_skill_contract.py . --catalog --json > /tmp/skill-soft-score-catalog.json
+```
+
+Read [references/soft-score-rubric.md](references/soft-score-rubric.md) and
+include a soft score block in the review:
+
+```text
+Soft score review
+- skill_quality_score:
+- optimization_readiness_score:
+- review_score:
+- review_loss:
+- top_loss_contributors:
+- scoring_concept_verdict:
+- best_next_patch:
+```
+
+If `optimization_readiness_score < 600`, explicitly say that the skill lacks an
+adequate scoring/loss concept even if the normal reliability metrics look good.
+If the score is 600-799, name the missing dimensions, anchors, formula, loss
+framing, or decision linkage that would move it above 800.
+Treat catalog `exemptions` as reviewable exceptions, not skipped work: each
+mechanical exemption must have a reason and validator in
+`references/soft-score-exemptions.json`.
 
 3. Build operator evidence packets before patching the skill:
 
@@ -681,6 +734,20 @@ The skill is for another agent instance. Include non-obvious procedural knowledg
 - **Consistent output formats**: Read references/output-patterns.md
 - **Complete example**: Read references/example-minimal-skill.md
 - **Publishing**: Read references/publishing.md
+- **Soft scoring / loss models**: Read references/soft-score-rubric.md
+
+#### Add Optimization Scoring When Judgment Is Soft
+
+When the skill asks agents to judge taste, quality, priority, elegance,
+usefulness, robustness, risk, or other soft dimensions, include a compact
+optimization score contract. It should name the objective, dimensions, scale
+anchors, weights, formula, loss framing, decision effects, and anti-gaming
+notes. Use [references/soft-score-rubric.md](references/soft-score-rubric.md)
+as the default pattern.
+
+Skip the scoring block only when the skill is purely mechanical and already has
+a deterministic pass/fail validator. For mixed skills, add scoring only to the
+judgment-heavy branch.
 
 #### Sprite Variant Contract (Character Diversity + Compatibility)
 

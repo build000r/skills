@@ -1,6 +1,9 @@
 import json
 import re
+import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
+from io import StringIO
 from importlib.machinery import SourceFileLoader
 from pathlib import Path
 from unittest import mock
@@ -12,7 +15,85 @@ MODULE = SourceFileLoader(
 ).load_module()
 
 
+def run_cli(argv: list[str]) -> tuple[int, str, str]:
+    stdout = StringIO()
+    stderr = StringIO()
+    with redirect_stdout(stdout), redirect_stderr(stderr):
+        exit_code = MODULE.main(argv)
+    return exit_code, stdout.getvalue(), stderr.getvalue()
+
+
 class BrToMmdxTests(unittest.TestCase):
+    def test_main_reports_empty_scan_roots(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            exit_code, stdout, stderr = run_cli(["--scan", str(Path(tmp) / "empty")])
+
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(stdout, "")
+        self.assertIn("No repos with .beads/ found.", stderr)
+
+    def test_main_prints_rendered_mmdx_for_repo_and_label_filter(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            issue = {
+                "id": "bd-1",
+                "title": "Loop link",
+                "status": "open",
+                "created_at": "2026-06-01T12:00:00Z",
+                "updated_at": "2026-06-01T12:00:00Z",
+                "labels": ["loop:smart"],
+            }
+            with mock.patch.object(MODULE, "collect", return_value={"repo": [issue]}) as collect, mock.patch.object(
+                MODULE,
+                "render_mmdx",
+                return_value="mmdx document\n",
+            ) as render_mmdx:
+                exit_code, stdout, stderr = run_cli(
+                    ["--repo", str(repo), "--label", "chain:smart, loop:smart", "--print"]
+                )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(stdout, "mmdx document\n")
+        self.assertEqual(stderr, "")
+        collect.assert_called_once_with([repo.resolve()], ["chain:smart", "loop:smart"])
+        self.assertEqual(render_mmdx.call_args.args[0][0].loop_id, "smart")
+
+    def test_main_reports_no_matching_issues(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            with mock.patch.object(MODULE, "collect", return_value={}):
+                exit_code, stdout, stderr = run_cli(["--repo", str(repo), "--label", "chain:missing"])
+
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(stdout, "")
+        self.assertIn("No issues found matching labels: chain:missing", stderr)
+
+    def test_main_writes_output_and_open_forwards_to_mmd(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            out_path = Path(tmp) / "charts" / "graph.mmdx"
+            issue = {
+                "id": "bd-1",
+                "title": "Loop link",
+                "status": "closed",
+                "created_at": "2026-06-01T12:00:00Z",
+                "updated_at": "2026-06-01T13:00:00Z",
+                "labels": ["loop:smart"],
+            }
+            with (
+                mock.patch.object(MODULE, "collect", return_value={"repo": [issue]}),
+                mock.patch.object(MODULE, "render_mmdx", return_value="mmdx document\n"),
+                mock.patch.object(MODULE, "open_with_mmd", return_value=3) as open_with_mmd,
+            ):
+                exit_code, stdout, stderr = run_cli(["--repo", str(repo), "--out", str(out_path), "--open"])
+
+            self.assertEqual(exit_code, 3)
+            self.assertEqual(stderr, "")
+            self.assertEqual(out_path.read_text(encoding="utf-8"), "mmdx document\n")
+            self.assertIn(f"Wrote {out_path}", stdout)
+            self.assertIn("loops: 1  links: 1  repos: 1", stdout)
+            open_with_mmd.assert_called_once_with(out_path)
+
     def test_br_list_delegates_to_shared_br_helper(self) -> None:
         repo = Path("/repo")
         with mock.patch.object(MODULE.br_helpers, "list_issues", return_value=[{"id": "bd-1"}]) as list_issues:

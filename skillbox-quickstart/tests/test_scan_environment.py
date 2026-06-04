@@ -111,6 +111,48 @@ class ScanReposTests(unittest.TestCase):
         self.assertIn("docker", text)
         self.assertIn("Blocking gaps found", text)
 
+    def test_scan_claude_config_reads_skills_and_mcp_settings(self) -> None:
+        with TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            claude = home / ".claude"
+            skills = claude / "skills"
+            skills.mkdir(parents=True)
+            direct = skills / "describe"
+            direct.mkdir()
+            (direct / "SKILL.md").write_text("---\nname: describe\n---\n", encoding="utf-8")
+            missing_manifest = skills / "scratch"
+            missing_manifest.mkdir()
+            linked_target = home / "linked-skill"
+            linked_target.mkdir()
+            (linked_target / "SKILL.md").write_text("---\nname: linked\n---\n", encoding="utf-8")
+            (skills / "linked").symlink_to(linked_target, target_is_directory=True)
+            (claude / "settings.json").write_text(
+                json.dumps(
+                    {
+                        "hooks": {"Stop": []},
+                        "mcpServers": {
+                            "skillbox": {"command": "skillbox"},
+                            "filesystem": {"command": "fs"},
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with patch.object(scan_environment.Path, "home", return_value=home):
+                result = scan_environment.scan_claude_config()
+
+        self.assertTrue(result["exists"])
+        skills_by_name = {skill["name"]: skill for skill in result["skills"]}
+        self.assertTrue(skills_by_name["describe"]["has_skill_md"])
+        self.assertFalse(skills_by_name["describe"]["symlink"])
+        self.assertFalse(skills_by_name["scratch"]["has_skill_md"])
+        self.assertTrue(skills_by_name["linked"]["has_skill_md"])
+        self.assertTrue(skills_by_name["linked"]["symlink"])
+        self.assertTrue(result["settings"]["has_hooks"])
+        self.assertTrue(result["settings"]["has_mcp"])
+        self.assertEqual(result["mcp_servers"], ["skillbox", "filesystem"])
+
     def test_scan_repos_detects_git_worktree_with_git_file(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -1,5 +1,8 @@
+import json
 import tempfile
 import unittest
+from contextlib import redirect_stdout
+from io import StringIO
 from importlib.machinery import SourceFileLoader
 from pathlib import Path
 from types import SimpleNamespace
@@ -46,7 +49,152 @@ ISSUE = {
 }
 
 
+def run_cli(argv: list[str]) -> tuple[int, str]:
+    stdout = StringIO()
+    with redirect_stdout(stdout):
+        exit_code = MODULE.main(argv)
+    return exit_code, stdout.getvalue()
+
+
 class BrHelpersTests(unittest.TestCase):
+    def test_main_ready_dispatches_and_emits_json(self) -> None:
+        ready = [{"id": "skills-exec-001"}]
+
+        with mock.patch.object(MODULE, "ready_frontier", return_value=ready) as ready_frontier:
+            exit_code, stdout = run_cli(["ready", "--limit", "5", "--label", "chain:smart"])
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(json.loads(stdout), ready)
+        ready_frontier.assert_called_once_with(limit=5, labels=["chain:smart"])
+
+    def test_main_mint_update_and_hydrate_commands_delegate_with_flags(self) -> None:
+        with mock.patch.object(MODULE, "mint_node", return_value="skills-exec-002") as mint_node:
+            exit_code, stdout = run_cli(
+                [
+                    "mint-node",
+                    "exec-002",
+                    "New node",
+                    "--description",
+                    "Do the node",
+                    "--writes",
+                    "src/**",
+                    "--done-when",
+                    "Done",
+                    "--validate",
+                    "pytest",
+                    "--risk",
+                    "medium",
+                    "--depends-on",
+                    "skills-epic-001",
+                    "--label",
+                    "chain:smart",
+                ]
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(json.loads(stdout), {"id": "skills-exec-002"})
+        mint_node.assert_called_once()
+        self.assertEqual(mint_node.call_args.kwargs["slug"], "exec-002")
+        self.assertEqual(mint_node.call_args.kwargs["writes"], ["src/**"])
+        self.assertEqual(mint_node.call_args.kwargs["validate"], ["pytest"])
+        self.assertEqual(mint_node.call_args.kwargs["depends_on"], ["skills-epic-001"])
+        self.assertEqual(mint_node.call_args.kwargs["labels"], ["chain:smart"])
+
+        with mock.patch.object(MODULE, "update_node_contract", return_value={"id": "skills-exec-002"}) as update_node:
+            exit_code, stdout = run_cli(["update-node", "skills-exec-002", "--validate", "pytest"])
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(json.loads(stdout), {"id": "skills-exec-002"})
+        update_node.assert_called_once_with(
+            "skills-exec-002",
+            description=None,
+            writes=[],
+            done_when=None,
+            validate=["pytest"],
+            model_route=None,
+            repo_path=None,
+            branch=None,
+            run_dir=None,
+            stop_rules=[],
+            non_goals=[],
+            global_constraints=[],
+            expected_assignee=None,
+        )
+
+        with mock.patch.object(MODULE, "hydrate_node_contract", return_value={"id": "skills-exec-002"}) as hydrate:
+            exit_code, stdout = run_cli(["hydrate-node", "skills-exec-002", "--no-comments"])
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(json.loads(stdout), {"id": "skills-exec-002"})
+        hydrate.assert_called_once_with("skills-exec-002", include_comments=False)
+
+    def test_main_claim_block_done_and_flush_emit_json(self) -> None:
+        cases = [
+            ("claim", ["claim", "skills-exec-001"], ("skills-exec-001",)),
+            ("block", ["block", "skills-exec-001", "waiting"], ("skills-exec-001", "waiting")),
+            ("done", ["done", "skills-exec-001", "finished"], ("skills-exec-001", "finished")),
+            ("flush", ["flush"], ()),
+        ]
+
+        for command, argv, expected_args in cases:
+            with self.subTest(command=command), mock.patch.object(
+                MODULE,
+                command,
+                return_value={"command": command},
+            ) as handler:
+                exit_code, stdout = run_cli(argv)
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(json.loads(stdout), {"command": command})
+            handler.assert_called_once_with(*expected_args)
+
+    def test_main_render_commands_write_stdout_or_files(self) -> None:
+        with mock.patch.object(MODULE, "render_node_brief", return_value="brief\n") as render_node:
+            exit_code, stdout = run_cli(["render-node-brief", "skills-exec-001"])
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(stdout, "brief\n")
+        render_node.assert_called_once_with("skills-exec-001")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out_path = Path(tmp) / "WORKGRAPH.md"
+            with mock.patch.object(MODULE, "render_workgraph", return_value="# Workgraph\n") as render_workgraph:
+                exit_code, stdout = run_cli(["render-workgraph", "--epic", "skills-epic-001", "--out", str(out_path)])
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(out_path.read_text(encoding="utf-8"), "# Workgraph\n")
+            self.assertEqual(json.loads(stdout)["wrote"], str(out_path))
+            render_workgraph.assert_called_once_with(epic="skills-epic-001")
+
+    def test_main_render_mmdx_forwards_to_bridge_script(self) -> None:
+        with mock.patch.object(MODULE.subprocess, "call", return_value=7) as call:
+            exit_code = MODULE.main(
+                [
+                    "render-mmdx",
+                    "--repo",
+                    "/repo",
+                    "--scan",
+                    "/scan",
+                    "--label",
+                    "chain:smart",
+                    "--out",
+                    "graph.mmdx",
+                    "--open",
+                    "--print",
+                ]
+            )
+
+        self.assertEqual(exit_code, 7)
+        forwarded = call.call_args.args[0]
+        self.assertEqual(forwarded[0], MODULE.sys.executable)
+        self.assertTrue(forwarded[1].endswith("br_to_mmdx.py"))
+        self.assertIn("--repo", forwarded)
+        self.assertIn("/repo", forwarded)
+        self.assertIn("--scan", forwarded)
+        self.assertIn("/scan", forwarded)
+        self.assertIn("--open", forwarded)
+        self.assertIn("--print", forwarded)
+
     def test_hydrate_node_contract_reads_dispatch_fields_from_beads_issue(self) -> None:
         with mock.patch.object(MODULE, "show_issue", return_value=ISSUE), mock.patch.object(
             MODULE, "issue_comments", return_value=[]

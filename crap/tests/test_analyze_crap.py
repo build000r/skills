@@ -48,6 +48,79 @@ class AnalyzeCrapCoverageTests(unittest.TestCase):
 
             self.assertEqual(coverage.coverage_for(source_file, 1, 3), 1.0)
 
+    def test_parse_xml_coverage_reads_cobertura_line_hits(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir)
+            source_file = repo / "src" / "sample.py"
+            source_file.parent.mkdir()
+            source_file.write_text("def sample():\n    return 1\n\n", encoding="utf-8")
+            artifact = repo / "coverage.xml"
+            artifact.write_text(
+                """
+<coverage>
+  <packages>
+    <package>
+      <classes>
+        <class filename="src/sample.py">
+          <lines>
+            <line number="1" hits="1"/>
+            <line number="2" hits="0"/>
+            <line number="3" hits="2"/>
+            <line number="bad" hits="1"/>
+            <line number="4"/>
+          </lines>
+        </class>
+      </classes>
+    </package>
+  </packages>
+</coverage>
+""",
+                encoding="utf-8",
+            )
+            coverage = MODULE.CoverageIndex(repo)
+
+            MODULE.parse_xml_coverage(artifact, coverage)
+
+            self.assertEqual(coverage.coverage_for(source_file, 1, 3), 2 / 3)
+
+    def test_parse_xml_coverage_reads_namespaced_report_line_hits(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir)
+            source_file = repo / "src" / "sample.py"
+            source_file.parent.mkdir()
+            source_file.write_text("def sample():\n    return 1\n", encoding="utf-8")
+            artifact = repo / "cobertura.xml"
+            artifact.write_text(
+                """
+<report xmlns="urn:coverage">
+  <file name="src/sample.py">
+    <line nr="1" ci="1.0"/>
+    <line nr="2" ci="0"/>
+  </file>
+</report>
+""",
+                encoding="utf-8",
+            )
+            coverage = MODULE.CoverageIndex(repo)
+
+            MODULE.parse_xml_coverage(artifact, coverage)
+
+            self.assertEqual(coverage.coverage_for(source_file, 1, 2), 0.5)
+
+    def test_parse_xml_coverage_ignores_malformed_and_unsupported_roots(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir)
+            malformed = repo / "coverage.xml"
+            unsupported = repo / "unsupported.xml"
+            malformed.write_text("<coverage>", encoding="utf-8")
+            unsupported.write_text("<not-coverage><line number='1' hits='1'/></not-coverage>", encoding="utf-8")
+            coverage = MODULE.CoverageIndex(repo)
+
+            MODULE.parse_xml_coverage(malformed, coverage)
+            MODULE.parse_xml_coverage(unsupported, coverage)
+
+            self.assertEqual(coverage.records, {})
+
     def test_iter_supported_files_ignores_dot_venv_variants(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             repo = Path(tmpdir)

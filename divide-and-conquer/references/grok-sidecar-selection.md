@@ -161,6 +161,31 @@ different pattern.
 | `voice-to-text` random-fix opportunity scout during a workspace sweep | Direct headless G0 read-only prompt using `grok -p`, `--max-turns 4`, `--permission-mode dontAsk`, and `--no-subagents` | The process exited 0 but printed empty stdout, so it produced no worker-ready opportunity packet. | Treat exit code 0 as insufficient for Grok one-shots. Require non-empty stdout or a named artifact before using the result, and otherwise route the scouting task to a normal read-only explorer or Codex worker. | `voice-to-text grok random fix scout empty stdout`, `grok -p permission-mode dontAsk no-subagents empty output`, `grok one-shot exit 0 no artifact` |
 | Workspace next-wave target selector during a random-fix sweep | Direct headless G0 read-only prompt using `grok -p`, `--disable-web-search`, `--no-memory`, and `--max-turns 2` | The run produced no selector packet and exited with `Max turns reached (limit: 2)`. It did not return repo candidates, reasons, or worker-ready prompts. | Very low turn caps can make direct Grok selectors fail silently until the cap trips. Use a higher cap only for non-blocking G0 work, and still require non-empty stdout or a named artifact before dispatching from the result. | `grok workspace next wave selector max turns reached`, `grok -p disable web search no memory max turns no output`, `grok selector no repo candidates no artifact` |
 
+## 2026-06-03 Live Sidecar Observations (workspace bead sweep)
+
+These came from a root-operator `divide-and-conquer` bead sweep across the
+skillbox workspace. Negative evidence again — keep direct headless Grok at
+G0/G1 and never block dispatch on it.
+
+| Context | Grok route | Outcome | Reusable rule | CASS search terms |
+| --- | --- | --- | --- | --- |
+| Root orchestrator wanted a write-overlap risk table for 7 ready beads across 6 separate repos. ALL input data was inlined in the prompt; the task was pure read-only text formatting (emit one markdown table), no tools/search needed. | Direct headless G1 clerk: `grok -p "<prompt>" --max-turns 3 --permission-mode dontAsk --no-subagents --disable-web-search --no-memory` | BAD. Exit code 0 but stdout was 1 byte (empty); stderr `Max turns reached` at limit 3. Produced no table at all. The lead built the trivial overlap table by hand in seconds (all 7 beads were in distinct repos → all parallel-safe). | Even a softball read-only formatting task with all data pre-supplied fails at `--max-turns 3`. Grok appears to burn turns before emitting the final answer. Exit 0 is NOT proof of output — always check stdout byte count. Do not block any dispatch on a Grok one-shot; for clerk/overlap analysis the lead doing it inline is faster and reliable. If retrying, raise `--max-turns` only on non-blocking work. | `grok write-overlap clerk max turns reached empty stdout`, `grok -p inline data table no output workspace bead sweep`, `grok one-shot exit 0 one byte stdout` |
+
+Retry confirmation: re-running the identical prompt at `--max-turns 15`
+(non-blocking, per the "retry once with a higher cap only if non-blocking"
+rule) produced the same result — exit code 0, empty stderr, 1-byte stdout. So
+the failure is not a too-low turn cap; direct headless Grok ran to clean
+completion and emitted no answer at all. Both 3-turn and 15-turn attempts are
+dead weight here.
+
+Practical rule confirmed this session: the seven-bead overlap analysis the
+sidecar was supposed to produce was a 30-second hand task for the lead because
+every bead lived in a different repo. For small ready frontiers, skip the Grok
+overlap clerk entirely and reason about write scopes directly. In this
+workspace, the productive delegation lanes were harness sub-agents (one per
+disjoint repo, returning verifiable result reports) and the already-running NTM
+codex panes — not Grok one-shots.
+
 ## Current Routing Notes
 
 When a live run has multiple NTM panes writing in the same git worktree, do not

@@ -1279,6 +1279,136 @@ flowchart TD
         with patch.dict(mmd.os.environ, {"SPAPS_API_KEY": "spaps_sec_ambient"}, clear=True):
             self.assertIsNone(mmd._resolve_paid_resource(args))
 
+    def test_resolve_paid_resource_uses_metadata_with_environment_defaults(self) -> None:
+        args = mmd.parse_args(
+            [
+                "diagram.mmd",
+                "--paid-resource",
+                mmd.json.dumps(
+                    {
+                        "resourceKey": "metadata-resource",
+                        "actionKey": "metadata-action",
+                        "target": "metadata-target",
+                    }
+                ),
+            ]
+        )
+
+        with patch.dict(
+            mmd.os.environ,
+            {
+                "SPAPS_HANDOFF_VERIFY_URL": "https://spaps.example/handoff/verify",
+                "SPAPS_API_KEY": "pk_env",
+            },
+            clear=True,
+        ):
+            paid_resource = mmd._resolve_paid_resource(args)
+
+        self.assertEqual(
+            paid_resource,
+            {
+                "verify_url": "https://spaps.example/handoff/verify",
+                "api" + "_key": "pk_env",
+                "resource_key": "metadata-resource",
+                "action_key": "metadata-action",
+                "target": "metadata-target",
+            },
+        )
+
+    def test_resolve_paid_resource_prefers_cli_flags_over_env_and_metadata(self) -> None:
+        args = mmd.parse_args(
+            [
+                "diagram.mmd",
+                "--paid-resource",
+                mmd.json.dumps(
+                    {
+                        "resource_key": "metadata-resource",
+                        "action_key": "metadata-action",
+                        "target": "metadata-target",
+                    }
+                ),
+                "--paid-resource-verify-url",
+                "https://cli.example/handoff/verify",
+                "--paid-resource-api" + "-key",
+                "pk_cli",
+                "--paid-resource-resource-key",
+                "cli-resource",
+                "--paid-resource-action-key",
+                "cli-action",
+                "--paid-resource-target",
+                "cli-target",
+            ]
+        )
+
+        with patch.dict(
+            mmd.os.environ,
+            {
+                "SPAPS_HANDOFF_VERIFY_URL": "https://env.example/handoff/verify",
+                "SPAPS_API_KEY": "pk_env",
+                "SPAPS_HANDOFF_RESOURCE_KEY": "env-resource",
+                "SPAPS_HANDOFF_ACTION_KEY": "env-action",
+                "SPAPS_HANDOFF_TARGET": "env-target",
+            },
+            clear=True,
+        ):
+            paid_resource = mmd._resolve_paid_resource(args)
+
+        self.assertEqual(
+            paid_resource,
+            {
+                "verify_url": "https://cli.example/handoff/verify",
+                "api" + "_key": "pk_cli",
+                "resource_key": "cli-resource",
+                "action_key": "cli-action",
+                "target": "cli-target",
+            },
+        )
+
+    def test_resolve_paid_resource_reports_missing_required_fields(self) -> None:
+        cases = [
+            (
+                ["diagram.mmd", "--paid-resource-resource-key", "resource", "--paid-resource-action-key", "action"],
+                "requires both a verify URL",
+            ),
+            (
+                [
+                    "diagram.mmd",
+                    "--paid-resource-verify-url",
+                    "https://spaps.example/handoff/verify",
+                    "--paid-resource-api" + "-key",
+                    "pk_cli",
+                    "--paid-resource-target",
+                    "target",
+                ],
+                "requires resource and action keys",
+            ),
+            (
+                [
+                    "diagram.mmd",
+                    "--paid-resource-verify-url",
+                    "https://spaps.example/handoff/verify",
+                    "--paid-resource-api" + "-key",
+                    "pk_cli",
+                    "--paid-resource-resource-key",
+                    "resource",
+                    "--paid-resource-action-key",
+                    "action",
+                ],
+                "requires a target",
+            ),
+            (
+                ["diagram.mmd", "--paid-resource", "[]"],
+                "--paid-resource must be a JSON object",
+            ),
+        ]
+
+        with patch.dict(mmd.os.environ, {}, clear=True):
+            for argv, message in cases:
+                with self.subTest(argv=argv):
+                    args = mmd.parse_args(argv)
+                    with self.assertRaisesRegex(ValueError, message):
+                        mmd._resolve_paid_resource(args)
+
     def test_base_url_override_still_works(self) -> None:
         fragment = mmd.encode_state(mmd.build_state("flowchart TD\n  A --> B\n"))
         self.assertEqual(

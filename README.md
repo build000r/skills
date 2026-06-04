@@ -75,6 +75,17 @@ cd skills
 ../clawgs/scripts/check.sh
 ```
 
+## Local Checks
+
+```bash
+make test
+make coverage.xml
+make crap
+```
+
+`make coverage.xml` keeps the normal pytest lane intact while writing the
+machine-readable coverage artifact used by the CRAP hotspot analyzer.
+
 ## Design Philosophy
 
 ### 1. Workflows, Not Prompt Scrapbooks

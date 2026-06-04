@@ -1,5 +1,7 @@
 __pycache__/
 *.pyc
+.coverage
+coverage.xml
 *.skill
 *.zip
 .DS_Store

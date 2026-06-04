@@ -1,4 +1,4 @@
-.PHONY: test coverage crap
+.PHONY: test coverage.xml coverage crap
 
 test:
 	python3 -m pytest

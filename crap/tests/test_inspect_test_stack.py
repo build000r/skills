@@ -123,6 +123,90 @@ class InspectTestStackTests(unittest.TestCase):
             self.assertEqual(report.nested_manifests, ["packages/api"])
 
 
+class InspectRenderTextTests(unittest.TestCase):
+    def test_render_text_reports_empty_supported_ecosystems(self) -> None:
+        report = MODULE.RepoReport(
+            scope="/tmp/sample",
+            makefile_present=False,
+            make_targets=[],
+            coverage_artifacts=[],
+            nested_manifests=[],
+            lanes=[],
+        )
+
+        text = MODULE.render_text(report)
+
+        self.assertIn("Scope: /tmp/sample", text)
+        self.assertIn("Makefile: absent", text)
+        self.assertIn("Coverage artifacts: none", text)
+        self.assertIn("Supported ecosystems: none detected", text)
+        self.assertNotIn("Lane:", text)
+
+    def test_render_text_reports_nested_manifests_and_scope_note(self) -> None:
+        report = MODULE.RepoReport(
+            scope="/tmp/sample",
+            makefile_present=True,
+            make_targets=["coverage.xml", "test"],
+            coverage_artifacts=["coverage.xml"],
+            nested_manifests=["packages/api", "tools/cli"],
+            lanes=[],
+        )
+
+        text = MODULE.render_text(report)
+
+        self.assertIn("Makefile: present", text)
+        self.assertIn("Coverage artifacts: coverage.xml", text)
+        self.assertIn("Nested manifests: packages/api, tools/cli", text)
+        self.assertIn(
+            "Scope note: narrow to one manifest-owning package when root automation is too thin",
+            text,
+        )
+
+    def test_render_text_reports_lane_details_and_actions(self) -> None:
+        lane = MODULE.LaneReport(
+            ecosystem="python",
+            manifest=None,
+            tests_present=True,
+            runner_present=False,
+            coverage_support_present=False,
+            machine_artifact_present=True,
+            preferred_wrapper="make",
+            recommended_mode="ready",
+            suggested_targets=["pytest", "pytest-cov-xml"],
+            actions=[
+                "Reuse the existing pytest baseline and coverage lane for /crap reruns.",
+                "Keep scope labels exact when narrowing to a package or path.",
+            ],
+        )
+        report = MODULE.RepoReport(
+            scope="/tmp/sample",
+            makefile_present=True,
+            make_targets=["test"],
+            coverage_artifacts=["coverage.xml"],
+            nested_manifests=[],
+            lanes=[lane],
+        )
+
+        text = MODULE.render_text(report)
+
+        self.assertIn("Lane: python", text)
+        self.assertIn("  Manifest: not found at scope root", text)
+        self.assertIn("  Tests present: yes", text)
+        self.assertIn("  Runner present: no", text)
+        self.assertIn("  Machine coverage artifact: yes", text)
+        self.assertIn("  Preferred wrapper: make", text)
+        self.assertIn("  Recommendation: ready", text)
+        self.assertIn("  Suggested targets: pytest, pytest-cov-xml", text)
+        self.assertIn(
+            "  - Reuse the existing pytest baseline and coverage lane for /crap reruns.",
+            text,
+        )
+        self.assertIn(
+            "  - Keep scope labels exact when narrowing to a package or path.",
+            text,
+        )
+
+
 class InspectSwiftLaneTests(unittest.TestCase):
     def test_no_swift_lane_when_no_swift_content(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

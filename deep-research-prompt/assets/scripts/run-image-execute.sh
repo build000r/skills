@@ -107,13 +107,16 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILL_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 ROUTE_GUARD="$SKILL_DIR/assets/scripts/check-oracle-tab-local-route.mjs"
 IMAGE_TOGGLE="$SKILL_DIR/assets/scripts/toggle-chatgpt-image.mjs"
+IMAGE_HOOK="$SKILL_DIR/assets/scripts/run-chatgpt-image-hook.sh"
 DRY_RUN_LOG="$RUN_DIR/oracle.dry-run.log"
 GUARD_LOG="$RUN_DIR/oracle.route-guard.log"
 COMMAND_FILE="$RUN_DIR/oracle.command.sh"
 RESPONSE_FILE="$RESULT_DIR/oracle.response.md"
+HOOK_LOG="$RESULT_DIR/pre-submit-hook.log"
 
 [[ -f "$ROUTE_GUARD" ]] || die "route guard missing: $ROUTE_GUARD"
 [[ -f "$IMAGE_TOGGLE" ]] || die "image toggle helper missing: $IMAGE_TOGGLE"
+[[ -x "$IMAGE_HOOK" ]] || die "image hook wrapper missing or not executable: $IMAGE_HOOK"
 command -v node >/dev/null 2>&1 || die "node is required for ChatGPT route/toggle helpers"
 command -v "$ORACLE_BIN" >/dev/null 2>&1 || {
   echo "Mode: Image paste-mode fallback. Slug: $SLUG. Spec file: $SPEC."
@@ -167,7 +170,7 @@ CMD=(
   --remote-chrome "$REMOTE_CHROME"
   --browser-model-strategy ignore
   --browser-attachments always
-  --pre-submit-hook "node $IMAGE_TOGGLE"
+  --pre-submit-hook "$IMAGE_HOOK"
   --browser-timeout "$BROWSER_TIMEOUT"
   --slug "$SLUG"
 )
@@ -188,7 +191,8 @@ done
   echo "#!/usr/bin/env bash"
   echo "set -euo pipefail"
   printf 'SPEC=%q\n' "$SPEC"
-  printf 'ORACLE_CHATGPT_URL_MATCH=%q ' "$URL_MATCH"
+  printf 'CHATGPT_IMAGE_HOOK_LOG=%q ' "$HOOK_LOG"
+  printf 'env -u ORACLE_CHATGPT_URL_MATCH -u CHATGPT_IMAGE_URL_MATCH '
   for part in "${CMD[@]}"; do
     printf '%q ' "$part"
   done
@@ -206,8 +210,14 @@ fi
 
 PROMPT="$(cat "$SPEC")"
 echo "Launching Oracle. Log: $LOG_FILE"
-ORACLE_CHATGPT_URL_MATCH="$URL_MATCH" "${CMD[@]}" -p "$PROMPT" >"$LOG_FILE" 2>&1 || {
+CHATGPT_IMAGE_HOOK_LOG="$HOOK_LOG" \
+env -u ORACLE_CHATGPT_URL_MATCH -u CHATGPT_IMAGE_URL_MATCH \
+  "${CMD[@]}" -p "$PROMPT" >"$LOG_FILE" 2>&1 || {
   echo "Oracle failed. Log: $LOG_FILE" >&2
+  if [[ -s "$HOOK_LOG" ]]; then
+    echo "Pre-submit hook log: $HOOK_LOG" >&2
+    tail -80 "$HOOK_LOG" >&2 || true
+  fi
   tail -40 "$LOG_FILE" >&2 || true
   exit 74
 }

@@ -438,6 +438,7 @@ Evidence backend probe pattern:
 if command -v sbp >/dev/null 2>&1; then
   sbp cass status --json || true
 elif command -v cass >/dev/null 2>&1; then
+  echo "DEGRADED: no configured front door; bare cass searches only the local corpus" >&2
   cass status --json || true
 fi
 ```
@@ -467,7 +468,11 @@ This counts raw Codex `function_call` entries and Claude `tool_use` blocks, sort
 
 Use `sbp cass` when it exists because it can route to a private, centralized
 transcript index without exposing archive credentials in this public skill.
-Otherwise use the `cass` skill directly. This surfaces signal the
+Treat `sbp cass` as authoritative: if it exists but fails or is unhealthy, do
+not silently fall back to bare `cass`, because that may search a different local
+corpus and produce false confidence. Report degraded evidence mode and use the
+local transcript scanner instead. Only use bare `cass` when no configured front
+door exists, and label those results as local-corpus evidence. This surfaces signal the
 single-transcript scanner misses, especially ritual detection, cross-project
 usage, and prompt drift.
 
@@ -480,6 +485,7 @@ sbp skill activate cass --cwd "$PWD"
 if command -v sbp >/dev/null 2>&1; then
   sbp cass status --json
 elif command -v cass >/dev/null 2>&1; then
+  echo "DEGRADED: no configured front door; bare cass searches only the local corpus" >&2
   cass status --json | jq '{healthy, fresh: .index.fresh, stale: .index.stale, db: .database.exists}'
 else
   echo "No configured transcript evidence backend found; use local transcript scanner only." >&2
@@ -492,6 +498,7 @@ evidence_search() {
   if command -v sbp >/dev/null 2>&1; then
     sbp cass search --json --fields "$fields" --limit "$limit" "$query"
   elif command -v cass >/dev/null 2>&1; then
+    echo "DEGRADED: no configured front door; bare cass searches only the local corpus" >&2
     cass search "$query" --json --fields "$fields" --limit "$limit"
   else
     return 127

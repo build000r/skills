@@ -203,6 +203,89 @@ Order user questions from strategic decisions to implementation details.
             self.assertIn("deploy-approval", consolidation["scope"])
             self.assertIn("modes/", consolidation["recommendation"])
 
+    def test_request_token_filter_drops_ids_and_worker_instruction_noise(self) -> None:
+        tokens = PORTFOLIO._tokenize_request(
+            "Stand by. Do not claim or edit any Bead 0003 0bfb 37r3 while processing invoice pdf OCR."
+        )
+
+        self.assertNotIn("stand", tokens)
+        self.assertNotIn("claim", tokens)
+        self.assertNotIn("edit", tokens)
+        self.assertNotIn("bead", tokens)
+        self.assertNotIn("0003", tokens)
+        self.assertNotIn("0bfb", tokens)
+        self.assertNotIn("37r3", tokens)
+        self.assertIn("invoice", tokens)
+        self.assertIn("pdf", tokens)
+        self.assertIn("ocr", tokens)
+
+    def test_discoverability_cards_ignore_repeated_worker_instruction_noise(self) -> None:
+        now = datetime.now(timezone.utc).replace(microsecond=0)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            skills_root = root / "skills"
+            codex_dir = root / "codex"
+            claude_dir = root / "claude"
+
+            self.write_skill(
+                skills_root,
+                "visual-inspiration-demo",
+                "Use when visual inspiration work mentions stand claim edit bead source concepts.",
+                """
+# Visual Inspiration Demo
+
+Stand claim edit bead source concept registry visual design inspiration.
+""",
+            )
+
+            for index in range(3):
+                timestamp = now - timedelta(minutes=index)
+                self.write_jsonl(
+                    codex_dir / "2026" / "06" / f"noise-{index}.jsonl",
+                    [
+                        {
+                            "type": "session_meta",
+                            "timestamp": timestamp.isoformat().replace("+00:00", "Z"),
+                            "payload": {"cwd": "/tmp/demo"},
+                        },
+                        {
+                            "type": "response_item",
+                            "payload": {
+                                "type": "message",
+                                "role": "user",
+                                "content": [
+                                    {
+                                        "type": "input_text",
+                                        "text": "Stand by. Do not claim or edit any Bead 0003 0004 0005.",
+                                    }
+                                ],
+                            },
+                        },
+                    ],
+                    mtime=timestamp,
+                )
+
+            with self.patch_session_dirs(codex_dir, claude_dir):
+                portfolio = PORTFOLIO.scan_skill_portfolio(
+                    source="both",
+                    since=now - timedelta(days=1),
+                    until=now + timedelta(days=1),
+                    limit=20,
+                    skills_root=skills_root,
+                )
+                report = PORTFOLIO.generate_portfolio_opportunity_report(
+                    portfolio,
+                    min_cluster_runs=2,
+                    max_cards=10,
+                    max_evidence=2,
+                )
+
+        discoverability_scopes = [
+            card["scope"] for card in report["cards"] if card["issue_type"] == "skill-discoverability-gap"
+        ]
+        self.assertNotIn("visual-inspiration-demo", discoverability_scopes)
+
     def test_render_portfolio_markdown_includes_new_card_types(self) -> None:
         report = {
             "source_review": {"sessions_scanned": 12, "sessions_analyzed": 7},

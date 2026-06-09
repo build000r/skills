@@ -284,7 +284,9 @@ When score = 100:
 
 1. **Hardening gate** — run a fresh-context hardening worker against the files
    touched by the slice. Use the `writes` globs stored on the slice's `br`
-   child issues plus the actual git diff to scope the check.
+   child issues plus a guarded git diff to scope the check; run
+   `git -C "$target_repo" rev-parse --git-dir >/dev/null 2>&1` first and skip
+   with a clear message if the target repo cannot be resolved.
 
    ```
    Audit 100/100 -> /crap hardening gate -> /mutate top hotspots if needed

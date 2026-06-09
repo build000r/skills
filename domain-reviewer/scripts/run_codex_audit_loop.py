@@ -278,6 +278,7 @@ def _run_retire_worker(
         "Guardrails:\n"
         "- Do not run destructive git commands (`git reset --hard`, `git checkout --`, mass reverts).\n"
         "- Do not revert teammate changes.\n\n"
+        "- Before any git command, resolve the target repo and run `git -C \"$target_repo\" rev-parse --git-dir >/dev/null 2>&1`; if it fails, skip the git step with a clear message instead of running git from the current directory.\n\n"
         "Instructions:\n"
         "1. Follow `references/retire-workflow.md`.\n"
         "2. Generate/update COMPLETED.md for the slice.\n"

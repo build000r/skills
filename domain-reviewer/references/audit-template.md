@@ -295,7 +295,7 @@ Auth service rule: reuse existing `{auth_packages_root}` auth/payments/identity 
 ### Re-Review #1 - {YYYY-MM-DD}
 
 **Baseline commit:** `{commit-hash}` ({repo})
-**Changes reviewed:** `git diff {baseline}..HEAD`
+**Changes reviewed:** guarded `git -C "$repo_root" diff {baseline}..HEAD` after `git -C "$target_repo" rev-parse --git-dir >/dev/null 2>&1`; skipped with a clear message if the target repo could not be resolved.
 
 **Issues Resolved:**
 - [x] {Issue from original audit} - Fixed in `{file:line}`

@@ -165,6 +165,28 @@ surface sections, convention references, required plan-file presence, and
 workflow artifacts. Only fall back to freehand shell inspection for concrete
 files the snapshot surfaces as relevant.
 
+## Git Step Guard
+
+If a scaffolding run or upstream handoff asks for git status, diff, or commit
+evidence, resolve the target repository from the client overlay or explicit
+handoff and prove that path is inside a git repo before running git:
+
+```bash
+target_repo="${target_repo:-$PWD}"
+if git -C "$target_repo" rev-parse --git-dir >/dev/null 2>&1; then
+  repo_root="$(git -C "$target_repo" rev-parse --show-toplevel 2>/dev/null || printf '%s\n' "$target_repo")"
+else
+  printf 'Skipping git step: %s is not a git repository. Resolve the target repo from the client overlay or pass an explicit repo path.\n' "$target_repo"
+  repo_root=""
+fi
+```
+
+Only run git with `git -C "$repo_root" ...` when `repo_root` is non-empty.
+If the current directory is a repo-collection parent such as
+`/srv/skillbox/repos`, select the intended implementation repo from the overlay
+first; if it cannot be resolved, skip the git-dependent evidence step and
+report that skip clearly.
+
 ## Client Overlay Selection
 
 1. List client overlays from `skillbox-config/clients/*/overlay.yaml`

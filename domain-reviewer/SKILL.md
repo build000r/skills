@@ -163,6 +163,28 @@ plans:
 To find a slice: read `{plan_root}/{slice}/`. To check what exists: read `{plan_index}`.
 DO NOT search the filesystem for plans.
 
+## Git Step Guard
+
+Before any audit, re-review, retire, diff, or commit step runs git, resolve the
+target repository from the client overlay or explicit handoff and prove that
+path is inside a git repo:
+
+```bash
+target_repo="${target_repo:-$PWD}"
+if git -C "$target_repo" rev-parse --git-dir >/dev/null 2>&1; then
+  repo_root="$(git -C "$target_repo" rev-parse --show-toplevel 2>/dev/null || printf '%s\n' "$target_repo")"
+else
+  printf 'Skipping git step: %s is not a git repository. Resolve the target repo from the client overlay or pass an explicit repo path.\n' "$target_repo"
+  repo_root=""
+fi
+```
+
+Only run git with `git -C "$repo_root" ...` when `repo_root` is non-empty.
+If the current directory is a repo-collection parent such as
+`/srv/skillbox/repos`, select the intended plan/backend/frontend repo from the
+overlay first; if it cannot be resolved, skip the git-dependent step and report
+that skip clearly.
+
 ## Client Context (Skillbox)
 
 Implementation context — repos, conventions, stack — comes from the skillbox client overlay (`skillbox-config/clients/{client}/overlay.yaml`).

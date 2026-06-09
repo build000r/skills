@@ -146,7 +146,45 @@ STOPWORDS = {
     "you",
     "your",
 }
-DISCOVERABILITY_MIN_SCORE = 3.0
+REQUEST_STOPWORDS = STOPWORDS | {
+    "agent",
+    "agents",
+    "already",
+    "below",
+    "bead",
+    "beads",
+    "caveat",
+    "claim",
+    "command",
+    "commands",
+    "consider",
+    "context",
+    "edit",
+    "explicitly",
+    "file",
+    "files",
+    "generated",
+    "local",
+    "message",
+    "messages",
+    "needs",
+    "not",
+    "only",
+    "otherwise",
+    "read",
+    "respond",
+    "response",
+    "return",
+    "scope",
+    "stand",
+    "task",
+    "unless",
+    "worker",
+    "workers",
+    "write",
+}
+DISCOVERABILITY_MIN_SCORE = 4.0
+DISCOVERABILITY_MIN_CONFIDENCE = 0.2
 MIN_CARD_SCORE = 14
 CATALOG_NAME_RE = re.compile(r"^[a-z0-9-]+$")
 DESCRIPTION_TODO_RE = re.compile(r"^\s*\[?\s*TODO\b", re.IGNORECASE)
@@ -178,6 +216,20 @@ def _tokenize(text: str) -> list[str]:
         if len(token) >= 3 or token in SHORT_TOKENS:
             tokens.append(token)
     return tokens
+
+
+def _is_request_noise_token(token: str) -> bool:
+    """Return whether a request token is corpus/worker boilerplate, not demand."""
+    if token in REQUEST_STOPWORDS:
+        return True
+    if token.isdigit():
+        return True
+    return len(token) >= 4 and any(char.isdigit() for char in token)
+
+
+def _tokenize_request(text: str) -> list[str]:
+    """Tokenize user requests for demand matching, excluding ids and boilerplate."""
+    return [token for token in _tokenize(text) if not _is_request_noise_token(token)]
 
 
 def _is_skill_id(value: Any) -> bool:
@@ -488,6 +540,23 @@ def _request_similarity(session: dict[str, Any], skill: dict[str, Any]) -> dict[
     }
 
 
+def _meets_discoverability_floor(
+    suggestion: dict[str, Any],
+    threshold: float = DISCOVERABILITY_MIN_SCORE,
+) -> bool:
+    """Return whether a suggestion is strong enough to drive a portfolio card."""
+    return (
+        suggestion.get("score", 0.0) >= threshold
+        and suggestion.get("normalized", 0.0) >= DISCOVERABILITY_MIN_CONFIDENCE
+    )
+
+
+def _top_request_tokens(sessions: list[dict[str, Any]], limit: int = 6) -> list[str]:
+    """Return the most common already-filtered request tokens."""
+    counts = Counter(token for session in sessions for token in session["request_tokens"])
+    return [token for token, _ in counts.most_common(limit)]
+
+
 def _session_summary(provider: str, path: Path, mtime: datetime, catalog: list[dict[str, Any]]) -> dict[str, Any]:
     """Collect one transcript summary against the current skill catalog."""
     session = collect_session_data(provider, path, mtime)
@@ -547,7 +616,7 @@ def _session_summary(provider: str, path: Path, mtime: datetime, catalog: list[d
     )
 
     user_request = session["user_messages"][0] if session["user_messages"] else None
-    request_tokens = set(_tokenize(user_request or ""))
+    request_tokens = set(_tokenize_request(user_request or ""))
     suggestion_scores = []
     for skill in catalog:
         suggestion = _request_similarity(
@@ -618,7 +687,7 @@ def scan_skill_portfolio(
     for session in sessions:
         activated_counts.update(session["activated_skills"])
         for suggestion in session["top_suggested_skills"][:3]:
-            if suggestion["score"] >= DISCOVERABILITY_MIN_SCORE:
+            if _meets_discoverability_floor(suggestion):
                 suggested_counts.update([suggestion["skill"]])
 
     return {
@@ -739,7 +808,7 @@ def _discoverability_cards(
         if not suggestions:
             continue
         best = suggestions[0]
-        if best["score"] < DISCOVERABILITY_MIN_SCORE:
+        if not _meets_discoverability_floor(best):
             continue
         grouped[best["skill"]].append(session)
 
@@ -777,9 +846,7 @@ def _discoverability_cards(
                 "target_files": [f"{skill_name}/SKILL.md", "README.md"],
                 "supporting_metrics": {
                     "average_match_confidence": round(confidence, 3),
-                    "top_request_tokens": sorted(
-                        Counter(token for session in skill_sessions for token in session["request_tokens"]).keys()
-                    )[:6],
+                    "top_request_tokens": _top_request_tokens(skill_sessions),
                 },
                 "evidence": [
                     {
@@ -815,7 +882,7 @@ def _creation_cards(
         if session["activated_skills"]:
             continue
         suggestions = session.get("top_suggested_skills", [])
-        if suggestions and suggestions[0]["score"] >= DISCOVERABILITY_MIN_SCORE:
+        if suggestions and _meets_discoverability_floor(suggestions[0]):
             continue
         creation_candidates.append(session)
 
@@ -899,7 +966,7 @@ def _pair_session_overlap(
     for session in sessions:
         candidates = []
         for suggestion in session.get("top_suggested_skills", []):
-            if suggestion["score"] >= threshold:
+            if _meets_discoverability_floor(suggestion, threshold=threshold):
                 candidates.append(suggestion["skill"])
         for skill in session.get("activated_skills", []):
             candidates.append(skill)
@@ -970,7 +1037,7 @@ def _consolidation_cards(
                 {
                     suggestion["skill"]
                     for suggestion in session.get("top_suggested_skills", [])
-                    if suggestion["score"] >= DISCOVERABILITY_MIN_SCORE
+                    if _meets_discoverability_floor(suggestion)
                 }
                 | set(session.get("activated_skills", []))
             )

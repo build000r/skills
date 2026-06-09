@@ -194,8 +194,14 @@ When this slice completes work that was deferred in another slice, update the ol
 
 4. **Commit separately:** Make cross-slice updates a separate commit for clarity:
    ```bash
-   git add {plan_root}/{old-slice}/COMPLETED.md
-   git commit -m "resolve({old-slice}): mark '{item}' resolved in {new-slice}"
+   target_repo="{plan_root}"
+   if git -C "$target_repo" rev-parse --git-dir >/dev/null 2>&1; then
+     repo_root="$(git -C "$target_repo" rev-parse --show-toplevel 2>/dev/null || printf '%s\n' "$target_repo")"
+     git -C "$repo_root" add {plan_root}/{old-slice}/COMPLETED.md
+     git -C "$repo_root" commit -m "resolve({old-slice}): mark '{item}' resolved in {new-slice}"
+   else
+     printf 'Skipping cross-slice resolution commit: %s is not a git repository.\n' "$target_repo"
+   fi
    ```
 
 **Why this matters:**

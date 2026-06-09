@@ -170,11 +170,24 @@ Delivery strategy guardrails:
 
 ## Commit
 After writing the report and updating INDEX.md:
-git add {plan_root}/{slice}/AUDIT_REPORT.md {plan_index}
-git commit -m "audit({slice}): {verdict} - score {XX}/100"
+target_repo="{plan_root}"
+if git -C "$target_repo" rev-parse --git-dir >/dev/null 2>&1; then
+  repo_root="$(git -C "$target_repo" rev-parse --show-toplevel 2>/dev/null || printf '%s\n' "$target_repo")"
+  git -C "$repo_root" add {plan_root}/{slice}/AUDIT_REPORT.md {plan_index}
+  git -C "$repo_root" commit -m "audit({slice}): {verdict} - score {XX}/100"
+else
+  printf 'Skipping audit baseline commit: %s is not a git repository.\n' "$target_repo"
+fi
 
 If backend was audited with uncommitted implementation:
-cd {backend_repo} && git add -A && git commit -m "audit({slice}): baseline for re-review"
+target_repo="{backend_repo}"
+if git -C "$target_repo" rev-parse --git-dir >/dev/null 2>&1; then
+  repo_root="$(git -C "$target_repo" rev-parse --show-toplevel 2>/dev/null || printf '%s\n' "$target_repo")"
+  git -C "$repo_root" add -A
+  git -C "$repo_root" commit -m "audit({slice}): baseline for re-review"
+else
+  printf 'Skipping backend baseline commit: %s is not a git repository.\n' "$target_repo"
+fi
 ```
 
 ### Re-Review Worker (iteration > 0)
@@ -191,7 +204,15 @@ Re-review the {slice} slice after fixes were applied (re-review #{iteration}).
 1. Read the plan files at {plan_root}/{slice}/ (plan.md, shared.md, backend.md, frontend.md, flows.md)
 2. Read the convention/standards files: {list from client overlay}
 3. Read the existing AUDIT_REPORT.md at {plan_root}/{slice}/AUDIT_REPORT.md
-4. Run `git diff` in relevant repos to see changes since last audit commit
+4. Run a guarded diff in each relevant repo to see changes since last audit
+   commit:
+   target_repo="{relevant_repo}"
+   if git -C "$target_repo" rev-parse --git-dir >/dev/null 2>&1; then
+     repo_root="$(git -C "$target_repo" rev-parse --show-toplevel 2>/dev/null || printf '%s\n' "$target_repo")"
+     git -C "$repo_root" diff
+   else
+     printf 'Skipping git diff: %s is not a git repository.\n' "$target_repo"
+   fi
 5. For EACH issue in the previous audit/re-review:
    - Mark as FIXED / PARTIALLY FIXED / NOT ADDRESSED
    - Include evidence (file:line references)
@@ -209,7 +230,7 @@ Re-review the {slice} slice after fixes were applied (re-review #{iteration}).
 ### Re-Review #{N} - {YYYY-MM-DD}
 
 **Baseline commit:** `{commit-hash}` ({repo})
-**Changes reviewed:** `git diff {baseline}..HEAD`
+**Changes reviewed:** guarded `git -C "$repo_root" diff {baseline}..HEAD` after `git -C "$target_repo" rev-parse --git-dir >/dev/null 2>&1`; skipped with a clear message if the target repo could not be resolved.
 
 **Issues Resolved:**
 - [x] {Issue from previous audit} - Fixed in `{file:line}`

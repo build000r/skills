@@ -104,6 +104,26 @@ missing overlay sections, required plan-file presence, and workflow artifacts.
 Only fall back to freehand shell inspection for concrete files the snapshot
 surfaces as relevant.
 
+## Git Step Guard
+
+Before any workflow step runs git, resolve the target repository from the
+client overlay or explicit handoff and prove that path is inside a git repo:
+
+```bash
+target_repo="${target_repo:-$PWD}"
+if git -C "$target_repo" rev-parse --git-dir >/dev/null 2>&1; then
+  repo_root="$(git -C "$target_repo" rev-parse --show-toplevel 2>/dev/null || printf '%s\n' "$target_repo")"
+else
+  printf 'Skipping git step: %s is not a git repository. Resolve the target repo from the client overlay or pass an explicit repo path.\n' "$target_repo"
+  repo_root=""
+fi
+```
+
+Only run git with `git -C "$repo_root" ...` when `repo_root` is non-empty.
+If the current directory is a repo-collection parent such as
+`/srv/skillbox/repos`, select the intended repo from the overlay first; if it
+cannot be resolved, skip the git-dependent check and report that skip clearly.
+
 **If no client overlay matches the current directory:**
 1. Tell the user no overlay matches and create one using the skillbox-quickstart scan + generate flow before proceeding.
 2. If the user declines overlay creation, you can still read/create plans with explicit `--config` paths to `init_slice.py`.
@@ -171,13 +191,23 @@ built from scratch.
 
 2. **Detect README drift** — For each repo in the client overlay, run:
    ```
-   git log --format="%H %ai" -1 -- README.md
+   target_repo="{repo_from_client_overlay}"
+   if git -C "$target_repo" rev-parse --git-dir >/dev/null 2>&1; then
+     repo_root="$(git -C "$target_repo" rev-parse --show-toplevel 2>/dev/null || printf '%s\n' "$target_repo")"
+     readme_commit="$(git -C "$repo_root" log --format="%H %ai" -1 -- README.md)"
+     if [ -n "$readme_commit" ]; then
+       git -C "$repo_root" diff "${readme_commit%% *}"..HEAD --name-only
+     else
+       printf 'Skipping README drift diff: README.md has no git history in %s.\n' "$repo_root"
+     fi
+   else
+     printf 'Skipping README drift git check: %s is not a git repository.\n' "$target_repo"
+   fi
    ```
-   to get the last README commit, then:
-   ```
-   git diff {readme_commit}..HEAD --name-only
-   ```
-   to get all files changed since. Assess whether those changes (new features, removed features, API changes, dependency changes) make the current README inaccurate.
+   to get all files changed since the last README commit. Assess whether those
+   changes (new features, removed features, API changes, dependency changes)
+   make the current README inaccurate. If the repo cannot be resolved, record
+   the clear skip message instead of running a bare git command.
 
 3. **Check competitive landscape** — If the README has a competitive landscape, alternatives, or comparison section, cross-reference it against `vision.md` positioning. Flag if competitors listed are stale or if the new slice changes the project's positioning.
 
@@ -261,7 +291,7 @@ Routing rules:
 10. **Default delivery strategy is big-bang** — Plan the target-state contract directly. Do not add dual routes, backward-compatibility shims, deprecation windows, or legacy endpoint support unless the user explicitly asks.
 11. **Separate DB transition planning from API planning** — Only add a DB transition section when production data is at risk. Keep it operationally focused: backup, transactional/idempotent raw SQL execution, verification, and rollback.
 12. **Core Value Gate is binding** — Before Phase 1 Discovery, define the primary actor, single user-visible outcome, minimum winning slice, explicit non-goals, and debt avoided by deferring them. If a story does not materially improve that outcome, defer it unless it is required for safety/risk containment or the user explicitly widens scope.
-13. **The `br` epic replaces WORKGRAPH as the execution graph** — After the 6 plan files pass Phase 5.5 deep review, reach Phase 6b `100/100` through a fresh worker, and are accepted, mint a `br` epic for the slice with one child issue per execution node (writes, deps, validation, risk live there as `--design`/`--notes`/`--acceptance-criteria`/labels per [`_shared/references/beads-contract.md`](../_shared/references/beads-contract.md)). Do not create, edit, or consume `WORKGRAPH.md` as source state. If a human-readable `WORKGRAPH.md` is useful, render it from `br` after the epic exists and treat it as disposable. Hand execution to `/divide-and-conquer` against that epic instead of launching ad hoc parallel workers from this skill.
+13. **The `br` epic replaces WORKGRAPH as the execution graph** — After the 6 plan files pass Phase 5.5 deep review, reach Phase 6b `100/100` through a fresh worker, and are accepted, mint a `br` epic for the slice with one child issue per execution node (writes, deps, validation, model route, risk live there as `--design`/`--notes`/`--acceptance-criteria`/labels per [`_shared/references/beads-contract.md`](../_shared/references/beads-contract.md)). Do not create, edit, or consume `WORKGRAPH.md` as source state. If a human-readable `WORKGRAPH.md` is useful, render it from `br` after the epic exists and treat it as disposable. Hand execution to `/divide-and-conquer` against that epic instead of launching ad hoc parallel workers from this skill.
 14. **`review.mmdx` is the human checkpoint surface** — Before any human sign-off, build/update `review.mmdx` from all current plan files using the `mmdx` skill's chart-stacking contract and the opinionated structure in [references/mmdx-review-checkpoint.md](~/.claude/skills/domain-planner/references/mmdx-review-checkpoint.md). The MMDX must expose every decision-grade detail through linked charts: core value, stories, endpoints, errors, schema, backend rules, frontend states, flows, decisions, non-goals, risks, open questions, performance envelopes, and the post-sign-off `br` epic/child-issue handoff when present.
 
 ## Questioning Strategy
@@ -681,6 +711,7 @@ python3 ~/.claude/skills/_shared/scripts/br_helpers.py mint-node \
   --writes 'src/domain/{slice}/**' --writes 'tests/{slice}/**' \
   --done-when '{binary completion check}' \
   --validate '{repo-native test command}' \
+  --model-route '{Codex gpt-5.5|Claude Fable|Grok Composer 2.5 task-runner|Grok dispatcher|Grok CLI sidecar}' \
   --risk {none|human|external} \
   --depends-on {parent-issue-id}  # repeat for each dependency
 ```
@@ -692,6 +723,17 @@ Rules per node:
 - `--writes` globs prevent parallel-wave overlap
 - `--done-when` becomes the issue's `acceptance_criteria` field
 - `--validate` lines become `notes` for the worker to run
+- `--model-route` is required before handoff:
+  - use `Codex gpt-5.5` for no-ragrets bead composition, domain-planner
+    follow-up, orchestration, system design, architecture, high-impact code,
+    integration, review, commit acceptance, and final-say nodes
+  - use `Claude Fable` for UI/UX, visual design, design systems, CSS/tokens,
+    screenshot parity, and fresh-eyes design review
+  - use `Grok Composer 2.5 task-runner` only for bounded scripting, docs,
+    fixtures, generated cleanup, or `$commit` nodes with exact write scope,
+    validation, stop rules, and Codex `gpt-5.5` final review
+  - use `Grok dispatcher` or `Grok CLI sidecar` only for routing/preflight or
+    read-only evidence artifacts
 - Status flows through `br update --claim` → `br update -s blocked` → `br close`
 - **Each node must be a self-contained brief** — an agent should be able to
   pick up a single issue and execute it without reading the full plan. After
@@ -847,7 +889,7 @@ See [references/orchestration-workflow.md](~/.claude/skills/domain-planner/refer
    **Gate rules:**
    - **Pass (FINAL_SCORE ≤ 30):** Proceed to step 7 (completion/retirement).
    - **Fail after hardening (FINAL_SCORE > 30):** Report surviving hotspots to the user with the score and file list. Ask whether to (a) accept current score and proceed to retirement, or (b) launch targeted fix agents for the hotspots.
-   - **Scope:** Only score files that were created or modified by this slice's scaffolding — do not score the entire repo. Use the `writes` globs from the slice's `br` child issues plus the actual git diff to determine scope.
+   - **Scope:** Only score files that were created or modified by this slice's scaffolding — do not score the entire repo. Use the `writes` globs from the slice's `br` child issues plus a guarded git diff after `git -C "$target_repo" rev-parse --git-dir >/dev/null 2>&1` succeeds; if the repo cannot be resolved, report the skip clearly.
    - **Skip condition:** If the user passed `--skip-hardening` or explicitly says to skip, proceed directly to step 7.
 
    This gate catches high-complexity/low-coverage code before it gets retired and forgotten. The `/crap` + `/mutate` combination targets the riskiest code paths with mutation testing, ensuring test coverage is meaningful (not just line coverage).

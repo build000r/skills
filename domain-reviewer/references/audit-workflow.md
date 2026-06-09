@@ -248,20 +248,32 @@ After writing the audit report and updating INDEX.md, commit to create a baselin
 
 ```bash
 # In plan repo - commit audit report AND index update
-git add {plan_root}/{slice}/AUDIT_REPORT.md
-git add {plan_index}
-git commit -m "audit({slice}): {verdict} - score {XX}/100"
+target_repo="{plan_root}"
+if git -C "$target_repo" rev-parse --git-dir >/dev/null 2>&1; then
+  repo_root="$(git -C "$target_repo" rev-parse --show-toplevel 2>/dev/null || printf '%s\n' "$target_repo")"
+  git -C "$repo_root" add {plan_root}/{slice}/AUDIT_REPORT.md
+  git -C "$repo_root" add {plan_index}
+  git -C "$repo_root" commit -m "audit({slice}): {verdict} - score {XX}/100"
+else
+  printf 'Skipping audit baseline commit: %s is not a git repository.\n' "$target_repo"
+fi
 ```
 
 If backend was audited and has uncommitted implementation:
 ```bash
 # In backend repo - commit current state as baseline
-cd {backend_repo}
-git add -A
-git commit -m "audit({slice}): baseline for re-review"
+target_repo="{backend_repo}"
+if git -C "$target_repo" rev-parse --git-dir >/dev/null 2>&1; then
+  repo_root="$(git -C "$target_repo" rev-parse --show-toplevel 2>/dev/null || printf '%s\n' "$target_repo")"
+  git -C "$repo_root" add -A
+  git -C "$repo_root" commit -m "audit({slice}): baseline for re-review"
+else
+  printf 'Skipping backend baseline commit: %s is not a git repository.\n' "$target_repo"
+fi
 ```
 
-This baseline enables `git diff` to show exactly what implementors changed.
+This baseline enables guarded `git -C "$repo_root" diff` to show exactly what
+implementors changed after the `rev-parse --git-dir` guard succeeds.
 
 ### Step 10: Output Handoffs
 

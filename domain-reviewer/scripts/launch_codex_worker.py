@@ -206,6 +206,7 @@ def build_prompt(args: argparse.Namespace, mode: ModeContext, skill_root: Path) 
         - Stay inside owned scope for this worker.
         - Do not run destructive git commands (`git reset --hard`, `git checkout --`, mass reverts).
         - Do not revert teammate changes.
+        - Before any git command, resolve the target repo and run `git -C "$target_repo" rev-parse --git-dir >/dev/null 2>&1`; if it fails, skip the git step with a clear message instead of running git from the current directory.
         - If scope crossing is required, stop and request handoff.
         """
     ).strip()
@@ -235,7 +236,7 @@ def build_prompt(args: argparse.Namespace, mode: ModeContext, skill_root: Path) 
             f"{common_guardrails}\n\n"
             "Instructions:\n"
             "1. Read plan files and current `AUDIT_REPORT.md`.\n"
-            "2. Compare changes since baseline using `git diff`.\n"
+            "2. Compare changes since baseline using a guarded `git -C \"$repo_root\" diff` after `git -C \"$target_repo\" rev-parse --git-dir >/dev/null 2>&1` succeeds; otherwise record a clear skip message.\n"
             "3. Mark each previous issue as FIXED / PARTIALLY FIXED / NOT ADDRESSED.\n"
             "4. Add new issues introduced by fixes.\n"
             f"5. Append `Re-Review #{args.iteration}` section to `AUDIT_REPORT.md`.\n"

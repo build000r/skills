@@ -402,5 +402,73 @@ class AnalyzeCrapSwiftTests(unittest.TestCase):
             self.assertGreaterEqual(end, start)
 
 
+class StripCodeLikeTextTests(unittest.TestCase):
+    def test_preserves_plain_code(self) -> None:
+        code = "int x = 1;\nreturn x;"
+        result = MODULE.strip_code_like_text(code)
+        self.assertIn("int x = 1", result)
+        self.assertIn("return x", result)
+
+    def test_strips_line_comment(self) -> None:
+        code = "x = 1; // assign x\ny = 2;"
+        result = MODULE.strip_code_like_text(code)
+        self.assertNotIn("assign", result)
+        self.assertIn("x = 1", result)
+        self.assertIn("y = 2", result)
+
+    def test_strips_block_comment(self) -> None:
+        code = "x = 1; /* this\nis a block\ncomment */ y = 2;"
+        result = MODULE.strip_code_like_text(code)
+        self.assertNotIn("block", result)
+        self.assertIn("x = 1", result)
+        self.assertIn("y = 2", result)
+
+    def test_strips_double_quoted_string(self) -> None:
+        code = 'x = "hello world";'
+        result = MODULE.strip_code_like_text(code)
+        self.assertNotIn("hello", result)
+        self.assertIn("x =", result)
+
+    def test_strips_backtick_string(self) -> None:
+        code = "x = `template ${y}`;"
+        result = MODULE.strip_code_like_text(code)
+        self.assertNotIn("template", result)
+
+    def test_single_quote_string_on_same_line(self) -> None:
+        code = "x = 'hello';"
+        result = MODULE.strip_code_like_text(code)
+        self.assertNotIn("hello", result)
+
+    def test_preserves_apostrophe_that_spans_newline(self) -> None:
+        code = "it's\ncode"
+        result = MODULE.strip_code_like_text(code)
+        self.assertIn("it's", result)
+
+    def test_handles_escape_in_string(self) -> None:
+        code = 'x = "hello\\"world";'
+        result = MODULE.strip_code_like_text(code)
+        self.assertNotIn("hello", result)
+
+    def test_preserves_length(self) -> None:
+        code = "x = 1; // comment\ny = 2;"
+        result = MODULE.strip_code_like_text(code)
+        self.assertEqual(len(result), len(code))
+
+    def test_empty_string(self) -> None:
+        self.assertEqual(MODULE.strip_code_like_text(""), "")
+
+    def test_block_comment_with_newlines(self) -> None:
+        code = "a;\n/*\nmulti\nline\n*/\nb;"
+        result = MODULE.strip_code_like_text(code)
+        self.assertNotIn("multi", result)
+        self.assertIn("a;", result)
+        self.assertIn("b;", result)
+
+    def test_escape_in_single_quote_string(self) -> None:
+        code = "x = 'he\\'llo';"
+        result = MODULE.strip_code_like_text(code)
+        self.assertNotIn("llo", result)
+
+
 if __name__ == "__main__":
     unittest.main()

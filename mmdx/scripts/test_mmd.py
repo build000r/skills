@@ -1426,6 +1426,62 @@ flowchart TD
         with self.assertRaisesRegex(ValueError, "Mermaid preflight failed"):
             mmd.preflight_mermaid("flowchart TD\n  A -->\n", auto_install=False)
 
+class ResponseErrorMessageTests(unittest.TestCase):
+    def test_extracts_message_from_error_dict(self) -> None:
+        self.assertEqual(
+            mmd.response_error_message({"error": {"message": "rate limited"}}, "fallback"),
+            "rate limited",
+        )
+
+    def test_extracts_code_from_error_dict(self) -> None:
+        self.assertEqual(
+            mmd.response_error_message({"error": {"code": "RATE_LIMIT"}}, "fallback"),
+            "RATE_LIMIT",
+        )
+
+    def test_extracts_error_string(self) -> None:
+        self.assertEqual(
+            mmd.response_error_message({"error": "something broke"}, "fallback"),
+            "something broke",
+        )
+
+    def test_extracts_top_level_message(self) -> None:
+        self.assertEqual(
+            mmd.response_error_message({"message": "top level"}, "fallback"),
+            "top level",
+        )
+
+    def test_returns_fallback_for_empty_payload(self) -> None:
+        self.assertEqual(
+            mmd.response_error_message({}, "fallback"),
+            "fallback",
+        )
+
+    def test_returns_fallback_for_blank_strings(self) -> None:
+        self.assertEqual(
+            mmd.response_error_message({"error": "  ", "message": "  "}, "fallback"),
+            "fallback",
+        )
+
+    def test_strips_whitespace(self) -> None:
+        self.assertEqual(
+            mmd.response_error_message({"error": "  oops  "}, "fallback"),
+            "oops",
+        )
+
+    def test_prefers_error_dict_over_top_level_message(self) -> None:
+        self.assertEqual(
+            mmd.response_error_message({"error": {"message": "inner"}, "message": "outer"}, "fallback"),
+            "inner",
+        )
+
+    def test_error_dict_with_empty_message_falls_through(self) -> None:
+        self.assertEqual(
+            mmd.response_error_message({"error": {"message": ""}, "message": "outer"}, "fallback"),
+            "outer",
+        )
+
+
 def post_handoff_json(
     payload: dict[str, object],
     *,

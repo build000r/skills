@@ -232,5 +232,102 @@ class ScanClaudeWeeksTests(unittest.TestCase):
             self.assertEqual(weeks, {})
 
 
+class AggregateByWeekTests(unittest.TestCase):
+    def _make_record(self, week: str, composite: float = 0.5) -> dict:
+        return {
+            "week": week,
+            "composite": composite,
+            "axes": {axis: 1.0 for axis, _ in show_trend.AXES},
+            "sessions": 3,
+            "prompts": 20,
+        }
+
+    def test_single_week(self) -> None:
+        records = [self._make_record("2025-W36")]
+        agg = show_trend.aggregate_by_week(records)
+        self.assertIn("2025-W36", agg)
+        self.assertEqual(agg["2025-W36"]["reviews"], 1)
+        self.assertEqual(agg["2025-W36"]["sessions"], 3)
+
+    def test_multiple_records_same_week_averaged(self) -> None:
+        records = [
+            self._make_record("2025-W36", composite=0.4),
+            self._make_record("2025-W36", composite=0.8),
+        ]
+        agg = show_trend.aggregate_by_week(records)
+        self.assertAlmostEqual(agg["2025-W36"]["composite"], 0.6, places=2)
+        self.assertEqual(agg["2025-W36"]["reviews"], 2)
+        self.assertEqual(agg["2025-W36"]["sessions"], 6)
+
+    def test_weeks_sorted(self) -> None:
+        records = [
+            self._make_record("2025-W38"),
+            self._make_record("2025-W36"),
+            self._make_record("2025-W37"),
+        ]
+        agg = show_trend.aggregate_by_week(records)
+        self.assertEqual(list(agg.keys()), ["2025-W36", "2025-W37", "2025-W38"])
+
+
+class RenderMarkdownTests(unittest.TestCase):
+    def _make_agg(self, weeks: list[str], composites: list[float] | None = None) -> dict:
+        if composites is None:
+            composites = [0.5] * len(weeks)
+        result = {}
+        for w, c in zip(weeks, composites):
+            result[w] = {
+                "composite": c,
+                "axes": {axis: 1.0 for axis, _ in show_trend.AXES},
+                "sessions": 3,
+                "prompts": 20,
+                "reviews": 1,
+            }
+        return result
+
+    def test_empty_aggregated(self) -> None:
+        result = show_trend.render_markdown({}, 8)
+        self.assertIn("No review history", result)
+
+    def test_single_week_shows_first_review(self) -> None:
+        agg = self._make_agg(["2025-W36"])
+        result = show_trend.render_markdown(agg, 8)
+        self.assertIn("2025-W36", result)
+        self.assertIn("first review", result)
+        self.assertIn("Per-Axis Trends", result)
+
+    def test_two_weeks_shows_delta(self) -> None:
+        agg = self._make_agg(["2025-W36", "2025-W37"], [0.4, 0.7])
+        result = show_trend.render_markdown(agg, 8)
+        self.assertIn("2025-W36", result)
+        self.assertIn("2025-W37", result)
+        self.assertIn("+", result)
+
+    def test_movers_section_with_improvement(self) -> None:
+        agg = {}
+        agg["2025-W36"] = {
+            "composite": 0.4,
+            "axes": {axis: 0.5 for axis, _ in show_trend.AXES},
+            "sessions": 3,
+            "prompts": 20,
+            "reviews": 1,
+        }
+        agg["2025-W37"] = {
+            "composite": 0.7,
+            "axes": {axis: (1.5 if axis == "clarity" else 0.5) for axis, _ in show_trend.AXES},
+            "sessions": 3,
+            "prompts": 20,
+            "reviews": 1,
+        }
+        result = show_trend.render_markdown(agg, 8)
+        self.assertIn("Most improved", result)
+        self.assertIn("Clarity", result)
+
+    def test_respects_num_weeks_limit(self) -> None:
+        agg = self._make_agg([f"2025-W{i:02d}" for i in range(36, 44)])
+        result = show_trend.render_markdown(agg, 3)
+        self.assertNotIn("2025-W36", result)
+        self.assertIn("2025-W43", result)
+
+
 if __name__ == "__main__":
     unittest.main()

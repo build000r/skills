@@ -281,5 +281,128 @@ class InspectSwiftLaneTests(unittest.TestCase):
             self.assertEqual(swift_lanes[0].preferred_wrapper, "make")
 
 
+class InspectRustLaneTests(unittest.TestCase):
+    def test_no_rust_lane_when_no_rust_content(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir)
+            (repo / "README.md").write_text("", encoding="utf-8")
+            report = MODULE.inspect_repo(repo)
+            self.assertNotIn("rust", [lane.ecosystem for lane in report.lanes])
+
+    def test_rust_lane_bootstrap_no_tests(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir)
+            (repo / "Cargo.toml").write_text('[package]\nname = "sample"\n', encoding="utf-8")
+            (repo / "src").mkdir()
+            (repo / "src" / "lib.rs").write_text("pub fn add(a: i32, b: i32) -> i32 { a + b }\n", encoding="utf-8")
+            report = MODULE.inspect_repo(repo)
+            rust_lanes = [l for l in report.lanes if l.ecosystem == "rust"]
+            self.assertEqual(len(rust_lanes), 1)
+            self.assertEqual(rust_lanes[0].recommended_mode, "bootstrap-tests")
+            self.assertEqual(rust_lanes[0].manifest, "Cargo.toml")
+
+    def test_rust_lane_add_coverage_target_with_tests(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir)
+            (repo / "Cargo.toml").write_text('[package]\nname = "sample"\n', encoding="utf-8")
+            (repo / "src").mkdir()
+            (repo / "src" / "lib.rs").write_text(
+                "pub fn add(a: i32, b: i32) -> i32 { a + b }\n#[cfg(test)]\nmod tests { use super::*; #[test] fn it_works() { assert_eq!(add(2,2), 4); } }\n",
+                encoding="utf-8",
+            )
+            report = MODULE.inspect_repo(repo)
+            rust_lanes = [l for l in report.lanes if l.ecosystem == "rust"]
+            self.assertEqual(len(rust_lanes), 1)
+            self.assertEqual(rust_lanes[0].recommended_mode, "add-coverage-target")
+            self.assertTrue(rust_lanes[0].tests_present)
+
+    def test_rust_lane_ready_with_lcov(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir)
+            (repo / "Cargo.toml").write_text('[package]\nname = "sample"\n', encoding="utf-8")
+            (repo / "src").mkdir()
+            (repo / "src" / "lib.rs").write_text(
+                "#[cfg(test)]\nmod tests { #[test] fn it_works() { assert!(true); } }\n",
+                encoding="utf-8",
+            )
+            (repo / "lcov.info").write_text("TN:\nSF:src/lib.rs\nend_of_record\n", encoding="utf-8")
+            report = MODULE.inspect_repo(repo)
+            rust_lanes = [l for l in report.lanes if l.ecosystem == "rust"]
+            self.assertEqual(len(rust_lanes), 1)
+            self.assertEqual(rust_lanes[0].recommended_mode, "ready")
+            self.assertTrue(rust_lanes[0].machine_artifact_present)
+
+    def test_rust_lane_ready_with_make_target(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir)
+            (repo / "Cargo.toml").write_text('[package]\nname = "sample"\n', encoding="utf-8")
+            (repo / "src").mkdir()
+            (repo / "src" / "lib.rs").write_text("pub fn hello() {}\n", encoding="utf-8")
+            (repo / "Makefile").write_text("cargo-cov-lcov:\n\tcargo llvm-cov --lcov\n", encoding="utf-8")
+            report = MODULE.inspect_repo(repo)
+            rust_lanes = [l for l in report.lanes if l.ecosystem == "rust"]
+            self.assertEqual(len(rust_lanes), 1)
+            self.assertEqual(rust_lanes[0].recommended_mode, "ready")
+            self.assertEqual(rust_lanes[0].preferred_wrapper, "make")
+
+    def test_rust_lane_with_tests_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir)
+            (repo / "Cargo.toml").write_text('[package]\nname = "sample"\n', encoding="utf-8")
+            (repo / "tests").mkdir()
+            (repo / "tests" / "integration.rs").write_text("#[test]\nfn it_works() {}\n", encoding="utf-8")
+            report = MODULE.inspect_repo(repo)
+            rust_lanes = [l for l in report.lanes if l.ecosystem == "rust"]
+            self.assertEqual(len(rust_lanes), 1)
+            self.assertTrue(rust_lanes[0].tests_present)
+
+    def test_rust_lane_without_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir)
+            (repo / "src").mkdir()
+            (repo / "src" / "main.rs").write_text("fn main() {}\n", encoding="utf-8")
+            report = MODULE.inspect_repo(repo)
+            rust_lanes = [l for l in report.lanes if l.ecosystem == "rust"]
+            self.assertEqual(len(rust_lanes), 1)
+            self.assertIsNone(rust_lanes[0].manifest)
+
+
+class MainTests(unittest.TestCase):
+    def test_main_text_output(self) -> None:
+        import io
+        import sys
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir)
+            (repo / "pyproject.toml").write_text("[project]\nname='demo'\n", encoding="utf-8")
+            old_argv, old_stdout = sys.argv, sys.stdout
+            sys.stdout = io.StringIO()
+            try:
+                sys.argv = ["inspect_test_stack.py", str(repo)]
+                rc = MODULE.main()
+                output = sys.stdout.getvalue()
+            finally:
+                sys.argv, sys.stdout = old_argv, old_stdout
+            self.assertEqual(rc, 0)
+            self.assertIn("Scope:", output)
+
+    def test_main_json_output(self) -> None:
+        import io
+        import sys
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir)
+            (repo / "Cargo.toml").write_text('[package]\nname="demo"\n', encoding="utf-8")
+            old_argv, old_stdout = sys.argv, sys.stdout
+            sys.stdout = io.StringIO()
+            try:
+                sys.argv = ["inspect_test_stack.py", str(repo), "--json"]
+                rc = MODULE.main()
+                output = sys.stdout.getvalue()
+            finally:
+                sys.argv, sys.stdout = old_argv, old_stdout
+            self.assertEqual(rc, 0)
+            parsed = json.loads(output)
+            self.assertIn("lanes", parsed)
+
+
 if __name__ == "__main__":
     unittest.main()

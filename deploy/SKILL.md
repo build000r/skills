@@ -95,6 +95,9 @@ Run this checklist before any irreversible step:
    - exact preflight route, method, and non-simple request headers
    - callback, return, and checkout redirect allowlists that must match those
      origins
+8. For login/auth facade releases, prove the public auth endpoints are still
+   unauthenticated at the frontdoor and that the browser bundle contains only
+   browser-safe credentials.
 
 For auth, env, or schema changes, explicitly answer:
 
@@ -158,6 +161,50 @@ and `access-control-allow-credentials: true`; the allowed headers must include
 each requested non-simple header. A passing preflight followed by `401` or
 `403` is not a CORS failure: split stale-token/session refresh from route
 authorization and role/scope checks.
+
+Auth facade regression probe:
+
+When the frontend logs in through a same-origin or API-fronted auth facade,
+health checks are not enough. Before declaring a browser-facing auth deploy
+healthy, run a real unauthenticated login probe against the public production
+route and inspect the response shape.
+
+```bash
+AUTH_ORIGIN="https://api.example.com"
+LOGIN_PATH="/api/auth/login"
+
+curl -sS -i -X POST "${AUTH_ORIGIN}${LOGIN_PATH}" \
+  -H "content-type: application/json" \
+  --data '{"email":"__probe_invalid__@example.invalid","password":"__probe_invalid__"}' \
+  | sed -n '1,80p'
+```
+
+Expected result: the request reaches the auth service and returns the auth
+service's invalid-credentials response. Block the deploy if the response is a
+generic protected-route failure such as `Authorization header missing`,
+`Bearer token is required`, a proxy auth challenge, or a route-not-found from
+the application API. That means the login path is mounted behind the wrong
+middleware or frontdoor route.
+
+Browser bundle secret probe:
+
+For Pages, static, or edge frontends, fetch the production HTML and bundled JS
+after deploy. Block the deploy if browser assets contain secret-prefixed API
+keys, private tokens, or server-only env values. Prefer project-specific
+patterns from the overlay, but always include obvious secret prefixes used by
+the auth provider.
+
+```bash
+FRONTEND_ORIGIN="https://www.example.com"
+html="$(curl -fsS "$FRONTEND_ORIGIN/")"
+printf '%s\n' "$html" | rg -o '/assets/[^"]+\.js' | sort -u | while read -r asset; do
+  curl -fsS "${FRONTEND_ORIGIN}${asset}" |
+    rg -n '(_sec_|secret|private|sk_live|BEGIN [A-Z ]*PRIVATE KEY)' && exit 1
+done
+```
+
+If this catches a secret in an already-deployed bundle, rotate the exposed
+credential before redeploying with a browser-safe publishable/public key.
 
 ## Permission Model
 
@@ -234,6 +281,9 @@ change:
   branch-specific smoke endpoint when health lives elsewhere).
 - State check: running container/image tag/commit hash in the target runtime
   matches the expected rollout target.
+- For browser auth surfaces: unauthenticated login reaches the auth service,
+  not protected application middleware, and production bundles contain no
+  server-only secret patterns.
 
 Do not hand the run back until both rerun checks pass.
 
@@ -328,6 +378,11 @@ Checklist:
   alias in the overlay (`example.com`, `www.example.com`, Pages/Vercel aliases)
 - for each browser-called API/auth backend, run an explicit `OPTIONS` preflight
   with the real route, method, origin, and non-simple request headers
+- for public login/auth facade routes, run the unauthenticated auth-facade
+  regression probe and confirm protected-route middleware is not intercepting
+  login, refresh, magic-link, device-flow, or callback routes
+- for browser bundles, fetch production assets and scan for server-only secret
+  prefixes before and after frontend deploy
 - for checkout or billing flows, compare redirect allowlists against the
   canonical origin and first-party aliases in the overlay, then test one
   rejected lookalike host
@@ -364,6 +419,7 @@ Use the exact failure signature instead of generic “unauthorized” summaries:
 | Signature | Likely Cause | Next Check |
 | --- | --- | --- |
 | `401` + auth error code | missing or stale credential/header | compare env source and deployed secret |
+| `401` + `Authorization header missing` on unauthenticated login | auth facade route is behind protected app middleware or wrong frontdoor route | inspect route ordering/proxy config, then rerun the auth-facade regression probe |
 | `403` + permission code | role/scope mismatch | inspect auth config and subject role |
 | Cloudflare `10000` / `9109` | stale or invalid CI token | compare `npx wrangler whoami` locally vs workflow secret source, then rotate/sync the GitHub secret before the next push |
 | `400` + `Disallowed CORS origin` on `OPTIONS` | browser origin allowlist drift | diff deployed env/secret allowlist against all public hostnames and aliases, then rerun preflight |

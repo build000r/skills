@@ -89,6 +89,8 @@ Then inspect the frontend deploy surface defined in the project runbook or local
 
 First split:
 - preflight denied: browser origin, method, or header allowlist drift
+- login route intercepted by protected middleware: public auth facade route is
+  not mounted where the frontend expects
 - `401`: missing/stale credential, token refresh, cookie, or header issue
 - `403`: authenticated subject lacks the app/company/project access the route expects
 
@@ -121,12 +123,65 @@ allowed origins, callback URLs, and checkout return URLs.
 Interpretation:
 - `400` or a body like `Disallowed CORS origin`: diff deployed CORS env/secrets
   against every overlay origin and alias.
+- `401` with a body like `Authorization header missing` when posting to
+  `/api/auth/login` without credentials: the login path is probably routed to
+  protected application middleware instead of the auth facade. Check API router
+  order, reverse-proxy rules, and whether the live runtime version matches the
+  expected commit. Then rerun the unauthenticated login probe.
 - Preflight passes, then `401`: clear or refresh the browser session, compare
   cookies/headers, and retry the authenticated route.
 - Preflight passes, then `403`: inspect route guards and the subject's
   app/company/project access. This is not a CORS failure.
 - Header missing from `access-control-allow-headers`: add the exact browser-sent
   header to the deployed CORS config and rerun the preflight.
+
+### Auth Facade Regression Probe
+
+Use this when a browser login form reports `401`, or after any deploy that
+changes auth, routing, reverse-proxy, frontend env, or API route order.
+
+```bash
+AUTH_ORIGIN="https://api.example.com"
+LOGIN_PATH="/api/auth/login"
+
+curl -sS -i -X POST "${AUTH_ORIGIN}${LOGIN_PATH}" \
+  -H "content-type: application/json" \
+  --data '{"email":"__probe_invalid__@example.invalid","password":"__probe_invalid__"}' \
+  | sed -n '1,80p'
+```
+
+Expected: the auth service returns an invalid-credentials response. Block or
+roll back if the response is a generic protected-route failure, proxy auth
+challenge, or route-not-found response from the app API.
+
+Also verify runtime state, not just behavior:
+
+```bash
+curl -fsS "$MODE_HEALTH_URL_API"
+# Then compare the reported version, container image tag, or deploy metadata
+# with the commit/tag intended for this release.
+```
+
+If health is green but the version is stale or unknown, treat the release as
+not verified.
+
+### Browser Bundle Secret Probe
+
+After a frontend deploy, fetch production assets and fail the release if a
+server-only secret pattern appears in JavaScript served to browsers.
+
+```bash
+FRONTEND_ORIGIN="https://www.example.com"
+html="$(curl -fsS "$FRONTEND_ORIGIN/")"
+printf '%s\n' "$html" | rg -o '/assets/[^"]+\.js' | sort -u | while read -r asset; do
+  curl -fsS "${FRONTEND_ORIGIN}${asset}" |
+    rg -n '(_sec_|secret|private|sk_live|BEGIN [A-Z ]*PRIVATE KEY)' && exit 1
+done
+```
+
+If this fails after a deploy, rotate the exposed credential before shipping the
+next bundle. Replacing the bundle alone is not enough once a secret has been
+publicly served.
 
 ## Package Release Problems
 

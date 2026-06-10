@@ -232,6 +232,193 @@ class ScanClaudeWeeksTests(unittest.TestCase):
             self.assertEqual(weeks, {})
 
 
+class ScanCodexWeeksTests(unittest.TestCase):
+    def test_counts_rollout_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            codex_dir = Path(tmpdir)
+            sessions = codex_dir / "sessions"
+            sessions.mkdir()
+            (sessions / "rollout-abc.jsonl").write_text("{}\n", encoding="utf-8")
+            weeks = list_weeks.scan_codex_weeks(codex_dir)
+            self.assertTrue(len(weeks) >= 1)
+
+    def test_returns_empty_for_no_sessions_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            weeks = list_weeks.scan_codex_weeks(Path(tmpdir))
+            self.assertEqual(weeks, {})
+
+
+class ScanOpencodeWeeksTests(unittest.TestCase):
+    def test_counts_prompts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_dir = Path(tmpdir)
+            history = state_dir / "prompt-history.jsonl"
+            history.write_text(
+                json.dumps({"input": "hello"}) + "\n"
+                + json.dumps({"input": "world"}) + "\n",
+                encoding="utf-8",
+            )
+            weeks = list_weeks.scan_opencode_weeks(state_dir)
+            self.assertTrue(len(weeks) >= 1)
+            self.assertEqual(list(weeks.values())[0], 2)
+
+    def test_returns_empty_for_no_history(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            weeks = list_weeks.scan_opencode_weeks(Path(tmpdir))
+            self.assertEqual(weeks, {})
+
+    def test_skips_empty_input(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_dir = Path(tmpdir)
+            history = state_dir / "prompt-history.jsonl"
+            history.write_text(
+                json.dumps({"input": ""}) + "\n"
+                + json.dumps({"input": "real"}) + "\n",
+                encoding="utf-8",
+            )
+            weeks = list_weeks.scan_opencode_weeks(state_dir)
+            self.assertEqual(list(weeks.values())[0], 1)
+
+
+class LoadReviewedWeeksTests(unittest.TestCase):
+    def test_loads_weeks_from_history(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            history = Path(tmpdir) / "history.jsonl"
+            history.write_text(
+                json.dumps({"week": "2025-W36", "provider": "claude"}) + "\n"
+                + json.dumps({"week": "2025-W36", "provider": "codex"}) + "\n"
+                + json.dumps({"week": "2025-W37", "provider": "claude"}) + "\n",
+                encoding="utf-8",
+            )
+            with patch.object(list_weeks, "HISTORY_FILE", history):
+                reviewed = list_weeks.load_reviewed_weeks()
+                self.assertIn("2025-W36", reviewed)
+                self.assertEqual(len(reviewed["2025-W36"]), 2)
+
+    def test_filters_by_provider(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            history = Path(tmpdir) / "history.jsonl"
+            history.write_text(
+                json.dumps({"week": "2025-W36", "provider": "claude"}) + "\n"
+                + json.dumps({"week": "2025-W36", "provider": "codex"}) + "\n",
+                encoding="utf-8",
+            )
+            with patch.object(list_weeks, "HISTORY_FILE", history):
+                reviewed = list_weeks.load_reviewed_weeks(provider_filter="codex")
+                self.assertEqual(reviewed["2025-W36"], ["codex"])
+
+    def test_returns_empty_for_missing_file(self) -> None:
+        with patch.object(list_weeks, "HISTORY_FILE", Path("/nonexistent")):
+            reviewed = list_weeks.load_reviewed_weeks()
+            self.assertEqual(reviewed, {})
+
+
+class WeekToDatesTests(unittest.TestCase):
+    def test_known_week(self) -> None:
+        start, end = list_weeks.week_to_dates("2025-W36")
+        self.assertTrue(start.startswith("2025-0"))
+        self.assertTrue(end.startswith("2025-0"))
+
+    def test_week_1(self) -> None:
+        start, end = list_weeks.week_to_dates("2025-W01")
+        self.assertTrue(start.startswith("202"))
+
+
+class GenerateBackfillPromptTests(unittest.TestCase):
+    def test_contains_provider_and_week(self) -> None:
+        result = list_weeks.generate_backfill_prompt("claude", "2025-W36", 5)
+        self.assertIn("claude", result.lower())
+        self.assertIn("2025-W36", result)
+
+    def test_contains_extract_command(self) -> None:
+        result = list_weeks.generate_backfill_prompt("codex", "2025-W37", 12)
+        self.assertIn("extract_sessions", result)
+
+
+class ListWeeksMainTests(unittest.TestCase):
+    def _run_main(self, argv: list[str], claude_weeks: dict = None, codex_weeks: dict = None,
+                  opencode_weeks: dict = None, reviewed: dict = None) -> tuple[str, str]:
+        import io
+        import sys
+
+        claude_weeks = claude_weeks or {}
+        codex_weeks = codex_weeks or {}
+        opencode_weeks = opencode_weeks or {}
+        reviewed = reviewed or {}
+
+        old_argv, old_stdout = sys.argv, sys.stdout
+        sys.stdout = io.StringIO()
+        try:
+            sys.argv = ["list_weeks.py"] + argv
+            with patch.object(list_weeks, "scan_claude_weeks", return_value=claude_weeks), \
+                 patch.object(list_weeks, "scan_codex_weeks", return_value=codex_weeks), \
+                 patch.object(list_weeks, "scan_opencode_weeks", return_value=opencode_weeks), \
+                 patch.object(list_weeks, "load_reviewed_weeks", return_value=reviewed):
+                list_weeks.main()
+            return sys.stdout.getvalue(), ""
+        finally:
+            sys.argv, sys.stdout = old_argv, old_stdout
+
+    def test_no_sessions(self) -> None:
+        out, _ = self._run_main([])
+        self.assertIn("No session data found", out)
+
+    def test_table_output(self) -> None:
+        out, _ = self._run_main(
+            [],
+            claude_weeks={"2025-W36": 3, "2025-W37": 5},
+        )
+        self.assertIn("Session Weeks", out)
+        self.assertIn("2025-W36", out)
+        self.assertIn("2025-W37", out)
+
+    def test_provider_filter(self) -> None:
+        out, _ = self._run_main(
+            ["--provider", "claude"],
+            claude_weeks={"2025-W36": 3},
+            codex_weeks={"2025-W36": 2},
+        )
+        self.assertIn("2025-W36", out)
+
+    def test_prompt_mode(self) -> None:
+        out, _ = self._run_main(
+            ["--prompt"],
+            claude_weeks={"2025-W36": 3},
+        )
+        self.assertIn("2025-W36", out)
+
+    def test_prompt_mode_all_reviewed(self) -> None:
+        out, _ = self._run_main(
+            ["--prompt"],
+            claude_weeks={"2025-W36": 3},
+            reviewed={"2025-W36": ["claude"]},
+        )
+        self.assertIn("All weeks have been reviewed", out)
+
+    def test_prompt_mode_with_provider(self) -> None:
+        out, _ = self._run_main(
+            ["--prompt", "--provider", "codex"],
+            codex_weeks={"2025-W36": 2},
+        )
+        self.assertIn("2025-W36", out)
+
+    def test_next_to_backfill_section(self) -> None:
+        out, _ = self._run_main(
+            [],
+            claude_weeks={"2025-W36": 3},
+        )
+        self.assertIn("Next to Backfill", out)
+        self.assertIn("Backfill Command", out)
+
+    def test_all_reviewed_no_backfill(self) -> None:
+        out, _ = self._run_main(
+            [],
+            claude_weeks={"2025-W36": 3},
+            reviewed={"2025-W36": ["claude"]},
+        )
+        self.assertIn("All weeks have been reviewed", out)
+
+
 class AggregateByWeekTests(unittest.TestCase):
     def _make_record(self, week: str, composite: float = 0.5) -> dict:
         return {

@@ -89,7 +89,7 @@ Ask the user with AskUserQuestion:
 
 **Model** (optional, for trend metadata)
 - Ask what model they were using, or infer from context
-- Examples: opus, sonnet, gpt-4o, o3, gemini-2.5-pro
+- Examples: fable, sonnet, gpt-4o, o3, gemini-2.5-pro
 
 **Scope** (Claude Code only)
 - Current project only

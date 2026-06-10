@@ -55,6 +55,18 @@ key reference.
 If no overlay matches, `scripts/status.sh` surfaces the shared legacy-transition
 message from `_shared/scripts/resolve_context.py`, then exits non-zero.
 
+Operator defaults for this environment:
+
+- Work usually starts inside the Skillbox dev box.
+- For HTMA, Sweet Potato, and SPAPS-linked client work, vague production SSH
+  requests usually mean `aiops@sweet-potato-prod` over Tailscale.
+- Prefer the active overlay's `droplet_ssh`. The shared HTMA and Sweet Potato
+  overlays already set that target and `ssh_key: tailscale`.
+- If Tailscale prompts for browser auth or is unavailable, report that remote
+  read access is blocked instead of silently switching to a public IP.
+- Use any `legacy_ssh` or public-IP fallback only when the overlay exposes it
+  and the operator explicitly asks for the fallback.
+
 If you need to create a missing client overlay before proceeding:
 
 ```bash

@@ -7,7 +7,7 @@
         "workspaceAccess": "ro"
       },
       "model": {
-        "primary": "anthropic/claude-opus-4-6"
+        "primary": "anthropic/claude-fable-5"
       }
     },
     "list": [

@@ -87,7 +87,13 @@ Browser and agent auth are two entrances to the same protected MMDX persistence 
 - Browser pako flow: open the generated `/diagrams#pako:...` URL, click the bottom MMDX `save` control for a durable private version, verify the email magic link if prompted, then return to `/diagrams`. The viewer preserves the pako state in the URL or `mmdxResume` localStorage fallback and resumes the pending save after auth.
 - Browser short-link flow: click the top-right `save` control when the user wants a shareable short link for the current pako state, not a private version history record.
 - Agent/CLI private-version flow: authenticate the operator or agent through the existing SPAPS device-code flow, then post the saved `.mmd`/`.mmdx` source to Buildooor's `/api/mmdx/diagrams` or `/api/mmdx/diagrams/:id/versions` API with the bearer token. Do not build a separate MMDX auth system or ask a browser user to run device-code auth.
-- Agent/CLI existing-short-link flow: after editing a local `.mmd`/`.mmdx`, republish the already-saved short link with `publish-link`. First run the existing SPAPS device-code login (`spaps login --server-url <spaps-url> --client-id <app-slug>`), then pass the stored token via `--access-token-command "spaps token --server-url <spaps-url>"`. Direct env alternatives are `BUILDOOOR_ACCESS_TOKEN`, `SPAPS_ACCESS_TOKEN`, or `--access-token`.
+- Agent/CLI existing-short-link flow: after editing a local `.mmd`/`.mmdx`, republish the already-saved short link with `publish-link`. First run the existing SPAPS device-code login (`spaps login --server-url <spaps-api-base> --client-id <app-slug>`), then pass the stored token via `--access-token-command "spaps token --server-url <spaps-api-base>"`. Direct env alternatives are `BUILDOOOR_ACCESS_TOKEN`, `SPAPS_ACCESS_TOKEN`, or `--access-token`.
+
+Important URL distinction for device-code auth:
+
+- `--server-url` is the SPAPS API base used by the CLI to request and poll the device code. Resolve it from `MMDX_SPAPS_SERVER_URL`, then `SPAPS_API_URL`, then `NEXT_PUBLIC_SPAPS_API_URL`, then repo-local `.spaps/app.json` for local mode. If none is available, ask the operator which SPAPS API base to use instead of guessing from stale examples.
+- The browser approval URL is the app-specific verifier shown to the human. For Buildooor production, use `https://buildooor.com/auth/device?user_code=<code>`. If the CLI prints a generic SPAPS API-host URL such as `<spaps-api-base>?user_code=<code>`, keep the CLI polling the SPAPS API base but tell the operator to open the Buildooor verifier URL with the same code.
+- Do not claim auth is blocked merely because `spaps` is not on `PATH`. In the Sweet Potato monorepo, the CLI can be run directly with `node ../sweet-potato/packages/spaps/bin/spaps.js ...`; outside that checkout, use the installed or published `spaps` package.
 
 Agent auth prerequisite: before claiming that durable agent-side save or short-link publishing is blocked,
 check whether `BUILDOOOR_ACCESS_TOKEN`, `SPAPS_ACCESS_TOKEN`,
@@ -126,8 +132,14 @@ specific token name the tool expects. For the bundled MMDX CLI either
 List owned durable MMDX diagrams before choosing a slug or diagram id:
 
 ```bash
+SPAPS_MMDX_AUTH_SERVER_URL="${MMDX_SPAPS_SERVER_URL:-${SPAPS_API_URL:-${NEXT_PUBLIC_SPAPS_API_URL:-}}}"
+test -n "$SPAPS_MMDX_AUTH_SERVER_URL" || {
+  echo "Set MMDX_SPAPS_SERVER_URL or SPAPS_API_URL before agent-side MMDX auth" >&2
+  exit 2
+}
+
 python3 {{SKILL_DIR}}/scripts/mmd.py list \
-  --access-token-command "spaps token --server-url https://api.sweetpotato.dev"
+  --access-token-command "spaps token --server-url $SPAPS_MMDX_AUTH_SERVER_URL"
 ```
 
 `list` reads the authenticated owner library and prints `id`, `slug`, `title`,
@@ -140,7 +152,7 @@ python3 {{SKILL_DIR}}/scripts/mmd.py publish-link path/to/file.mmdx \
   --username buildooor \
   --slug mmdx-68I8Xjv1v3FK \
   --title "PDS Project Status Crux" \
-  --access-token-command "spaps token --server-url https://api.sweetpotato.dev"
+  --access-token-command "spaps token --server-url $SPAPS_MMDX_AUTH_SERVER_URL"
 ```
 
 Dry-run the exact payload without touching production:

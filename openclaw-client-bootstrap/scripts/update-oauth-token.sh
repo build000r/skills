@@ -72,7 +72,7 @@ set -euo pipefail
 #   When using --anthropic:
 #     anthropic/claude-haiku-4-5-20251001  (fast / cheap)
 #     anthropic/claude-sonnet-4-6          (balanced)
-#     anthropic/claude-opus-4-6            (highest capability)
+#     anthropic/claude-fable-5            (highest capability)
 #
 #   Model is NOT changed by this script — update openclaw.json separately.
 #

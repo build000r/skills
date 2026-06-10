@@ -1,6 +1,7 @@
 import json
 import tempfile
 import unittest
+import unittest.mock
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from importlib.machinery import SourceFileLoader
@@ -180,6 +181,83 @@ class SkillReviewSignalTests(unittest.TestCase):
         llm_packet = report["llm_interpretation_packet"]
         self.assertTrue(llm_packet["top_candidates"])
         self.assertTrue(llm_packet["constraints"]["must_cite_candidate_ids"])
+
+
+class LoadHistoryTests(unittest.TestCase):
+    def test_returns_empty_for_missing_file(self) -> None:
+        with unittest.mock.patch.object(MODULE, "REVIEW_HISTORY_FILE", Path("/nonexistent")):
+            result = MODULE.load_history()
+        self.assertEqual(result, [])
+
+    def test_loads_all_records(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            f = Path(tmpdir) / "history.jsonl"
+            f.write_text(
+                json.dumps({"skill": "smart", "week": "2025-W36"}) + "\n"
+                + json.dumps({"skill": "crap", "week": "2025-W37"}) + "\n",
+                encoding="utf-8",
+            )
+            with unittest.mock.patch.object(MODULE, "REVIEW_HISTORY_FILE", f):
+                result = MODULE.load_history()
+            self.assertEqual(len(result), 2)
+
+    def test_filters_by_skill(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            f = Path(tmpdir) / "history.jsonl"
+            f.write_text(
+                json.dumps({"skill": "smart", "week": "2025-W36"}) + "\n"
+                + json.dumps({"skill": "crap", "week": "2025-W37"}) + "\n",
+                encoding="utf-8",
+            )
+            with unittest.mock.patch.object(MODULE, "REVIEW_HISTORY_FILE", f):
+                result = MODULE.load_history(skill="smart")
+            self.assertEqual(len(result), 1)
+            self.assertEqual(result[0]["skill"], "smart")
+
+    def test_skips_invalid_json(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            f = Path(tmpdir) / "history.jsonl"
+            f.write_text("bad json\n" + json.dumps({"skill": "ok"}) + "\n", encoding="utf-8")
+            with unittest.mock.patch.object(MODULE, "REVIEW_HISTORY_FILE", f):
+                result = MODULE.load_history()
+            self.assertEqual(len(result), 1)
+
+    def test_skips_blank_lines(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            f = Path(tmpdir) / "history.jsonl"
+            f.write_text("\n" + json.dumps({"skill": "ok"}) + "\n\n", encoding="utf-8")
+            with unittest.mock.patch.object(MODULE, "REVIEW_HISTORY_FILE", f):
+                result = MODULE.load_history()
+            self.assertEqual(len(result), 1)
+
+
+class AggregateHistoryByWeekTests(unittest.TestCase):
+    def test_empty_records(self) -> None:
+        result = MODULE.aggregate_history_by_week([])
+        self.assertEqual(result, {})
+
+    def test_groups_by_week(self) -> None:
+        records = [
+            {"week": "2025-W36", "invocations": 5, "metrics": {"ack_rate": 0.8}},
+            {"week": "2025-W36", "invocations": 3, "metrics": {"ack_rate": 0.6}},
+            {"week": "2025-W37", "invocations": 10, "metrics": {"ack_rate": 1.0}},
+        ]
+        result = MODULE.aggregate_history_by_week(records)
+        self.assertEqual(len(result), 2)
+        self.assertEqual(result["2025-W36"]["reviews"], 2)
+        self.assertEqual(result["2025-W36"]["invocations"], 8)
+        self.assertAlmostEqual(result["2025-W36"]["metrics"]["ack_rate"], 0.7)
+        self.assertEqual(result["2025-W37"]["reviews"], 1)
+
+    def test_missing_week_grouped_as_unknown(self) -> None:
+        records = [{"invocations": 1, "metrics": {}}]
+        result = MODULE.aggregate_history_by_week(records)
+        self.assertIn("unknown", result)
+
+    def test_missing_metrics_default_to_zero(self) -> None:
+        records = [{"week": "2025-W36", "invocations": 1}]
+        result = MODULE.aggregate_history_by_week(records)
+        self.assertEqual(result["2025-W36"]["metrics"]["ack_rate"], 0.0)
 
 
 if __name__ == "__main__":

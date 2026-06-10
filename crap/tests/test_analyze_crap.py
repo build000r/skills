@@ -251,6 +251,84 @@ class AnalyzeCrapCoverageTests(unittest.TestCase):
         )
 
 
+class AnalyzeCrapMainTests(unittest.TestCase):
+    def _run_main(self, argv: list[str]) -> tuple[int, str, str]:
+        import io
+        import sys
+
+        old_argv, old_stdout, old_stderr = sys.argv, sys.stdout, sys.stderr
+        sys.stdout = io.StringIO()
+        sys.stderr = io.StringIO()
+        try:
+            sys.argv = ["analyze_crap"] + argv
+            rc = MODULE.main()
+            return rc, sys.stdout.getvalue(), sys.stderr.getvalue()
+        finally:
+            sys.argv, sys.stdout, sys.stderr = old_argv, old_stdout, old_stderr
+
+    def test_main_target_not_found(self) -> None:
+        rc, _, err = self._run_main(["/nonexistent/path/xyz"])
+        self.assertEqual(rc, 1)
+        self.assertIn("not found", err.lower())
+
+    def test_main_negative_threshold(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            rc, _, err = self._run_main([tmpdir, "--threshold", "-5"])
+        self.assertEqual(rc, 2)
+        self.assertIn("positive", err.lower())
+
+    def test_main_unsupported_language(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            rc, out, _ = self._run_main([tmpdir, "--languages", "cobol"])
+        self.assertEqual(rc, 2)
+        self.assertIn("cobol", out.lower())
+
+    def test_main_no_supported_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            rc, out, _ = self._run_main([tmpdir, "--languages", "python"])
+        self.assertEqual(rc, 0)
+        self.assertIn("FINAL_SCORE: 0.00", out)
+
+    def test_main_happy_path_python(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir)
+            src = repo / "sample.py"
+            src.write_text(
+                "def hello():\n    return 1\n\ndef world():\n    if True:\n        return 2\n    return 3\n",
+                encoding="utf-8",
+            )
+            rc, out, _ = self._run_main([tmpdir, "--languages", "python", "--top", "5"])
+        self.assertEqual(rc, 0)
+        self.assertIn("FINAL_SCORE", out)
+        self.assertIn("CRAP", out)
+
+    def test_main_with_threshold(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir)
+            src = repo / "sample.py"
+            src.write_text("def trivial():\n    return 1\n", encoding="utf-8")
+            rc, out, _ = self._run_main([tmpdir, "--languages", "python", "--threshold", "30"])
+        self.assertEqual(rc, 0)
+        self.assertIn("FINAL_SCORE", out)
+
+    def test_main_single_file_target(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            src = Path(tmpdir) / "only.py"
+            src.write_text("def only():\n    pass\n", encoding="utf-8")
+            rc, out, _ = self._run_main([str(src)])
+        self.assertEqual(rc, 0)
+        self.assertIn("FINAL_SCORE", out)
+
+    def test_main_empty_dir_no_findings(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir)
+            src = repo / "empty.py"
+            src.write_text("# nothing here\n", encoding="utf-8")
+            rc, out, _ = self._run_main([tmpdir, "--languages", "python"])
+        self.assertEqual(rc, 0)
+        self.assertIn("FINAL_SCORE: 0.00", out)
+
+
 class AnalyzeCrapSwiftTests(unittest.TestCase):
     def test_swift_is_supported_language(self) -> None:
         self.assertIn("swift", MODULE.SUPPORTED_LANGUAGES)

@@ -377,5 +377,183 @@ class AnalyzeMutantsTests(unittest.TestCase):
             self.assertEqual(sources, [report_path.resolve()])
 
 
+class RequestedAdaptersTests(unittest.TestCase):
+    def test_empty_string_returns_all(self) -> None:
+        supported, unsupported = MODULE.requested_adapters("")
+        self.assertEqual(supported, list(MODULE.SUPPORTED_ADAPTERS))
+        self.assertEqual(unsupported, [])
+
+    def test_whitespace_only_returns_all(self) -> None:
+        supported, unsupported = MODULE.requested_adapters("  ")
+        self.assertEqual(supported, list(MODULE.SUPPORTED_ADAPTERS))
+        self.assertEqual(unsupported, [])
+
+    def test_single_valid_adapter(self) -> None:
+        supported, unsupported = MODULE.requested_adapters("mutmut")
+        self.assertEqual(supported, ["mutmut"])
+        self.assertEqual(unsupported, [])
+
+    def test_unsupported_adapter(self) -> None:
+        supported, unsupported = MODULE.requested_adapters("pitest")
+        self.assertEqual(supported, [])
+        self.assertEqual(unsupported, ["pitest"])
+
+    def test_mixed_valid_and_invalid(self) -> None:
+        supported, unsupported = MODULE.requested_adapters("stryker, pitest, muter")
+        self.assertEqual(supported, ["stryker", "muter"])
+        self.assertEqual(unsupported, ["pitest"])
+
+
+class ParseCargoOutcomesEdgeCaseTests(unittest.TestCase):
+    def test_invalid_json_returns_empty(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir)
+            outcomes = repo / "outcomes.json"
+            outcomes.write_text("not json!", encoding="utf-8")
+            self.assertEqual(MODULE.parse_cargo_outcomes(repo, outcomes), [])
+
+    def test_missing_file_returns_empty(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir)
+            self.assertEqual(MODULE.parse_cargo_outcomes(repo, repo / "missing.json"), [])
+
+    def test_non_dict_payload_uses_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir)
+            outcomes = repo / "outcomes.json"
+            outcomes.write_text(
+                json.dumps([{"status": "Missed", "file": "src/lib.rs", "line": 5, "id": "m1"}]),
+                encoding="utf-8",
+            )
+            findings = MODULE.parse_cargo_outcomes(repo, outcomes)
+            self.assertEqual(len(findings), 1)
+            self.assertEqual(findings[0].status, "survived")
+
+    def test_non_dict_entry_skipped(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir)
+            outcomes = repo / "outcomes.json"
+            outcomes.write_text(
+                json.dumps({"outcomes": ["not_a_dict", {"summary": "CaughtMutant", "file": "src/a.rs", "line": 1, "name": "m1"}]}),
+                encoding="utf-8",
+            )
+            findings = MODULE.parse_cargo_outcomes(repo, outcomes)
+            self.assertEqual(len(findings), 1)
+
+    def test_entry_without_status_skipped(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir)
+            outcomes = repo / "outcomes.json"
+            outcomes.write_text(
+                json.dumps({"outcomes": [{"file": "src/a.rs", "line": 1}]}),
+                encoding="utf-8",
+            )
+            findings = MODULE.parse_cargo_outcomes(repo, outcomes)
+            self.assertEqual(len(findings), 0)
+
+    def test_baseline_scenario_skipped(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir)
+            outcomes = repo / "outcomes.json"
+            outcomes.write_text(
+                json.dumps({"outcomes": [
+                    {"scenario": "Baseline", "summary": "Success", "log_path": "log/b.log"},
+                    {"scenario": {"Mutant": {"name": "m1", "file": "src/a.rs", "line": 1}}, "summary": "CaughtMutant"},
+                ]}),
+                encoding="utf-8",
+            )
+            findings = MODULE.parse_cargo_outcomes(repo, outcomes)
+            self.assertEqual(len(findings), 1)
+            self.assertEqual(findings[0].status, "killed")
+
+    def test_invalid_line_number_becomes_none(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir)
+            outcomes = repo / "outcomes.json"
+            outcomes.write_text(
+                json.dumps({"outcomes": [
+                    {"scenario": {"Mutant": {"name": "m1", "file": "src/a.rs", "line": "not_a_number"}}, "summary": "MissedMutant"},
+                ]}),
+                encoding="utf-8",
+            )
+            findings = MODULE.parse_cargo_outcomes(repo, outcomes)
+            self.assertEqual(len(findings), 1)
+            self.assertIsNone(findings[0].line)
+
+
+class RenderReportTests(unittest.TestCase):
+    def _make_finding(self, status: str = "survived", path: str = "src/a.rs", line: int = 1, review_status: str | None = None) -> "MODULE.Finding":
+        return MODULE.Finding(
+            adapter="cargo-mutants",
+            key=f"cargo-mutants:{path}:{line}:{status}",
+            status=status,
+            source=Path("/tmp/outcomes.json"),
+            path=Path(path),
+            line=line,
+            raw_id=f"m-{line}",
+            detail="replaced return",
+            review_status=review_status,
+        )
+
+    def test_empty_findings(self) -> None:
+        report = MODULE.render_report(
+            Path("/tmp/repo"),
+            [],
+            ledger_path=Path("/tmp/.mutate/ledger.json"),
+            sources=[Path("/tmp/outcomes.json")],
+        )
+        self.assertIn("No supported mutation artifacts found", report)
+        self.assertIn("FINAL_TODO: 0", report)
+
+    def test_top_n_limiting(self) -> None:
+        findings = [self._make_finding(line=i) for i in range(10)]
+        report = MODULE.render_report(
+            Path("/tmp/repo"),
+            findings,
+            top=3,
+            ledger_path=Path("/tmp/.mutate/ledger.json"),
+            sources=[Path("/tmp/outcomes.json")],
+        )
+        self.assertIn("top 3 of 10", report)
+        self.assertIn("FINAL_TODO: 10", report)
+
+    def test_grouped_next_slice(self) -> None:
+        findings = [
+            self._make_finding(line=1, path="src/a.rs"),
+            self._make_finding(line=2, path="src/a.rs"),
+            self._make_finding(line=5, path="src/b.rs"),
+        ]
+        report = MODULE.render_report(
+            Path("/tmp/repo"),
+            findings,
+            ledger_path=Path("/tmp/.mutate/ledger.json"),
+            sources=[Path("/tmp/outcomes.json")],
+        )
+        self.assertIn("Suggested next slice", report)
+        self.assertIn("src/a.rs", report)
+        self.assertIn("2 active findings", report)
+
+    def test_review_status_shown(self) -> None:
+        findings = [self._make_finding(review_status="equivalent")]
+        report = MODULE.render_report(
+            Path("/tmp/repo"),
+            findings,
+            ledger_path=Path("/tmp/.mutate/ledger.json"),
+            sources=[Path("/tmp/outcomes.json")],
+        )
+        self.assertIn("review equivalent", report)
+
+    def test_no_todo_findings_skips_next_slice(self) -> None:
+        f = self._make_finding(status="killed")
+        report = MODULE.render_report(
+            Path("/tmp/repo"),
+            [f],
+            ledger_path=Path("/tmp/.mutate/ledger.json"),
+            sources=[Path("/tmp/outcomes.json")],
+        )
+        self.assertNotIn("Suggested next slice", report)
+        self.assertIn("FINAL_TODO: 0", report)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -148,5 +148,42 @@ class ResolveContextTests(unittest.TestCase):
         self.assertEqual(payload, {"value": "enabled"})
 
 
+class FlattenTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.mod = _load_module()
+
+    def test_flat_dict(self) -> None:
+        result = self.mod._flatten("MODE", {"name": "test"})
+        self.assertEqual(result, {"MODE_NAME": "test"})
+
+    def test_nested_dict(self) -> None:
+        result = self.mod._flatten("MODE", {"backend": {"repo": "api"}})
+        self.assertEqual(result, {"MODE_BACKEND_REPO": "api"})
+
+    def test_list_value(self) -> None:
+        result = self.mod._flatten("MODE", {"tags": ["a", "b"]})
+        self.assertEqual(result, {"MODE_TAGS": "a:b"})
+
+    def test_none_value(self) -> None:
+        result = self.mod._flatten("MODE", {"empty": None})
+        self.assertEqual(result, {"MODE_EMPTY": ""})
+
+    def test_numeric_value(self) -> None:
+        result = self.mod._flatten("MODE", {"count": 42})
+        self.assertEqual(result, {"MODE_COUNT": "42"})
+
+    def test_empty_prefix(self) -> None:
+        result = self.mod._flatten("", {"key": "val"})
+        self.assertEqual(result, {"KEY": "val"})
+
+    def test_special_chars_normalized(self) -> None:
+        result = self.mod._flatten("MODE", {"my-key.name": "val"})
+        self.assertEqual(result, {"MODE_MY_KEY_NAME": "val"})
+
+    def test_deeply_nested(self) -> None:
+        result = self.mod._flatten("M", {"a": {"b": {"c": "deep"}}})
+        self.assertEqual(result, {"M_A_B_C": "deep"})
+
+
 if __name__ == "__main__":
     unittest.main()

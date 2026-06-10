@@ -396,5 +396,94 @@ class BrHelpersTests(unittest.TestCase):
             self.assertEqual(calls[2][1]["cwd"], repo)
 
 
+class RenderWorkgraphFallbackTests(unittest.TestCase):
+    def test_fallback_to_br_show_on_list_failure(self) -> None:
+        import subprocess
+
+        def fake_list_issues(**kwargs):
+            raise subprocess.CalledProcessError(1, "br list --parent")
+
+        root_issue = {
+            "id": "skills-epic-001",
+            "title": "Epic",
+            "status": "open",
+            "dependents": [{"id": "skills-child-001"}],
+        }
+        child_issue = {
+            "id": "skills-child-001",
+            "title": "Child task",
+            "status": "in_progress",
+        }
+
+        def fake_json(args):
+            if "skills-epic-001" in args:
+                return root_issue
+            if "skills-child-001" in args:
+                return child_issue
+            return {}
+
+        with mock.patch.object(MODULE, "list_issues", side_effect=fake_list_issues), \
+             mock.patch.object(MODULE, "_json", side_effect=fake_json), \
+             mock.patch.object(MODULE, "show_issue", side_effect=lambda iid: {"id": iid}):
+            rendered = MODULE.render_workgraph(epic="skills-epic-001")
+
+        self.assertIn("skills-epic-001", rendered)
+        self.assertIn("skills-child-001", rendered)
+
+    def test_render_workgraph_without_epic(self) -> None:
+        minimal = {
+            "id": "skills-solo-001",
+            "title": "Solo task",
+            "status": "open",
+        }
+        with mock.patch.object(MODULE, "list_issues", return_value=[minimal]), \
+             mock.patch.object(MODULE, "show_issue", return_value=minimal):
+            rendered = MODULE.render_workgraph()
+
+        self.assertIn("skills-solo-001", rendered)
+        self.assertIn("WORKGRAPH", rendered)
+
+    def test_render_workgraph_shows_labels_and_deps(self) -> None:
+        issue = {
+            "id": "skills-dep-001",
+            "title": "Task with deps",
+            "status": "open",
+            "labels": ["chain:smart", "concern:test"],
+            "dependencies": [{"depends_on_id": "skills-dep-000"}],
+        }
+        with mock.patch.object(MODULE, "list_issues", return_value=[issue]), \
+             mock.patch.object(MODULE, "show_issue", return_value=issue):
+            rendered = MODULE.render_workgraph()
+
+        self.assertIn("chain:smart", rendered)
+        self.assertIn("depends_on: skills-dep-000", rendered)
+
+    def test_render_workgraph_include_closed_false(self) -> None:
+        with mock.patch.object(MODULE, "list_issues", return_value=[]) as list_issues:
+            MODULE.render_workgraph(include_closed=False)
+
+        list_issues.assert_called_once_with(parent=None, include_closed=False)
+
+    def test_fallback_with_list_envelope_return(self) -> None:
+        import subprocess
+
+        def fake_list_issues(**kwargs):
+            raise subprocess.CalledProcessError(1, "br list --parent")
+
+        root_issue = [{
+            "id": "skills-epic-002",
+            "title": "Epic 2",
+            "status": "open",
+            "dependents": [],
+        }]
+
+        with mock.patch.object(MODULE, "list_issues", side_effect=fake_list_issues), \
+             mock.patch.object(MODULE, "_json", return_value=root_issue), \
+             mock.patch.object(MODULE, "show_issue", return_value=root_issue[0]):
+            rendered = MODULE.render_workgraph(epic="skills-epic-002")
+
+        self.assertIn("skills-epic-002", rendered)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -99,5 +99,122 @@ class PrintSummaryTests(unittest.TestCase):
         self.assertIn("DONE", output)
 
 
+class ClearDoneTests(unittest.TestCase):
+    def test_removes_done_and_failed_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            status_dir = Path(tmpdir)
+            (status_dir / "w1.json").write_text(
+                json.dumps({"label": "w1", "status": "DONE"}), encoding="utf-8",
+            )
+            (status_dir / "w2.json").write_text(
+                json.dumps({"label": "w2", "status": "FAILED"}), encoding="utf-8",
+            )
+            (status_dir / "w3.json").write_text(
+                json.dumps({"label": "w3", "status": "RUNNING", "pid": 99999}), encoding="utf-8",
+            )
+            removed = MODULE._clear_done(status_dir)
+            self.assertEqual(removed, 2)
+            self.assertTrue((status_dir / "w3.json").exists())
+
+    def test_skips_invalid_json(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            status_dir = Path(tmpdir)
+            (status_dir / "bad.json").write_text("nope", encoding="utf-8")
+            removed = MODULE._clear_done(status_dir)
+            self.assertEqual(removed, 0)
+
+
+class MainTests(unittest.TestCase):
+    def _run_main(self, argv: list[str]) -> tuple[int, str]:
+        import io
+        import sys
+
+        old_argv, old_stdout = sys.argv, sys.stdout
+        sys.stdout = io.StringIO()
+        try:
+            sys.argv = ["check_workers.py"] + argv
+            rc = MODULE.main()
+            return rc, sys.stdout.getvalue()
+        finally:
+            sys.argv, sys.stdout = old_argv, old_stdout
+
+    def test_main_no_workers(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            rc, out = self._run_main(["--status-dir", tmpdir])
+            self.assertEqual(rc, 0)
+            self.assertIn("No workers found", out)
+
+    def test_main_clear_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            status_dir = Path(tmpdir)
+            (status_dir / "w1.json").write_text(
+                json.dumps({"label": "w1", "status": "DONE"}), encoding="utf-8",
+            )
+            rc, out = self._run_main(["--status-dir", tmpdir, "--clear"])
+            self.assertEqual(rc, 0)
+            self.assertIn("Cleared 1", out)
+
+    def test_main_json_output(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            status_dir = Path(tmpdir)
+            (status_dir / "w1.json").write_text(
+                json.dumps({"label": "w1", "status": "DONE", "exit_code": 0, "_log_file": "/tmp/log"}),
+                encoding="utf-8",
+            )
+            rc, out = self._run_main(["--status-dir", tmpdir, "--json"])
+            self.assertEqual(rc, 0)
+            parsed = json.loads(out)
+            self.assertEqual(len(parsed), 1)
+            self.assertNotIn("_log_file", parsed[0])
+
+    def test_main_json_verbose_includes_log(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            status_dir = Path(tmpdir)
+            (status_dir / "w1.json").write_text(
+                json.dumps({"label": "w1", "status": "DONE", "exit_code": 0, "_log_file": "/tmp/log"}),
+                encoding="utf-8",
+            )
+            rc, out = self._run_main(["--status-dir", tmpdir, "--json", "--verbose"])
+            parsed = json.loads(out)
+            self.assertIn("_log_file", parsed[0])
+
+    def test_main_returns_1_for_failed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            status_dir = Path(tmpdir)
+            (status_dir / "w1.json").write_text(
+                json.dumps({"label": "w1", "status": "FAILED", "exit_code": 1}),
+                encoding="utf-8",
+            )
+            rc, _ = self._run_main(["--status-dir", tmpdir])
+            self.assertEqual(rc, 1)
+
+    def test_main_returns_2_for_running(self) -> None:
+        import os
+        with tempfile.TemporaryDirectory() as tmpdir:
+            status_dir = Path(tmpdir)
+            (status_dir / "w1.json").write_text(
+                json.dumps({"label": "w1", "status": "RUNNING", "pid": os.getpid()}),
+                encoding="utf-8",
+            )
+            rc, _ = self._run_main(["--status-dir", tmpdir])
+            self.assertEqual(rc, 2)
+
+    def test_main_with_label_filter(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            status_dir = Path(tmpdir)
+            (status_dir / "w1.json").write_text(
+                json.dumps({"label": "alpha", "status": "DONE", "exit_code": 0}),
+                encoding="utf-8",
+            )
+            (status_dir / "w2.json").write_text(
+                json.dumps({"label": "beta", "status": "DONE", "exit_code": 0}),
+                encoding="utf-8",
+            )
+            rc, out = self._run_main(["--status-dir", tmpdir, "--label", "alpha", "--json"])
+            parsed = json.loads(out)
+            self.assertEqual(len(parsed), 1)
+            self.assertEqual(parsed[0]["label"], "alpha")
+
+
 if __name__ == "__main__":
     unittest.main()

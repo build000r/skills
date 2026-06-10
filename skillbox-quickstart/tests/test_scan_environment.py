@@ -202,5 +202,99 @@ class ScanReposTests(unittest.TestCase):
         self.assertEqual(repos, [])
 
 
+class DetectServiceCommandTests(unittest.TestCase):
+    def test_node_dev_script(self) -> None:
+        with TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "package.json").write_text(
+                json.dumps({"scripts": {"dev": "next dev"}}), encoding="utf-8"
+            )
+            result = scan_environment.detect_service_command(repo, ["node"])
+            self.assertIsNotNone(result)
+            self.assertEqual(result["command"], "npm run dev")
+            self.assertEqual(result["source"], "package.json scripts.dev")
+
+    def test_node_start_script(self) -> None:
+        with TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "package.json").write_text(
+                json.dumps({"scripts": {"start": "node server.js"}}), encoding="utf-8"
+            )
+            result = scan_environment.detect_service_command(repo, ["node"])
+            self.assertEqual(result["command"], "npm run start")
+
+    def test_node_serve_script(self) -> None:
+        with TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "package.json").write_text(
+                json.dumps({"scripts": {"serve": "vite"}}), encoding="utf-8"
+            )
+            result = scan_environment.detect_service_command(repo, ["node"])
+            self.assertEqual(result["command"], "npm run serve")
+
+    def test_node_no_scripts(self) -> None:
+        with TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "package.json").write_text(json.dumps({}), encoding="utf-8")
+            result = scan_environment.detect_service_command(repo, ["node"])
+            self.assertIsNone(result)
+
+    def test_node_no_package_json(self) -> None:
+        with TemporaryDirectory() as tmp:
+            result = scan_environment.detect_service_command(Path(tmp), ["node"])
+            self.assertIsNone(result)
+
+    def test_node_invalid_json(self) -> None:
+        with TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "package.json").write_text("not json", encoding="utf-8")
+            result = scan_environment.detect_service_command(repo, ["node"])
+            self.assertIsNone(result)
+
+    def test_python_manage_py(self) -> None:
+        with TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "manage.py").write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+            result = scan_environment.detect_service_command(repo, ["python"])
+            self.assertIsNotNone(result)
+            self.assertEqual(result["command"], "python3 manage.py")
+
+    def test_python_app_py(self) -> None:
+        with TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "app.py").write_text("from flask import Flask\n", encoding="utf-8")
+            result = scan_environment.detect_service_command(repo, ["python"])
+            self.assertEqual(result["command"], "python3 app.py")
+
+    def test_python_no_matching_file(self) -> None:
+        with TemporaryDirectory() as tmp:
+            result = scan_environment.detect_service_command(Path(tmp), ["python"])
+            self.assertIsNone(result)
+
+    def test_unknown_stack(self) -> None:
+        with TemporaryDirectory() as tmp:
+            result = scan_environment.detect_service_command(Path(tmp), ["rust"])
+            self.assertIsNone(result)
+
+    def test_typescript_stack(self) -> None:
+        with TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "package.json").write_text(
+                json.dumps({"scripts": {"dev": "tsc --watch"}}), encoding="utf-8"
+            )
+            result = scan_environment.detect_service_command(repo, ["typescript"])
+            self.assertEqual(result["command"], "npm run dev")
+
+    def test_prefers_dev_over_start(self) -> None:
+        with TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "package.json").write_text(
+                json.dumps({"scripts": {"dev": "next dev", "start": "next start"}}),
+                encoding="utf-8",
+            )
+            result = scan_environment.detect_service_command(repo, ["node"])
+            self.assertEqual(result["command"], "npm run dev")
+
+
 if __name__ == "__main__":
     unittest.main()

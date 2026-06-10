@@ -127,6 +127,7 @@ contain `SKILL.md`. You can install one skill, a lane, or the full catalog.
 | [`ask-cascade`](./ask-cascade/) | Orders user-facing questions from high-level dependencies down to details |
 | [`audit-plans`](./audit-plans/) | Audits plans, order, focus, and backlog state |
 | [`build-vs-clone`](./build-vs-clone/) | Decides whether work belongs in an existing repo, shared home, or new build |
+| [`claude-clone`](./claude-clone/) | Recreates features from high-signal upstream tools by minimal porting |
 | [`cli-ergonomics`](./cli-ergonomics/) | Builds and reviews agent-facing CLIs for compact shell UX |
 | [`codex-tmux`](./codex-tmux/) | Runs Codex in persistent tmux sessions for long jobs |
 | [`commit`](./commit/) | Batches working changes into clean, high-level commits |
@@ -137,7 +138,11 @@ contain `SKILL.md`. You can install one skill, a lane, or the full catalog.
 | [`domain-planner`](./domain-planner/) | Plans multi-repo domain slices and implementation contracts |
 | [`domain-reviewer`](./domain-reviewer/) | Audits live work against a plan and retires completed slices |
 | [`domain-scaffolder`](./domain-scaffolder/) | Scaffolds backend or frontend domain code from accepted slice plans |
+| [`drift-detector`](./drift-detector/) | Detects UI drift and produces ranked consolidation plans |
 | [`eli-me-maker`](./eli-me-maker/) | Creates a private `eli-me` skill for personalized explanation preferences |
+| [`escalate`](./escalate/) | Routes strategic calls through bounded external-reality checks |
+| [`ios-surface-hardening`](./ios-surface-hardening/) | Hardens SwiftUI iOS surfaces with shared visual language and analytics contracts |
+| [`lube`](./lube/) | Runs friction-removal retrospectives for agent sessions |
 | [`mmdx-registry-usage-audit`](./mmdx-registry-usage-audit/) | Audits MMDX index freshness, tracker placement, chart links, and preflight validity |
 | [`mutate`](./mutate/) | Runs mutation testing and triages surviving mutants |
 | [`oss-doc-audit`](./oss-doc-audit/) | Audits public docs for drift, grades OSS readiness, and builds ranked cleanup queues |
@@ -145,7 +150,12 @@ contain `SKILL.md`. You can install one skill, a lane, or the full catalog.
 | [`reproduce`](./reproduce/) | Uses a command-first QA ladder before handing testing back |
 | [`skill-issue`](./skill-issue/) | Creates, validates, improves, and packages skills |
 | [`skill-registry-usage-audit`](./skill-registry-usage-audit/) | Audits skill manifests, skill-repos.yaml, SBP/MCP visibility, bundles, and placement scope |
+| [`skillbox-quickstart`](./skillbox-quickstart/) | Assesses environments and provisions working skillbox setups |
 | [`smart`](./smart/) | Chooses the single highest-leverage next move or goal contract from repo evidence |
+| [`wiki`](./wiki/) | Maintains a Karpathy-style LLM Wiki in an Obsidian vault |
+| [`wiki-dry`](./wiki-dry/) | Applies DRY refactoring to wiki concepts and skill bundles |
+| [`wiki-duel`](./wiki-duel/) | Runs adversarial idea generation grounded in wiki context |
+| [`wiki-forge`](./wiki-forge/) | Stress-tests the highest-lever wiki concept adversarially |
 
 ### Domain Slice Loop
 
@@ -247,15 +257,20 @@ human re-enters only for ambiguity, risk, or escalation
 | Skill | What it does |
 | --- | --- |
 | [`deploy`](./deploy/) | Deploys, debugs, and operates multi-service infrastructure with mode-driven safety rails |
+| [`hire-human-operator`](./hire-human-operator/) | Decides when to book the human operator for expert help |
+| [`spaps-feedback`](./spaps-feedback/) | Pulls and triages user-reported issues from the SPAPS platform |
 | [`ssh-info`](./ssh-info/) | Provides mode-driven server connection references and targeted live status checks |
 
 ### Tooling, Docs, And Creative Systems
 
 | Skill | What it does |
 | --- | --- |
+| [`chart-crimes`](./chart-crimes/) | Builds persuasion-forward charts that keep underlying numbers honest |
 | [`deep-research-prompt`](./deep-research-prompt/) | Builds Oracle-ready Deep Research and image-creation prompts for external research tools, ChatGPT image generation, visual reference sheets, and "make a prompt for another agent" handoffs |
+| [`mmdx`](./mmdx/) | Authors, encodes, stacks, and previews Mermaid/MMDX diagrams |
 | [`remotion`](./remotion/) | Encodes practical Remotion guidance for React video work and SVG-first motion architecture |
 | [`research-paper`](./research-paper/) | Produces dense research pages plus social companions |
+| [`shadcn-data-table`](./shadcn-data-table/) | Designs data-intensive shadcn/ui tables with UX-grounded column plans |
 | [`trend-to-content`](./trend-to-content/) | Turns search and social trends into research, PSEO, and video ideas |
 
 `clawgs` now lives as a sibling repo at `../clawgs/` when you need the Rust-backed

@@ -168,5 +168,55 @@ class OverlayGenerationTests(unittest.TestCase):
         self.assertEqual(overlay["client"]["services"][0]["repo"], "local-primary")
 
 
+class ComputeDecisionsTests(unittest.TestCase):
+    def test_single_repo_no_repo_decisions(self) -> None:
+        scan = {"repos": [{"name": "app"}], "gaps": []}
+        decisions = generate_overlay.compute_decisions(scan, {})
+        questions = [d["question"] for d in decisions]
+        self.assertFalse(any("repos" in q.lower() for q in questions))
+
+    def test_multiple_repos_prompts_selection_and_primary(self) -> None:
+        scan = {
+            "repos": [{"name": "frontend"}, {"name": "backend"}],
+            "gaps": [],
+        }
+        decisions = generate_overlay.compute_decisions(scan, {})
+        questions = [d["question"] for d in decisions]
+        self.assertTrue(any("included" in q.lower() or "which repo" in q.lower() for q in questions))
+        self.assertTrue(any("primary" in q.lower() for q in questions))
+
+    def test_do_token_gap_prompts_provisioning(self) -> None:
+        scan = {
+            "repos": [{"name": "app"}],
+            "gaps": [{"tool": "do_token", "severity": "recommended"}],
+        }
+        decisions = generate_overlay.compute_decisions(scan, {})
+        questions = [d["question"] for d in decisions]
+        self.assertTrue(any("digitalocean" in q.lower() or "provision" in q.lower() for q in questions))
+
+    def test_no_gaps_no_provisioning_decision(self) -> None:
+        scan = {"repos": [{"name": "app"}], "gaps": []}
+        decisions = generate_overlay.compute_decisions(scan, {})
+        self.assertEqual(decisions, [])
+
+    def test_non_do_gap_ignored(self) -> None:
+        scan = {
+            "repos": [{"name": "app"}],
+            "gaps": [{"tool": "docker", "severity": "recommended"}],
+        }
+        decisions = generate_overlay.compute_decisions(scan, {})
+        self.assertEqual(decisions, [])
+
+    def test_primary_repo_default_from_blueprint(self) -> None:
+        scan = {
+            "repos": [{"name": "frontend"}, {"name": "backend"}],
+            "gaps": [],
+        }
+        blueprint_rec = {"primary_repo": {"name": "backend"}}
+        decisions = generate_overlay.compute_decisions(scan, blueprint_rec)
+        primary_decision = [d for d in decisions if "primary" in d["question"].lower()][0]
+        self.assertEqual(primary_decision["default"], "backend")
+
+
 if __name__ == "__main__":
     unittest.main()

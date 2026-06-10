@@ -342,5 +342,146 @@ ntm deps -v
         self.assertEqual(message, "Skill is valid!")
 
 
+class ValidateSkillEdgeCaseTests(unittest.TestCase):
+    def _write_skill(self, root: Path, name: str, description: str, body: str = "# Skill\n") -> Path:
+        skill_dir = root / name
+        skill_dir.mkdir(parents=True, exist_ok=True)
+        (skill_dir / "SKILL.md").write_text(
+            f"---\nname: {name}\ndescription: \"{description}\"\n---\n\n{body}\n",
+            encoding="utf-8",
+        )
+        return skill_dir
+
+    def test_missing_skill_md(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            skill_dir = Path(tmpdir) / "no-skill"
+            skill_dir.mkdir()
+            valid, message = VALIDATE_MODULE.validate_skill(skill_dir)
+        self.assertFalse(valid)
+        self.assertEqual(message, "SKILL.md not found")
+
+    def test_no_frontmatter(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            skill_dir = Path(tmpdir) / "no-fm"
+            skill_dir.mkdir()
+            (skill_dir / "SKILL.md").write_text("# No frontmatter\n", encoding="utf-8")
+            valid, message = VALIDATE_MODULE.validate_skill(skill_dir)
+        self.assertFalse(valid)
+        self.assertEqual(message, "No YAML frontmatter found")
+
+    def test_description_with_angle_brackets(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            skill_dir = self._write_skill(
+                Path(tmpdir), "bracket-test",
+                "Skill with <angle> brackets should fail validation cleanly."
+            )
+            valid, message = VALIDATE_MODULE.validate_skill(skill_dir)
+        self.assertFalse(valid)
+        self.assertIn("angle brackets", message)
+
+    def test_description_too_long(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            desc = "A" * 1025
+            skill_dir = self._write_skill(Path(tmpdir), "long-desc", desc)
+            valid, message = VALIDATE_MODULE.validate_skill(skill_dir)
+        self.assertFalse(valid)
+        self.assertIn("too long", message)
+
+    def test_name_too_long(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            name = "a" * 65
+            skill_dir = Path(tmpdir) / name
+            skill_dir.mkdir()
+            (skill_dir / "SKILL.md").write_text(
+                f"---\nname: {name}\ndescription: \"A valid description that is long enough for the validator to accept.\"\n---\n\n# Skill\n",
+                encoding="utf-8",
+            )
+            valid, message = VALIDATE_MODULE.validate_skill(skill_dir)
+        self.assertFalse(valid)
+        self.assertIn("too long", message)
+
+    def test_unexpected_frontmatter_key(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            skill_dir = Path(tmpdir) / "bad-key"
+            skill_dir.mkdir()
+            (skill_dir / "SKILL.md").write_text(
+                '---\nname: bad-key\ndescription: "A valid description that is long enough for validation."\nfoo: bar\n---\n\n# Skill\n',
+                encoding="utf-8",
+            )
+            valid, message = VALIDATE_MODULE.validate_skill(skill_dir)
+        self.assertFalse(valid)
+        self.assertIn("Unexpected key", message)
+
+    def test_strict_mode_fails_on_warnings(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            desc = "Short desc but just over fifty chars for the validator."
+            skill_dir = self._write_skill(Path(tmpdir), "strict-test", desc)
+            (skill_dir / "scripts").mkdir()
+            valid, message = VALIDATE_MODULE.validate_skill(skill_dir, strict=True)
+        self.assertFalse(valid)
+        self.assertIn("Strict mode", message)
+
+    def test_short_description_warning(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            skill_dir = self._write_skill(Path(tmpdir), "short-desc", "A short description under fifty.")
+            valid, message = VALIDATE_MODULE.validate_skill(skill_dir)
+        self.assertTrue(valid)
+        self.assertIn("short", message.lower())
+
+    def test_empty_resource_dir_warning(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            desc = "A valid description that is long enough for the validator to accept."
+            skill_dir = self._write_skill(Path(tmpdir), "empty-dirs", desc)
+            (skill_dir / "scripts").mkdir()
+            valid, message = VALIDATE_MODULE.validate_skill(skill_dir)
+        self.assertTrue(valid)
+        self.assertIn("Empty directory", message)
+
+    def test_privacy_ip_address_warning(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            desc = "A valid description that is long enough for the validator to accept."
+            skill_dir = self._write_skill(Path(tmpdir), "ip-test", desc)
+            refs = skill_dir / "references"
+            refs.mkdir()
+            (refs / "notes.md").write_text("Connect to 192.168.1.100 for testing.\n", encoding="utf-8")
+            valid, message = VALIDATE_MODULE.validate_skill(skill_dir)
+        self.assertTrue(valid)
+        self.assertIn("Privacy", message)
+        self.assertIn("IP address", message)
+
+    def test_privacy_hardcoded_path_warning(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            desc = "A valid description that is long enough for the validator to accept."
+            skill_dir = self._write_skill(Path(tmpdir), "path-test", desc)
+            refs = skill_dir / "references"
+            refs.mkdir()
+            (refs / "notes.md").write_text("See /Users/admin/project for details.\n", encoding="utf-8")
+            valid, message = VALIDATE_MODULE.validate_skill(skill_dir)
+        self.assertTrue(valid)
+        self.assertIn("Hardcoded user path", message)
+
+    def test_long_skill_md_warning(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            desc = "A valid description that is long enough for the validator to accept."
+            body = "\n".join([f"Line {i}" for i in range(501)])
+            skill_dir = self._write_skill(Path(tmpdir), "long-md", desc, body)
+            valid, message = VALIDATE_MODULE.validate_skill(skill_dir)
+        self.assertTrue(valid)
+        self.assertIn("lines", message)
+
+    def test_name_with_consecutive_hyphens(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            name = "bad--name"
+            skill_dir = Path(tmpdir) / name
+            skill_dir.mkdir()
+            (skill_dir / "SKILL.md").write_text(
+                f'---\nname: {name}\ndescription: "A valid description that is long enough."\n---\n\n# Skill\n',
+                encoding="utf-8",
+            )
+            valid, message = VALIDATE_MODULE.validate_skill(skill_dir)
+        self.assertFalse(valid)
+        self.assertIn("consecutive hyphens", message)
+
+
 if __name__ == "__main__":
     unittest.main()

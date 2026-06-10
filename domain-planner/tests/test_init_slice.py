@@ -1,6 +1,7 @@
 import json
 import tempfile
 import unittest
+import unittest.mock
 from importlib.machinery import SourceFileLoader
 from pathlib import Path
 
@@ -92,6 +93,215 @@ class ParseModeMarkdownTests(unittest.TestCase):
             md.write_text("# Mode\n\nNo code blocks here.\n", encoding="utf-8")
             config = MODULE.parse_mode_markdown(md)
             self.assertEqual(config, {})
+
+
+class NormalizeConfigTests(unittest.TestCase):
+    def test_expands_tilde(self) -> None:
+        result = MODULE._normalize_config({"plan_root": "~/plans"})
+        self.assertNotIn("~", result["plan_root"])
+
+    def test_preserves_contexts(self) -> None:
+        result = MODULE._normalize_config({"contexts": {"default": {"key": "val"}}})
+        self.assertEqual(result["contexts"]["default"]["key"], "val")
+
+    def test_preserves_non_string(self) -> None:
+        result = MODULE._normalize_config({"count": 5})
+        self.assertEqual(result["count"], 5)
+
+
+class LoadJsonConfigTests(unittest.TestCase):
+    def test_loads_and_normalizes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cfg = Path(tmpdir) / "config.json"
+            cfg.write_text(json.dumps({"plan_root": "/tmp/plans"}), encoding="utf-8")
+            result = MODULE.load_json_config(cfg)
+            self.assertEqual(result["plan_root"], "/tmp/plans")
+
+
+class ResolveContextTests(unittest.TestCase):
+    def test_returns_empty_when_no_contexts(self) -> None:
+        result = MODULE.resolve_context({"plan_root": "/tmp"}, None)
+        self.assertEqual(result, {})
+
+    def test_returns_named_context(self) -> None:
+        config = {"contexts": {"myapp": {"backend_repo": "api"}}}
+        result = MODULE.resolve_context(config, "myapp")
+        self.assertEqual(result["backend_repo"], "api")
+
+    def test_raises_for_unknown_context(self) -> None:
+        config = {"contexts": {"myapp": {}}}
+        with self.assertRaises(ValueError):
+            MODULE.resolve_context(config, "unknown")
+
+    def test_auto_selects_single_context(self) -> None:
+        config = {"contexts": {"only": {"key": "val"}}}
+        result = MODULE.resolve_context(config, None)
+        self.assertEqual(result["key"], "val")
+
+    def test_prefers_default_context(self) -> None:
+        config = {"contexts": {"default": {"key": "d"}, "other": {"key": "o"}}}
+        result = MODULE.resolve_context(config, None)
+        self.assertEqual(result["key"], "d")
+
+    def test_raises_for_ambiguous_contexts(self) -> None:
+        config = {"contexts": {"a": {}, "b": {}}}
+        with self.assertRaises(ValueError):
+            MODULE.resolve_context(config, None)
+
+
+class LoadConfigTests(unittest.TestCase):
+    def test_loads_json_config_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cfg = Path(tmpdir) / "config.json"
+            cfg.write_text(json.dumps({"plan_root": "/tmp/plans"}), encoding="utf-8")
+            result = MODULE.load_config(str(cfg))
+            self.assertEqual(result["plan_root"], "/tmp/plans")
+
+    def test_loads_markdown_config_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            md = Path(tmpdir) / "mode.md"
+            md.write_text("```\nplan_root: /tmp/plans\n```\n", encoding="utf-8")
+            result = MODULE.load_config(str(md))
+            self.assertEqual(result["plan_root"], "/tmp/plans")
+            self.assertEqual(result["_mode_name"], "mode")
+
+    def test_raises_for_missing_config(self) -> None:
+        with self.assertRaises(FileNotFoundError):
+            MODULE.load_config("/nonexistent/config.json")
+
+    def test_falls_back_to_env_config_json(self) -> None:
+        import os
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cfg = Path(tmpdir) / "config.json"
+            cfg.write_text(json.dumps({"plan_root": "/tmp/plans"}), encoding="utf-8")
+            with unittest.mock.patch.dict(os.environ, {"DOMAIN_PLAN_CONFIG": str(cfg)}), \
+                 unittest.mock.patch.object(MODULE, "_try_overlay_context", return_value=None):
+                result = MODULE.load_config(None)
+                self.assertEqual(result["plan_root"], "/tmp/plans")
+
+    def test_falls_back_to_env_plan_root(self) -> None:
+        import os
+        with unittest.mock.patch.dict(os.environ, {"DOMAIN_PLAN_ROOT": "/tmp/plans"}, clear=False), \
+             unittest.mock.patch.object(MODULE, "_try_overlay_context", return_value=None):
+            env_bak = os.environ.pop("DOMAIN_PLAN_CONFIG", None)
+            try:
+                result = MODULE.load_config(None)
+                self.assertEqual(result["plan_root"], "/tmp/plans")
+            finally:
+                if env_bak:
+                    os.environ["DOMAIN_PLAN_CONFIG"] = env_bak
+
+    def test_raises_when_nothing_found(self) -> None:
+        import os
+        with unittest.mock.patch.object(MODULE, "_try_overlay_context", return_value=None), \
+             unittest.mock.patch.dict(os.environ, {}, clear=True):
+            with self.assertRaises(SystemExit):
+                MODULE.load_config(None)
+
+    def test_prefers_overlay_context(self) -> None:
+        overlay = {"plan_root": "/overlay/plans"}
+        with unittest.mock.patch.object(MODULE, "_try_overlay_context", return_value=overlay):
+            result = MODULE.load_config(None)
+            self.assertEqual(result["plan_root"], "/overlay/plans")
+
+
+class TryOverlayContextTests(unittest.TestCase):
+    def test_returns_none_when_shared_missing(self) -> None:
+        with unittest.mock.patch.object(Path, "exists", return_value=False):
+            result = MODULE._try_overlay_context()
+            self.assertIsNone(result)
+
+
+class InitSliceTests(unittest.TestCase):
+    def test_rejects_invalid_name(self) -> None:
+        with self.assertRaises(ValueError):
+            MODULE.init_slice("bad-name!", {"plan_root": "/tmp"})
+
+    def test_creates_slice_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = {"plan_root": str(Path(tmpdir) / "plans")}
+            MODULE.init_slice("test_slice", config)
+            self.assertTrue((Path(tmpdir) / "plans" / "test_slice").exists())
+
+    def test_existing_slice_skips(self) -> None:
+        import io
+        import sys
+        with tempfile.TemporaryDirectory() as tmpdir:
+            target = Path(tmpdir) / "plans" / "existing"
+            target.mkdir(parents=True)
+            (target / "plan.md").write_text("existing", encoding="utf-8")
+            config = {"plan_root": str(Path(tmpdir) / "plans")}
+            old_stdout = sys.stdout
+            sys.stdout = io.StringIO()
+            try:
+                MODULE.init_slice("existing", config)
+                output = sys.stdout.getvalue()
+            finally:
+                sys.stdout = old_stdout
+            self.assertIn("already exists", output)
+
+    def test_draft_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = {"plan_root": str(Path(tmpdir) / "released"), "plan_draft": str(Path(tmpdir) / "planned")}
+            MODULE.init_slice("draft_slice", config, draft=True)
+            self.assertTrue((Path(tmpdir) / "planned" / "draft_slice").exists())
+
+    def test_draft_fallback_to_sibling(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = {"plan_root": str(Path(tmpdir) / "released")}
+            MODULE.init_slice("draft_slice", config, draft=True)
+            self.assertTrue((Path(tmpdir) / "planned" / "draft_slice").exists())
+
+    def test_raises_when_no_plan_root(self) -> None:
+        with self.assertRaises(ValueError):
+            MODULE.init_slice("test_slice", {})
+
+    def test_migration_created_with_backend(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            plans = Path(tmpdir) / "project" / "plans"
+            plans.mkdir(parents=True)
+            (Path(tmpdir) / "project" / ".git").mkdir()
+            backend = Path(tmpdir) / "backend"
+            backend.mkdir()
+            (backend / ".git").mkdir()
+            migrations = backend / "migrations"
+            migrations.mkdir()
+            config = {
+                "plan_root": str(plans),
+                "contexts": {"default": {"backend_repo": "backend"}},
+            }
+            MODULE.init_slice("auth_flow", config)
+            migration_files = list(migrations.glob("*_auth_flow_initial*"))
+            self.assertEqual(len(migration_files), 1)
+
+    def test_skips_migration_without_backend(self) -> None:
+        import io
+        import sys
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = {"plan_root": str(Path(tmpdir) / "plans")}
+            old_stdout = sys.stdout
+            sys.stdout = io.StringIO()
+            try:
+                MODULE.init_slice("no_backend", config)
+                output = sys.stdout.getvalue()
+            finally:
+                sys.stdout = old_stdout
+            self.assertIn("Skipped migration", output)
+
+
+class MainTests(unittest.TestCase):
+    def test_main_creates_slice(self) -> None:
+        import sys
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cfg = Path(tmpdir) / "config.json"
+            cfg.write_text(json.dumps({"plan_root": str(Path(tmpdir) / "plans")}), encoding="utf-8")
+            old_argv = sys.argv
+            sys.argv = ["init_slice.py", "main_test", "--config", str(cfg)]
+            try:
+                MODULE.main()
+            finally:
+                sys.argv = old_argv
+            self.assertTrue((Path(tmpdir) / "plans" / "main_test").exists())
 
 
 if __name__ == "__main__":

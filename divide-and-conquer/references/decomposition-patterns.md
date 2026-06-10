@@ -205,9 +205,15 @@ Before finalizing a graph, verify:
 - [ ] Cwd/workflow routing, skill-tag extraction, cleaned-request drafting, and
       broad read-only evidence bucketing are routed through the `voice-to-text`
       Grok dispatcher when that runtime is available
-- [ ] Design-related nodes are routed to Claude Opus, including UI/UX,
+- [ ] Bounded task-runner nodes such as mechanical scripting, fixtures/docs
+      cleanup, generated command cleanup, or scoped `$commit` batching route to
+      Grok Composer 2.5 only when the Bead names exact writes, validation, stop
+      rules, and Codex `gpt-5.5` review ownership
+- [ ] Design-related nodes are routed to Claude Fable, including UI/UX,
       visual design, design-system, CSS/token, screenshot, and visual parity work
-- [ ] Non-design execution nodes are routed to Codex `gpt-5.5`, with reasoning
+- [ ] Orchestration, no-ragrets bead composition, domain-planner sessions,
+      system design, impactful execution, integration, review, commit
+      acceptance, and final-say nodes route to Codex `gpt-5.5`, with reasoning
       chosen from `medium|high|xhigh`
 - [ ] Every node has an expected `BR_AGENT_NAME`, and the lead will verify
       `br show` reports `status=in_progress` plus that assignee before edits

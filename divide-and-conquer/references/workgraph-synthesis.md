@@ -29,9 +29,17 @@ python3 ~/.claude/skills/_shared/scripts/br_helpers.py render-workgraph \
 If a `br` epic already exists for the slice (typically minted by
 `domain-planner` Phase 6e), reuse it. Read its ID from upstream artifacts or
 `br list --label slice:{slug} --type epic --json`. Write `EPIC_ID.txt` into
-the new run directory instead of duplicating the epic.
+the new run directory instead of duplicating the epic. Before dispatch, audit
+the existing children for no-ragrets completeness: outcome, evidence, failure
+avoided, write scope, validation, dependencies, stop rules, model route, review
+owner, and final authority.
 
 ## Mint The Epic And Children
+
+Before minting children, apply the `no-ragrets` Edge-Capture Contract and turn
+it into Beads fields. The epic carries the slice outcome and proof; each child
+issue carries the part of that proof it owns plus the exact model route a task
+runner or orchestrator should use.
 
 ```bash
 EPIC=$(br create "{slice}: {one-line value}" --slug epic-{slice} \
@@ -74,10 +82,20 @@ Rules per node:
   node is not ready
 - Set `--model-route`, `--repo-path`, `--branch`, and `--run-dir` before dispatch so
   `br_helpers.py hydrate-node` can prove the node is dispatch-ready
+- Route no-ragrets bead composition, domain-planner sessions, orchestration,
+  subgoal controllers, system design, impactful execution, integration review,
+  commit acceptance, and final-say nodes to `--model-route 'Codex gpt-5.5'`.
+- Route design work, UI/UX, visual systems, CSS/tokens, screenshot parity, and
+  design/fresh-eyes review to `--model-route 'Claude Fable'`.
 - Use `--model-route 'Grok dispatcher'` only for read-only router/preflight
   nodes such as cwd selection, skill-tag extraction, cleaned-request drafting,
-  and broad evidence bucketing. Execution nodes still route to Claude Opus for
-  design work or Codex gpt-5.5 for non-design work.
+  and broad evidence bucketing.
+- Use `--model-route 'Grok CLI sidecar'` for Grok-authored read-only evidence
+  artifacts that a stronger model will verify.
+- Use `--model-route 'Grok Composer 2.5 task-runner'` for narrow writer,
+  scripting, fixture/docs, or `$commit` nodes only when the Bead names exact
+  writes, validation, review owner, and stop rules. Codex `gpt-5.5` keeps final
+  acceptance authority.
 - Read-only nodes: omit `--writes` entirely
 
 ## Mint Subgoals For Massive Runs
@@ -178,8 +196,12 @@ The minimum Beads-backed node brief must carry:
 - run directory path (for the `WG-*_RESULT.md` artifact)
 - the node's concern, depends_on, writes, done_when, validate, risk_gate
 - attribution preamble: `export BR_AGENT_NAME=… BR_HARNESS=… BR_MODEL=…`
-- model route: Grok dispatcher for read-only router/preflight nodes; Claude
-  Opus for design-related nodes; Codex gpt-5.5 for other execution nodes
+- model route: Codex gpt-5.5 for orchestration, no-ragrets bead composition,
+  domain-planner sessions, system design, impactful execution, integration
+  review, commit acceptance, and final say; Claude Fable for design-related
+  nodes; Grok dispatcher for read-only router/preflight nodes; Grok CLI sidecar
+  for read-only evidence artifacts; Grok Composer 2.5 task-runner for narrow
+  scripting, docs/fixtures, or commit batching with stronger-model review
 - verified claim state: the lead must have run `br update <id> --claim` for
   the assigned worker, and the worker must verify `br show <id>` reports
   `status=in_progress` plus the expected assignee before editing

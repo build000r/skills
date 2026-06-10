@@ -1,17 +1,22 @@
 # Grok Sidecar Task Selection
 
-Use this reference when a divide-and-conquer run wants cheap Grok help without
-turning Grok into an unsupervised implementation owner.
+Use this reference when a divide-and-conquer run wants cheap Grok or Composer
+2.5 help without turning that lane into an unsupervised implementation or review
+owner.
 
 ## Default Posture
 
 Grok is a sidecar, not an NTM pane class. Route it through the shared dispatcher,
-a Swimmers hidden session, or a direct headless one-shot, then reconcile the
-output through Beads and the normal result artifact.
+a Swimmers hidden session, a direct headless one-shot, or the locally configured
+Composer 2.5 task-runner lane, then reconcile the output through Beads and the
+normal result artifact.
 
 Prefer Grok when the work is cheap to verify, read-only by default, and useful
-even when the output is only a rough first pass. Avoid Grok when the work needs
-trusted final judgment, secret-bearing access, UI taste, or broad writes.
+even when the output is only a rough first pass. Composer 2.5 may also handle
+narrow writer tasks when the Bead names exact files, validation, stop rules, and
+a stronger-model review owner. Avoid Grok/Composer when the work needs trusted
+final judgment, secret-bearing access, UI taste, broad writes, or architecture
+authority.
 
 ## Good Grok Work
 
@@ -26,24 +31,31 @@ These tasks are good default sidecar candidates:
 - command discovery, if the final command is independently verified by Codex or
   Claude before use
 - public-clone assumption checks that do not require credentials or mutation
+- mechanical scripting where inputs, outputs, and validation commands are
+  explicit
+- fixture, docs, or generated-file cleanup inside a narrow write scope
+- `$commit` / logical commit batching when the Bead names the intended scope,
+  privacy scan, validation commands, and Codex `gpt-5.5` final acceptance owner
 
 Good signs:
 
 - the task has a bounded artifact path
 - the answer can be checked with `rg`, `git diff`, tests, or Beads state
 - a wrong answer costs minutes, not a corrupted repo
-- the sidecar can run with `--sandbox read-only`, `--deny Edit`, and
-  `--deny Write`
+- the sidecar can run read-only, or a writer route has a small explicit write
+  scope and an easy revert path
 
 ## Bad Grok Work
 
 Do not use Grok as the primary owner for:
 
-- final integration review or the last approval before commit
+- final integration review, commit acceptance, or the last approval before
+  handoff
 - UI/UX/design-system judgment, visual polish, or screenshot parity
 - secret-bearing auth, MCP token repair, deploys, pushes, or production writes
 - broad refactors where correctness depends on subtle local invariants
-- NTM pane tending, stuck-pane recovery, rate-limit diagnosis, or Beads closeout
+- NTM pane tending, stuck-pane recovery, rate-limit diagnosis, root
+  orchestration, no-ragrets bead composition, or Beads closeout
 - long-running Oracle/deep-research liveness judgment, unless Grok is only
   summarizing already-collected artifacts after the deterministic poll window
   has opened
@@ -52,7 +64,7 @@ Do not use Grok as the primary owner for:
 
 Bad signs:
 
-- the sidecar needs write access before it can produce value
+- the sidecar needs broad write access before it can produce value
 - completion depends on an NTM idle state instead of a result artifact
 - the task spans several repos without a root-owned integration plan
 - validation needs credentials the sidecar should not see
@@ -68,11 +80,14 @@ Use these tiers when deciding how much autonomy to give Grok:
 | --- | --- | --- | --- |
 | G0 router | cwd, skill tags, prompt cleanup | read-only, no tools beyond search | lead inspects output before dispatch |
 | G1 evidence sidecar | inventories, doc audits, candidate file lists | read-only shell/search | artifact plus reproducible commands |
-| G2 narrow writer | mechanical docs or fixture edits | explicit write scope only | diff reviewed and validation rerun |
-| G3 never | secrets, deploys, final review, UI taste | none | route to Codex or Claude Opus |
+| G2 task-runner | mechanical scripts, docs, fixtures, commit batching | explicit write scope only | diff/commit plan reviewed by Codex gpt-5.5 and validation rerun |
+| G3 never | secrets, deploys, final review, architecture, UI taste | none | route to Codex gpt-5.5 or Claude Fable |
 
-Default to G0 or G1. Use G2 only when the owning workflow names the exact files,
-the diff is easy to revert, and a stronger model reviews it before commit.
+Default to G0 or G1. Use G2 only when the owning Bead names the exact files,
+the diff is easy to revert, validation is deterministic, and Codex `gpt-5.5`
+reviews the result before final acceptance. A G2 `$commit` node may create the
+commit, but Codex `gpt-5.5` still owns the final review and any amend/follow-up
+decision.
 
 ## CASS Search Recipes
 
@@ -189,10 +204,12 @@ codex panes — not Grok one-shots.
 ## Current Routing Notes
 
 When a live run has multiple NTM panes writing in the same git worktree, do not
-use Grok as an implementation or integration sidecar for code changes. The
-useful Grok lane in that situation is G0/G1: clean up dispatch prompts, identify
-likely write-overlap risks from Beads metadata, or produce a read-only evidence
-inventory that the lead can verify before sending work to Codex or Claude.
+use Grok/Composer as an implementation or integration sidecar for broad code
+changes. The useful Grok lane in that situation is G0/G1, plus G2 task-runner
+nodes only when Beads prove non-overlapping writes and a Codex `gpt-5.5` review
+node owns acceptance. Examples: clean up dispatch prompts, identify likely
+write-overlap risks from Beads metadata, produce a read-only evidence inventory,
+write a bounded helper script, or run a scoped `$commit` batch after validation.
 
 Do not use Grok as the watcher of record for long-running Oracle or deep-research
 jobs. Give those jobs a deterministic quiet window before the first check: wait

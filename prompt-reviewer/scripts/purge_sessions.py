@@ -135,7 +135,7 @@ def main():
     elif args.provider == "codex":
         sessions = find_codex_sessions(home / ".codex", start, end)
     elif args.provider == "opencode":
-        sessions = find_opencode_sessions(home / ".local" / "share" / "opencode", start, end)
+        sessions = find_opencode_sessions(start, end)
     else:
         sessions = []
 

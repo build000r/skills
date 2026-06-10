@@ -2,7 +2,7 @@ import json
 import os
 import tempfile
 import unittest
-from datetime import datetime
+from datetime import datetime, timedelta
 from importlib.machinery import SourceFileLoader
 from pathlib import Path
 from unittest.mock import patch
@@ -197,6 +197,171 @@ class WeekToDateRangeTests(unittest.TestCase):
         start, end = purge_sessions.week_to_date_range("2025-W01")
         self.assertEqual(start.weekday(), 0)
         self.assertEqual((end - start).days, 7)
+
+
+class HumanSizeTests(unittest.TestCase):
+    def test_bytes(self) -> None:
+        self.assertIn("B", purge_sessions.human_size(512))
+
+    def test_kilobytes(self) -> None:
+        self.assertIn("KB", purge_sessions.human_size(2048))
+
+    def test_megabytes(self) -> None:
+        self.assertIn("MB", purge_sessions.human_size(5 * 1024 * 1024))
+
+    def test_zero(self) -> None:
+        self.assertIn("0", purge_sessions.human_size(0))
+
+
+class FindClaudeSessionsTests(unittest.TestCase):
+    def test_finds_sessions_in_range(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            claude_dir = Path(tmpdir)
+            projects = claude_dir / "projects" / "test"
+            projects.mkdir(parents=True)
+            f = projects / "session.jsonl"
+            f.write_text("{}\n", encoding="utf-8")
+            start, end = purge_sessions.week_to_date_range("2025-W36")
+            now = datetime.now()
+            result = purge_sessions.find_claude_sessions(claude_dir, now - timedelta(days=1), now + timedelta(days=1))
+            self.assertEqual(len(result), 1)
+
+    def test_skips_agent_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            claude_dir = Path(tmpdir)
+            projects = claude_dir / "projects" / "test"
+            projects.mkdir(parents=True)
+            f = projects / "agent-123.jsonl"
+            f.write_text("{}\n", encoding="utf-8")
+            now = datetime.now()
+            result = purge_sessions.find_claude_sessions(claude_dir, now - timedelta(days=1), now + timedelta(days=1))
+            self.assertEqual(len(result), 0)
+
+    def test_returns_empty_for_missing_dir(self) -> None:
+        result = purge_sessions.find_claude_sessions(Path("/nonexistent"), datetime.now(), datetime.now())
+        self.assertEqual(result, [])
+
+
+class FindCodexSessionsTests(unittest.TestCase):
+    def test_finds_rollout_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            codex_dir = Path(tmpdir)
+            sessions = codex_dir / "sessions"
+            sessions.mkdir()
+            f = sessions / "rollout-abc.jsonl"
+            f.write_text("{}\n", encoding="utf-8")
+            now = datetime.now()
+            result = purge_sessions.find_codex_sessions(codex_dir, now - timedelta(days=1), now + timedelta(days=1))
+            self.assertEqual(len(result), 1)
+
+    def test_returns_empty_for_missing_dir(self) -> None:
+        result = purge_sessions.find_codex_sessions(Path("/nonexistent"), datetime.now(), datetime.now())
+        self.assertEqual(result, [])
+
+
+class FindOpencodeSessionsTests(unittest.TestCase):
+    def test_finds_session_json_in_range(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            home = Path(tmpdir)
+            storage = home / ".local" / "share" / "opencode" / "storage" / "session"
+            storage.mkdir(parents=True)
+            now = datetime.now()
+            ts_ms = int(now.timestamp() * 1000)
+            f = storage / "sess1.json"
+            f.write_text(json.dumps({"time": {"created": ts_ms}}), encoding="utf-8")
+            with patch("pathlib.Path.home", return_value=home):
+                result = purge_sessions.find_opencode_sessions(now - timedelta(days=1), now + timedelta(days=1))
+            self.assertEqual(len(result), 1)
+
+    def test_returns_empty_for_no_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch("pathlib.Path.home", return_value=Path(tmpdir)):
+                result = purge_sessions.find_opencode_sessions(datetime.now(), datetime.now())
+            self.assertEqual(result, [])
+
+    def test_finds_prompt_history_in_range(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            home = Path(tmpdir)
+            state_dir = home / ".local" / "state" / "opencode"
+            state_dir.mkdir(parents=True)
+            history = state_dir / "prompt-history.jsonl"
+            history.write_text('{"input": "hi"}\n', encoding="utf-8")
+            now = datetime.now()
+            with patch("pathlib.Path.home", return_value=home):
+                result = purge_sessions.find_opencode_sessions(now - timedelta(days=1), now + timedelta(days=1))
+            self.assertGreaterEqual(len(result), 1)
+
+
+class PurgeMainTests(unittest.TestCase):
+    def _run_main(self, argv: list[str], home_dir: str = None) -> tuple[str, int]:
+        import io
+        import sys
+
+        old_argv, old_stdout = sys.argv, sys.stdout
+        sys.stdout = io.StringIO()
+        try:
+            sys.argv = ["purge_sessions.py"] + argv
+            if home_dir:
+                with patch("pathlib.Path.home", return_value=Path(home_dir)):
+                    purge_sessions.main()
+            else:
+                purge_sessions.main()
+            return sys.stdout.getvalue(), 0
+        except SystemExit as e:
+            return sys.stdout.getvalue(), e.code or 0
+        finally:
+            sys.argv, sys.stdout = old_argv, old_stdout
+
+    def test_no_sessions_found(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out, _ = self._run_main(["--provider", "claude", "--week", "2025-W36"], home_dir=tmpdir)
+            self.assertIn("No claude sessions found", out)
+
+    def test_dry_run_shows_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            home = Path(tmpdir)
+            projects = home / ".claude" / "projects" / "test"
+            projects.mkdir(parents=True)
+            f = projects / "session.jsonl"
+            f.write_text("{}\n", encoding="utf-8")
+            now = datetime.now()
+            year, week, _ = now.isocalendar()
+            week_str = f"{year}-W{week:02d}"
+            out, _ = self._run_main(["--provider", "claude", "--week", week_str, "--dry-run"], home_dir=tmpdir)
+            self.assertIn("dry run", out)
+            self.assertIn("session.jsonl", out)
+
+    def test_actual_delete(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            home = Path(tmpdir)
+            projects = home / ".claude" / "projects" / "test"
+            projects.mkdir(parents=True)
+            f = projects / "session.jsonl"
+            f.write_text("{}\n", encoding="utf-8")
+            now = datetime.now()
+            year, week, _ = now.isocalendar()
+            week_str = f"{year}-W{week:02d}"
+            out, _ = self._run_main(["--provider", "claude", "--week", week_str], home_dir=tmpdir)
+            self.assertIn("Deleted 1/1", out)
+            self.assertFalse(f.exists())
+
+    def test_codex_provider(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            home = Path(tmpdir)
+            sessions = home / ".codex" / "sessions"
+            sessions.mkdir(parents=True)
+            f = sessions / "rollout-abc.jsonl"
+            f.write_text("{}\n", encoding="utf-8")
+            now = datetime.now()
+            year, week, _ = now.isocalendar()
+            week_str = f"{year}-W{week:02d}"
+            out, _ = self._run_main(["--provider", "codex", "--week", week_str, "--dry-run"], home_dir=tmpdir)
+            self.assertIn("Codex Sessions", out)
+
+    def test_opencode_provider(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out, _ = self._run_main(["--provider", "opencode", "--week", "2025-W36"], home_dir=tmpdir)
+            self.assertIn("No opencode sessions found", out)
 
 
 class ScanClaudeWeeksTests(unittest.TestCase):

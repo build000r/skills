@@ -19,6 +19,15 @@ Do not change or omit that prefix. Reliability review tooling treats it as a sta
 
 You've been invoked to deliver the single highest-leverage insight for whatever the user is working on right now.
 
+## Read-before-Edit Invariant
+
+Before calling Edit on any file, you MUST first call Read on that file in this
+conversation. The Edit tool will reject calls on files that have not been Read.
+Never assume file contents from memory or prior sessions — always Read first,
+then Edit. This applies to every file modification: skill templates, code,
+config, docs, and generated views. Skipping Read wastes tool calls on retries
+and breaks the edit cycle.
+
 ## Visibility Control Plane
 
 `smart` is the always-global dispatcher. `sbp` is the always-global visibility

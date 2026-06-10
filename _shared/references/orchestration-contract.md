@@ -68,7 +68,7 @@ Root-owned work is limited to:
 - claiming Beads on behalf of specific workers
 - launching/tending worker sessions and subgoal controllers
 - reconciling artifacts, validation, and Beads state
-- doing final integration, shared-file arbitration, commit batching, and user
+- doing final integration, shared-file arbitration, commit acceptance, and user
   closeout
 
 The root may apply a tiny emergency patch only when it is needed to unblock the
@@ -143,21 +143,37 @@ work item with the exact root-resolution failure. A successful `ntm spawn`,
 idle pane, or worker self-report is not sufficient proof; verify the node brief
 landed in the intended checkout before counting the node in flight.
 
-When a skill can choose models, use the cheapest reliable router first:
-cwd/workflow routing, skill-tag extraction, cleaned-request drafting, and
-read-only clerk/preflight work should route through the workspace
-`voice-to-text` Grok dispatcher when available. Route design-related execution
-nodes to Claude Opus and route non-design execution nodes to Codex by default.
-Design-related includes UI/UX, visual design, design systems, CSS/tokens,
-responsive behavior, screenshots, visual parity, product interaction copy, and
-fresh-eyes review of those surfaces.
+When a skill can choose models, record the route in the Bead or dispatch
+contract before launch. Route orchestration, no-ragrets bead composition,
+domain-planner sessions and quality loops, system design, high-impact code or
+architecture decisions, ambiguous repairs, integration review, commit
+acceptance, and final-say review to Codex `gpt-5.5`. Route design-related
+execution nodes to Claude Fable. Design-related includes UI/UX, visual design,
+design systems, CSS/tokens, responsive behavior, screenshots, visual parity,
+product interaction copy, and fresh-eyes review of those surfaces. Use the
+cheapest reliable sidecar for bounded task-runner work: cwd/workflow routing,
+skill-tag extraction, cleaned-request drafting, read-only clerk/preflight work,
+mechanical scripting, and scoped commit batching may route through the workspace
+`voice-to-text` Grok dispatcher, a Swimmers Grok session, direct headless Grok,
+or a local Composer 2.5 route when the owning Bead names the exact write scope,
+validation, stop rules, review owner, and final authority.
 
-### Grok CLI Routing Lanes
+### Grok routing — NTM plugin preferred, sidecar backup
 
-Current `ntm spawn` exposes pane classes such as `--cc`, `--cod`, and `--gmi`;
-do not invent a `--grok` flag. When Grok should participate, use it as one of
-these explicit sidecar lanes and reconcile the output back into the owning
-workflow:
+**Preferred (interactive swarms):** NTM agent plugin at `~/.config/ntm/agents/grok.toml`.
+Spawn with `ntm spawn <session> --grok=1` (alias `--grk`). Send with
+`ntm send <session> --panes=N` — there is no `ntm send --grok`. Agents must
+run the fix-if-broken checklist in `skills-private/ntm/references/GROK-ROUTING.md`
+before treating sidecars as the default.
+
+**Backup (headless, routing, or broken plugin):** sidecar lanes below. Use when
+plugin preflight fails, work is read-only/headless, or automation cannot rely on
+NTM pane typing (plugin Grok panes report as `user` in `--robot-*`).
+
+### Grok CLI sidecar lanes (backup)
+
+When the plugin route is unsuitable or failed repair, use one of these explicit
+sidecar/task-runner lanes and reconcile the output back into the owning workflow:
 
 - **Availability preflight:** verify `command -v grok` and inspect the current
   CLI shape with `grok --help` before promising a Grok lane. If the route needs
@@ -177,6 +193,13 @@ workflow:
   directly with a prompt file and capture the response into the caller's normal
   artifact path. Keep it read-only unless the caller has an explicit write
   scope and validation contract.
+- **Composer 2.5 task-runner lane:** for narrow writer tasks such as mechanical
+  scripts, fixtures, docs cleanup, generated command cleanup, or `$commit`
+  batching, use the locally configured Composer 2.5 route only when the Bead
+  names exact writes, validation commands, stop rules, a Codex `gpt-5.5` review
+  owner, and final acceptance authority. Composer/Grok may create a commit in a
+  scoped `$commit` node, but Codex `gpt-5.5` owns acceptance and any amend or
+  follow-up decision.
 
 Direct read-only one-shot shape:
 
@@ -198,15 +221,21 @@ grok --prompt-file "$PROMPT_FILE" \
 Record the route in the caller's dispatch contract:
 
 ```text
-Model route: Grok dispatcher       # pure routing/preflight
-Model route: Grok CLI sidecar      # bounded read-only analysis/ideation
-Model route: Grok CLI writer       # only with explicit write scope
+Model route: Grok NTM plugin       # preferred interactive swarm pane
+Model route: Grok dispatcher       # backup pure routing/preflight
+Model route: Grok CLI sidecar      # backup bounded read-only analysis/ideation
+Model route: Grok CLI writer       # legacy narrow writer; prefer Composer route
+Model route: Grok Composer 2.5 task-runner  # narrow writer or commit-runner node
+Model route: Claude Fable           # design/UI/visual/fresh-eyes design work
+Model route: Codex gpt-5.5         # orchestration, impact, architecture, final say
 ```
 
-Grok sidecars do not show up as NTM panes in `ntm --robot-*` state. The
-orchestrator must verify them through Swimmers session state, direct process
-exit/output, expected artifact files, and the workflow's source of truth
-(`br`, report checklist, or equivalent) before counting them done.
+Grok NTM plugin panes exist in tmux but are often misclassified as `user` in
+`ntm --robot-*` state. Sidecar lanes do not show up as NTM panes at all.
+For either non-canonical route, verify completion through pane capture, Swimmers
+session state, direct process exit/output, expected artifact files, and the
+workflow's source of truth (`br`, report checklist, or equivalent) before
+counting work done.
 
 ## Fresh-Eyes Review Gates
 

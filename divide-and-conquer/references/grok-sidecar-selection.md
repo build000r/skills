@@ -298,3 +298,5 @@ cass search "grok commit-runner explicit git add no wildcard path-scoped" --robo
 cass search "grok sidecar baseline commit minefield dirty paths leave-list" --robot --limit 10 --days 30
 cass search "grok prompt-file always-approve dcg fwc MCP spawn failed shell ok" --robot --limit 10 --days 30
 ```
+
+**Update (same session, +3 more clean runs → 5 total, 0 failures):** grok also cleanly executed (3) a **2-commit split** and (4) a **3-commit split** from a single multi-file diff, plus (5) another 2-commit opensource split — each commit's file list specified exactly in the prompt. Conclusion reinforced: when the prompt names the exact per-commit file lists + no-wildcard rules + the leave-list, and the lead pre-validates the diff and re-verifies after, Grok Composer 2.5 is a dependable G2 commit-runner even for multi-commit splits and minefield repos. The lead doing the *grouping decision* (which files → which commit) and grok doing the *mechanical staging+commit* is the reliable division of labor — do NOT ask grok to decide the grouping itself.

@@ -215,8 +215,27 @@ Quick decision: new user-visible behavior → `feat`. Broken behavior fixed → 
 ### Footer (optional)
 
 - Issue references: `Fixes #123`, `Closes #456`, `Refs #789`
+- Bead / local-tracker references: `Refs <bead-id>` or `Closes <bead-id>` (e.g. `Refs bd-passkey-login-7c1a`) — see "Issue and bead traceability" below
 - Breaking changes: add `!` after type (`feat(api)!: ...`) and include `BREAKING CHANGE:` footer
 - Co-authors: `Co-authored-by: Name <email>`
+
+### Issue and bead traceability
+
+When a commit completes or advances work tracked by an issue/bead tracker, name the
+tracker ID in the message so the work can be cross-referenced by ID later. This is what
+makes completion **auditable**: tooling and compliance audits resolve a task to its
+commit with `git log --grep=<id>`.
+
+- GitHub issues: `Fixes #123` / `Closes #456` / `Refs #789` in the footer.
+- Local bead trackers (e.g. beads / `br`): put the bead ID in the footer as
+  `Refs <bead-id>` (or `Closes <bead-id>`), e.g. `Refs bd-hot-path-index-3f9d`. When a
+  single bead owns the commit, naming it in the `type(scope):` subject is also fine.
+- One commit may reference several IDs (one per line) when it legitimately spans them.
+
+Why it matters: a closed bead/issue with **no** commit referencing its ID cannot be
+verified from the git log, so an audit has to trust the close note alone. If a commit
+closes or advances a tracked task, its ID belongs in the message. Skip this only when
+the work genuinely has no tracking item.
 
 ### Good examples
 
@@ -271,6 +290,7 @@ Closeout contract:
 - If the repo is clean, say so.
 - If files remain dirty, list them and why they were left out.
 - In repo-steward mode, unexplained leftovers are a failure. Either commit them, ignore them, or explicitly call out the risk that blocked them.
+- If a commit closed or advanced a bead/issue, confirm the ID is in the message so it stays git-xref-able: `git -C <repo> log -1 --format=%B | grep -F '<id>'`. A closed tracker item with no commit referencing its ID is a traceability gap.
 - Report which repos were committed, how many commits were created, and the commit messages.
 - Do **not** push unless explicitly asked.
 

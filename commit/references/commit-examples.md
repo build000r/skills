@@ -50,6 +50,23 @@ can deduplicate using X-Delivery-Id header.
 Fixes #287
 ```
 
+## Bug Fix Referencing a Bead / Local Tracker
+
+```
+fix(billing): emit audit event on every refund
+
+Refunds were processed but never wrote an audit-log entry, so they
+were invisible to the compliance audit.
+
+Adds an audit-log event on the refund path with actor identity and
+charge reference, covered by a new assertion in the router test.
+
+Refs bd-refund-audit-event-9f2a
+```
+
+Naming the bead ID lets `git log --grep=bd-refund-audit-event-9f2a` resolve the
+bead to this commit, so completion is verifiable from the git log alone.
+
 ## Performance
 
 ```

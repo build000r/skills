@@ -240,3 +240,61 @@ inspect. Do not declare the commit safe.
 A Grok sidecar is complete only when its expected artifact, process/session
 state, Beads node, and independent validation agree. If those surfaces disagree,
 treat Grok output as advisory evidence and keep the owning Beads node open.
+
+## Observed Outcomes Log
+
+A running log of real Grok Composer 2.5 sidecar runs so future rounds calibrate
+task selection by evidence, not vibes. Append newest entries last. Each entry:
+date, task class + leeway tier, prompt shape, outcome, and a CASS hook to find
+the run. The lead always re-verifies independently — these "PASS" marks are
+lead-verified, not Grok self-reports.
+
+### 2026-06-13 — sbp epic divide-and-conquer round (Opus 4.8 lead + Grok sidecars)
+
+Two **G2 commit-runner** tasks, both clean PASS:
+
+1. **Baseline commit, clean repo.** Commit exactly N already-modified named
+   files; explicit `git add <path>` per file; hard no-wildcard rules; leave
+   untracked + unrelated dirty files; exact message; no push. Result: staged
+   exactly the named files, self-verified the index before committing, left an
+   untracked report and an unrelated `.beads/issues.jsonl` untouched, reported
+   the hash + post-status. Lead reverified with `git show --name-only`.
+2. **Path-scoped commit inside a minefield repo (harder).** Same prompt shape
+   but the repo had ~60 OTHER unrelated dirty paths (incl. 51 staged-pending
+   deletions) and was 3 commits ahead of origin. Result: committed exactly the 4
+   named paths; left all ~60 dirty paths untouched (lead verified the dirty count
+   was unchanged); no sweep, no push.
+
+**Reusable G2 commit-runner recipe (what made these reliable):**
+- Enumerate the EXACT file list; require one explicit `git add <path>` per file.
+- Forbid `git add -A` / `git add .` / `git add -u` / `git commit -a` / wildcards
+  by name in the prompt.
+- Name what to LEAVE (untracked artifacts, unrelated dirty paths) explicitly.
+- Require a self-verify step (`git diff --cached --name-only` must equal the
+  list; unstage anything extra) BEFORE the commit.
+- Require a final report with the commit hash + post-commit status; the lead
+  re-verifies with `git show --name-only` and a dirty-path count. Never accept
+  the prose alone.
+- The lead validates the diff is green BEFORE handing the commit to Grok: Grok
+  runs the commit; the lead owns correctness and acceptance.
+
+**Leeway update:** two clean runs (incl. a 60-dirty-path minefield) → Grok
+Composer 2.5 is reliable for **G2 `$commit` / commit-batching** when the prompt
+names the exact paths, the no-wildcard rules, and the leave-list, and the lead
+pre-validates the diff. Keep it **G3 (never)** for: deciding WHAT to commit,
+judging whether a diff is correct, push/amend, or any commit whose scope is
+fuzzy.
+
+**Transport note:** `grok --prompt-file <path> --cwd <dir> --always-approve
+--max-turns 30` ran each multi-step git task fine in a single headless
+invocation. Stderr showed `Failed to spawn MCP server 'dcg' / 'fwc' (No such
+file or directory)` — these did NOT block the shell/git task. For pure shell
+sidecars, ignore those MCP-spawn lines.
+
+CASS hooks to find these or similar runs:
+
+```bash
+cass search "grok commit-runner explicit git add no wildcard path-scoped" --robot --limit 10 --days 30
+cass search "grok sidecar baseline commit minefield dirty paths leave-list" --robot --limit 10 --days 30
+cass search "grok prompt-file always-approve dcg fwc MCP spawn failed shell ok" --robot --limit 10 --days 30
+```

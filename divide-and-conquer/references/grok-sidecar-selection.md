@@ -349,3 +349,30 @@ cass search "sp-stripe-sub-missing-row-revoke cfo service admin token dayrate au
 cass search "grok not writer authz payment-to-access service-principal audit emission" --robot --limit 10 --days 30
 cass search "grok G1 edge-case checklist pre-supplied facts auth revenue beads" --robot --limit 10 --days 30
 ```
+
+### 2026-06-14 — Sweet Potato deploy-smoke review attempt
+
+**BAD for multi-file deploy/auth/e2e review.** During Bead
+`sp-post-deploy-synthetic-smoke-2an0`, the lead tried direct headless G1
+read-only Grok review on the deploy workflow and e2e runner with
+`grok --max-turns 1 -p ...` and `grok --max-turns 3 -p ...`. Both attempts hit
+`Max turns reached` and produced no actionable report. `grok --help` was useful
+only for discovering CLI knobs. Focused read-only subagents and Codex root
+review produced the actual findings; Codex implemented and validated the
+wallet nonce/sign-in smoke.
+
+**Reusable rule:** do not use low-turn direct Grok as a repo-roaming reviewer
+for deploy/auth/e2e changes. Good use here is G0 command discovery or a
+facts-only checklist with tools disabled after the lead supplies exact context.
+Require non-empty stdout or a named artifact before counting Grok as evidence.
+
+CASS hooks to find this or similar runs:
+
+```bash
+cass search "grok max turns reached read-only multi-file review" --robot --limit 10 --days 30
+cass search "grok sidecar too-tight max-turns no final report" --robot --limit 10 --days 30
+cass search "grok CLI help discover options low risk" --robot --limit 10 --days 30
+cass search "grok deploy workflow e2e runner review" --robot --limit 10 --days 30
+cass search "sidecar suitability low risk command discovery" --robot --limit 10 --days 30
+cass search "sp-post-deploy-synthetic-smoke-2an0 grok no report" --robot --limit 10 --days 30
+```

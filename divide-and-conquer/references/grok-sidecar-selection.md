@@ -323,3 +323,29 @@ cass search "grok agent stdio JSON-RPC failed to parse expected value headless r
 cass search "grok prompt-file classify repos manifest IOS_MAC LINUX read-only single write 17s" --robot --limit 10 --days 30
 cass search "fable claude-fable-5 unavailable route design opus ntm spawn cc fable" --robot --limit 10 --days 30
 ```
+
+### 2026-06-14 — Sweet Potato open-bead revenue/auth wave
+
+**GOOD non-use (route restraint).** A Sweet Potato `divide-and-conquer` wave
+selected four backend Beads: Stripe subscription-missing-row revocation, CFO
+service-admin token scoping, dayrate free-booking audit emission, and Mailgun
+suppression fallback. All four were revenue/auth/security writer nodes with
+deterministic `make pytest` + `make lint` validation and overlapping risk
+around shared trust boundaries. The correct route was Codex `gpt-5.5` NTM panes
+with Beads claims and narrow write scopes. Grok was deliberately not launched.
+
+**Reusable rule:** treat "do not use Grok" as useful routing evidence when the
+task family is authz, payment-to-access correctness, service-principal scope, or
+audit emission. Safe Grok participation in this shape is G1 only: pre-supplied
+facts -> edge-case checklist, route/file inventory, or commit-scope sanity
+table. Do not let Grok choose the policy, write the patch, close the Bead, or
+perform final review.
+
+CASS hooks to find this or similar runs:
+
+```bash
+cass search "Sweet Potato open bead revenue auth wave grok deliberately not launched" --robot --limit 10 --days 30
+cass search "sp-stripe-sub-missing-row-revoke cfo service admin token dayrate audit mailgun suppression codex ntm" --robot --limit 10 --days 30
+cass search "grok not writer authz payment-to-access service-principal audit emission" --robot --limit 10 --days 30
+cass search "grok G1 edge-case checklist pre-supplied facts auth revenue beads" --robot --limit 10 --days 30
+```

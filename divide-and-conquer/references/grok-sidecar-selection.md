@@ -300,3 +300,26 @@ cass search "grok prompt-file always-approve dcg fwc MCP spawn failed shell ok" 
 ```
 
 **Update (same session, +3 more clean runs → 5 total, 0 failures):** grok also cleanly executed (3) a **2-commit split** and (4) a **3-commit split** from a single multi-file diff, plus (5) another 2-commit opensource split — each commit's file list specified exactly in the prompt. Conclusion reinforced: when the prompt names the exact per-commit file lists + no-wildcard rules + the leave-list, and the lead pre-validates the diff and re-verifies after, Grok Composer 2.5 is a dependable G2 commit-runner even for multi-commit splits and minefield repos. The lead doing the *grouping decision* (which files → which commit) and grok doing the *mechanical staging+commit* is the reliable division of labor — do NOT ask grok to decide the grouping itself.
+
+### 2026-06-14 — portfolio autonomous-burndown run (Opus 4.8 NTM lead, grok-composer-2.5-fast sidecar)
+
+**Invocation gotcha (record this — it cost ~5 probe cycles).** In this devbox session the *only* reliable headless one-shot is the documented `--prompt-file` form. The `--output-format plain|json` top-level path **fails silently**: `grok --output-format plain "prompt"` returns `rc=1` with **empty stdout, empty stderr, and an empty `--debug-file`** — no error surfaced. `grok agent stdio` is a JSON-RPC channel (rejects a plain-text line: `failed to parse incoming message: expected value at line 1 column 1`). `grok agent headless` is the WebSocket-relay lane (needs relay/leader infra). Auth itself was fine throughout (`grok models` → "logged in with grok.com", default `grok-composer-2.5-fast`). **Working command:**
+
+```bash
+grok --prompt-file /tmp/task.txt --cwd <repo-or-portfolio-root> --always-approve --max-turns 20
+```
+
+**GOOD (G1 read-only clerk + single-file write).** Tasked grok to classify all 39 `.beads`-bearing repos under `/srv/skillbox/repos` into IOS_MAC / LINUX / OTHER by reading manifest files only and writing the result to one `/tmp` artifact. Wall-time **17s**, `rc=0`, artifact written exactly to spec. Accuracy on independent spot-check: **100%** — including the non-obvious `dream` → IOS_MAC (it carries both `Package.swift` and `Dream.xcodeproj`; a quick `ls` of the repo root would have mislabeled it). It also respected the manifest-scope rule precisely (`dogswipe`/`finalreceipts` → OTHER because no recognized top-level manifest, not because grok gave up). This is the canonical good-grok shape: a precise rule, read-only, one declared write target, bounded turns. The lead still verifies the surprising rows.
+
+**Division of labor that worked:** lead writes the exact rule + the single output path into the prompt file; grok does the filesystem traversal + classification + write; lead independently re-checks the surprising buckets with `ls`/`find`. Token cost to the Opus lead: ~one Bash call to verify vs. doing the whole 39-repo traversal itself.
+
+**Routing consequence for this run:** direct headless grok is GREEN for `--prompt-file` shell/clerk/commit-runner one-shots; sidecar work that needs `--output-format`-style streamed text should instead route through the `voice-to-text` dispatcher / Swimmers lane, or just be given a file-write target. When in doubt this run defaulted token-saving sidecar execution to **codex gpt-5.5** (proven live in the htma_server panes) and reserved grok for `--prompt-file` clerk/commit one-shots.
+
+CASS hooks to find this or similar runs:
+
+```bash
+cass search "grok output-format plain silent rc=1 empty stderr debug-file prompt-file works" --robot --limit 10 --days 30
+cass search "grok agent stdio JSON-RPC failed to parse expected value headless relay leader" --robot --limit 10 --days 30
+cass search "grok prompt-file classify repos manifest IOS_MAC LINUX read-only single write 17s" --robot --limit 10 --days 30
+cass search "fable claude-fable-5 unavailable route design opus ntm spawn cc fable" --robot --limit 10 --days 30
+```

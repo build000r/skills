@@ -46,6 +46,15 @@ exact run.
 - CASS: `sbp cass search "grok record-corpus read-only review max turns reached"` /
   `sbp cass search "GROK-VERDICT BAD jame-keow grok"`.
 
+### 2026-06-15 — serve command read-only scout with plan-mode Grok — GROK-VERDICT:BAD
+- Task: direct `/Users/b/.grok/bin/grok --cwd /Users/b/repos/jame --permission-mode plan --disable-web-search --no-subagents --max-turns 4 --output-format plain -p ...` asking for a concise read-only hardening opportunity in `crates/jame-cli/src/commands/serve.rs::serve_command`.
+- Result: no usable findings. The process exited with `Max turns reached` before returning a scout packet, so the lead ignored it and performed local inspection instead.
+- Why BAD: this was still source-aware code judgment under a tight turn cap. Even with a narrow function and explicit "do not edit" instruction, Grok did not produce the required artifact.
+- Routing takeaway: use Grok for Jame only when the input is already inlined and the output is a tiny clerking artifact, or when the run writes a named artifact whose existence can be checked. Do not block a CRAP/refactor loop waiting on a plan-mode code scout.
+- CASS: `sbp cass search "grok serve_command read-only scout Max turns reached"` /
+  `sbp cass search "GROK-VERDICT BAD serve command read-only scout"` /
+  `sbp cass search "Jame random-fix Grok permission-mode plan max-turns 4"`.
+
 ### 2026-06-14 — session usage pattern (why grok was used sparingly)
 This jame hardening session was dominated by **complex correctness work** —
 cross-bead SwiftUI state-machine bugs, DSP regressions (bass_tilt chroma), FFI

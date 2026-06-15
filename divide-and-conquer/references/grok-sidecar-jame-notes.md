@@ -38,6 +38,28 @@ exact run.
 
 <!-- newest first; tag each with GROK-VERDICT:{GOOD|MIXED|BAD} for CASS -->
 
+### 2026-06-15 — broad random-fix scout with plan-mode Grok — GROK-VERDICT:BAD
+- Task: direct `/Users/b/.grok/bin/grok -p ... --cwd /Users/b/repos/jame
+  --permission-mode plan --disable-web-search --no-memory --no-subagents
+  --output-format plain` asking for exactly one low-risk deterministic random-fix
+  opportunity after all ready Beads were drained. Retries used `--max-turns 1`,
+  `--max-turns 3`, and `--max-turns 8`.
+- Result: no usable findings. Every run exited with `Max turns reached` and
+  returned no candidate title, file/function, root cause, patch plan, validation
+  commands, or artifact.
+- Why BAD: this is the same failure class as narrower plan-mode source scouts,
+  even with a larger turn cap. The task requires repo reading plus judgment about
+  recent commits and dirty-file boundaries; Grok spent its turns before emitting
+  a packet, so it did not save root-orchestrator attention.
+- Routing takeaway: do not use direct headless plan-mode Grok for broad Jame
+  random-fix candidate selection. Use it only for tiny inlined clerk/inventory
+  artifacts or a named read-only audit with expected output shape; require
+  non-empty stdout before acting. For code-opportunity selection, use Codex/root
+  inspection or a normal worker.
+- CASS: `sbp cass search "grok broad random-fix scout max turns reached"` /
+  `sbp cass search "GROK-VERDICT BAD jame broad random-fix scout"` /
+  `sbp cass search "grok permission-mode plan max-turns 8 no candidate"`.
+
 ### 2026-06-15 — record-corpus read-only review with plan-mode Grok — GROK-VERDICT:BAD
 - Task: direct `grok --prompt-file ... --permission-mode plan --disable-web-search --max-turns 1 --no-memory --cwd /Users/b/repos/jame` asking for one or two low-risk deterministic hardening opportunities in `crates/jame-cli/src/commands/record_corpus.rs`.
 - Result: no usable findings. The process exited with `Max turns reached` and produced no review packet or artifact.

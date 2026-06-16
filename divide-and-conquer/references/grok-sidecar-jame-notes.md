@@ -38,6 +38,32 @@ exact run.
 
 <!-- newest first; tag each with GROK-VERDICT:{GOOD|MIXED|BAD} for CASS -->
 
+### 2026-06-16 — note_key_chord single-file simplification scout — GROK-VERDICT:GOOD
+- Task: direct `grok --cwd /Users/b/repos/jame --disable-web-search
+  --no-memory --no-subagents --permission-mode plan --max-turns 8 -p ...`
+  asking for exactly one read-only low-risk no-I/O hardening or simplification
+  opportunity in `crates/jame-cli/src/commands/note_key_chord.rs`, preferably
+  reducing wrapper/branch CRAP without changing behavior.
+- Result: useful finding. Grok identified the single-call
+  `default_chord_output_format(explain)` helper as over-extracted and proposed
+  inlining the default `OutputFormat` selection in `chord_output_format`.
+  The root lane applied the simplification and committed it as
+  `26a51b9 refactor(cli): inline chord default format`.
+- Why GOOD: narrow one-file scope, no mutation, specific file/function refs,
+  concrete patch, validation commands, and the claim was easy to verify locally.
+  It saved root attention on a small cleanup candidate after higher-value CRAP
+  fixes were exhausted.
+- Caveat: the exact suggested diff used `unwrap_or_else`, which clippy rejected
+  as `unnecessary_lazy_evaluations`; the accepted patch used `unwrap_or` instead.
+  This is still a good lane for Grok, but the root must compile/clippy every
+  suggested code shape before trusting it.
+- Routing takeaway: focused single-file simplification scouts can work when the
+  requested output is exactly one candidate and the patch is trivially reviewed.
+  Keep Grok read-only; let the root own the edit, clippy correction, and commit.
+- CASS: `sbp cass search "GROK-VERDICT GOOD note_key_chord single-file simplification scout"` /
+  `sbp cass search "default_chord_output_format unwrap_or_else clippy unnecessary_lazy_evaluations"` /
+  `sbp cass search "26a51b9 inline chord default format grok"`.
+
 ### 2026-06-16 — analyze.rs source-aware scout — GROK-VERDICT:BAD
 - Task: direct `grok --cwd /Users/b/repos/jame --disable-web-search --no-memory
   --no-subagents --permission-mode plan --max-turns 8 -p ...` asking for one

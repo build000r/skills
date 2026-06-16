@@ -38,6 +38,27 @@ exact run.
 
 <!-- newest first; tag each with GROK-VERDICT:{GOOD|MIXED|BAD} for CASS -->
 
+### 2026-06-16 — inlined guitar gate excerpt scout — GROK-VERDICT:MIXED
+- Task: direct `grok -p` with the relevant `crates/jame-core/src/guitar.rs`
+  excerpt inlined, `--disable-web-search`, `--max-turns 1`, `--no-subagents`,
+  asking for one read-only low-risk refactor opportunity.
+- Result: usable target selection. Grok identified
+  `gate_observe_matches_state_machine_model` / `GuitarPitchGate::check` as the
+  right low-risk area and stayed read-only.
+- Correction needed: its suggested route was to share the production gate
+  decision helper with the proptest model. That would reduce the independence
+  of the state-machine oracle. The lead kept the production path untouched and
+  extracted only test-side helpers (`expected_gate_decision`,
+  `expected_implausible_jump`, `observe_expected_acceptance`), then verified
+  with the exact proptest and clippy before committing.
+- Routing takeaway: Grok can be useful when all code context is inlined and the
+  expected output is one tiny candidate, but treat its patch-shape advice as a
+  lead, not an implementation plan. Watch specifically for suggestions that
+  make tests less independent by reusing production helpers.
+- CASS: `sbp cass search "GROK-VERDICT MIXED guitar gate excerpt scout"` /
+  `sbp cass search "grok inlined guitar gate model test helper"` /
+  `sbp cass search "expected_gate_decision expected_implausible_jump grok"`.
+
 ### 2026-06-15 — broad random-fix scout with plan-mode Grok — GROK-VERDICT:BAD
 - Task: direct `/Users/b/.grok/bin/grok -p ... --cwd /Users/b/repos/jame
   --permission-mode plan --disable-web-search --no-memory --no-subagents

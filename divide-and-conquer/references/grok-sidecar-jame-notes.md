@@ -38,6 +38,30 @@ exact run.
 
 <!-- newest first; tag each with GROK-VERDICT:{GOOD|MIXED|BAD} for CASS -->
 
+### 2026-06-16 — listen-stream cleanup scout — GROK-VERDICT:GOOD
+- Task: direct `grok --cwd /Users/b/repos/jame --disable-web-search --no-memory
+  --no-subagents --permission-mode plan --max-turns 8 -p ...` asking for one
+  read-only low-risk hardening/refactor opportunity in
+  `crates/jame-cli/src/commands/listen_stream.rs::listen_streaming`, plus one
+  thing not to trust Grok to patch.
+- Result: useful finding. Grok identified that `wait_for_stream_events(...)?`
+  returned before `drop(stream)`, `join_stream_worker(worker)`, and
+  `drain_available_stream_events(...)` on event-print errors. The lead patched
+  the cleanup path locally by saving `wait_result`, dropping/joining/draining,
+  then returning the first error in the original order.
+- Good behavior: it gave exact functions and tests to run, and explicitly
+  warned against letting Grok touch the zero-alloc audio callback and buffer
+  recycling path (`build_streaming_input_stream`,
+  `next_recycled_stream_buffer`, `seed_stream_buffers`,
+  `stream_callback_capacity`, `forward_stream_events`, channel/drop ordering).
+- Routing takeaway: Grok can be useful for narrow read-only lifecycle/error-path
+  audits where the answer is one specific bug-shaped candidate. Keep the edit in
+  the root/worker lane; do not let Grok patch real-time callback code or shared
+  writable state.
+- CASS: `sbp cass search "GROK-VERDICT GOOD listen-stream cleanup scout"` /
+  `sbp cass search "wait_for_stream_events join_stream_worker drain_available_stream_events grok"` /
+  `sbp cass search "zero alloc audio callback buffer recycling grok jame"`.
+
 ### 2026-06-16 — inlined guitar gate excerpt scout — GROK-VERDICT:MIXED
 - Task: direct `grok -p` with the relevant `crates/jame-core/src/guitar.rs`
   excerpt inlined, `--disable-web-search`, `--max-turns 1`, `--no-subagents`,

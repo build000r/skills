@@ -38,6 +38,27 @@ exact run.
 
 <!-- newest first; tag each with GROK-VERDICT:{GOOD|MIXED|BAD} for CASS -->
 
+### 2026-06-16 — analyze.rs source-aware scout — GROK-VERDICT:BAD
+- Task: direct `grok --cwd /Users/b/repos/jame --disable-web-search --no-memory
+  --no-subagents --permission-mode plan --max-turns 8 -p ...` asking for one
+  read-only low-risk hardening opportunity in
+  `crates/jame-cli/src/commands/analyze.rs`, especially around `analyze_wav`
+  and CLI error handling.
+- Result: no usable finding. The process exited with `Max turns reached` and no
+  candidate packet. The root lane then found and patched the real tiny issue:
+  `analyze_wav_events` now validates frame/hop before reading the WAV, so
+  reusable callers fail fast on invalid config instead of doing pointless I/O.
+- Why BAD: even with one file and a named hotspot, this prompt still required
+  source-aware judgment plus repo convention reading. Grok spent the available
+  turns before emitting a falsifiable answer.
+- Routing takeaway: do not route source-aware Jame code scouts to Grok unless
+  the relevant source excerpt is inlined and the desired answer is a tiny
+  clerking artifact. Keep direct plan-mode Grok for inventory/enumeration or
+  command-summary tasks, not opportunity discovery.
+- CASS: `sbp cass search "GROK-VERDICT BAD analyze.rs source-aware scout"` /
+  `sbp cass search "grok analyze_wav_events max turns reached"` /
+  `sbp cass search "analyze_wav_events validates frame hop before reading wav"`.
+
 ### 2026-06-16 — listen-stream cleanup scout — GROK-VERDICT:GOOD
 - Task: direct `grok --cwd /Users/b/repos/jame --disable-web-search --no-memory
   --no-subagents --permission-mode plan --max-turns 8 -p ...` asking for one

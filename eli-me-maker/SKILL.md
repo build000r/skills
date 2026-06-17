@@ -106,6 +106,10 @@ Private generated maps:
 
 - Save maps beside the private `eli-me` skill or in a private overlay, not in
   this public skill.
+- If the user wants the map in their Buildooor account, invoke `mmdx`'s durable
+  private save flow after writing the local private source, then record the
+  returned diagram id/version id in the closeout. Do not treat a pako preview
+  link as the saved private map.
 - Keep the public MMDX stack generic. Do not add real preference answers,
   personal examples, or private repo references to it.
 - Link only high-leverage nodes, such as `Ask-cascade calibration` or

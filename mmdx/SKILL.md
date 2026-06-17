@@ -1,6 +1,6 @@
 ---
 name: mmdx
-description: Choose, author, encode, stack, and open Mermaid/MMDX diagrams. Use when the user invokes /mmdx or $mmdx, asks for the best .mmd/.mmdx diagram type for a context, wants a Mermaid diagram created from prose, needs a mermaid.live/edit pako URL, asks to preview a .mmd file, asks for chart drilldown/stacking, or wants to decode/check Mermaid Live URL fragments.
+description: Choose, author, persist, edit, stack, and open Mermaid/MMDX diagrams in Buildooor. Use when the user invokes /mmdx or $mmdx, asks to create or update a private/owned Buildooor MMDX diagram, asks for the best .mmd/.mmdx diagram type for a context, wants a Mermaid diagram created from prose, needs a mermaid.live/edit pako URL, asks to preview a .mmd file, asks for chart drilldown/stacking, or wants to decode/check Mermaid Live URL fragments.
 ---
 
 # Buildooor MMDX Diagram Links
@@ -20,7 +20,7 @@ python3 {{SKILL_DIR}}/scripts/mmd.py {{SKILL_DIR}}/examples/release-gantt-stack.
 python3 {{SKILL_DIR}}/../skill-issue/scripts/quick_validate.py {{SKILL_DIR}}
 ```
 
-For authored diagrams, validate or open the exact `.mmd`/`.mmdx` the user will consume and report the file path plus the generated URL or live short link. Do not mark a publish-link task complete unless dry-run or live verification has proven the target username/slug and source hash.
+For authored diagrams, validate or open the exact `.mmd`/`.mmdx` the user will consume and report the file path plus the durable diagram id/version id, generated URL, or live short link. Do not mark a durable private save complete unless `save` proves `latest_verification=OK` or the equivalent API response shows the latest `mmdx_text` matches the local source. Do not mark a publish-link task complete unless dry-run or live verification has proven the target username/slug and source hash.
 
 ## Quick Start
 
@@ -31,6 +31,27 @@ Create the best Mermaid diagram from a prose brief:
 # choose the diagram type and visual grammar, write a .mmd, then open it with:
 python3 {{SKILL_DIR}}/scripts/mmd.py path/to/generated.mmd --open
 ```
+
+Create a new private durable MMDX diagram in the operator's existing Buildooor account:
+
+```bash
+python3 {{SKILL_DIR}}/scripts/mmd.py save path/to/stack.mmdx \
+  --title "Project Status" \
+  --chart-slug project-status
+```
+
+Append a version to an owned durable diagram:
+
+```bash
+python3 {{SKILL_DIR}}/scripts/mmd.py save path/to/stack.mmdx \
+  --diagram-id <diagram-id> \
+  --save-note "agent update"
+```
+
+`save` reads `BUILDOOOR_ACCESS_TOKEN`, `SPAPS_ACCESS_TOKEN`,
+`BUILDOOOR_ACCESS_TOKEN_COMMAND`, or `SPAPS_TOKEN_COMMAND` by default. With
+`--diagram-id`, it fetches `/latest` when `--base-version-id` is omitted, posts
+the new version, then fetches `/latest` again to verify the saved source.
 
 Open a Mermaid source file in the buildooor diagrams viewer:
 
@@ -84,9 +105,16 @@ python3 {{SKILL_DIR}}/scripts/mmd.py --decode 'https://mermaid.live/edit#pako:..
 
 Browser and agent auth are two entrances to the same protected MMDX persistence surface.
 
+- Default durable-agent flow: when the user says "mmdx", "create a private mmdx",
+  "update my mmdx", "owned mmdx", "on my buildooor account", or similar, do
+  not stop at a pako URL. Author or patch the `.mmd`/`.mmdx`, run `mmd.py save`,
+  and report the durable `diagram_id`, `version_id`, local source path, and
+  verification result. Use pako-only output only when the user explicitly asks
+  for an ephemeral/open link, when auth/API prerequisites are unavailable, or
+  as a preview before the durable save.
 - Browser pako flow: open the generated `/diagrams#pako:...` URL, click the bottom MMDX `save` control for a durable private version, verify the email magic link if prompted, then return to `/diagrams`. The viewer preserves the pako state in the URL or `mmdxResume` localStorage fallback and resumes the pending save after auth.
 - Browser short-link flow: click the top-right `save` control when the user wants a shareable short link for the current pako state, not a private version history record.
-- Agent/CLI private-version flow: authenticate the operator or agent through the existing SPAPS device-code flow, then post the saved `.mmd`/`.mmdx` source to Buildooor's `/api/mmdx/diagrams` or `/api/mmdx/diagrams/:id/versions` API with the bearer token. Do not build a separate MMDX auth system or ask a browser user to run device-code auth.
+- Agent/CLI private-version flow: authenticate the operator or agent through the existing SPAPS device-code flow, then run `mmd.py save` to post the saved `.mmd`/`.mmdx` source to Buildooor's `/api/mmdx/diagrams` or `/api/mmdx/diagrams/:id/versions` API with the bearer token. Do not build a separate MMDX auth system or ask a browser user to run device-code auth.
 - Agent/CLI existing-short-link flow: after editing a local `.mmd`/`.mmdx`, republish the already-saved short link with `publish-link`. First run the existing SPAPS device-code login (`spaps login --server-url <spaps-api-base> --client-id <app-slug>`), then pass the stored token via `--access-token-command "spaps token --server-url <spaps-api-base>"`. Direct env alternatives are `BUILDOOOR_ACCESS_TOKEN`, `SPAPS_ACCESS_TOKEN`, or `--access-token`.
 
 Important URL distinction for device-code auth:
@@ -147,6 +175,51 @@ python3 {{SKILL_DIR}}/scripts/mmd.py list \
 raw owner-list payload, and `--dry-run` to verify the resolved URL and redacted
 headers without touching the network.
 
+Create a new durable private diagram:
+
+```bash
+python3 {{SKILL_DIR}}/scripts/mmd.py save path/to/file.mmdx \
+  --title "PDS Project Status Crux" \
+  --chart-slug pds-project-status-crux \
+  --access-token-command "spaps token --server-url $SPAPS_MMDX_AUTH_SERVER_URL"
+```
+
+Append a version to an existing owned diagram:
+
+```bash
+python3 {{SKILL_DIR}}/scripts/mmd.py save path/to/file.mmdx \
+  --diagram-id <diagram-id-from-list> \
+  --save-note "Updated agent handoff status" \
+  --access-token-command "spaps token --server-url $SPAPS_MMDX_AUTH_SERVER_URL"
+```
+
+Dry-run the exact private-save payload without touching production:
+
+```bash
+python3 {{SKILL_DIR}}/scripts/mmd.py save path/to/file.mmdx \
+  --title "PDS Project Status Crux" \
+  --chart-slug pds-project-status-crux \
+  --dry-run --summary
+```
+
+`save` fails closed if auth, mutation, or latest-source verification is
+unavailable. If `MMDX_PROFILE_REQUIRED` is returned, claim or repair the
+Buildooor MMDX profile through the existing browser/device-code flow, then rerun
+the same `save` command. Do not replace a failed durable save with only a pako
+link unless the user approves the fallback.
+
+Auth failure map:
+
+- `list` or `save` returns `401`: the token command/env exists but the resolved
+  bearer token is missing, expired, or not accepted for Buildooor MMDX. Do not
+  keep retrying `save`. Re-run the SPAPS/Buildooor login for the account, then
+  prove auth with `mmd.py list` before attempting the durable mutation again.
+- `MMDX_PROFILE_REQUIRED`: auth is accepted, but the Buildooor MMDX profile is
+  not claimed for the account. Claim/repair the profile through the existing
+  browser/device-code flow, then rerun `save`.
+- `MMDX_CHART_SLUG_TAKEN`: choose an existing owned diagram from `list` and
+  append with `save --diagram-id`, or pick a new chart slug.
+
 ```bash
 python3 {{SKILL_DIR}}/scripts/mmd.py publish-link path/to/file.mmdx \
   --username buildooor \
@@ -161,7 +234,7 @@ Dry-run the exact payload without touching production:
 python3 {{SKILL_DIR}}/scripts/mmd.py publish-link path/to/file.mmdx \
   --username buildooor \
   --slug mmdx-68I8Xjv1v3FK \
-  --dry-run
+  --dry-run --summary
 ```
 
 `publish-link` preflights the source, encodes the same `pako:` state used by `/diagrams`, PATCHes the authenticated Buildooor app-link proxy, then fetches the live `/mmdx/<username>/<slug>` page and verifies `__NEXT_DATA__.initialDiagramFragment` matches the local state. It must fail closed if auth, the update API, or live verification is unavailable. Do not SSH into production or patch SPAPS database rows to update a short link.
@@ -181,6 +254,14 @@ python3 {{SKILL_DIR}}/scripts/mmd.py {{SKILL_DIR}}/INDEX.mmdx --open
 
 - Existing file path or stdin: encode/open that source directly.
 - Mermaid Live URL, buildooor diagrams URL, or `pako:`/`base64:` fragment: decode it.
+- Existing private/owned Buildooor diagram request: run `list`, choose the owned
+  diagram by id/title/slug, patch the local source or create a new `.mmdx`, then
+  run `save --diagram-id <id>` to append a durable version. If no matching owned
+  diagram exists, create a new private one with `save --title ... --chart-slug ...`.
+- New private/owned Buildooor diagram request: create the local `.mmd`/`.mmdx`,
+  run `save`, and report the durable diagram/version proof. Do not make pako the
+  final artifact unless auth/API prerequisites are unavailable or the user asked
+  for a preview/link only.
 - `.mmdx` file path or prose asking for chart stacking/drilldown: create or open an MMDX chart stack.
 - Natural-language brief: choose the diagram type, create a `.mmd`, then open it.
 - Requests for "best", "what diagram", "matrix", "root cause", "timeline", "sequence", "schema", or "architecture": treat as a diagram-selection task, not a generic flowchart task.
@@ -389,6 +470,15 @@ If preflight fails, fix the `.mmd` before opening Mermaid Live unless the user e
 - `--theme <name>`: set the Mermaid config theme, default `default`.
 - `--config <json-or-path>`: use a custom Mermaid config JSON string or file.
 - `--decode <url-or-fragment>`: decode a Mermaid Live URL or fragment into JSON state.
+
+Subcommands:
+
+- `save`: create a private durable Buildooor MMDX diagram or append a version to
+  an owned diagram. Prefer `save --dry-run --summary` for preview proof and
+  `save` for the final private account-owned artifact.
+- `list`: list owned durable diagrams.
+- `publish-link`: update an existing shareable short link. Use this only when
+  the target is a short link, not the default private library save.
 
 ## Verification
 

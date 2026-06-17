@@ -127,6 +127,7 @@ def is_mmdx_input(path: str, code: str) -> bool:
 
 def build_mmdx_document(markdown: str) -> dict[str, Any]:
     metadata = _parse_mmdx_metadata(markdown)
+    _reject_mmdx_chart_heading_blank_lines(markdown)
     charts = _parse_mmdx_charts(markdown)
     if not charts:
         raise ValueError("MMDX document must contain at least one '## chart <id>' Mermaid fence")
@@ -316,6 +317,20 @@ def _parse_mmdx_charts(markdown: str) -> list[dict[str, Any]]:
             chart["title"] = title
         charts.append(chart)
     return charts
+
+
+def _reject_mmdx_chart_heading_blank_lines(markdown: str) -> None:
+    pattern = re.compile(
+        r"^(##\s+chart\s+[A-Za-z0-9_-]+[^\n]*\n)([ \t]*\n)+```mermaid",
+        flags=re.MULTILINE,
+    )
+    match = pattern.search(markdown)
+    if match:
+        heading = match.group(1).strip()
+        raise ValueError(
+            f"{heading} must be followed immediately by ```mermaid; "
+            "remove blank lines between MMDX chart headings and fences"
+        )
 
 
 def build_mmd_command() -> str:
@@ -961,6 +976,11 @@ def parse_publish_link_args(argv: list[str]) -> argparse.Namespace:
     )
     parser.add_argument("--dry-run", action="store_true", help="print the update payload without mutating remote state")
     parser.add_argument(
+        "--summary",
+        action="store_true",
+        help="with --dry-run, omit the full pako payload and print only hashes/metadata",
+    )
+    parser.add_argument(
         "--skip-live-verify",
         action="store_true",
         help="skip fetching the live short link after publishing",
@@ -1029,14 +1049,96 @@ def parse_list_args(argv: list[str]) -> argparse.Namespace:
     return args
 
 
+def parse_save_args(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog="mmd.py save",
+        description="Create a private Buildooor MMDX diagram or append a version to an owned diagram.",
+    )
+    parser.add_argument("path", help="Mermaid .mmd/.mmdx file path, or '-' for stdin")
+    parser.add_argument(
+        "--diagram-id",
+        help="existing durable diagram id; when omitted, save creates a new private diagram",
+    )
+    parser.add_argument("--title", help="diagram title for creates; defaults to the source file stem")
+    parser.add_argument("--description", help="optional diagram description for creates")
+    parser.add_argument("--chart-slug", help="optional owner-scoped chart slug for creates")
+    parser.add_argument(
+        "--base-version-id",
+        help="latest version id before append; if omitted with --diagram-id, save fetches /latest first",
+    )
+    parser.add_argument(
+        "--parent-version-id",
+        help="version id the edit was based on; defaults to the resolved base version for appends",
+    )
+    parser.add_argument("--save-note", help="optional note for appended versions")
+    parser.add_argument("--entry-chart-id", help="entry chart id; defaults to the MMDX metadata entry when present")
+    parser.add_argument("--source-app-link-id", help="optional source app-link id for creates")
+    parser.add_argument(
+        "--source-app-link-metadata",
+        help="optional JSON object with source app-link metadata for creates",
+    )
+    parser.add_argument(
+        "--api-base-url",
+        default=os.environ.get("BUILDOOOR_MMDX_API_BASE_URL", DEFAULT_MMDX_API_BASE_URL),
+        help="Buildooor MMDX API base URL",
+    )
+    parser.add_argument(
+        "--origin",
+        default=os.environ.get("BUILDOOOR_ORIGIN", origin_from_url(DEFAULT_MMDX_SHORT_LINK_BASE_URL)),
+        help="Origin header to send to the Buildooor proxy",
+    )
+    parser.add_argument(
+        "--access-token",
+        default=os.environ.get("BUILDOOOR_ACCESS_TOKEN") or os.environ.get("SPAPS_ACCESS_TOKEN"),
+        help="bearer token from the existing Buildooor/SPAPS auth flow",
+    )
+    parser.add_argument(
+        "--access-token-command",
+        default=os.environ.get("BUILDOOOR_ACCESS_TOKEN_COMMAND") or os.environ.get("SPAPS_TOKEN_COMMAND"),
+        help="command that prints a bearer token from the existing device-code auth flow",
+    )
+    parser.add_argument("--json", action="store_true", help="print the raw save response JSON")
+    parser.add_argument("--dry-run", action="store_true", help="print request metadata without calling the network")
+    parser.add_argument(
+        "--summary",
+        action="store_true",
+        help="with --dry-run, omit the full source text and print only hashes/metadata",
+    )
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        default=DEFAULT_PUBLISH_TIMEOUT_SECONDS,
+        help="HTTP timeout in seconds",
+    )
+    parser.add_argument(
+        "--no-preflight",
+        action="store_true",
+        help="skip Mermaid parser validation before saving",
+    )
+    parser.add_argument(
+        "--no-parser-install",
+        action="store_true",
+        help="do not auto-install the parser dependency if missing",
+    )
+    args = parser.parse_args(argv)
+    args.command = "save"
+    return args
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     if argv and argv[0] == "publish-link":
         return parse_publish_link_args(argv[1:])
     if argv and argv[0] == "list":
         return parse_list_args(argv[1:])
+    if argv and argv[0] == "save":
+        return parse_save_args(argv[1:])
 
     parser = argparse.ArgumentParser(
-        description="Generate buildooor diagrams pako URLs from .mmd or .mmdx source files."
+        description="Generate buildooor diagrams pako URLs from .mmd or .mmdx source files.",
+        epilog=(
+            "Subcommands: save (create/append a private durable MMDX diagram), "
+            "list (show owned durable diagrams), publish-link (update an existing short link)."
+        ),
     )
     parser.add_argument("path", nargs="?", help="Mermaid .mmd/.mmdx file path, or '-' for stdin")
     parser.add_argument("--open", action="store_true", help="open the generated URL in a browser")
@@ -1158,6 +1260,68 @@ def build_publish_payload(args: argparse.Namespace, code: str) -> tuple[dict[str
         "metadata": metadata,
     }
     return payload, fragment, source_kind, source_sha256
+
+
+def infer_entry_chart_id(path: str, code: str, explicit_entry: str | None = None) -> str | None:
+    if explicit_entry is not None and explicit_entry.strip():
+        return explicit_entry.strip()
+    if is_mmdx_input(path, code):
+        document = build_mmdx_document(code)
+        entry = document.get("entry")
+        return entry if isinstance(entry, str) and entry.strip() else None
+    return None
+
+
+def parse_optional_json_object(value: str | None, label: str) -> dict[str, Any] | None:
+    if value is None or not value.strip():
+        return None
+    payload = json.loads(value)
+    if not isinstance(payload, dict):
+        raise ValueError(f"{label} must be a JSON object")
+    return payload
+
+
+def build_create_diagram_payload(args: argparse.Namespace, code: str) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "title": args.title or default_publish_title(args.path, "mmdx" if is_mmdx_input(args.path, code) else "mermaid"),
+        "mmdx_text": code,
+    }
+    optional_fields = {
+        "description": args.description,
+        "chart_slug": args.chart_slug,
+        "entry_chart_id": infer_entry_chart_id(args.path, code, args.entry_chart_id),
+        "source_app_link_id": args.source_app_link_id,
+        "source_app_link_metadata": parse_optional_json_object(
+            args.source_app_link_metadata,
+            "--source-app-link-metadata",
+        ),
+    }
+    for key, value in optional_fields.items():
+        if value is not None:
+            payload[key] = value
+    return payload
+
+
+def build_append_version_payload(
+    args: argparse.Namespace,
+    code: str,
+    *,
+    base_version_id: str,
+    parent_version_id: str | None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "base_version_id": base_version_id,
+        "mmdx_text": code,
+    }
+    optional_fields = {
+        "parent_version_id": parent_version_id,
+        "entry_chart_id": infer_entry_chart_id(args.path, code, args.entry_chart_id),
+        "save_note": args.save_note,
+    }
+    for key, value in optional_fields.items():
+        if value is not None:
+            payload[key] = value
+    return payload
 
 
 def resolve_publish_access_token(args: argparse.Namespace, *, command_name: str = "publish-link") -> str:
@@ -1288,6 +1452,75 @@ def get_mmdx_owner_list(
         raise RuntimeError(f"MMDX list failed: {exc.reason}") from exc
 
 
+def request_mmdx_json(
+    endpoint: str,
+    payload: dict[str, Any] | None = None,
+    *,
+    method: str,
+    access_token: str,
+    origin: str,
+    timeout: float,
+    label: str,
+) -> dict[str, Any]:
+    headers = {
+        "Accept": "application/json",
+        "Authorization": f"Bearer {access_token}",
+        "Origin": origin,
+        "User-Agent": "buildooor-mmdx-save/1.0",
+    }
+    data = None
+    if payload is not None:
+        data = json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    req = request.Request(endpoint, data=data, headers=headers, method=method)
+    try:
+        with request.urlopen(req, timeout=timeout) as response:
+            return read_json_response(response)
+    except HTTPError as exc:
+        payload = read_http_error_json(exc)
+        message = response_error_message(payload, f"failed to {label}")
+        raise RuntimeError(f"MMDX {label} failed ({exc.code}): {message}") from exc
+    except URLError as exc:
+        raise RuntimeError(f"MMDX {label} failed: {exc.reason}") from exc
+
+
+def get_mmdx_latest_version(
+    endpoint: str,
+    *,
+    access_token: str,
+    origin: str,
+    timeout: float,
+) -> dict[str, Any]:
+    return request_mmdx_json(
+        endpoint,
+        method="GET",
+        access_token=access_token,
+        origin=origin,
+        timeout=timeout,
+        label="latest lookup",
+    )
+
+
+def post_mmdx_save(
+    endpoint: str,
+    payload: dict[str, Any],
+    *,
+    access_token: str,
+    origin: str,
+    timeout: float,
+    label: str,
+) -> dict[str, Any]:
+    return request_mmdx_json(
+        endpoint,
+        payload,
+        method="POST",
+        access_token=access_token,
+        origin=origin,
+        timeout=timeout,
+        label=label,
+    )
+
+
 def owner_diagram_items(payload: dict[str, Any]) -> list[dict[str, Any]]:
     items = payload.get("items")
     if not isinstance(items, list):
@@ -1381,18 +1614,33 @@ def publish_link(args: argparse.Namespace) -> int:
     live_url = append_url_segments(args.live_base_url, args.username, args.slug)
 
     if args.dry_run:
+        body = {
+            "dry_run": True,
+            "endpoint": endpoint,
+            "url": live_url,
+            "username": args.username,
+            "slug": args.slug,
+            "source_kind": source_kind,
+            "source_sha256": source_sha256,
+        }
+        if args.summary:
+            body["payload_summary"] = {
+                "app_slug": payload["app_slug"],
+                "resource_kind": payload["resource_kind"],
+                "target_path": payload["target_path"],
+                "title": payload["title"],
+                "metadata": {
+                    "diagram_state_format": payload["metadata"]["diagram_state_format"],
+                    "source_kind": payload["metadata"]["source_kind"],
+                    "source_sha256": payload["metadata"]["source_sha256"],
+                    "diagram_state_bytes": len(fragment.encode("utf-8")),
+                },
+            }
+        else:
+            body["payload"] = payload
         print(
             json.dumps(
-                {
-                    "dry_run": True,
-                    "endpoint": endpoint,
-                    "url": live_url,
-                    "username": args.username,
-                    "slug": args.slug,
-                    "source_kind": source_kind,
-                    "source_sha256": source_sha256,
-                    "payload": payload,
-                },
+                body,
                 indent=2,
                 ensure_ascii=False,
             )
@@ -1463,6 +1711,159 @@ def list_mmdx_diagrams(args: argparse.Namespace) -> int:
         print(json.dumps(payload, indent=2, ensure_ascii=False))
     else:
         print_owner_diagram_table(payload)
+    return 0
+
+
+def latest_version_id_from_response(payload: dict[str, Any]) -> str | None:
+    nav = payload.get("nav")
+    if isinstance(nav, dict):
+        latest = nav.get("latest_version_id") or nav.get("current_version_id")
+        if isinstance(latest, str) and latest.strip():
+            return latest.strip()
+    version = payload.get("version")
+    if isinstance(version, dict):
+        version_id = version.get("id")
+        if isinstance(version_id, str) and version_id.strip():
+            return version_id.strip()
+    diagram = payload.get("diagram")
+    if isinstance(diagram, dict):
+        latest = diagram.get("latest_version_id")
+        if isinstance(latest, str) and latest.strip():
+            return latest.strip()
+    return None
+
+
+def latest_mmdx_text_from_response(payload: dict[str, Any]) -> str | None:
+    version = payload.get("version")
+    if isinstance(version, dict):
+        text = version.get("mmdx_text")
+        if isinstance(text, str):
+            return text
+    return None
+
+
+def response_diagram_id(payload: dict[str, Any]) -> str | None:
+    diagram = payload.get("diagram")
+    if isinstance(diagram, dict):
+        diagram_id = diagram.get("id")
+        if isinstance(diagram_id, str) and diagram_id.strip():
+            return diagram_id.strip()
+    version = payload.get("version")
+    if isinstance(version, dict):
+        diagram_id = version.get("diagram_id")
+        if isinstance(diagram_id, str) and diagram_id.strip():
+            return diagram_id.strip()
+    return None
+
+
+def save_mmdx_diagram(args: argparse.Namespace) -> int:
+    code = _read_text(args.path)
+    if not args.no_preflight:
+        preflight_source_code(code, args.path, auto_install=not args.no_parser_install)
+
+    require_secure_api_base_url(args.api_base_url, "save")
+    creating = not bool((args.diagram_id or "").strip())
+    source_sha256 = hashlib.sha256(code.encode("utf-8")).hexdigest()
+    latest_endpoint = (
+        append_url_segments(args.api_base_url, "diagrams", args.diagram_id, "latest") if not creating else None
+    )
+    resolved_base_version_id = args.base_version_id
+    resolved_parent_version_id = args.parent_version_id
+
+    if creating:
+        endpoint = append_url_segments(args.api_base_url, "diagrams")
+        payload = build_create_diagram_payload(args, code)
+        method_label = "create"
+    else:
+        endpoint = append_url_segments(args.api_base_url, "diagrams", args.diagram_id, "versions")
+        method_label = "append"
+        if args.dry_run and not resolved_base_version_id:
+            resolved_base_version_id = "<resolved from /latest>"
+        elif not resolved_base_version_id:
+            access_token = resolve_publish_access_token(args, command_name="save")
+            latest = get_mmdx_latest_version(
+                latest_endpoint or "",
+                access_token=access_token,
+                origin=args.origin,
+                timeout=args.timeout,
+            )
+            resolved_base_version_id = latest_version_id_from_response(latest)
+            if not resolved_base_version_id:
+                raise RuntimeError("MMDX latest lookup did not return a latest version id")
+            if resolved_parent_version_id is None:
+                resolved_parent_version_id = resolved_base_version_id
+        payload = build_append_version_payload(
+            args,
+            code,
+            base_version_id=resolved_base_version_id,
+            parent_version_id=resolved_parent_version_id,
+        )
+
+    if args.dry_run:
+        auth_metadata = dry_run_auth_metadata(args)
+        body: dict[str, Any] = {
+            "dry_run": True,
+            "operation": method_label,
+            "endpoint": endpoint,
+            "latest_endpoint": latest_endpoint,
+            "method": "POST",
+            "source_sha256": source_sha256,
+            "headers": {
+                "Accept": "application/json",
+                "Authorization": auth_metadata["Authorization"],
+                "Origin": args.origin,
+                "User-Agent": "buildooor-mmdx-save/1.0",
+            },
+            "auth_source": auth_metadata["source"],
+            "network": False,
+        }
+        if args.summary:
+            payload_summary = dict(payload)
+            if "mmdx_text" in payload_summary:
+                payload_summary["mmdx_text_sha256"] = source_sha256
+                payload_summary["mmdx_text_bytes"] = len(code.encode("utf-8"))
+                payload_summary["mmdx_text"] = "<omitted>"
+            body["payload_summary"] = payload_summary
+        else:
+            body["payload"] = payload
+        print(
+            json.dumps(
+                body,
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
+        return 0
+
+    access_token = resolve_publish_access_token(args, command_name="save")
+    saved = post_mmdx_save(
+        endpoint,
+        payload,
+        access_token=access_token,
+        origin=args.origin,
+        timeout=args.timeout,
+        label=method_label,
+    )
+    diagram_id = response_diagram_id(saved) or args.diagram_id
+    latest = get_mmdx_latest_version(
+        append_url_segments(args.api_base_url, "diagrams", diagram_id, "latest"),
+        access_token=access_token,
+        origin=args.origin,
+        timeout=args.timeout,
+    )
+    latest_text = latest_mmdx_text_from_response(latest)
+    if latest_text is not None and latest_text != code:
+        raise RuntimeError("MMDX save verification failed: latest mmdx_text does not match local source")
+
+    if args.json:
+        print(json.dumps({"save": saved, "latest": latest}, indent=2, ensure_ascii=False))
+    else:
+        version_id = latest_version_id_from_response(saved) or latest_version_id_from_response(latest) or ""
+        print(f"Saved durable MMDX diagram {diagram_id}")
+        if version_id:
+            print(f"version_id={version_id}")
+        print(f"source_sha256={source_sha256}")
+        print("latest_verification=OK")
     return 0
 
 
@@ -1550,6 +1951,8 @@ def main(argv: list[str] | None = None) -> int:
             return publish_link(args)
         if getattr(args, "command", None) == "list":
             return list_mmdx_diagrams(args)
+        if getattr(args, "command", None) == "save":
+            return save_mmdx_diagram(args)
 
         if args.handoff_server:
             if args.handoff_port is None or not args.handoff_token or not args.tmux_target:

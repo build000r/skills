@@ -135,6 +135,18 @@ flowchart TD
 """
             )
 
+    def test_build_mmdx_document_rejects_blank_line_before_chart_fence(self) -> None:
+        with self.assertRaisesRegex(ValueError, "must be followed immediately by ```mermaid"):
+            mmd.build_mmdx_document(
+                """## chart main Main Chart
+
+```mermaid
+flowchart TD
+  A --> B
+```
+"""
+            )
+
     def test_main_encodes_mmdx_document_with_entry_chart(self) -> None:
         with tempfile.NamedTemporaryFile("w", suffix=".mmdx", delete=False) as handle:
             handle.write(
@@ -254,6 +266,37 @@ flowchart TD
         self.assertEqual(body["payload"]["title"], "Demo diagram")
         self.assertEqual(body["payload"]["metadata"]["diagram_state_format"], "mermaid-live-pako")
         self.assertEqual(mmd.decode_state(body["payload"]["metadata"]["diagram_state"])["code"], "flowchart TD\n  A --> B\n")
+
+    def test_publish_link_dry_run_summary_omits_full_pako_payload(self) -> None:
+        with tempfile.NamedTemporaryFile("w", suffix=".mmd", delete=False) as handle:
+            handle.write("flowchart TD\n  A --> B\n")
+            path = handle.name
+        stdout = StringIO()
+
+        try:
+            with redirect_stdout(stdout):
+                exit_code = mmd.main(
+                    [
+                        "publish-link",
+                        path,
+                        "--username",
+                        "operator",
+                        "--slug",
+                        "abc123",
+                        "--dry-run",
+                        "--summary",
+                        "--no-preflight",
+                    ]
+                )
+        finally:
+            Path(path).unlink(missing_ok=True)
+
+        body = mmd.json.loads(stdout.getvalue())
+        self.assertEqual(exit_code, 0)
+        self.assertNotIn("payload", body)
+        self.assertEqual(body["payload_summary"]["metadata"]["diagram_state_format"], "mermaid-live-pako")
+        self.assertGreater(body["payload_summary"]["metadata"]["diagram_state_bytes"], 10)
+        self.assertNotIn("diagram_state", body["payload_summary"]["metadata"])
 
     def test_publish_link_updates_and_verifies_live_fragment(self) -> None:
         with tempfile.NamedTemporaryFile("w", suffix=".mmdx", delete=False) as handle:
@@ -480,6 +523,206 @@ flowchart TD
         self.assertEqual(exit_code, 0)
         self.assertEqual(mmd.json.loads(stdout.getvalue()), payload)
 
+    def test_save_dry_run_create_prints_private_diagram_payload_without_token_leak(self) -> None:
+        with tempfile.NamedTemporaryFile("w", suffix=".mmdx", delete=False) as handle:
+            handle.write(
+                """<!-- mmdx
+{"entry":"main","links":[]}
+-->
+## chart main Main Chart
+```mermaid
+flowchart TD
+  A[Local] --> B[Private]
+```
+"""
+            )
+            path = handle.name
+        stdout = StringIO()
+
+        try:
+            with patch.object(mmd.request, "urlopen") as urlopen:
+                with redirect_stdout(stdout):
+                    exit_code = mmd.main(
+                        [
+                            "save",
+                            path,
+                            "--title",
+                            "Private proof",
+                            "--chart-slug",
+                            "private-proof",
+                            "--access-token",
+                            "secret-token",
+                            "--dry-run",
+                            "--no-preflight",
+                        ]
+                    )
+        finally:
+            Path(path).unlink(missing_ok=True)
+
+        body = mmd.json.loads(stdout.getvalue())
+        self.assertEqual(exit_code, 0)
+        urlopen.assert_not_called()
+        self.assertEqual(body["operation"], "create")
+        self.assertEqual(body["endpoint"], "https://buildooor.com/api/mmdx/diagrams")
+        self.assertEqual(body["headers"]["Authorization"], "Bearer <redacted>")
+        self.assertEqual(body["payload"]["title"], "Private proof")
+        self.assertEqual(body["payload"]["chart_slug"], "private-proof")
+        self.assertEqual(body["payload"]["entry_chart_id"], "main")
+        self.assertIn("mmdx_text", body["payload"])
+        self.assertNotIn("secret-token", stdout.getvalue())
+
+    def test_save_dry_run_summary_omits_full_source_text(self) -> None:
+        with tempfile.NamedTemporaryFile("w", suffix=".mmd", delete=False) as handle:
+            handle.write("flowchart TD\n  A --> B\n")
+            path = handle.name
+        stdout = StringIO()
+
+        try:
+            with patch.object(mmd.request, "urlopen") as urlopen:
+                with redirect_stdout(stdout):
+                    exit_code = mmd.main(
+                        [
+                            "save",
+                            path,
+                            "--title",
+                            "Private proof",
+                            "--dry-run",
+                            "--summary",
+                            "--no-preflight",
+                        ]
+                    )
+        finally:
+            Path(path).unlink(missing_ok=True)
+
+        body = mmd.json.loads(stdout.getvalue())
+        self.assertEqual(exit_code, 0)
+        urlopen.assert_not_called()
+        self.assertNotIn("payload", body)
+        self.assertEqual(body["payload_summary"]["mmdx_text"], "<omitted>")
+        self.assertEqual(body["payload_summary"]["mmdx_text_bytes"], len("flowchart TD\n  A --> B\n".encode("utf-8")))
+        self.assertEqual(body["payload_summary"]["mmdx_text_sha256"], body["source_sha256"])
+
+    def test_save_create_posts_and_verifies_latest_source(self) -> None:
+        with tempfile.NamedTemporaryFile("w", suffix=".mmd", delete=False) as handle:
+            handle.write("flowchart TD\n  A --> B\n")
+            path = handle.name
+        stdout = StringIO()
+        captured: list[request.Request] = []
+
+        def fake_urlopen(req, timeout=0):
+            captured.append(req)
+            if req.get_method() == "POST":
+                self.assertEqual(req.full_url, "https://buildooor.com/api/mmdx/diagrams")
+                return FakeHTTPResponse(
+                    {
+                        "diagram": {"id": "diag_1", "latest_version_id": "version_1"},
+                        "version": {"id": "version_1", "diagram_id": "diag_1"},
+                        "nav": {"latest_version_id": "version_1"},
+                    }
+                )
+            self.assertEqual(req.full_url, "https://buildooor.com/api/mmdx/diagrams/diag_1/latest")
+            return FakeHTTPResponse(
+                {
+                    "diagram": {"id": "diag_1", "latest_version_id": "version_1"},
+                    "version": {"id": "version_1", "diagram_id": "diag_1", "mmdx_text": "flowchart TD\n  A --> B\n"},
+                    "nav": {"latest_version_id": "version_1"},
+                }
+            )
+
+        try:
+            with patch.object(mmd.request, "urlopen", side_effect=fake_urlopen):
+                with redirect_stdout(stdout):
+                    exit_code = mmd.main(
+                        [
+                            "save",
+                            path,
+                            "--title",
+                            "Created from agent",
+                            "--access-token",
+                            "access_123",
+                            "--no-preflight",
+                        ]
+                    )
+        finally:
+            Path(path).unlink(missing_ok=True)
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual([req.get_method() for req in captured], ["POST", "GET"])
+        post_headers = {key.lower(): value for key, value in captured[0].header_items()}
+        self.assertEqual(post_headers["authorization"], "Bearer access_123")
+        self.assertEqual(post_headers["origin"], "https://buildooor.com")
+        self.assertIn("Saved durable MMDX diagram diag_1", stdout.getvalue())
+        self.assertIn("latest_verification=OK", stdout.getvalue())
+
+    def test_save_append_resolves_latest_when_base_version_missing(self) -> None:
+        with tempfile.NamedTemporaryFile("w", suffix=".mmd", delete=False) as handle:
+            handle.write("flowchart TD\n  A --> C\n")
+            path = handle.name
+        captured_payloads: list[dict[str, object]] = []
+
+        def fake_urlopen(req, timeout=0):
+            if req.get_method() == "GET" and req.full_url.endswith("/latest"):
+                return FakeHTTPResponse(
+                    {
+                        "diagram": {"id": "diag_1", "latest_version_id": "version_before"},
+                        "version": {"id": "version_before", "diagram_id": "diag_1", "mmdx_text": "flowchart TD\n  A --> C\n"},
+                        "nav": {"latest_version_id": "version_before", "current_version_id": "version_before"},
+                    }
+                )
+            self.assertEqual(req.full_url, "https://buildooor.com/api/mmdx/diagrams/diag_1/versions")
+            payload = mmd.json.loads(req.data.decode("utf-8"))
+            captured_payloads.append(payload)
+            return FakeHTTPResponse(
+                {
+                    "diagram": {"id": "diag_1", "latest_version_id": "version_after"},
+                    "version": {"id": "version_after", "diagram_id": "diag_1"},
+                    "nav": {"latest_version_id": "version_after"},
+                }
+            )
+
+        try:
+            with patch.object(mmd.request, "urlopen", side_effect=fake_urlopen):
+                with redirect_stdout(StringIO()):
+                    exit_code = mmd.main(
+                        [
+                            "save",
+                            path,
+                            "--diagram-id",
+                            "diag_1",
+                            "--save-note",
+                            "agent update",
+                            "--access-token",
+                            "access_123",
+                            "--no-preflight",
+                        ]
+                    )
+        finally:
+            Path(path).unlink(missing_ok=True)
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(captured_payloads[0]["base_version_id"], "version_before")
+        self.assertEqual(captured_payloads[0]["parent_version_id"], "version_before")
+        self.assertEqual(captured_payloads[0]["save_note"], "agent update")
+        self.assertEqual(captured_payloads[0]["mmdx_text"], "flowchart TD\n  A --> C\n")
+
+    def test_save_requires_token_before_mutation(self) -> None:
+        with tempfile.NamedTemporaryFile("w", suffix=".mmd", delete=False) as handle:
+            handle.write("flowchart TD\n  A --> B\n")
+            path = handle.name
+        stderr = StringIO()
+
+        try:
+            with patch.dict(mmd.os.environ, {}, clear=True):
+                with patch.object(mmd.request, "urlopen") as urlopen:
+                    with redirect_stderr(stderr):
+                        exit_code = mmd.main(["save", path, "--title", "No token", "--no-preflight"])
+        finally:
+            Path(path).unlink(missing_ok=True)
+
+        self.assertEqual(exit_code, 1)
+        urlopen.assert_not_called()
+        self.assertIn("save requires --access-token", stderr.getvalue())
+
     def test_publish_link_rejects_non_https_api_base_before_sending_token(self) -> None:
         with tempfile.NamedTemporaryFile("w", suffix=".mmd", delete=False) as handle:
             handle.write("flowchart TD\n  A --> B\n")
@@ -585,6 +828,17 @@ flowchart TD
 
         self.assertEqual(exit_code, 1)
         self.assertIn("missing .mmd/.mmdx path", stderr.getvalue())
+
+    def test_main_help_lists_subcommands(self) -> None:
+        stdout = StringIO()
+
+        with self.assertRaises(SystemExit) as raised:
+            with redirect_stdout(stdout):
+                mmd.parse_args(["--help"])
+
+        self.assertEqual(raised.exception.code, 0)
+        self.assertIn("Subcommands: save", stdout.getvalue())
+        self.assertIn("publish-link", stdout.getvalue())
 
     def test_main_validates_handoff_server_arguments(self) -> None:
         stderr = StringIO()

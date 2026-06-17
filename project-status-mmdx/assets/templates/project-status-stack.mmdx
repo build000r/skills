@@ -1,0 +1,222 @@
+<!-- mmdx
+{
+  "entry": "main",
+  "shortLink": { "username": "buildooor", "slug": "" },
+  "links": [
+    {
+      "from": "main",
+      "label": "Open epic status",
+      "to": "epic-gantt",
+      "title": "Open epic status"
+    },
+    {
+      "from": "main",
+      "label": "Open primary flows",
+      "to": "primary-flows",
+      "title": "Open primary flows"
+    },
+    {
+      "from": "main",
+      "label": "Open proof gaps",
+      "to": "proof-status",
+      "title": "Open proof gaps"
+    },
+    {
+      "from": "main",
+      "label": "Open docs drift",
+      "to": "drift",
+      "title": "Open docs drift"
+    }
+  ]
+}
+-->
+
+## chart main Project Status Crux
+```mermaid
+flowchart LR
+  vision["Vision promise"]
+  green["GREEN Working/proof-backed"]
+  yellow["YELLOW Gap has Bead coverage"]
+  red["RED No Bead/unimplemented"]
+  flow["Open primary flows"]
+  epic["Open epic status"]
+  proof["Open proof gaps"]
+  drift["Open docs drift"]
+  next["Next move"]
+  vision --> green
+  vision --> yellow
+  vision --> red
+  green --> flow
+  yellow --> epic
+  red --> proof
+  red --> drift
+  proof --> next
+  drift --> next
+  class green green
+  class yellow yellow
+  class red red
+  class flow,epic,proof,drift,next gray
+  classDef green fill:#dff7df,stroke:#20833a,stroke-width:2px,color:#0f2f18
+  classDef yellow fill:#fff3bf,stroke:#b7791f,stroke-width:2px,color:#3a2a00
+  classDef red fill:#ffd6d6,stroke:#c53030,stroke-width:2px,color:#3a0505
+  classDef gray fill:#eef2f7,stroke:#64748b,stroke-width:1px,color:#111827
+```
+
+## chart epic-gantt Epic Status
+```mermaid
+gantt
+  title Epic Status
+  dateFormat YYYY-MM-DD
+  section GREEN Working
+  GREEN Evidence-backed slice :done, 2026-05-01, 1d
+  section YELLOW Bead-covered gaps
+  YELLOW Reality-check gap has Bead :active, 2026-05-02, 2d
+  section RED No Bead
+  RED Create missing Bead first :crit, 2026-05-04, 1d
+```
+
+## chart epic-map Epic Map
+```mermaid
+flowchart TD
+  core["GREEN Core promise works"]
+  covered["YELLOW Adjacent gap covered by Bead"]
+  missing["RED Vision gap has no Bead"]
+  future["GRAY Future or unknown"]
+  core --> covered
+  covered --> missing
+  covered --> future
+  class core green
+  class covered yellow
+  class missing red
+  class future gray
+  classDef green fill:#dff7df,stroke:#20833a,stroke-width:2px,color:#0f2f18
+  classDef yellow fill:#fff3bf,stroke:#b7791f,stroke-width:2px,color:#3a2a00
+  classDef red fill:#ffd6d6,stroke:#c53030,stroke-width:2px,color:#3a0505
+  classDef gray fill:#eef2f7,stroke:#64748b,stroke-width:1px,color:#111827
+```
+
+## chart primary-flows Primary Flows
+```mermaid
+flowchart LR
+  operator["Operator"]
+  request["Request / trigger"]
+  runtime["GREEN Runtime path works"]
+  review["YELLOW Review gap covered by Bead"]
+  output["RED Output gap has no Bead"]
+  operator --> request --> runtime --> review --> output
+  class operator,request gray
+  class runtime green
+  class review yellow
+  class output red
+  classDef green fill:#dff7df,stroke:#20833a,stroke-width:2px,color:#0f2f18
+  classDef yellow fill:#fff3bf,stroke:#b7791f,stroke-width:2px,color:#3a2a00
+  classDef red fill:#ffd6d6,stroke:#c53030,stroke-width:2px,color:#3a0505
+  classDef gray fill:#eef2f7,stroke:#64748b,stroke-width:1px,color:#111827
+```
+
+## chart lifecycle Main Lifecycle
+```mermaid
+stateDiagram-v2
+  [*] --> Requested
+  Requested --> Running
+  Running --> NeedsReview
+  NeedsReview --> Delivered
+  Running --> Blocked
+  Blocked --> Running
+  Delivered --> [*]
+  note right of Delivered
+    GREEN: delivered path is working/proof-backed
+  end note
+  note right of NeedsReview
+    YELLOW: review gap has Bead coverage
+  end note
+  note right of Blocked
+    RED: blocker has no Bead yet
+  end note
+```
+
+## chart architecture-boundary Architecture Boundary
+```mermaid
+flowchart LR
+  subgraph ProjectRepo["Project repo"]
+    routes["Routes / CLI"]
+    domain["Domain logic"]
+    proof["Tests / proof"]
+  end
+  subgraph SharedInfra["Shared infrastructure"]
+    auth["Auth / policy"]
+    connectors["Connectors"]
+  end
+  routes --> domain --> proof
+  domain --> connectors
+  auth --> routes
+  green["GREEN Owned path works"]
+  yellow["YELLOW Shared gap has Bead"]
+  red["RED Boundary gap has no Bead"]
+  proof --> green
+  connectors --> yellow
+  auth --> red
+  class routes,domain,proof,green green
+  class connectors,yellow yellow
+  class auth,red red
+  classDef green fill:#dff7df,stroke:#20833a,stroke-width:2px,color:#0f2f18
+  classDef yellow fill:#fff3bf,stroke:#b7791f,stroke-width:2px,color:#3a2a00
+  classDef red fill:#ffd6d6,stroke:#c53030,stroke-width:2px,color:#3a0505
+```
+
+## chart proof-status Proof Status
+```mermaid
+flowchart TD
+  passed["GREEN Checks/proof passed"]
+  covered["YELLOW Missing proof covered by Bead"]
+  unrun["RED Missing proof has no Bead"]
+  caveat["RED Claim drift has no Bead"]
+  passed --> covered
+  covered --> unrun
+  covered --> caveat
+  class passed green
+  class covered yellow
+  class unrun,caveat red
+  classDef green fill:#dff7df,stroke:#20833a,stroke-width:2px,color:#0f2f18
+  classDef yellow fill:#fff3bf,stroke:#b7791f,stroke-width:2px,color:#3a2a00
+  classDef red fill:#ffd6d6,stroke:#c53030,stroke-width:2px,color:#3a0505
+```
+
+## chart drift Docs Code Beads Drift
+```mermaid
+flowchart TD
+  docs["Docs promise"]
+  code["GREEN Code proof matches promise"]
+  beads["YELLOW Open Beads cover drift"]
+  release["Released / deployed state"]
+  docs --> code
+  code --> beads
+  code --> release
+  drift["RED Drift has no Bead coverage"]
+  docs --> drift
+  beads --> drift
+  release --> drift
+  class docs,release gray
+  class code green
+  class beads yellow
+  class drift red
+  classDef green fill:#dff7df,stroke:#20833a,stroke-width:2px,color:#0f2f18
+  classDef yellow fill:#fff3bf,stroke:#b7791f,stroke-width:2px,color:#3a2a00
+  classDef red fill:#ffd6d6,stroke:#c53030,stroke-width:2px,color:#3a0505
+  classDef gray fill:#eef2f7,stroke:#64748b,stroke-width:1px,color:#111827
+```
+
+## chart next-move Next Move
+```mermaid
+flowchart LR
+  finding["RED Highest-leverage no-Bead finding"]
+  action["YELLOW Create/claim Bead to address it"]
+  proof["GREEN Proof command after fix"]
+  finding --> action --> proof
+  class finding red
+  class action yellow
+  class proof green
+  classDef green fill:#dff7df,stroke:#20833a,stroke-width:2px,color:#0f2f18
+  classDef yellow fill:#fff3bf,stroke:#b7791f,stroke-width:2px,color:#3a2a00
+  classDef red fill:#ffd6d6,stroke:#c53030,stroke-width:2px,color:#3a0505
+```

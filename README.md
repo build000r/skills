@@ -1,7 +1,7 @@
 # build000r/skills
 
 <p align="center">
-  <img alt="Catalog" src="https://img.shields.io/badge/catalog-43_skills-111111?style=for-the-badge" />
+  <img alt="Catalog" src="https://img.shields.io/badge/catalog-44_skills-111111?style=for-the-badge" />
   <img alt="Works with Claude Code, Codex, and Cursor" src="https://img.shields.io/badge/agents-Claude_Code%20%7C%20Codex%20%7C%20Cursor-2f6feb?style=for-the-badge" />
   <img alt="Licensing is skill-specific" src="https://img.shields.io/badge/license-skill--specific-6b7280?style=for-the-badge" />
 </p>
@@ -267,6 +267,7 @@ human re-enters only for ambiguity, risk, or escalation
 | [`chart-crimes`](./chart-crimes/) | Builds persuasion-forward charts that keep underlying numbers honest |
 | [`deep-research-prompt`](./deep-research-prompt/) | Builds Oracle-ready Deep Research and image-creation prompts for external research tools, ChatGPT image generation, visual reference sheets, and "make a prompt for another agent" handoffs |
 | [`mmdx`](./mmdx/) | Authors, encodes, stacks, and previews Mermaid/MMDX diagrams |
+| [`project-status-mmdx`](./project-status-mmdx/) | Builds and updates repo-local linked MMDX "where are we" project-status stacks, then publishes them to the operator's mmdx account |
 | [`remotion`](./remotion/) | Encodes practical Remotion guidance for React video work and SVG-first motion architecture |
 | [`research-paper`](./research-paper/) | Produces dense research pages plus social companions |
 | [`shadcn-data-table`](./shadcn-data-table/) | Designs data-intensive shadcn/ui tables with UX-grounded column plans |

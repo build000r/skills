@@ -10,11 +10,6 @@ dist/
 .apr/
 __DOT_SWIMMERS__/
 dropbox-ocr/
-openclaw-client-bootstrap/references/deployed-instances.md
-openclaw-client-bootstrap/references/deployed-instances.local.md
-openclaw-client-bootstrap/assets/instances/*/
-!openclaw-client-bootstrap/assets/instances/
-!openclaw-client-bootstrap/assets/instances/README.md
 .search_log.json
 .ntm/
 .stash_janitor_workspace/

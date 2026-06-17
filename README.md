@@ -1,13 +1,13 @@
 # build000r/skills
 
 <p align="center">
-  <img alt="Catalog" src="https://img.shields.io/badge/catalog-45_skills-111111?style=for-the-badge" />
+  <img alt="Catalog" src="https://img.shields.io/badge/catalog-43_skills-111111?style=for-the-badge" />
   <img alt="Works with Claude Code, Codex, and Cursor" src="https://img.shields.io/badge/agents-Claude_Code%20%7C%20Codex%20%7C%20Cursor-2f6feb?style=for-the-badge" />
   <img alt="Licensing is skill-specific" src="https://img.shields.io/badge/license-skill--specific-6b7280?style=for-the-badge" />
 </p>
 
 <p align="center">
-  Reusable agent workflows for planning, verification, coding, operations, content, and OpenClaw runtime work.
+  Reusable agent workflows for planning, verification, coding, operations, and content.
 </p>
 
 <p align="center">
@@ -46,7 +46,6 @@ re-inventing the same workflow on every run.
 | Reusable engineering workflows | Skills for planning, review, reproduction, mutation testing, and commits |
 | Structured local context | Skillbox client overlays for skills that need private portfolio, repo, or deployment context |
 | Deterministic helpers where prompts are not enough | App-backed helpers can live beside the monorepo when they need their own runtime or release cadence |
-| Deployable asset bundles | Runtime kits and embedded child skills in [`openclaw-client-bootstrap`](./openclaw-client-bootstrap/) |
 | Pick-your-surface installs | Install one skill, a lane, the whole catalog, or symlink a local checkout |
 | Honest boundaries | Skill-specific licensing, local package builds, and explicit limitations |
 
@@ -276,17 +275,6 @@ human re-enters only for ambiguity, risk, or escalation
 `clawgs` now lives as a sibling repo at `../clawgs/` when you need the Rust-backed
 log extraction and thought-emission helper.
 
-### OpenClaw And Unclawg
-
-| Skill | What it does |
-| --- | --- |
-| [`openclaw-client-bootstrap`](./openclaw-client-bootstrap/) | Builds production-ready OpenClaw client kits with runtime assets |
-| [`openclaw-docs-audit`](./openclaw-docs-audit/) | Audits bootstrap docs and config against upstream OpenClaw changes |
-| [`unclawg-internet`](./openclaw-client-bootstrap/assets/runtime-skills/unclawg-internet/) | Runs onboarding, device auth, and setup for OpenClaw agents |
-| [`unclawg-discover`](./openclaw-client-bootstrap/assets/runtime-skills/unclawg-discover/) | Finds leads and social-listening candidates |
-| [`unclawg-feed`](./openclaw-client-bootstrap/assets/runtime-skills/unclawg-feed/) | Generates replies and submits approval requests |
-| [`unclawg-respond`](./openclaw-client-bootstrap/assets/runtime-skills/unclawg-respond/) | Processes revision feedback and fulfills approved edits |
-
 ## Installation
 
 ### 1. Install The Full Tracked Catalog
@@ -346,16 +334,6 @@ Install `clawgs` separately from the sibling checkout when you need it locally:
 ../clawgs/scripts/install.sh
 ../clawgs/scripts/check.sh
 ```
-
-OpenClaw loop:
-
-```bash
-npx skills add build000r/skills -s openclaw-client-bootstrap
-```
-
-The Unclawg runtime skills are bundled inside
-`openclaw-client-bootstrap/assets/runtime-skills/`, not installed as separate
-top-level catalog entries.
 
 ### 4. Use A Local Checkout During Development
 
@@ -463,7 +441,6 @@ Skills that commonly rely on client overlays include:
 - [`skill-registry-usage-audit`](./skill-registry-usage-audit/)
 - [`ssh-info`](./ssh-info/)
 - [`trend-to-content`](./trend-to-content/)
-- [`openclaw-client-bootstrap`](./openclaw-client-bootstrap/)
 
 ## Architecture
 
@@ -519,22 +496,6 @@ some-skill/
 ├── src/
 ├── tests/
 └── scripts/
-```
-
-### Asset And Runtime Bundle
-
-[`openclaw-client-bootstrap`](./openclaw-client-bootstrap/) ships deployable
-assets plus embedded child skills:
-
-```text
-openclaw-client-bootstrap/
-├── SKILL.md
-├── references/
-├── scripts/
-└── assets/
-    ├── client-kit/
-    ├── runtime-skills/
-    └── instances/
 ```
 
 ## Troubleshooting

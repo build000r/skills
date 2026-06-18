@@ -1,22 +1,27 @@
 # Grok Sidecar Task Selection
 
-Use this reference when a divide-and-conquer run wants cheap Grok or Composer
-2.5 help without turning that lane into an unsupervised implementation or review
-owner.
+Use this reference when a divide-and-conquer run can use Grok or Composer 2.5
+as a bounded task runner without turning that lane into an unsupervised
+implementation or review owner.
 
 ## Default Posture
 
-Grok is a sidecar, not an NTM pane class. Route it through the shared dispatcher,
-a Swimmers hidden session, a direct headless one-shot, or the locally configured
-Composer 2.5 task-runner lane, then reconcile the output through Beads and the
-normal result artifact.
+Grok/Composer is a task-runner lane, not an authority lane. Route it through the
+NTM Grok plugin when interactive pane preflight passes; otherwise use the shared
+dispatcher, a Swimmers hidden session, a direct headless prompt-file one-shot,
+or the locally configured Composer 2.5 task-runner lane. Reconcile all output
+through Beads and the normal result artifact.
 
-Prefer Grok when the work is cheap to verify, read-only by default, and useful
-even when the output is only a rough first pass. Composer 2.5 may also handle
-narrow writer tasks when the Bead names exact files, validation, stop rules, and
-a stronger-model review owner. Avoid Grok/Composer when the work needs trusted
-final judgment, secret-bearing access, UI taste, broad writes, or architecture
-authority.
+Prefer Grok/Composer when the work is cheap to verify, read-only by default or
+scoped to exact files, and useful even when the output is only a rough first
+pass. Composer 2.5 is the preferred runner for narrow writer tasks when the
+Bead names exact files, validation, stop rules, a stronger-model review owner,
+and final authority. Avoid Grok/Composer when the work needs trusted final
+judgment, secret-bearing access, UI taste, broad writes, or architecture
+authority. If the runner stalls, produces no artifact, fails validation, edits
+outside scope, or asks for a decision it does not own, escalate to Codex
+`gpt-5.5` xhigh or Claude Opus 4.8 for design work instead of retrying
+indefinitely.
 
 ## Good Grok Work
 
@@ -34,8 +39,11 @@ These tasks are good default sidecar candidates:
 - mechanical scripting where inputs, outputs, and validation commands are
   explicit
 - fixture, docs, or generated-file cleanup inside a narrow write scope
+- manifest/file classification with a declared output artifact
+- generated-command cleanup or deterministic codemods with a tiny revert path
 - `$commit` / logical commit batching when the Bead names the intended scope,
-  privacy scan, validation commands, and Codex `gpt-5.5` final acceptance owner
+  leave-list, no-wildcard staging rules, privacy scan, validation commands, and
+  Codex `gpt-5.5` final acceptance owner
 
 Good signs:
 
@@ -80,14 +88,15 @@ Use these tiers when deciding how much autonomy to give Grok:
 | --- | --- | --- | --- |
 | G0 router | cwd, skill tags, prompt cleanup | read-only, no tools beyond search | lead inspects output before dispatch |
 | G1 evidence sidecar | inventories, doc audits, candidate file lists | read-only shell/search | artifact plus reproducible commands |
-| G2 task-runner | mechanical scripts, docs, fixtures, commit batching | explicit write scope only | diff/commit plan reviewed by Codex gpt-5.5 and validation rerun |
-| G3 never | secrets, deploys, final review, architecture, UI taste | none | route to Codex gpt-5.5 or Claude Fable |
+| G2 task-runner | mechanical scripts, docs, fixtures, deterministic codemods, commit batching | explicit write scope only | diff/commit plan reviewed by Codex gpt-5.5 and validation rerun |
+| G3 never | secrets, deploys, final review, architecture, UI taste | none | route to Codex gpt-5.5 xhigh or Claude Opus 4.8 for design |
 
-Default to G0 or G1. Use G2 only when the owning Bead names the exact files,
-the diff is easy to revert, validation is deterministic, and Codex `gpt-5.5`
-reviews the result before final acceptance. A G2 `$commit` node may create the
-commit, but Codex `gpt-5.5` still owns the final review and any amend/follow-up
-decision.
+Default fuzzy or exploratory work to G0/G1. When a Bead is already clear and
+task-runner safe, default that execution node to G2 Composer 2.5 rather than a
+smarter model doing clerk work. G2 requires exact files, an easy revert path,
+deterministic validation, stop rules, and Codex `gpt-5.5` review before final
+acceptance. A G2 `$commit` node may create the commit, but Codex `gpt-5.5` still
+owns the final review and any amend/follow-up decision.
 
 ## CASS Search Recipes
 
@@ -205,11 +214,12 @@ codex panes — not Grok one-shots.
 
 When a live run has multiple NTM panes writing in the same git worktree, do not
 use Grok/Composer as an implementation or integration sidecar for broad code
-changes. The useful Grok lane in that situation is G0/G1, plus G2 task-runner
-nodes only when Beads prove non-overlapping writes and a Codex `gpt-5.5` review
-node owns acceptance. Examples: clean up dispatch prompts, identify likely
-write-overlap risks from Beads metadata, produce a read-only evidence inventory,
-write a bounded helper script, or run a scoped `$commit` batch after validation.
+changes. The useful Grok lane in that situation is G0/G1, plus preferred G2
+task-runner nodes when Beads prove non-overlapping writes and a Codex `gpt-5.5`
+review node owns acceptance. Examples: clean up dispatch prompts, identify
+likely write-overlap risks from Beads metadata, produce a read-only evidence
+inventory, write a bounded helper script, classify a bounded repo set into a
+declared artifact, or run a scoped `$commit` batch after validation.
 
 Do not use Grok as the watcher of record for long-running Oracle or deep-research
 jobs. Give those jobs a deterministic quiet window before the first check: wait
@@ -321,7 +331,7 @@ CASS hooks to find this or similar runs:
 cass search "grok output-format plain silent rc=1 empty stderr debug-file prompt-file works" --robot --limit 10 --days 30
 cass search "grok agent stdio JSON-RPC failed to parse expected value headless relay leader" --robot --limit 10 --days 30
 cass search "grok prompt-file classify repos manifest IOS_MAC LINUX read-only single write 17s" --robot --limit 10 --days 30
-cass search "fable claude-fable-5 unavailable route design opus ntm spawn cc fable" --robot --limit 10 --days 30
+cass search "design model unavailable route design opus ntm spawn cc opus" --robot --limit 10 --days 30
 ```
 
 ### 2026-06-14 — Sweet Potato open-bead revenue/auth wave

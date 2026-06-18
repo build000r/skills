@@ -86,16 +86,20 @@ Rules per node:
   subgoal controllers, system design, impactful execution, integration review,
   commit acceptance, and final-say nodes to `--model-route 'Codex gpt-5.5'`.
 - Route design work, UI/UX, visual systems, CSS/tokens, screenshot parity, and
-  design/fresh-eyes review to `--model-route 'Claude Fable'`.
+  design/fresh-eyes review to `--model-route 'Claude Opus 4.8'` when available;
+  use `--model-route 'Codex gpt-5.5 xhigh'` as the fallback when Opus is
+  unavailable.
 - Use `--model-route 'Grok dispatcher'` only for read-only router/preflight
   nodes such as cwd selection, skill-tag extraction, cleaned-request drafting,
   and broad evidence bucketing.
 - Use `--model-route 'Grok CLI sidecar'` for Grok-authored read-only evidence
   artifacts that a stronger model will verify.
-- Use `--model-route 'Grok Composer 2.5 task-runner'` for narrow writer,
-  scripting, fixture/docs, or `$commit` nodes only when the Bead names exact
-  writes, validation, review owner, and stop rules. Codex `gpt-5.5` keeps final
-  acceptance authority.
+- Prefer `--model-route 'Grok Composer 2.5 task-runner'` for narrow writer,
+  scripting, fixture/docs, generated-command cleanup, classification, or
+  `$commit` nodes when the Bead names exact writes or a read-only artifact,
+  validation, review owner, final authority, and stop rules. Codex `gpt-5.5`
+  keeps final acceptance authority and owns escalation when Composer stalls,
+  drifts, or cannot validate.
 - Read-only nodes: omit `--writes` entirely
 
 ## Mint Subgoals For Massive Runs
@@ -198,8 +202,9 @@ The minimum Beads-backed node brief must carry:
 - attribution preamble: `export BR_AGENT_NAME=… BR_HARNESS=… BR_MODEL=…`
 - model route: Codex gpt-5.5 for orchestration, no-ragrets bead composition,
   domain-planner sessions, system design, impactful execution, integration
-  review, commit acceptance, and final say; Claude Fable for design-related
-  nodes; Grok dispatcher for read-only router/preflight nodes; Grok CLI sidecar
+  review, commit acceptance, and final say; Claude Opus 4.8 for design-related
+  nodes, with Codex gpt-5.5 xhigh as the fallback when Opus is unavailable;
+  Grok dispatcher for read-only router/preflight nodes; Grok CLI sidecar
   for read-only evidence artifacts; Grok Composer 2.5 task-runner for narrow
   scripting, docs/fixtures, or commit batching with stronger-model review
 - verified claim state: the lead must have run `br update <id> --claim` for

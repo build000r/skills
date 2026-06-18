@@ -43,7 +43,8 @@ If any combo uses a swarm, NTM session, parallel worker wave, or NTM-backed
 review loop, include `vibing-with-ntm`. If the task is large-ish, UI-facing,
 multi-file, naturally parallel, or review-sensitive, use `divide-and-conquer`
 before parallel execution. For UI or ambiguous review-heavy work, include Claude
-Fable when available and finish with a fresh-eyes reviewer pass.
+Opus 4.8 when available; use Codex `gpt-5.5` xhigh if Opus is unavailable, and
+finish with a fresh-eyes reviewer pass.
 
 ## When `cass` Should Open The Combo
 

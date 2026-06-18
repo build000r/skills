@@ -206,11 +206,14 @@ Before finalizing a graph, verify:
       broad read-only evidence bucketing are routed through the `voice-to-text`
       Grok dispatcher when that runtime is available
 - [ ] Bounded task-runner nodes such as mechanical scripting, fixtures/docs
-      cleanup, generated command cleanup, or scoped `$commit` batching route to
-      Grok Composer 2.5 only when the Bead names exact writes, validation, stop
-      rules, and Codex `gpt-5.5` review ownership
-- [ ] Design-related nodes are routed to Claude Fable, including UI/UX,
-      visual design, design-system, CSS/token, screenshot, and visual parity work
+      cleanup, generated-command cleanup, classification artifacts,
+      deterministic codemods, or scoped `$commit` batching prefer Grok Composer
+      2.5 when the Bead names exact writes or a read-only artifact, validation,
+      stop rules, Codex `gpt-5.5` review ownership, and final authority
+- [ ] Design-related nodes are routed to Claude Opus 4.8 when available,
+      including UI/UX, visual design, design-system, CSS/token, screenshot, and
+      visual parity work; if Opus is unavailable, route to Codex `gpt-5.5`
+      xhigh and record the fallback
 - [ ] Orchestration, no-ragrets bead composition, domain-planner sessions,
       system design, impactful execution, integration, review, commit
       acceptance, and final-say nodes route to Codex `gpt-5.5`, with reasoning

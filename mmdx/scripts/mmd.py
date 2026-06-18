@@ -33,6 +33,13 @@ DEFAULT_APP_LINKS_API_BASE_URL = "https://buildooor.com/api/app-links"
 DEFAULT_MMDX_API_BASE_URL = "https://buildooor.com/api/mmdx"
 DEFAULT_MMDX_SHORT_LINK_BASE_URL = "https://buildooor.com/mmdx"
 DEFAULT_PUBLISH_TIMEOUT_SECONDS = 20.0
+# SPAPS device-code auth (the flow that mints the bearer token `save`/`list`/
+# `publish-link` need). `--server-url` is the SPAPS API base the CLI polls;
+# the human approves at the Buildooor verifier URL. App slug must match the
+# `app_slug` posted by `save` so the minted token is scoped to the same app.
+DEFAULT_SPAPS_SERVER_URL = "https://api.sweetpotato.dev"
+SPAPS_DEVICE_VERIFIER_URL = "https://buildooor.com/auth/device"
+SPAPS_APP_SLUG = "mmdx"
 SCRIPT_DIR = Path(__file__).resolve().parent
 PARSER_SCRIPT = SCRIPT_DIR / "validate_mermaid.mjs"
 PARSER_PACKAGE = SCRIPT_DIR / "package.json"
@@ -1324,6 +1331,54 @@ def build_append_version_payload(
     return payload
 
 
+def resolve_spaps_server_url() -> str:
+    """SPAPS API base for device-code auth, by the documented precedence.
+
+    MMDX_SPAPS_SERVER_URL > SPAPS_API_URL > NEXT_PUBLIC_SPAPS_API_URL, then the
+    production fallback. Lets the mint recipe print a real URL in local, staging,
+    and prod shells instead of a stale hardcoded example.
+    """
+    for name in ("MMDX_SPAPS_SERVER_URL", "SPAPS_API_URL", "NEXT_PUBLIC_SPAPS_API_URL"):
+        value = (os.environ.get(name) or "").strip()
+        if value:
+            return value
+    return DEFAULT_SPAPS_SERVER_URL
+
+
+def resolve_spaps_client_id() -> str:
+    """App slug for `spaps login --client-id`, overridable per environment."""
+    for name in ("MMDX_SPAPS_CLIENT_ID", "SPAPS_CLIENT_ID"):
+        value = (os.environ.get(name) or "").strip()
+        if value:
+            return value
+    return SPAPS_APP_SLUG
+
+
+def missing_token_help(command_name: str) -> str:
+    """Fail-open auth error: name the inputs, then hand over the exact mint recipe.
+
+    Keeps the legacy ``<command> requires --access-token`` opening clause (the
+    contract callers/tests rely on) and appends a copy-pasteable device-code
+    login so an agent or operator never has to guess how to authenticate.
+    """
+    server_url = resolve_spaps_server_url()
+    client_id = resolve_spaps_client_id()
+    return (
+        f"{command_name} requires --access-token, BUILDOOOR_ACCESS_TOKEN, "
+        "SPAPS_ACCESS_TOKEN, or --access-token-command from the existing "
+        "device-code auth flow.\n"
+        "Mint one with the device-code login, then re-run:\n"
+        f"  spaps login --server-url {server_url} --client-id {client_id}\n"
+        f"  # approve in a browser at {SPAPS_DEVICE_VERIFIER_URL}?user_code=<code>\n"
+        f'  export BUILDOOOR_ACCESS_TOKEN="$(spaps token --server-url {server_url})"\n'
+        "Or pass it inline with: "
+        f'--access-token-command "spaps token --server-url {server_url}"\n'
+        "spaps not on PATH? Run it from the monorepo: "
+        f"node ../sweet-potato/packages/spaps/bin/spaps.js login "
+        f"--server-url {server_url} --client-id {client_id}"
+    )
+
+
 def resolve_publish_access_token(args: argparse.Namespace, *, command_name: str = "publish-link") -> str:
     token = (args.access_token or "").strip()
     if token:
@@ -1345,10 +1400,7 @@ def resolve_publish_access_token(args: argparse.Namespace, *, command_name: str 
             return lines[-1]
         raise RuntimeError("access token command did not print a token")
 
-    raise ValueError(
-        f"{command_name} requires --access-token, BUILDOOOR_ACCESS_TOKEN, SPAPS_ACCESS_TOKEN, "
-        "or --access-token-command from the existing device-code auth flow"
-    )
+    raise ValueError(missing_token_help(command_name))
 
 
 def read_json_response(response: Any) -> dict[str, Any]:

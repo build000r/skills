@@ -711,7 +711,7 @@ python3 ~/.claude/skills/_shared/scripts/br_helpers.py mint-node \
   --writes 'src/domain/{slice}/**' --writes 'tests/{slice}/**' \
   --done-when '{binary completion check}' \
   --validate '{repo-native test command}' \
-  --model-route '{Codex gpt-5.5|Claude Fable|Grok Composer 2.5 task-runner|Grok dispatcher|Grok CLI sidecar}' \
+  --model-route '{Codex gpt-5.5|Codex gpt-5.5 xhigh|Claude Opus 4.8|Grok Composer 2.5 task-runner|Grok dispatcher|Grok CLI sidecar}' \
   --risk {none|human|external} \
   --depends-on {parent-issue-id}  # repeat for each dependency
 ```
@@ -727,11 +727,15 @@ Rules per node:
   - use `Codex gpt-5.5` for no-ragrets bead composition, domain-planner
     follow-up, orchestration, system design, architecture, high-impact code,
     integration, review, commit acceptance, and final-say nodes
-  - use `Claude Fable` for UI/UX, visual design, design systems, CSS/tokens,
-    screenshot parity, and fresh-eyes design review
-  - use `Grok Composer 2.5 task-runner` only for bounded scripting, docs,
-    fixtures, generated cleanup, or `$commit` nodes with exact write scope,
-    validation, stop rules, and Codex `gpt-5.5` final review
+  - use `Claude Opus 4.8` for UI/UX, visual design, design systems, CSS/tokens,
+    screenshot parity, and fresh-eyes design review when available; use `Codex
+    gpt-5.5 xhigh` as the fallback if Opus is unavailable
+  - prefer `Grok Composer 2.5 task-runner` for bounded scripting, docs,
+    fixtures, generated-command cleanup, classification artifacts,
+    deterministic codemods, or `$commit` nodes with exact write scope or a
+    read-only artifact, validation, stop rules, Codex `gpt-5.5` final review,
+    and final authority; escalate to Codex if the runner stalls, drifts, or
+    cannot validate
   - use `Grok dispatcher` or `Grok CLI sidecar` only for routing/preflight or
     read-only evidence artifacts
 - Status flows through `br update --claim` → `br update -s blocked` → `br close`

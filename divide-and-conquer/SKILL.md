@@ -103,15 +103,22 @@ operator-tending concern. See [NTM Project Root Preflight](#ntm-project-root-pre
 
 Use this skill for large-ish, UI-facing, multi-file, naturally parallel, or
 review-sensitive tasks even when the user did not explicitly ask for a swarm.
-Cheap cwd/workflow routing, worker-request cleanup, bounded scripting, commit
-batching, and other task-runner sidecars may use Grok with Composer 2.5 through
-the shared Grok CLI routing lanes in
-`../_shared/references/orchestration-contract.md` when available:
-`voice-to-text` dispatcher first, Swimmers hidden Grok session when a maintained
-sidecar is useful, and direct headless Grok only for bounded one-shots. NTM does
-not currently provide a `--grok` spawn flag, so Grok/Composer participation is a
-sidecar route rather than an NTM pane class. Design-related execution nodes
-must run on Claude Fable. Orchestration, system design, domain-planner quality
+When Beads are clearly defined, prefer Grok with Composer 2.5 for bounded
+task-runner work: cwd/workflow routing, worker-request cleanup, read-only
+inventories, bounded scripting, fixtures/docs cleanup, generated-command
+cleanup, and scoped commit batching. A Bead is clear enough for Composer only
+when it names the exact write scope or read-only artifact, validation commands,
+stop rules, review owner, and final authority. Route through the shared Grok
+lanes in `../_shared/references/orchestration-contract.md`: `voice-to-text`
+dispatcher for cheap routing/preflight, the NTM Grok plugin when interactive
+pane preflight passes, Swimmers or the local Composer route for maintained
+task-runner sessions, and direct headless Grok with a prompt file for bounded
+one-shots. If Composer stalls, emits no artifact, violates scope, or needs a
+judgment it does not own, escalate the node to Codex `gpt-5.5` xhigh (or Claude
+Opus 4.8 for design) and record the route failure in the result artifact.
+Design-related execution nodes should run on Claude Opus 4.8 via `--cc=N:opus`;
+if Opus is unavailable, fall back to Codex `gpt-5.5` with `xhigh` and record the
+missing design-model route. Orchestration, system design, domain-planner quality
 loops, no-ragrets bead composition, impactful architecture/code decisions,
 integration review, commit acceptance, and final say must run on Codex
 `gpt-5.5`. Require a final fresh-eyes reviewer pass before completion.
@@ -129,43 +136,47 @@ Route every ready node before spawning workers:
   ambiguous integration; use `high` for ordinary orchestration and impactful
   execution. These nodes may author or repair Beads and may overrule task-runner
   output.
-- **Claude Fable only for design-related work.** Treat a node as design-related
+- **Claude Opus 4.8 owns design-related work when available.** Treat a node as design-related
   when it touches UI/UX, visual design, design systems, frontend screen or
   component layout, CSS/tokens, responsive behavior, screenshots, visual
   parity, product interaction copy, or fresh-eyes review of those surfaces.
-  Dispatch these nodes to `--cc=N:fable`. If Fable is unavailable, stop and
-  report the routing blocker instead of assigning the node to Codex.
-- **Grok with Composer 2.5 is a bounded task-runner lane.** The
-  `voice-to-text` dispatcher is the preferred cheap router for cwd selection,
-  skill-tag extraction, request cleanup, broad evidence bucketing, and other
-  clerk work. When the node needs a maintained Grok/Composer session, use the
-  Swimmers hidden-session lane with `spawn_tool: "grok"` or the locally
-  configured Composer 2.5 route; for a bounded one-shot, use direct headless
-  Grok with a prompt file. Good writer candidates are `$commit`/logical commit
-  batching, mechanical scripts, fixtures, narrow docs edits, generated-command
-  cleanup, and other "task rabbit" work with explicit files, validation, and
-  revertability. Record `Model route: Grok dispatcher` for pure
-  routing/preflight, `Model route: Grok CLI sidecar` for a Grok-authored
-  read-only evidence artifact, and `Model route: Grok Composer 2.5
-  task-runner` for narrow writer or commit-runner nodes. Do not pass `--grok`
-  to `ntm spawn`; current NTM Grok participation is sidecar-only. Do not treat
-  a Grok/Composer result as authority to bypass Beads hydration, ownership,
-  validation, stronger-model review, or the final review gate. For
-  task-selection heuristics and CASS query examples, see
+  Dispatch these nodes to `--cc=N:opus`. If Opus is unavailable, fall back to
+  Codex `gpt-5.5` with `xhigh` and report that the dedicated design-review route
+  was unavailable.
+- **Grok with Composer 2.5 is the preferred bounded task-runner lane for clear
+  Beads.** The `voice-to-text` dispatcher is the preferred cheap router for cwd
+  selection, skill-tag extraction, request cleanup, broad evidence bucketing,
+  and other clerk work. For execution nodes that are task-runner safe, prefer
+  Composer 2.5 through the NTM Grok plugin when preflight passes; otherwise use
+  the Swimmers hidden-session lane with `spawn_tool: "grok"`, the locally
+  configured Composer route, or direct headless Grok with a prompt file for a
+  bounded one-shot. Good candidates are `$commit`/logical commit batching,
+  mechanical scripts, fixtures, narrow docs edits, generated-command cleanup,
+  manifest/file classification, and other "task rabbit" work with explicit
+  files, validation, and revertability. Record `Model route: Grok dispatcher`
+  for pure routing/preflight, `Model route: Grok CLI sidecar` for a
+  Grok-authored read-only evidence artifact, and `Model route: Grok Composer
+  2.5 task-runner` for narrow writer or commit-runner nodes. Do not treat a
+  Grok/Composer result as authority to bypass Beads hydration, ownership,
+  validation, stronger-model review, or the final review gate. If the result is
+  empty, off-scope, validation-failing, or asks for judgment beyond the Bead,
+  escalate the node to Codex `gpt-5.5` xhigh or Claude Opus 4.8 for design
+  instead of retrying indefinitely. For task-selection heuristics and CASS query examples, see
   [references/grok-sidecar-selection.md](references/grok-sidecar-selection.md).
-- **Routine non-design execution defaults to Codex unless it is task-runner
-  safe.** Backend, API, data, tests, refactors, validation, ops, and
-  integration nodes default to Codex `gpt-5.5`: `--cod=N:gpt-5.5`. A node may
-  route to Grok Composer 2.5 only when the Bead names the exact write scope,
-  validation, review owner, and stop rules.
+- **Routine non-design execution first checks task-runner safety.** If a
+  backend, API, data, test, refactor, validation, ops, or integration node has
+  exact Beads guidance and is cheap to verify/revert, prefer Grok Composer 2.5
+  as the task runner. If the node is broad, high-impact, secret-bearing,
+  architecture-sensitive, integration-heavy, or still fuzzy, route it to Codex
+  `gpt-5.5`: `--cod=N:gpt-5.5`.
 - Ambiguous nodes are design-related if visual/product interaction quality is a
   material acceptance criterion; otherwise route ambiguity to Codex `gpt-5.5`.
   Split mixed nodes before launch when the model routing would otherwise be
   unclear.
 - Record the selected route in the Beads dispatch contract and worker prompt:
   `Model route: Grok dispatcher`, `Model route: Grok CLI sidecar`,
-  `Model route: Grok Composer 2.5 task-runner`, `Model route: Claude Fable`, or
-  `Model route: Codex gpt-5.5`.
+  `Model route: Grok Composer 2.5 task-runner`, `Model route: Claude Opus 4.8`,
+  or `Model route: Codex gpt-5.5 xhigh`.
 
 ## Related Skills
 
@@ -278,10 +289,10 @@ unblocks that are explicitly recorded as root-owned.
 | Argument | Default | Description |
 |----------|---------|-------------|
 | `--project=NAME` | derived from cwd + wave id | NTM swarm project name |
-| `--cc=N:fable` | auto | Claude Fable panes for design-related nodes |
+| `--cc=N:opus` | auto | Claude Opus 4.8 panes for design-related nodes |
 | `--cod=N:gpt-5.5` | auto | Codex panes for orchestration, high-impact execution, integration, review, and final-say nodes |
 | `--gmi=N` | 0 | Optional Gemini panes |
-| Grok/Composer sidecars | 0 | External Grok or Composer 2.5 lanes via `voice-to-text`/Swimmers/local task-runner routes; not an `ntm spawn` flag |
+| Grok/Composer runners | eligible clear Beads | Grok plugin or sidecar lanes via `voice-to-text`/NTM Grok/Swimmers/local task-runner routes for explicit task-runner nodes |
 | `--max-workers=N` | 10 | Hard cap per wave |
 | `--wave-timeout-min=N` | 45 | Hard timeout for a wave before collect-and-triage |
 | `--monitor-cron` | every 3 minutes | Swarm health checks and nudges |
@@ -291,10 +302,11 @@ unblocks that are explicitly recorded as root-owned.
 - Size each wave from the current ready frontier, not from the full graph
 - Default to one worker per ready node
 - If the frontier exceeds `--max-workers`, split it into multiple subwaves
-- Keep Grok dispatcher/preflight/sidecar nodes read-only unless the Bead gives
-  Grok Composer 2.5 a concrete write scope, validation, and stronger-model
-  review owner
-- Route design-related execution nodes to Claude Fable
+- Prefer Grok Composer 2.5 for task-runner-safe nodes when the Bead gives an
+  exact write scope or read-only artifact, validation, stop rules, and
+  stronger-model review owner; keep dispatcher/preflight nodes read-only
+- Route design-related execution nodes to Claude Opus 4.8; use Codex `gpt-5.5`
+  xhigh only when Opus is unavailable
 - Route orchestration, no-ragrets bead composition, domain-planner sessions,
   system design, impactful execution, integration, review, and final-say nodes
   to Codex `gpt-5.5`
@@ -537,10 +549,12 @@ ready node is not launchable until `br show {id} --json` or
 - global constraints: no remote push, no cross-repo edits, no write-scope theft
 - model route per node: Codex gpt-5.5 for orchestration, no-ragrets bead
   composition, domain-planner sessions, impactful execution, integration,
-  review, and final say; Claude Fable for design-related nodes; Grok dispatcher
+  review, and final say; Claude Opus 4.8 for design-related nodes; Grok dispatcher
   for read-only router/preflight nodes; Grok CLI sidecar for Grok-authored
-  read-only artifacts; Grok Composer 2.5 task-runner for narrow writer,
-  scripting, or commit-runner nodes with explicit review ownership
+  read-only artifacts; Grok Composer 2.5 task-runner as the preferred runner
+  for narrow writer, scripting, fixture/docs cleanup, generated-command cleanup,
+  classification, or commit-runner nodes with exact writes, validation, stop
+  rules, explicit review ownership, and final authority
 - expected Beads assignee per node (`BR_AGENT_NAME`) and the exact claim
   verification command
 
@@ -566,18 +580,33 @@ frontier_json="$(python3 ~/.claude/skills/_shared/scripts/br_helpers.py ready --
 # frontier_json="$(python3 ~/.claude/skills/_shared/scripts/br_helpers.py scheduler)"
 
 ntm spawn "$WAVE_PROJECT" \
-  --cc="${NUM_DESIGN}:fable" --cod="${NUM_NON_DESIGN}:gpt-5.5" \
+  --cc="${NUM_DESIGN}:opus" --cod="${NUM_NON_DESIGN}:gpt-5.5" \
   --no-user \
   --stagger-mode=smart
 ```
 
-If either count is zero, omit that flag rather than spawning an empty worker
-class. Never satisfy a design-related node by increasing `NUM_NON_DESIGN`.
-Grok/Composer sidecar nodes are launched after the same Beads claim handshake,
-through the `voice-to-text`/Swimmers Grok lane, a local Composer 2.5 task-runner
-route, or a direct headless Grok one-shot, and are tracked by their issue ID
-plus result artifact. Do not inflate the Codex count to cover a Grok-routed
-node, and do not wait on `ntm --robot-*` as proof that a Grok sidecar completed.
+If the Grok plugin preflight passes and the frontier has Composer task-runner
+nodes, add the Grok count explicitly:
+
+```bash
+ntm spawn "$WAVE_PROJECT" \
+  --cc="${NUM_DESIGN}:opus" --cod="${NUM_NON_DESIGN}:gpt-5.5" \
+  --grok="${NUM_GROK}:grok-composer-2.5-fast" \
+  --no-user \
+  --stagger-mode=smart
+```
+
+If any count is zero, omit that flag rather than spawning an empty worker
+class. Never satisfy a design-related node by increasing `NUM_NON_DESIGN`, and
+never satisfy a Codex authority node by increasing `NUM_GROK`.
+Grok/Composer task-runner nodes are launched after the same Beads claim
+handshake, through the NTM Grok plugin when preflight passes, the
+`voice-to-text`/Swimmers Grok lane, a local Composer 2.5 task-runner route, or a
+direct headless Grok one-shot, and are tracked by their issue ID plus result
+artifact. Do not inflate the Codex count to cover a Grok-routed node, and do
+not rely on `ntm --robot-*` alone as proof that a Grok/Composer runner
+completed; verify the artifact, Beads state, validation, and stronger-model
+review.
 
 Wait for the swarm to be ready:
 
@@ -703,8 +732,11 @@ Model route:
 - Grok dispatcher for read-only router/preflight nodes
 - Grok CLI sidecar for Grok-authored read-only evidence artifacts
 - Grok Composer 2.5 task-runner for narrow scripting, docs, fixtures, or commit
-  batching nodes with explicit write scope and stronger-model review
-- Claude Fable for design-related nodes
+  batching nodes with explicit write scope, validation, stop rules,
+  stronger-model review, and final authority; escalate to Codex gpt-5.5 if the
+  runner stalls, drifts, or cannot validate
+- Claude Opus 4.8 for design-related nodes; Codex gpt-5.5 xhigh if Opus is
+  unavailable
 - Codex gpt-5.5 for orchestration, system design, domain-planner sessions,
   no-ragrets bead composition, impactful execution, integration review, and
   final say
@@ -868,7 +900,7 @@ the same swarm runtime. Do not default to `/codex:rescue`.
 Spawn a small review swarm, usually 1-2 workers:
 
 ```bash
-ntm spawn "$REVIEW_PROJECT" --cc=1:fable --cod=1:gpt-5.5 --no-user --stagger-mode=smart
+ntm spawn "$REVIEW_PROJECT" --cc=1:opus --cod=1:gpt-5.5:xhigh --no-user --stagger-mode=smart
 ntm --robot-wait="$REVIEW_PROJECT" --condition=idle --timeout=120
 ```
 
@@ -879,17 +911,18 @@ Reviewer prompt:
 - Run relevant build, test, lint, and typecheck commands
 - Fix only integration bugs or validation failures
 - For UI, UX, visual, design-system, screenshot, or ambiguous review-heavy work,
-  use Claude Fable for the fresh-eyes review of the final diff and validation
-  evidence. Do not substitute Codex for design review unless the user
-  explicitly overrides the hard route.
+  use Claude Opus 4.8 for the fresh-eyes review of the final diff and validation
+  evidence. If Opus is unavailable, use Codex `gpt-5.5` with `xhigh` and record
+  the fallback instead of routing to a dead model.
 - Run `br epic close-eligible --json` to retire the slice's epic if every child
   is closed; surface any leftover open child as the blocker
 - Run `python3 ~/.claude/skills/_shared/scripts/br_helpers.py flush` so
   `.beads/issues.jsonl` reflects current state
 - Commit if there are clean, scoped changes to save (include `.beads/issues.jsonl`,
-  exclude `.beads/*.db*`). A Grok Composer 2.5 task-runner may execute a
-  `$commit` node only when the Bead names the commit scope and validation; Codex
-  `gpt-5.5` owns acceptance of the commit plan and final review of the result.
+  exclude `.beads/*.db*`). Prefer Grok Composer 2.5 for the mechanical
+  execution of a `$commit` node when the Bead names the exact commit scope,
+  validation, leave-list, and no-wildcard staging rules; Codex `gpt-5.5` owns
+  acceptance of the commit plan and final review of the result.
 - Write `<absolute-run-dir>/DAC_FINAL_RESULT.md`
 
 `DAC_FINAL_RESULT.md` MUST end with:
@@ -938,12 +971,14 @@ When the final review result is available:
 - `writes` ownership is a hard boundary, not a suggestion
 - Default to NTM swarm execution; do not substitute local ad hoc workers
 - Cwd/workflow routing, skill-tag extraction, cleaned-request drafting,
-  read-only clerk/preflight nodes, bounded scripting, and scoped commit-runner
-  nodes may use the `voice-to-text` Grok dispatcher, Swimmers hidden Grok
-  sessions, direct headless Grok, or a local Composer 2.5 task-runner route
-  when available; reconcile all output through the normal Beads/result-artifact
-  contract and stronger-model review
-- Design-related nodes and design/fresh-eyes review nodes must use Claude Fable;
+  read-only clerk/preflight nodes, bounded scripting, fixture/docs cleanup,
+  generated-command cleanup, classification, and scoped commit-runner nodes
+  should prefer the `voice-to-text` Grok dispatcher, NTM Grok plugin, Swimmers
+  hidden Grok sessions, direct headless Grok, or a local Composer 2.5
+  task-runner route when the Bead is explicit; reconcile all output through the
+  normal Beads/result-artifact contract, validation, and stronger-model review
+- Design-related nodes and design/fresh-eyes review nodes should use Claude Opus
+  4.8; if Opus is unavailable, use Codex `gpt-5.5` with `xhigh`;
   orchestration, no-ragrets bead composition, domain-planner sessions, system
   design, impactful execution, integration, review, and final-say nodes must use
   Codex gpt-5.5 by default

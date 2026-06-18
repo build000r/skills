@@ -48,9 +48,10 @@ until then, activate individual skills through `sbp`.
 Any swarm or NTM-coordinated work must route through `vibing-with-ntm`. Any
 large-ish, UI-facing, multi-file, naturally parallel, or review-sensitive task
 must route through `divide-and-conquer` before parallel execution. For UI work or
-ambiguous review-heavy work, include Claude Fable in the worker or reviewer mix
-when the runtime exposes model choice, and require a final fresh-eyes reviewer
-pass before completion.
+ambiguous review-heavy work, include Claude Opus 4.8 in the worker or reviewer
+mix when the runtime exposes model choice; if Opus is unavailable, require Codex
+`gpt-5.5` with `xhigh` as the fallback reviewer and record that fallback.
+Require a final fresh-eyes reviewer pass before completion.
 
 `smart` chooses the next move; `divide-and-conquer` turns substantial execution
 into Beads and runs the ready frontier. When a recommendation becomes
@@ -344,9 +345,10 @@ For every `/smart` invocation:
 - Use `ntm` directly only when orchestration itself is the task. For ordinary
   execution waves, route through `/divide-and-conquer` so Beads remain
   authoritative.
-- Include Claude Fable for UI or ambiguous review-heavy work when available, and
-  do not call the loop complete until a fresh-eyes reviewer pass has checked the
-  final diff and validation evidence.
+- Include Claude Opus 4.8 for UI or ambiguous review-heavy work when available;
+  use Codex `gpt-5.5` xhigh if Opus is unavailable, and do not call the loop
+  complete until a fresh-eyes reviewer pass has checked the final diff and
+  validation evidence.
 - Do not recurse lazily by repeatedly wrapping `/smart` around itself with no new artifact or verification. Each loop must either sharpen the goal, produce a concrete repo or artifact delta, route an unresolved question, or prove that the success criteria have been met.
 
 ### Completion Gate

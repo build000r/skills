@@ -45,7 +45,7 @@ should set these env vars on entry and pass them through to spawned panes:
 ```bash
 export BR_AGENT_NAME="<skill-name>"          # e.g. divide-and-conquer, domain-scaffolder
 export BR_HARNESS="claude-code"              # or codex, ntm, etc.
-export BR_MODEL="fable"                       # actual model handling the call
+export BR_MODEL="claude-opus-4-8"             # actual model handling the call
 export BR_ACTOR="${USER:-agent}"             # for `--actor`
 ```
 

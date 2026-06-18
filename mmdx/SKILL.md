@@ -127,7 +127,11 @@ Agent auth prerequisite: before claiming that durable agent-side save or short-l
 check whether `BUILDOOOR_ACCESS_TOKEN`, `SPAPS_ACCESS_TOKEN`,
 `BUILDOOOR_ACCESS_TOKEN_COMMAND`, or `SPAPS_TOKEN_COMMAND` is available in the
 current shell. `mmd.py list` and `mmd.py publish-link` read those variables by
-default.
+default. When none is present, the CLI fails closed with an exact device-code
+mint recipe (`spaps login --server-url <resolved> --client-id mmdx`, the
+verifier URL, and the `export`/`--access-token-command` forms) resolved from
+`MMDX_SPAPS_SERVER_URL` > `SPAPS_API_URL` > `NEXT_PUBLIC_SPAPS_API_URL`. Relay
+that recipe to the operator verbatim instead of hand-constructing the login.
 
 If the token is missing on an operator machine, use the `skill-issue` shell-profile
 secret pattern: keep the bearer token in the OS keychain or another secret store,

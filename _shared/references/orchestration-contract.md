@@ -148,15 +148,24 @@ contract before launch. Route orchestration, no-ragrets bead composition,
 domain-planner sessions and quality loops, system design, high-impact code or
 architecture decisions, ambiguous repairs, integration review, commit
 acceptance, and final-say review to Codex `gpt-5.5`. Route design-related
-execution nodes to Claude Fable. Design-related includes UI/UX, visual design,
-design systems, CSS/tokens, responsive behavior, screenshots, visual parity,
-product interaction copy, and fresh-eyes review of those surfaces. Use the
-cheapest reliable sidecar for bounded task-runner work: cwd/workflow routing,
-skill-tag extraction, cleaned-request drafting, read-only clerk/preflight work,
-mechanical scripting, and scoped commit batching may route through the workspace
-`voice-to-text` Grok dispatcher, a Swimmers Grok session, direct headless Grok,
-or a local Composer 2.5 route when the owning Bead names the exact write scope,
-validation, stop rules, review owner, and final authority.
+execution nodes to Claude Opus 4.8 through `--cc=N:opus` when available; if
+Opus is unavailable, fall back to Codex `gpt-5.5` with `xhigh` and record the
+fallback. Design-related includes UI/UX, visual design, design systems,
+CSS/tokens, responsive behavior, screenshots, visual parity, product
+interaction copy, and fresh-eyes review of those surfaces. For bounded
+task-runner work, prefer Grok/Composer 2.5 when the owning Bead names the exact
+write scope or read-only artifact, validation, stop rules, review owner, and
+final authority. Good task-runner work includes cwd/workflow routing, skill-tag
+extraction, cleaned-request drafting, read-only clerk/preflight work,
+mechanical scripting, fixtures/docs cleanup, generated-command cleanup,
+classification into a declared artifact, and scoped commit batching. Use the
+workspace `voice-to-text` Grok dispatcher for cheap routing/preflight, the NTM
+Grok plugin when interactive pane preflight passes, Swimmers or the local
+Composer route for maintained task-runner sessions, and direct headless Grok
+with a prompt file for bounded one-shots. If Grok/Composer stalls, emits no
+artifact, fails validation, leaves scope, or needs judgment it does not own,
+escalate to Codex `gpt-5.5` xhigh or Claude Opus 4.8 for design work and record
+the route failure.
 
 ### Grok routing — NTM plugin preferred, sidecar backup
 
@@ -194,29 +203,27 @@ sidecar/task-runner lanes and reconcile the output back into the owning workflow
   artifact path. Keep it read-only unless the caller has an explicit write
   scope and validation contract.
 - **Composer 2.5 task-runner lane:** for narrow writer tasks such as mechanical
-  scripts, fixtures, docs cleanup, generated command cleanup, or `$commit`
-  batching, use the locally configured Composer 2.5 route only when the Bead
-  names exact writes, validation commands, stop rules, a Codex `gpt-5.5` review
-  owner, and final acceptance authority. Composer/Grok may create a commit in a
-  scoped `$commit` node, but Codex `gpt-5.5` owns acceptance and any amend or
-  follow-up decision.
+  scripts, fixtures, docs cleanup, generated command cleanup, classification
+  artifacts, deterministic codemods, or `$commit` batching, prefer the locally
+  configured Composer 2.5 route when the Bead names exact writes, validation
+  commands, stop rules, a Codex `gpt-5.5` review owner, and final acceptance
+  authority. Composer/Grok may create a commit in a scoped `$commit` node, but
+  Codex `gpt-5.5` owns acceptance and any amend or follow-up decision.
 
-Direct read-only one-shot shape:
+Direct prompt-file one-shot shape:
 
 ```bash
 grok --prompt-file "$PROMPT_FILE" \
   --cwd "$REPO_ROOT" \
-  --output-format json \
-  --no-alt-screen \
-  --no-memory \
-  --no-subagents \
-  --disable-web-search \
-  --tools "" \
-  --sandbox read-only \
-  --deny Bash \
-  --deny Edit \
-  --deny Write
+  --always-approve \
+  --max-turns 20
 ```
+
+For read-only work, put the read-only rule, allowed commands, and expected
+artifact path inside `$PROMPT_FILE`. Prefer a declared output file over streamed
+stdout. Recent Grok CLI observations showed top-level `--output-format
+plain|json` can fail silently; use prompt-file plus an expected artifact unless
+the local `grok --help` and a smoke run prove a different shape works.
 
 Record the route in the caller's dispatch contract:
 
@@ -226,8 +233,8 @@ Model route: Grok dispatcher       # backup pure routing/preflight
 Model route: Grok CLI sidecar      # backup bounded read-only analysis/ideation
 Model route: Grok CLI writer       # legacy narrow writer; prefer Composer route
 Model route: Grok Composer 2.5 task-runner  # narrow writer or commit-runner node
-Model route: Claude Fable           # design/UI/visual/fresh-eyes design work
-Model route: Codex gpt-5.5         # orchestration, impact, architecture, final say
+Model route: Claude Opus 4.8        # design/UI/visual/fresh-eyes design work
+Model route: Codex gpt-5.5 xhigh   # fallback for unavailable Opus; orchestration, impact, architecture, final say
 ```
 
 Grok NTM plugin panes exist in tmux but are often misclassified as `user` in

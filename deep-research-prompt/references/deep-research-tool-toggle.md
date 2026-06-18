@@ -13,6 +13,44 @@ prompts this skill produces. Oracle doesn't support that natively yet, so the
 skill ships small CDP helpers: one to toggle the tool and one to watch for the
 eventual dossier after submission.
 
+## Project oracle config (overlay-sourced)
+
+The per-project oracle settings — which ChatGPT account (Chrome profile), which
+ChatGPT Project/folder, CDP host/port, and default engine/model — should come
+from the matched client overlay's `oracle:` block, not from env vars an agent
+hand-sets each run. This is what prevents the wrong-account / wrong-tab footgun:
+the right target becomes the default for the repo.
+
+Source it once at the start of any oracle run, before launching Chrome or
+running the helpers below. It is a soft dependency on the `skill-issue`
+resolver and a no-op when the resolver or overlay is absent, so the existing
+manual env-var path still works:
+
+```bash
+RESOLVER=""
+for d in "./.claude/skills/skill-issue" "$HOME/.claude/skills/skill-issue"; do
+  [ -f "$d/scripts/resolve_overlay_config.py" ] && { RESOLVER="$d/scripts/resolve_overlay_config.py"; break; }
+done
+[ -n "$RESOLVER" ] && eval "$(python3 "$RESOLVER" --section oracle --format env)"
+```
+
+After sourcing, these are set from the project overlay when defined (otherwise
+unset, and the agent may still set them by hand):
+
+- `ORACLE_CDP_HOST`, `ORACLE_CDP_PORT` — the DevTools endpoint the helpers use
+- `ORACLE_CHATGPT_URL_MATCH` — the unique project-URL substring that selects
+  the submit tab (the same knob the toggle/await helpers read), so you no
+  longer pass `ORACLE_CHATGPT_URL_MATCH="<unique-path>"` inline
+- `ORACLE_CHATGPT_TARGET_ID` — exact CDP target id when the overlay pins one
+- `ORACLE_BROWSER_PROFILE_DIR` — the Chrome `--user-data-dir` = which
+  logged-in ChatGPT account; use it for the Chrome launch below
+- `ORACLE_DEFAULT_ENGINE`, `ORACLE_DEFAULT_MODEL`, `ORACLE_SLUG_PREFIX`,
+  `ORACLE_DEEP_RESEARCH_DEFAULT` — project defaults for the run command
+
+See `skill-issue/references/overlay-config.md` for the full key→env mapping and
+the multi-profile/multi-account pattern (one profile dir per ChatGPT account,
+each with its own project URL).
+
 ## The helper
 
 `assets/scripts/toggle-deep-research.mjs` connects to a running Chrome via the
@@ -132,13 +170,101 @@ ChatGPT browser runs, the skill must fail closed and report a route-blocked
 execute attempt. Do not "race" Oracle by trying to toggle the new tab after it
 appears; the submit timing is not a stable contract.
 
-## How the skill wires this into an Oracle run
+## Verified composer flow (canonical execution path)
 
-Oracle's browser mode launches its own Chrome and drives it to completion in
-one shot, so there's no natural pause between "open tab" and "submit prompt"
-where we can interleave a tool toggle. Remote Chrome only solves the
-login/profile problem; it does not by itself prove same-tab submission. The
-route guard above decides whether automatic execution is allowed.
+**Oracle renders; CDP submits.** For ChatGPT Deep Research browser runs, never
+let Oracle click the model picker or the send button. Use `oracle` only to
+size and render the prompt+files bundle, then drive the composer over CDP with
+a DOM verification after every step. This sidesteps the route-guard problem
+entirely: submission happens in the exact tab where Pro and Deep research were
+verified, by construction.
+
+Why Oracle's own browser submission is banned for Deep Research (all observed
+against Oracle v0.9.0 + ChatGPT, June 2026):
+
+- `--browser-manual-login` reused `~/.oracle/browser-profile` but landed on a
+  logged-out ChatGPT — the live session lived in a **subprofile**
+  (`Profile 1`), not `Default`.
+- Cookie-copy from `Default/Cookies` applied no usable ChatGPT cookies for the
+  same reason. Check subprofiles before blaming auth:
+  `sqlite3 "<root>/<profile>/Cookies" "select host_key, count(*) from cookies
+  where host_key like '%chatgpt%' group by host_key;"` — the subprofile with
+  the most `chatgpt.com` rows (and the right `Preferences` profile name) is
+  the logged-in one.
+- `--browser-model-strategy select` aborted with
+  `Unable to locate the ChatGPT model selector button` (UI drift).
+- `--browser-model-strategy ignore` "succeeded" — by submitting on **Instant
+  with Deep research off**. That run looked launched and was garbage.
+- `--pre-submit-hook` executed only **after** the send click, so it cannot
+  prove composer state before submission.
+
+The canonical sequence (after sourcing the per-project oracle config above):
+
+```bash
+SKILL_DIR=""
+for d in "./.claude/skills/deep-research-prompt" "$HOME/.claude/skills/deep-research-prompt"; do
+  [ -f "$d/SKILL.md" ] && { SKILL_DIR="$d"; break; }
+done
+
+# 1. Dedicated CDP Chrome on a CLONE of the logged-in profile. Cloning avoids
+#    the profile lock (a root attached to a running Chrome silently forwards
+#    and never binds CDP); `open -na` avoids the macOS app-singleton handoff.
+"$SKILL_DIR/assets/scripts/launch-chatgpt-cdp.sh"   # honors ORACLE_* env
+# Inspect the printed tab list: it must be the logged-in account, not "Log in".
+
+# 2. Render the prompt+files bundle (render only — no submission).
+oracle --render --render-plain --engine browser \
+  --model "${ORACLE_DEFAULT_MODEL:-gpt-5-pro}" --slug "<slug>" \
+  -p "$(cat /tmp/<slug>-deep-research-<date>.md)" \
+  --file <context-files...> > "/tmp/<slug>.oracle-rendered.md"
+
+# 3. Drive the composer; every step prints JSON and exits 1 on failure.
+C() { node "$SKILL_DIR/assets/scripts/chatgpt-composer.mjs" "$@"; }
+C clear
+C select-pro
+node "$SKILL_DIR/assets/scripts/toggle-deep-research.mjs"
+C verify-ready                                  # HARD GATE: Pro + Deep research
+C paste-file "/tmp/<slug>.oracle-rendered.md"
+C verify-ready                                  # paste must not reset the state
+C send
+C start-research                                # review card's Start (see below)
+C verify-started                                # researching UI / stop button
+C screenshot "/tmp/<slug>-submitted.png"        # evidence for the closeout
+
+# 4. Capture the dossier (same watcher as before).
+DEEP_RESEARCH_OUTPUT="/tmp/<slug>-deep-research-result.md" \
+  node "$SKILL_DIR/assets/scripts/await-deep-research.mjs"
+```
+
+If `verify-ready` fails, stop and fix selection — do not send. If any DOM step
+fails twice, take a `screenshot`, read it, and adjust; the JSON `state` field
+carries the composer pills and menus the helper actually saw.
+
+### ChatGPT UI gotchas (encoded in chatgpt-composer.mjs, June 2026)
+
+- **Model picker:** the menu lists Instant / Thinking / Pro / Configure. The
+  Pro row's trailing sliders icon opens an **effort submenu**
+  (Standard / Extended) instead of switching the model — click the row's
+  visible "Pro" text. The **account menu** also contains "Pro", and the
+  sidebar's "Projects" matches a sloppy `/pro/` regex. `select-pro` handles
+  all three traps; `verify-ready` proves the pill actually changed.
+- **Mic trap:** the dictation button's aria-label is "Start dictation". Any
+  Start-button matching must use visible text only, never aria-labels.
+- **Deep Research review card:** after `send`, ChatGPT may insert a review
+  card (title, plan bullets, Edit / Cancel / Start). The Start button shows a
+  countdown and **auto-starts when it expires**. `start-research` clicks it,
+  and treats already-visible research progress as success
+  (`alreadyStarted: true`).
+- **Long pastes** fold into a "Pasted text" attachment chip; the visible
+  composer text being short is normal and `paste-file` accounts for it.
+- **Subprofiles:** the logged-in session may live in `Profile 1` (or higher),
+  not `Default`. Pin it per project with the overlay key `profile_directory`
+  (→ `ORACLE_PROFILE_DIRECTORY`).
+
+The route guard section above still governs the **legacy lane** where Oracle
+itself submits (and Image execute mode, where the pre-submit hook works for
+the Create image toggle). For Deep Research, prefer this verified flow
+unconditionally.
 
 ## Submit-tab invariant
 
@@ -183,90 +309,14 @@ When a project/folder URL is available and the route guard has already passed:
 4. Run Oracle with the same-tab target option or pre-submit hook reported by
    the guard. Do not rely on `--chatgpt-url` alone.
 
-End-to-end flow for Oracle execute mode:
-
-1. **Launch Chrome with a known DevTools port.** Use the user's existing Chrome
-   profile so they stay logged into ChatGPT, but open a fresh Chrome instance
-   on port `9222` (or any free port). Example:
-   ```
-   /Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome \
-     --remote-debugging-port=9222 \
-     --user-data-dir="$HOME/.oracle/browser-profile" \
-     --no-first-run --no-default-browser-check \
-     https://chatgpt.com/
-   ```
-   (If Oracle's own persistent profile at `~/.oracle/browser-profile` is in
-   use, reuse it — logged-in cookies are already there.)
-
-2. **Wait for the intended tab to be ready.** Poll
-   `http://127.0.0.1:9222/json` until the target with `url` matching the
-   intended ChatGPT project/folder/conversation has loaded past `about:blank`.
-   If multiple ChatGPT tabs are open, set `ORACLE_CHATGPT_TARGET_ID` or
-   `ORACLE_CHATGPT_URL_MATCH` before toggling.
-
-3. **Run the route guard.** Resolve the skill dir first, then:
-   ```
-   node "$SKILL_DIR/assets/scripts/check-oracle-tab-local-route.mjs"
-   ```
-   If this exits non-zero, stop. Report the prompt file and guard output. Do
-   not launch a normal Oracle browser submission.
-
-4. **Toggle Deep research on in that resolved submit tab.** Resolve the
-   skill dir first — project-local activation puts the helper at
-   `./.claude/skills/deep-research-prompt`, global activation at
-   `$HOME/.claude/skills/deep-research-prompt`:
-   ```
-   SKILL_DIR=""
-   for d in "./.claude/skills/deep-research-prompt" "$HOME/.claude/skills/deep-research-prompt"; do
-     [ -f "$d/SKILL.md" ] && { SKILL_DIR="$d"; break; }
-   done
-   ORACLE_CHATGPT_URL_MATCH="<unique-project-or-conversation-path>" \
-     node "$SKILL_DIR/assets/scripts/toggle-deep-research.mjs"
-   ```
-   If this exits non-zero, **do not silently proceed** — surface the reason to
-   the user. The common failure modes are exit 4 (ChatGPT moved the menu item
-   label), exit 3 (plus button moved), exit 7 (selector still matches multiple
-   ChatGPT tabs), and exit 8 (selector matched no tab).
-
-5. **Run Oracle against the prepared browser without reselecting the model,
-   only after the route guard passes.**
-   ```
-   oracle \
-     --engine browser \
-     --remote-chrome 127.0.0.1:9222 \
-     --browser-model-strategy ignore \
-     --timeout 30m \
-     --slug <slug> \
-     -p "$(cat /tmp/<slug>-deep-research-<date>.md)"
-   ```
-   On Oracle builds like v0.9.0, this step is route-blocked because remote
-   Chrome opens a fresh dedicated tab. Do not add `--chatgpt-url` to try to
-   force reuse; that is the behavior that creates the extra non-Deep-Research
-   submit tab.
-   `--browser-model-strategy ignore` avoids an extra model-picker click that can
-   move focus or fail when ChatGPT's selector DOM changes. The prepared tab's
-   current model/tool state is the source of truth.
-
-6. **Verify the submitted tab.** Immediately inspect the browser or reattach
-   with `oracle session <slug>`. If Oracle opened or switched to a different
-   target than the selected project/conversation, if the submitted
-   composer/conversation lacks the Deep Research chip, or if the reply starts
-   like a normal answer rather than a research run with external-source
-   behavior, treat the run as failed. Do not report "Deep Research started."
-   A user-turn-only conversation is submission evidence, not generation
-   evidence. Verify an assistant turn, active "researching/searching/stop
-   generating" UI, or another visible Deep Research progress surface before
-   calling the run launched.
-
-7. **Capture the eventual dossier when needed.** If the report itself is the
-   deliverable, start or schedule `await-deep-research.mjs` against the same
-   target with `DEEP_RESEARCH_OUTPUT` set. Let it wait about 30 minutes before
-   the first poll, poll about every 15 minutes, and avoid calling the run
-   stalled before about 2 hours unless Oracle or the browser shows concrete
-   error evidence.
-
-8. **Surface the session slug** for reattach, do not re-print the prompt. If
-   the watcher is running, also surface the watcher command and output path.
+End-to-end flow for Oracle execute mode: use the **Verified composer flow**
+above — launch via `launch-chatgpt-cdp.sh`, render the bundle with
+`oracle --render`, then `chatgpt-composer.mjs` for select/verify/paste/send,
+`toggle-deep-research.mjs` for the tool, and `await-deep-research.mjs` for the
+dossier. Do not maintain a second runbook here; the canonical sequence lives in
+that section. When a project URL exists, open it via
+`ORACLE_CHATGPT_PROJECT_URL` so the dedicated Chrome starts on the project page
+and `ORACLE_CHATGPT_URL_MATCH` resolves the tab unambiguously.
 
 ## Verification after the run starts
 

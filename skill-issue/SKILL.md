@@ -77,6 +77,18 @@ Each client overlay lives in one of two roots:
 
 Use the repo-local `.buildooor/` root when the overlay explains project trajectory, generated plans, validation contracts, or skillbox structure that should be reviewable in that repo's git history. Use the shared fallback root for operator-wide private defaults, cross-repo overlays, or material that must stay outside a public project. Overlays contain org-specific configuration: skill naming patterns, required SKILL.md sections, publishing targets, validation commands, standard bundled resources, and review/approval workflow.
 
+### Per-Project Config Sections
+
+Overlays are also where per-project *settings that multiple skills must agree on* live — not just skill-creation config. Put a setting once under `client.context.<section>` in `overlay.yaml` instead of relying on ambient env vars an agent has to remember. The canonical example is the `oracle:` block (which ChatGPT account/profile, project URL, CDP port, and engine/model defaults a repo's GPT-5 Pro / Deep Research runs use).
+
+Skills consume these via the env-var bridge `scripts/resolve_overlay_config.py`, which resolves the matched overlay's section into `export <SECTION>_<KEY>` lines (a silent no-op when absent, so callers can `eval` it unconditionally):
+
+```bash
+eval "$(scripts/resolve_overlay_config.py --section oracle --format env)"
+```
+
+`manage_overlays.py validate` checks the `oracle` block when present. See [references/overlay-config.md](references/overlay-config.md) for the section convention, the full `oracle` key→env mapping, the multi-profile/multi-account pattern, and the graceful consumer contract.
+
 ### Overlay Selection (Step 0)
 
 1. Check for available client overlays in `.buildooor/skillbox-config/clients/` and `skillbox-config/clients/`, walking upward from cwd

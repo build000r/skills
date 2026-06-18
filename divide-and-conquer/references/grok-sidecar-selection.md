@@ -210,6 +210,71 @@ workspace, the productive delegation lanes were harness sub-agents (one per
 disjoint repo, returning verifiable result reports) and the already-running NTM
 codex panes — not Grok one-shots.
 
+## 2026-06-12 Live Sidecar Observations (jame bead sweep, grok 0.2.51)
+
+First **positive** direct-headless data point in this file. Prior negative notes
+were all `grok 0.2.14`; the empty-stdout / "Max turns reached" failure mode
+appears fixed in `grok 0.2.51 (f4f85a6492e)`.
+
+| Context | Grok route | Outcome | Reusable rule | CASS search terms |
+| --- | --- | --- | --- | --- |
+| Root operator tending a 3-pane jame NTM swarm wanted the dispatched lane/scope table rendered. All data inlined in the prompt; pure read-only markdown formatting. | Direct headless G1 clerk: `grok -p "<prompt>" --max-turns 6` (alias resolves to `grok --yolo`) | GOOD. exit 0, **284-byte non-empty stdout**, a correctly formatted 3-row markdown table with no extra prose. Matches the exact task class that returned 1-byte stdout under 0.2.14. | `grok 0.2.51` direct headless one-shots now produce usable output on bounded read-only formatting. Re-baseline Grok at G1 for inline clerk/formatting/inventory tasks, but STILL verify the artifact (byte count + content) before use, and keep code edits / closeout / UI taste at G3. | `grok 0.2.51 inline formatting table non-empty stdout jame swarm`, `grok 0.2.51 headless one-shot usable output re-baseline G1` |
+
+Second positive data point (same session, random-fix Round 2): asked grok 0.2.51
+`-p "<prompt>" --max-turns 6` to render a 4-row crate inventory table (Crate |
+Purpose) with all data inlined. GOOD — exit 0, **425-byte non-empty stdout**, an
+accurate well-formed markdown table (jame-core/jame-bridge/jame/jame-wasm with
+correct one-line purposes). Two-for-two on bounded read-only formatting/inventory
+under 0.2.51. CASS terms: `grok 0.2.51 crate inventory table non-empty`. Confirms
+the re-baseline: G1 for read-only clerk/inventory/formatting is now reliable; still
+verify the artifact, and keep code edits / closeout / UI taste at G3.
+
+Third positive data point (same session): asked grok 0.2.51 `-p` (`--max-turns 8`)
+to draft a Keep-a-Changelog `## [Unreleased]` section from an inlined `git log
+--oneline -45`, grouped Added/Changed/Fixed/Docs-Tests. GOOD — exit 0, 2827-byte
+stdout, an accurate, correctly-grouped changelog faithful to the commit messages
+with NO invention. The lead spot-checked it (every `jame <cmd>` mentioned exists
+in `jame --help`) and committed it as CHANGELOG.md (`364a5ff`). This is the
+grok→verify→commit G1/G2 pattern working cleanly: grok drafts a bounded read-only
+artifact from inlined data, lead verifies cheaply + commits. Three-for-three on
+0.2.51 for read-only summarization/inventory/formatting. CASS terms:
+`grok 0.2.51 changelog draft from git log verified committed`,
+`grok sidecar draft artifact lead verify commit`. Still G3 for code edits / final
+review / UI taste; the artifact must always be lead-verified before commit.
+
+Operational takeaways for this session:
+
+- Always check `wc -c` on Grok stdout; do not trust exit 0 alone (the old habit
+  still protects against regressions).
+- `grok` is aliased to `grok --yolo` in this operator's shell; non-interactive
+  Bash still resolves it, and `--max-turns 6` was enough for a small task.
+- With 0.2.51 working, the productive low-risk Grok lanes for a code-implementing
+  swarm are: render reconciliation/status tables, summarize `git log`/`git diff`
+  --stat into prose, produce read-only file inventories, and draft commit-message
+  bodies for the lead to review. Keep all of these G1 (lead verifies); do not let
+  Grok own the commit decision, the diff correctness call, or any Beads closeout.
+
+## 2026-06-13 Live Sidecar Observations (jame random-fix wave, grok 0.2.51)
+
+First **tool-executing** (not just drafting) positive data point: grok ran an
+actual `git commit`. Critical distinction from the "don't let grok own the commit
+decision" rule above — the lead made the decision, staged the exact two files, and
+wrote the message to a file; grok only *executed* the mechanical `git commit -F`.
+
+| Context | Grok route | Outcome | Reusable rule | CASS search terms |
+| --- | --- | --- | --- | --- |
+| Lead fixed two CLI bugs, staged exactly 2 files, wrote msg to /tmp file. Delegated ONLY the commit execution (commit staged-as-is with `-F <file>`, no staging/push/edits, then echo `git log -1`). | `grok --always-approve -p "<task-from-file>"` via **full binary path** | GOOD — committed `d1b152b`, staged nothing extra, no push, no edits; reported the exact `git log` line. Lead independently verified (commit present, index empty). | Mechanical commit *execution* of a lead-staged, lead-messaged change is a reliable G1 for 0.2.51 — but the lead must own staging + message + the decision; grok is the `git commit` keystroke only. Still verify index-empty + commit SHA after. | `grok 0.2.51 execute git commit staged files verified`, `grok sidecar mechanical commit keystroke lead owns decision` |
+
+CLI-invocation gotcha worth remembering (cost ~4 retries this session):
+- The `grok --yolo` alias = `--always-approve`; passing `--always-approve` too →
+  `error: argument '--always-approve' cannot be used multiple times`.
+- `-p`/`--single` requires its value IMMEDIATELY after it; `grok -p --always-approve
+  "x"` fails with "a value is required for --single". Put `-p` LAST.
+- Cleanest: call the **resolved binary path** (`GROK_BIN="$(type -P grok)"`;
+  `"$GROK_BIN" --always-approve -p "$(cat promptfile)"`) to bypass the alias
+  entirely. Multi-line prompts belong in a file, not inline (shell-quoting
+  breaks on embedded quotes/`<`).
+
 ## Current Routing Notes
 
 When a live run has multiple NTM panes writing in the same git worktree, do not
@@ -385,4 +450,51 @@ cass search "grok CLI help discover options low risk" --robot --limit 10 --days 
 cass search "grok deploy workflow e2e runner review" --robot --limit 10 --days 30
 cass search "sidecar suitability low risk command discovery" --robot --limit 10 --days 30
 cass search "sp-post-deploy-synthetic-smoke-2an0 grok no report" --robot --limit 10 --days 30
+```
+
+## 2026-06-14 Jame App-Layer Slice: Negative Route Confirmation
+
+This run deliberately did **not** use Grok for the final review or Beads
+reconciliation of a Jame macOS app-layer slice. The active work touched Swift UI
+behavior, sandbox-sensitive app recording controls, an async cancellation race,
+and Beads closeout. Those are all G3 for Grok in this contract: final judgment
+depended on code review, repo validation, Beads state, and product-interaction
+semantics, not on a cheap text artifact.
+
+Reusable rule: when a slice is already implemented by Codex/NTM panes and the
+remaining work is final integration review, status reconciliation, or commit
+batching, use Grok only for optional G1 clerking such as rendering a status
+table from already-collected facts. Do not give it the closeout decision, the
+UI/product-interaction judgment, or the Beads mutation.
+
+CASS search terms:
+
+```bash
+cass search "jame app layer final review grok not used Beads closeout" --robot --limit 10 --days 30
+cass search "Grok skipped final integration review UI Beads reconciliation" --robot --limit 10 --days 30
+cass search "jame macOS sandbox recording IncrementalKeyAnalyzer final review Codex not Grok" --robot --limit 10 --days 30
+```
+
+## 2026-06-14 Jame Random-Fix Scout: Read-Only Grok Failure
+
+In a Jame random-fix loop, Grok was tried twice as a read-only scout while a
+Codex NTM pane owned the actual Bead. Both attempts produced no usable finding:
+`--permission-mode plan --max-turns 4 --single ...` reached `Max turns reached`
+without concise output, and `--sandbox read-only --permission-mode dontAsk
+--max-turns 8 --single ...` emitted a `read_file` `tool_output_error`, then also
+hit `Max turns reached`.
+
+Reusable rule: for codebase-scouting in a live repo, do not assume Grok will
+return a useful artifact under tight turn caps. Prefer Grok for tiny mechanical
+G1 execution after the lead has already specified exact commands and expected
+output, or allocate a real artifact path plus enough turns and validate the
+artifact exists before treating the scout as evidence. A no-output Grok run is a
+negative result, not a weak signal.
+
+CASS search terms:
+
+```bash
+cass search "Jame random-fix Grok read-only scout Max turns reached read_file tool_output_error" --robot --limit 10 --days 30
+cass search "Grok sidecar no usable output permission-mode plan max-turns read-only sandbox" --robot --limit 10 --days 30
+cass search "Jame key-estimate inline exclude Codex worker Grok scout failed" --robot --limit 10 --days 30
 ```

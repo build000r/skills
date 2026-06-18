@@ -167,6 +167,55 @@ def cmd_list(config_root: Path, as_json: bool) -> int:
     return 0
 
 
+ORACLE_KNOWN_KEYS = {
+    "cdp_host",
+    "cdp_port",
+    "chatgpt_url_match",
+    "chatgpt_target_id",
+    "browser_profile_dir",
+    "profile_directory",
+    "chatgpt_project_url",
+    "account_label",
+    "default_engine",
+    "default_model",
+    "deep_research_default",
+    "slug_prefix",
+}
+
+
+def _validate_oracle_block(oracle) -> list[dict]:
+    """Validate a context.oracle block (per-project config for the oracle CLI).
+
+    See references/overlay-config.md. All keys are optional; the block is a
+    forward-compatible mapping, so unknown keys are reported as info only.
+    """
+    issues = []
+    if not isinstance(oracle, dict):
+        issues.append({"severity": "error", "message": "context.oracle must be a mapping"})
+        return issues
+
+    if "cdp_port" in oracle and not isinstance(oracle["cdp_port"], int):
+        issues.append({"severity": "error", "message": "context.oracle.cdp_port must be an integer"})
+    if "deep_research_default" in oracle and not isinstance(oracle["deep_research_default"], bool):
+        issues.append({"severity": "error", "message": "context.oracle.deep_research_default must be a boolean"})
+
+    engine = oracle.get("default_engine")
+    if engine is not None and engine not in ("browser", "api"):
+        issues.append({"severity": "warn", "message": f"context.oracle.default_engine should be 'browser' or 'api', got {engine!r}"})
+
+    profile_dir = oracle.get("browser_profile_dir")
+    if isinstance(profile_dir, str) and profile_dir:
+        expanded = os.path.expanduser(os.path.expandvars(profile_dir))
+        if "${" not in expanded and not Path(expanded).exists():
+            issues.append({"severity": "warn", "message": f"context.oracle.browser_profile_dir does not exist: {expanded}"})
+
+    unknown = sorted(k for k in oracle if k not in ORACLE_KNOWN_KEYS)
+    if unknown:
+        issues.append({"severity": "info", "message": f"context.oracle has unrecognized keys (allowed, check for typos): {', '.join(unknown)}"})
+
+    return issues
+
+
 def cmd_validate(config_root: Path, as_json: bool) -> int:
     """Validate all overlays: check structure, path existence, required fields."""
     overlays = load_overlays(config_root)
@@ -193,6 +242,10 @@ def cmd_validate(config_root: Path, as_json: bool) -> int:
                 ctx = client.get("context", {})
                 if not ctx.get("cwd_match"):
                     issues.append({"severity": "warn", "message": "No cwd_match — this overlay will never auto-select"})
+
+                # Validate the per-project oracle config block when present
+                if "oracle" in ctx:
+                    issues.extend(_validate_oracle_block(ctx["oracle"]))
 
                 # Check repo paths (expand env vars)
                 for repo in client.get("repos", []):
@@ -226,7 +279,7 @@ def cmd_validate(config_root: Path, as_json: bool) -> int:
             status = "OK" if r["ok"] else "FAIL"
             print(f"  {r['client_id']}  [{status}]")
             for issue in r["issues"]:
-                marker = "ERROR" if issue["severity"] == "error" else "WARN"
+                marker = issue["severity"].upper()
                 print(f"    {marker}: {issue['message']}")
         if has_errors:
             print(f"\n{sum(1 for r in results if not r['ok'])} overlay(s) with errors")

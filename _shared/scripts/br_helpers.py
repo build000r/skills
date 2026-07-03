@@ -40,6 +40,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -318,7 +319,11 @@ def mint_node(
     if concern:
         label_list.append(f"concern:{concern}")
     if repo:
-        label_list.append(f"repo:{repo}")
+        # br labels allow only [A-Za-z0-9_:-]. Paths passed as --repo would
+        # fail validation mid-mint, so slugify: keep the basename and map
+        # any remaining invalid characters to '-'.
+        repo_slug = re.sub(r"[^A-Za-z0-9_:-]", "-", repo.rstrip("/").rsplit("/", 1)[-1])
+        label_list.append(f"repo:{repo_slug}")
     label_list.extend(labels)
     design_lines: list[str] = []
     _append_block(design_lines, "writes", writes)
@@ -375,10 +380,27 @@ def mint_node(
     if update_args:
         _run(["update", issue_id, *update_args, "--json"], capture=True)
 
-    for parent in depends_on:
-        # capture=True so `br dep add` chatter does not pollute our stdout
-        # JSON envelope when this helper is invoked from a shell pipeline.
-        _run(["dep", "add", issue_id, parent], capture=True)
+    # Accept both repeated --depends-on flags and comma-joined lists; `br dep
+    # add` takes exactly one dependency per call. A failed edge must not lose
+    # the already-minted issue id, so warn and continue instead of raising.
+    dep_ids = [d.strip() for entry in depends_on for d in str(entry).split(",") if d.strip()]
+    for parent in dep_ids:
+        try:
+            # capture=True so `br dep add` chatter does not pollute our stdout
+            # JSON envelope when this helper is invoked from a shell pipeline.
+            _run(["dep", "add", issue_id, parent], capture=True)
+        except subprocess.CalledProcessError as exc:
+            print(
+                f"warning: {issue_id} minted but dep edge on {parent!r} failed "
+                f"(exit {exc.returncode}); repair with: br dep add {issue_id} {parent}",
+                file=sys.stderr,
+            )
+    if not (branch and expected_assignee and global_constraints):
+        print(
+            f"note: {issue_id} is not dispatch-ready yet; render-node-brief requires "
+            "branch, expected_assignee, and global_constraints (backfill via update-node)",
+            file=sys.stderr,
+        )
     return issue_id
 
 
@@ -588,8 +610,15 @@ def render_node_brief(issue_id: str) -> str:
 
 
 def claim(issue_id: str) -> dict:
-    """Atomic claim: assignee=actor + status=in_progress."""
+    """Atomic claim: assignee=actor + status=in_progress.
+
+    Some br versions resolve `--claim` to the system user instead of
+    BR_AGENT_NAME, so enforce the intended assignee explicitly afterwards.
+    """
     proc = _run(["update", issue_id, "--claim", "--json"])
+    agent = os.environ.get("BR_AGENT_NAME")
+    if agent:
+        _run(["update", issue_id, "--assignee", agent, "--json"], check=False)
     try:
         return json.loads(proc.stdout) if proc.stdout.strip() else {"id": issue_id}
     except json.JSONDecodeError:

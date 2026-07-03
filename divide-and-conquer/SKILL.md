@@ -51,6 +51,10 @@ small discovery wave instead of stopping for human solidification.
 
 Beads node synthesis and describe-style node contract guidance live in
 [references/workgraph-synthesis.md](references/workgraph-synthesis.md).
+Blocked-node handling, closeout discipline, and the visual-parity lane live in
+[references/failure-mode-contracts.md](references/failure-mode-contracts.md);
+apply them before marking a wave blocked, before final reporting, and before
+accepting design-related work.
 Subgoal synthesis and split patterns live in the same reference set; the shared
 definition and label grammar live in
 [`_shared/references/orchestration-contract.md`](../_shared/references/orchestration-contract.md)
@@ -426,9 +430,10 @@ ntm list --json
 
 Then verify the proposed `$WAVE_PROJECT` resolves to `repo_root`. If
 `projects_base/$WAVE_PROJECT` is not the target checkout, do not spawn the wave
-by basename. Fix the NTM project mapping first, choose a supported session name
-that maps to the actual repo, or block the Beads node with the exact root
-resolution problem.
+by basename. Prefer collision-free session names backed by explicit
+`projects_base` symlinks. Fix the NTM project mapping first, choose a supported
+session name that maps to the actual repo, or block the Beads node with the
+exact root resolution problem.
 
 Record the result in the dispatch contract:
 
@@ -441,9 +446,18 @@ NTM root preflight:
 ```
 
 `ntm spawn` success, an idle pane, or a worker saying it is in the right repo is
-not sufficient proof. After dispatch, verify pane output or a robot inspection
-shows the node brief landed in the intended checkout before counting the node
-as in flight.
+not sufficient proof. A spawn can report success but create no session when the
+name prefix-collides with an existing session, and tmux prefix matching can mask
+the miss. After spawn, prove exact tmux session identity before dispatch:
+
+```bash
+tmux has-session -t "=${WAVE_PROJECT}"
+tmux list-panes -t "=${WAVE_PROJECT}" -F '#{session_name}:#{window_index}.#{pane_index} #{pane_current_path}'
+```
+
+Use the leading `=` for exact tmux target matching. After dispatch, verify pane
+output or a robot inspection shows the node brief landed in the intended
+checkout before counting the node as in flight.
 
 ## Process
 
@@ -611,7 +625,7 @@ review.
 Wait for the swarm to be ready:
 
 ```bash
-ntm --robot-wait="$WAVE_PROJECT" --condition=idle --timeout=120
+ntm --robot-wait="$WAVE_PROJECT" --condition=idle --timeout=120s
 ```
 
 Prefer wave-scoped swarm names such as
@@ -673,10 +687,13 @@ br show "<issue-id>" --json \
   | jq -e '.[0].status == "in_progress" and .[0].assignee == "<worker-id>"'
 ```
 
-If this verification fails, do not dispatch the pane. Repair the claim and send
-the brief only after `br show` confirms `status=in_progress` and the expected
-assignee. `ntm send` success, active pane output, modified files, or a worker
-saying "claimed" are not sufficient.
+If this verification fails, do not dispatch the pane. `br update --claim` can
+assign the system user in some environments, so verify the assignee through
+`br show` and repair with `br update <id> --assignee <worker-id> --json` when
+needed. Prefer `br_helpers.py claim` when available because it performs this
+assignee repair automatically. Send the brief only after `br show` confirms
+`status=in_progress` and the expected assignee. `ntm send` success, active pane
+output, modified files, or a worker saying "claimed" are not sufficient.
 
 Before any closeout, verify the issue is still attributed. If a worker closed a
 node with a blank assignee, repair attribution with `br update <id> --assignee
@@ -873,7 +890,9 @@ Once the wave has produced results, or the timeout is reached:
      --assignee <worker-id> --json` and add a reconciliation comment
    - Validation passed: leave it closed (or run `br close {id} --reason …` if
      the worker forgot)
-   - Real blocker: `br update {id} -s blocked --notes "{verified blocker}"`
+   - Real blocker: first apply the blocked-node handling contract in
+     `references/failure-mode-contracts.md`; carve any model-solvable prep or
+     proof child before blocking the smallest affected node
    - Needs rework: `br reopen {id}` — the issue returns to the ready frontier
 7. Re-render the view:
    `python3 ~/.claude/skills/_shared/scripts/br_helpers.py render-workgraph --epic $(cat <absolute-run-dir>/EPIC_ID.txt) --out <absolute-run-dir>/WORKGRAPH.md`
@@ -887,6 +906,7 @@ Do not mark a node done based only on a worker's self-report.
 Continue wave by wave until one of these is true:
 - All execution nodes are `done`
 - The remaining graph is genuinely blocked on a user decision or external system
+  after the blocked-node handling contract has exhausted model-solvable prep
 - Validation failures show the graph itself needs to be rewritten before more work
 
 If a node's result reveals a better decomposition, update the graph before the
@@ -894,14 +914,16 @@ next wave instead of forcing the old split.
 
 ### 12. Run a Final Integration and Review Wave
 
-After all execution nodes are complete, run one final integration wave through
-the same swarm runtime. Do not default to `/codex:rescue`.
+After all execution nodes are complete, the root runs final integration in this
+same invocation. Final integration and closeout are never left as open or
+blocked Beads for a future session. Use the same swarm runtime; do not default
+to `/codex:rescue`.
 
 Spawn a small review swarm, usually 1-2 workers:
 
 ```bash
 ntm spawn "$REVIEW_PROJECT" --cc=1:opus --cod=1:gpt-5.5:xhigh --no-user --stagger-mode=smart
-ntm --robot-wait="$REVIEW_PROJECT" --condition=idle --timeout=120
+ntm --robot-wait="$REVIEW_PROJECT" --condition=idle --timeout=120s
 ```
 
 Reviewer prompt:
@@ -914,6 +936,9 @@ Reviewer prompt:
   use Claude Opus 4.8 for the fresh-eyes review of the final diff and validation
   evidence. If Opus is unavailable, use Codex `gpt-5.5` with `xhigh` and record
   the fallback instead of routing to a dead model.
+- For visual parity, ask independent fresh-context reviewers the ORIGINAL
+  question and require severity-classified findings until two consecutive
+  reviews report no blocker or material shortfall.
 - Run `br epic close-eligible --json` to retire the slice's epic if every child
   is closed; surface any leftover open child as the blocker
 - Run `python3 ~/.claude/skills/_shared/scripts/br_helpers.py flush` so

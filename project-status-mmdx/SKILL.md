@@ -54,6 +54,9 @@ project's current-state artifact. Use `mmdx` directly for those.
   `RED` = unimplemented/unproven and not covered by Beads.
 - Evidence: the stack header records `shortLink` (`username: buildooor` + slug),
   and `publish-link` live-verifies the edited short link.
+- Evidence: when no interactive browser is available, the headless
+  `publish-link` lane is attempted and its receipt, live URL, or exact
+  fail-closed auth reason is recorded in the Bead.
 - Failure avoided: future agents do not recreate a prose-only reality check or
   write a disconnected diagram that goes stale immediately.
 - Failure avoided: future agents do not blur "has a plan" with "works" or
@@ -61,6 +64,8 @@ project's current-state artifact. Use `mmdx` directly for those.
 - Failure avoided: future agents do not mint a new short link each run or ask
   which mmdx account — it is always `buildooor`, and the existing diagram is
   edited in place.
+- Failure avoided: publish Beads do not sit `status=blocked` merely because an
+  interactive browser is unavailable while the headless lane can still run.
 
 ## File Placement
 
@@ -204,6 +209,8 @@ python3 ~/repos/opensource/skills/mmdx/scripts/mmd.py path/to/status.mmdx --open
 
 7. Publish the refreshed stack to the `buildooor` mmdx account by editing the
    existing short link in place (see "Publish to the buildooor mmdx account").
+   If no interactive browser is available, use the headless publish lane by
+   default.
 
 ## Publish to the buildooor mmdx account
 
@@ -236,8 +243,54 @@ python3 ~/repos/opensource/skills/mmdx/scripts/mmd.py publish-link \
   diagrams/<repo-slug>-project-status.mmdx \
   --username buildooor --slug <recorded-slug> \
   --title "<Repo> Project Status" \
-  --access-token-command "spaps token --server-url https://api.sweetpotato.dev"
+  --access-token-command "spaps token --server-url $SPAPS_MMDX_AUTH_SERVER_URL"
 ```
+
+### Headless publish lane
+
+When an interactive browser is unavailable, this is the default publish path.
+Do not set a publish Bead to `status=blocked` for lack of browser UI while this
+lane can still be attempted.
+
+1. Read the stack header and validate the source:
+   `rg -n '"shortLink"|"slug"' <status.mmdx>` and
+   `python3 ~/repos/opensource/skills/mmdx/scripts/mmd.py <status.mmdx> --preflight-only`.
+2. Resolve the auth server exactly as the `mmdx` skill documents:
+   `MMDX_SPAPS_SERVER_URL` > `SPAPS_API_URL` > `NEXT_PUBLIC_SPAPS_API_URL` >
+   repo-local `.spaps/app.json`. Do not hardcode or commit bearer tokens.
+3. If no reusable token command or token env var is present, use the `mmdx`
+   skill's existing SPAPS device-code recipe. The one-time human approval URL
+   for Buildooor production is `https://buildooor.com/auth/device?user_code=<code>`;
+   keep the CLI polling the SPAPS API base. After approval, use the token
+   command path rather than pasting token values into the repo, skill, Bead, or
+   transcript.
+4. Republish the existing short link headlessly:
+
+```bash
+SPAPS_MMDX_AUTH_SERVER_URL="${MMDX_SPAPS_SERVER_URL:-${SPAPS_API_URL:-${NEXT_PUBLIC_SPAPS_API_URL:-}}}"
+test -n "$SPAPS_MMDX_AUTH_SERVER_URL" || {
+  echo "Set MMDX_SPAPS_SERVER_URL or SPAPS_API_URL before agent-side MMDX auth" >&2
+  exit 2
+}
+
+python3 ~/repos/opensource/skills/mmdx/scripts/mmd.py publish-link \
+  <status.mmdx> \
+  --username buildooor --slug <recorded-slug> \
+  --title "<Repo> Project Status" \
+  --access-token-command "spaps token --server-url $SPAPS_MMDX_AUTH_SERVER_URL"
+```
+
+The underlying authenticated path is the existing Buildooor app-link lane:
+device-code approval, headless token mint through `POST /api/app-links`, and
+keep-warm/live verification through the Buildooor proxy. Treat those mechanics
+as owned by the `mmdx` skill and its `publish-link` command; do not duplicate
+credential handling here.
+
+Record the receipt in the publish Bead: the command shape, source path,
+`buildooor` username, slug, live `/mmdx/buildooor/<slug>` URL, and the
+`publish-link` verification result or exact fail-closed reason. Only block the
+smallest publish Bead after this lane has been attempted or proven unavailable;
+lack of an interactive browser alone is not a blocker.
 
 First publish only (no slug recorded yet): `publish-link` cannot create a short
 link. Open the stack, have the operator click the top-right `save` once to mint
@@ -253,9 +306,10 @@ python3 ~/repos/opensource/skills/mmdx/scripts/mmd.py \
 "shortLink": { "username": "buildooor", "slug": "mmdx-XXXXXXXX" }
 ```
 
-If auth is unavailable, report the exact `spaps login` command and the recorded
-slug, leave the repo-local stack updated, and stop — do not mint a new diagram
-to work around missing auth.
+If auth is unavailable after the headless lane reports the exact device-code
+recipe or token-command failure, record that receipt and the recorded slug in
+the Bead, leave the repo-local stack updated, and stop — do not mint a new
+diagram to work around missing auth.
 
 ## MMDX Skeleton
 
@@ -365,6 +419,8 @@ No generic "let me know if" ending.
 - Minting a new short link each run instead of editing the existing buildooor
   one recorded in the stack header `shortLink`.
 - Asking which mmdx account to publish to — it is always `buildooor`.
+- Parking a publish Bead as blocked for lack of interactive browser access
+  before attempting the documented headless publish lane.
 - Building a separate publish/auth path instead of delegating to the `mmdx`
   skill's `publish-link` flow.
 

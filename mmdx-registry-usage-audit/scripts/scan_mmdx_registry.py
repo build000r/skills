@@ -33,6 +33,10 @@ SKIP_DIRS = {
 ARCHIVE_PARTS = {"archive", "archived", "_archive", "old", "generated"}
 TEMPLATE_PARTS = {"assets", "templates", "examples"}
 TRACKER_HINTS = ("goal", "gantt", "plan", "tracker", "roadmap", "release", "audit")
+SCRIPT_DIR = Path(__file__).resolve().parent
+SKILL_DIR = SCRIPT_DIR.parent
+SKILLS_CHECKOUT_ROOT = SKILL_DIR.parent
+DEFAULT_MMD_SCRIPT = SKILLS_CHECKOUT_ROOT / "mmdx" / "scripts" / "mmd.py"
 
 
 def parse_args() -> argparse.Namespace:
@@ -64,8 +68,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--mmd-script",
-        default="~/repos/opensource/skills/mmdx/scripts/mmd.py",
-        help="Path to mmd.py for optional preflight.",
+        default=str(DEFAULT_MMD_SCRIPT),
+        help="Path to mmd.py for optional preflight. Defaults to the sibling mmdx skill.",
     )
     return parser.parse_args()
 
@@ -152,7 +156,10 @@ def run_preflight(mmd_script: Path, path: Path) -> tuple[bool, str]:
         stderr=subprocess.STDOUT,
         timeout=30,
     )
-    return result.returncode == 0, result.stdout.strip().splitlines()[-1:] and result.stdout.strip().splitlines()[-1] or ""
+    output = result.stdout.strip()
+    lines = output.splitlines()
+    detail = lines[-1] if lines else ""
+    return result.returncode == 0, detail
 
 
 def scan_root(root: Path, args: argparse.Namespace) -> dict[str, Any]:
@@ -324,6 +331,10 @@ def text_report(results: list[dict[str, Any]]) -> str:
 
 def main() -> int:
     args = parse_args()
+    args.mmd_script = str(Path(args.mmd_script).expanduser().resolve())
+    if args.run_preflight and not Path(args.mmd_script).exists():
+        print(f"--run-preflight requires mmd.py at {args.mmd_script}", file=sys.stderr)
+        return 2
     roots = [Path(p).expanduser() for p in (args.root or ["."])]
     results = [scan_root(root, args) for root in roots]
     if args.json:

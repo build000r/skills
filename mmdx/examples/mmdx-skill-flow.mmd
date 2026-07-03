@@ -9,9 +9,9 @@ flowchart TD
   json --> deflate["zlib/DEFLATE level 9"]
   deflate --> b64["URL-safe base64, no padding"]
   b64 --> fragment["pako: fragment"]
-  fragment --> url["https://mermaid.live/edit#pako:..."]
+  fragment --> url["https://buildooor.com/diagrams#pako:..."]
   url --> applescript["osascript launcher"]
-  applescript --> browser["Browser opens Mermaid Live Editor"]
+  applescript --> browser["Browser opens Buildooor diagrams viewer"]
 
   script --> decode["Optional: decode existing URL"]
   decode --> source["Recovered Mermaid source or JSON state"]

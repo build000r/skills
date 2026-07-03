@@ -28,7 +28,10 @@ Create the best Mermaid diagram from a prose brief:
 
 ```bash
 # Read references/diagram-selection.md and references/visual-grammar.md,
-# choose the diagram type and visual grammar, write a .mmd, then open it with:
+# choose the diagram type and visual grammar, write a .mmd, then print the URL:
+python3 {{SKILL_DIR}}/scripts/mmd.py path/to/generated.mmd
+
+# Optional convenience: also ask the local OS to open the same URL.
 python3 {{SKILL_DIR}}/scripts/mmd.py path/to/generated.mmd --open
 ```
 
@@ -53,13 +56,25 @@ python3 {{SKILL_DIR}}/scripts/mmd.py save path/to/stack.mmdx \
 `--diagram-id`, it fetches `/latest` when `--base-version-id` is omitted, posts
 the new version, then fetches `/latest` again to verify the saved source.
 
-Open a Mermaid source file in the buildooor diagrams viewer:
+Print a Mermaid source file URL for the buildooor diagrams viewer:
+
+```bash
+python3 {{SKILL_DIR}}/scripts/mmd.py path/to/diagram.mmd
+```
+
+Open the same URL as an optional local convenience:
 
 ```bash
 python3 {{SKILL_DIR}}/scripts/mmd.py path/to/diagram.mmd --open
 ```
 
-Open an MMDX chart stack in the buildooor diagrams viewer:
+Print an MMDX chart stack URL for the buildooor diagrams viewer:
+
+```bash
+python3 {{SKILL_DIR}}/scripts/mmd.py path/to/stack.mmdx
+```
+
+Open the same URL as an optional local convenience:
 
 ```bash
 python3 {{SKILL_DIR}}/scripts/mmd.py path/to/stack.mmdx --open
@@ -89,10 +104,28 @@ Print the editable URL without opening it:
 python3 {{SKILL_DIR}}/scripts/mmd.py path/to/diagram.mmd
 ```
 
-Read Mermaid source from stdin:
+Read Mermaid source from stdin on Linux when `xclip` is installed:
 
 ```bash
-pbpaste | python3 {{SKILL_DIR}}/scripts/mmd.py - --open
+xclip -selection clipboard -o | python3 {{SKILL_DIR}}/scripts/mmd.py -
+```
+
+Read Mermaid source from stdin on Linux when `xsel` is installed:
+
+```bash
+xsel -b -o | python3 {{SKILL_DIR}}/scripts/mmd.py -
+```
+
+Read Mermaid source from stdin from a file on any platform:
+
+```bash
+python3 {{SKILL_DIR}}/scripts/mmd.py - < path/to/diagram.mmd
+```
+
+macOS-only clipboard recipe:
+
+```bash
+pbpaste | python3 {{SKILL_DIR}}/scripts/mmd.py -
 ```
 
 Decode an existing Mermaid Live/buildooor diagrams fragment or URL:
@@ -115,7 +148,14 @@ Browser and agent auth are two entrances to the same protected MMDX persistence 
 - Browser pako flow: open the generated `/diagrams#pako:...` URL, click the bottom MMDX `save` control for a durable private version, verify the email magic link if prompted, then return to `/diagrams`. The viewer preserves the pako state in the URL or `mmdxResume` localStorage fallback and resumes the pending save after auth.
 - Browser short-link flow: click the top-right `save` control when the user wants a shareable short link for the current pako state, not a private version history record.
 - Agent/CLI private-version flow: authenticate the operator or agent through the existing SPAPS device-code flow, then run `mmd.py save` to post the saved `.mmd`/`.mmdx` source to Buildooor's `/api/mmdx/diagrams` or `/api/mmdx/diagrams/:id/versions` API with the bearer token. Do not build a separate MMDX auth system or ask a browser user to run device-code auth.
-- Agent/CLI existing-short-link flow: after editing a local `.mmd`/`.mmdx`, republish the already-saved short link with `publish-link`. First run the existing SPAPS device-code login (`spaps login --server-url <spaps-api-base> --client-id <app-slug>`), then pass the stored token via `--access-token-command "spaps token --server-url <spaps-api-base>"`. Direct env alternatives are `BUILDOOOR_ACCESS_TOKEN`, `SPAPS_ACCESS_TOKEN`, or `--access-token`.
+- Agent/CLI short-link flow: after editing a local `.mmd`/`.mmdx`, use
+  `publish-link --create` to mint the first hosted short link or
+  `publish-link --username <owner> --slug <slug>` to republish an existing one.
+  First run the existing SPAPS device-code login (`spaps login --server-url
+  <spaps-api-base> --client-id <app-slug>`), then pass the stored token via
+  `--access-token-command "spaps token --server-url <spaps-api-base>"`. Direct
+  env alternatives are `BUILDOOOR_ACCESS_TOKEN`, `SPAPS_ACCESS_TOKEN`, or
+  `--access-token`.
 
 Important URL distinction for device-code auth:
 
@@ -139,7 +179,7 @@ then export it from `~/.zshrc`/`~/.bash_profile` so every project shell sees it.
 Do not put raw bearer tokens in a repo, skill file, checked-in shell snippet, or
 agent transcript.
 
-macOS Keychain setup example:
+macOS-only Keychain setup example:
 
 ```bash
 security add-generic-password -U -a "$USER" -s buildooor-access-token -w '<token>'
@@ -161,6 +201,11 @@ If both Buildooor and SPAPS names are used on the machine, prefer exporting the
 specific token name the tool expects. For the bundled MMDX CLI either
 `BUILDOOOR_ACCESS_TOKEN` or `SPAPS_ACCESS_TOKEN` is sufficient.
 
+Linux/headless equivalent: use the platform secret manager or a local
+token-command wrapper and export only the command from the shell profile, for
+example `export SPAPS_TOKEN_COMMAND='spaps token --server-url "$SPAPS_API_URL"'`.
+Do not store raw bearer tokens in checked-in files or paste them into prompts.
+
 List owned durable MMDX diagrams before choosing a slug or diagram id:
 
 ```bash
@@ -177,7 +222,40 @@ python3 {{SKILL_DIR}}/scripts/mmd.py list \
 `list` reads the authenticated owner library and prints `id`, `slug`, `title`,
 `visibility`, and `updated_at`. Use `--json` when a downstream agent needs the
 raw owner-list payload, and `--dry-run` to verify the resolved URL and redacted
-headers without touching the network.
+headers without touching the network. Use `--visibility private|unlisted|public`,
+`--slug-contains <text>`, `--limit <n>`, and `--offset <n>` when selecting from a
+large owned library; server pagination returns `limit`, `offset`, and
+`total_count` when the proxy supports it.
+
+List versions for an owned durable diagram:
+
+```bash
+python3 {{SKILL_DIR}}/scripts/mmd.py versions <diagram-id-from-list> \
+  --json \
+  --access-token-command "spaps token --server-url $SPAPS_MMDX_AUTH_SERVER_URL"
+```
+
+Update sharing metadata for an owned durable diagram:
+
+```bash
+python3 {{SKILL_DIR}}/scripts/mmd.py sharing <diagram-id-from-list> \
+  --visibility unlisted \
+  --title "Updated diagram title" \
+  --chart-slug updated-diagram-title \
+  --access-token-command "spaps token --server-url $SPAPS_MMDX_AUTH_SERVER_URL"
+```
+
+Delete an owned durable diagram only when the user explicitly wants removal:
+
+```bash
+python3 {{SKILL_DIR}}/scripts/mmd.py delete <diagram-id-from-list> \
+  --yes \
+  --access-token-command "spaps token --server-url $SPAPS_MMDX_AUTH_SERVER_URL"
+```
+
+`versions`, `sharing`, and `delete` all support `--json` and `--dry-run`; dry
+runs print redacted request metadata and do not call the network. `delete`
+refuses to run without explicit `--yes`.
 
 Create a new durable private diagram:
 
@@ -226,6 +304,20 @@ Auth failure map:
 
 ```bash
 python3 {{SKILL_DIR}}/scripts/mmd.py publish-link path/to/file.mmdx \
+  --create \
+  --title "PDS Project Status Crux" \
+  --write-short-link-metadata \
+  --access-token-command "spaps token --server-url $SPAPS_MMDX_AUTH_SERVER_URL"
+```
+
+The create form POSTs the same hosted `/diagrams` app-link payload the browser
+uses, returns the created `{username, slug, url}`, live-verifies the returned
+`/mmdx/<username>/<slug>` page, and, with `--write-short-link-metadata`, records
+the returned short link in the local `.mmdx` header without rewriting the chart
+body.
+
+```bash
+python3 {{SKILL_DIR}}/scripts/mmd.py publish-link path/to/file.mmdx \
   --username buildooor \
   --slug mmdx-68I8Xjv1v3FK \
   --title "PDS Project Status Crux" \
@@ -241,18 +333,234 @@ python3 {{SKILL_DIR}}/scripts/mmd.py publish-link path/to/file.mmdx \
   --dry-run --summary
 ```
 
-`publish-link` preflights the source, encodes the same `pako:` state used by `/diagrams`, PATCHes the authenticated Buildooor app-link proxy, then fetches the live `/mmdx/<username>/<slug>` page and verifies `__NEXT_DATA__.initialDiagramFragment` matches the local state. It must fail closed if auth, the update API, or live verification is unavailable. Do not SSH into production or patch SPAPS database rows to update a short link.
+`publish-link` preflights the source, encodes the same `pako:` state used by
+`/diagrams`, POSTs or PATCHes the authenticated Buildooor app-link proxy, then
+fetches the live `/mmdx/<username>/<slug>` page and verifies
+`__NEXT_DATA__.initialDiagramFragment` matches the local state. It must fail
+closed if auth, the mutation API, or live verification is unavailable. A `402
+DIAGRAMS_PRO_REQUIRED` create failure is surfaced as the structured paywall
+error with the `$15/month` price context and no stack trace. Do not SSH into
+production or patch SPAPS database rows to update a short link.
+
+## Paid Surfaces
+
+Diagrams Pro is a paid surface only when the operator asks for a hosted or
+durable Buildooor write that the API rejects as Pro-gated. The current
+Buildooor price display is `$15/month`; cite it only from
+`/srv/skillbox/repos/buildooor/lib/diagrams/diagrams-page-logic.ts:223-227`
+(`DIAGRAMS_PRO_PRICE_DISPLAY`). Do not invent discounts, annual pricing, quota
+numbers, or guarantees not present in the API response.
+
+Pro and quota error map:
+
+| HTTP/code | Surface | Meaning | Agent action |
+| --- | --- | --- | --- |
+| `402 DIAGRAMS_PRO_REQUIRED` | `/api/app-links` create/update for hosted `/diagrams` share links | The signed-in user does not have Diagrams Pro for hosted diagram app-links. | Relay the upgrade message below, then keep the local `.mmd`/`.mmdx` and pako URL available. |
+| `402 MMDX_DIAGRAMS_PRO_REQUIRED` | Buildooor backend durable MMDX create, append, share, invite, or save-intent commit | The authenticated user is trying a durable MMDX action without Diagrams Pro. | Relay the upgrade message below, naming the durable action that failed. |
+| `402 DIAGRAMS_PRO_QUOTA_EXCEEDED` | Hosted `/diagrams` app-link create/update usage authorization | The user has Pro, but the hosted-record quota for this usage window is exhausted. | Do not pitch upgrade as the fix. Preserve local work, report quota exhaustion, and offer local/pako output or retry later. |
+| `402 MMDX_DIAGRAMS_HOSTED_RECORD_QUOTA_EXCEEDED` | Buildooor backend durable hosted-record quota | The user's durable MMDX hosted-record quota is exhausted. | Do not pitch upgrade as the fix. Preserve local work and offer a local/pako fallback or retry later. |
+| `503 DIAGRAMS_PRO_PROVISIONING_ERROR` | Hosted `/diagrams` app-link usage metadata | The account appears to be paying, but Pro usage provisioning/config is missing or inconsistent. | Do not relay an upgrade pitch. Say this is a provisioning issue for a paying account and preserve local work. |
+| `503 DIAGRAMS_PRO_CHECK_UNAVAILABLE`, `503 MMDX_DIAGRAMS_PRO_CHECK_UNAVAILABLE`, or `503 DIAGRAMS_PRO_USAGE_AUTHORIZATION_FAILED` | Entitlement or usage check | Buildooor/SPAPS could not verify Pro state or quota. | Do not pitch payment. Retry once if reasonable, then report the code and keep the local artifact. |
+
+Recommended verbatim relay for `DIAGRAMS_PRO_REQUIRED`:
+
+```text
+This hosted diagram share link needs Diagrams Pro ($15/month). Your local work is not lost: the .mmd/.mmdx file and the pako URL are still safe. Upgrading unlocks the hosted share-link save for this diagram, and the checkout/resume flow is designed to bring you back to the same local diagram state after payment.
+```
+
+Recommended verbatim relay for `MMDX_DIAGRAMS_PRO_REQUIRED`:
+
+```text
+This durable MMDX action needs Diagrams Pro ($15/month). Your local work is not lost: the .mmd/.mmdx file and the pako URL are still safe. Upgrading unlocks this durable MMDX save/share action, and the checkout/resume flow is designed to bring you back to the same local diagram state after payment.
+```
+
+Recommended verbatim relay for `DIAGRAMS_PRO_PROVISIONING_ERROR`:
+
+```text
+This does not look like an upgrade problem. Buildooor says Diagrams Pro provisioning is temporarily unavailable for this account. Your local work is not lost: the .mmd/.mmdx file and the pako URL are still safe. I can retry shortly or report the provisioning code for operator follow-up.
+```
+
+Never push payment for free local lanes: authoring `.mmd`/`.mmdx` files,
+rendering/printing a pako URL, `--fragment-only`, `--decode`, `--code-only`,
+parser preflight, strict-link preflight, local source reads/writes through the
+tmux bridge, or any preview the user explicitly wants to keep local. Also do
+not push payment on 503s, profile errors such as `MMDX_PROFILE_REQUIRED`, auth
+setup failures, parser failures, malformed source, or live-verification
+mismatches.
+
+### x402 Paid Handoff
+
+x402 handoff is separate from Diagrams Pro. It protects a local tmux Send action
+when the pako state includes `buildooorPaidResource`; it must not monetize local
+rendering, decode, preflight, or fragment generation by itself.
+
+Configure handoff verification with environment variables or equivalent CLI
+flags:
+
+| Env var / flag | Purpose |
+| --- | --- |
+| `SPAPS_HANDOFF_VERIFY_URL` / `--paid-resource-verify-url` | SPAPS endpoint that verifies x402 handoff authorization tokens. |
+| `SPAPS_API_KEY` / `--paid-resource-api-key` | Secret API key used by the local bridge to call the verify URL. Prefer the env var so the key is not in shell history or child argv. |
+| `SPAPS_HANDOFF_RESOURCE_KEY` / `--paid-resource-resource-key` | Server-defined paid resource key. |
+| `SPAPS_HANDOFF_ACTION_KEY` / `--paid-resource-action-key` | Server-defined action key, usually the paid handoff action. |
+| `SPAPS_HANDOFF_TARGET` / `--paid-resource-target` | Target bound into the authorization. Payload attempts to override it are ignored. |
+| `--paid-resource '{"price_display":"..."}'` | Public metadata encoded into the pako state. Use the server's `price_display` exactly; do not invent it. |
+
+Implementation anchors in `mmd.py`: `PUBLIC_PAID_RESOURCE_KEYS` allows only
+`resource_key`, `resourceKey`, `action_key`, `actionKey`, `price_display`, and
+`priceDisplay` into public state; `build_state()` emits only those public fields
+as `buildooorPaidResource`; `_resolve_paid_resource()` reads the verification
+URL/API key/resource/action/target from CLI/env/metadata; `start_handoff_channel()`
+passes verification config to the hidden bridge process and keeps `SPAPS_API_KEY`
+in the child environment instead of argv.
+
+`price_display` flow:
+
+1. The operator gets `price_display` from the SPAPS x402 resource record.
+2. The agent passes it as public metadata, for example
+   `--paid-resource "{\"price_display\":\"$PRICE_DISPLAY\"}"`.
+3. `mmd.py` encodes that display value into the pako state but strips verify
+   URLs, API keys, bridge tokens, and targets from public state.
+4. `/diagrams` initially shows the encoded price display, then calls SPAPS for
+   paid-resource status and replaces it with server `resource.price_display`
+   when available.
+5. On Send, the local bridge requires a valid handoff authorization token for
+   the configured resource, action, target, and bridge token. Missing, expired,
+   or mismatched authorization returns `403 x402_handoff_authorization_required`
+   and does not paste into tmux. Verification transport failure returns
+   `502 x402_handoff_verification_failed`.
+
+Worked example:
+
+```bash
+cd /path/to/skills
+: "${SPAPS_API_KEY:?Set the SPAPS secret API key in the shell, not in the repo}"
+: "${SPAPS_API_URL:?Set the SPAPS API base URL}"
+: "${PRICE_DISPLAY:?Set this from the SPAPS x402 resource price_display}"
+export SPAPS_HANDOFF_VERIFY_URL="${SPAPS_API_URL%/}/api/x402/handoff/verify"
+export SPAPS_HANDOFF_RESOURCE_KEY="mmdx-handoff-send"
+export SPAPS_HANDOFF_ACTION_KEY="handoff-send"
+export SPAPS_HANDOFF_TARGET="mmdx-send"
+
+python3 mmdx/scripts/mmd.py path/to/stack.mmdx --tmux --open \
+  --paid-resource "{\"price_display\":\"$PRICE_DISPLAY\"}"
+```
+
+If the browser reports `x402_handoff_authorization_required`, do not bypass the
+bridge or paste manually as if authorization had succeeded. Tell the operator
+the paid handoff authorization is missing or mismatched, keep the local URL/file
+available, and retry only after the x402 authorization flow returns a token for
+the same resource, action, target, and bridge token.
+
+## Machine-readable output
+
+Use `--json` for downstream automation. Human output is kept for backwards
+compatibility; exact grep strings such as `latest_verification=OK`,
+`live_verification=OK`, `Created <url>`, `Updated <url>`, and
+`MMDX preflight OK: N charts` are legacy contracts and should not be the first
+choice for new agents.
+
+Exit-code contract:
+
+| Code | Meaning |
+| ---- | ------- |
+| `0` | OK. |
+| `1` | Local validation, JSON, parser, config, or source-shape failure. |
+| `2` | Authentication missing, rejected, or not resolvable. |
+| `3` | Network, upstream mutation, latest-source verification, or live-link verification failure. |
+
+`publish-link --json` emits a stable object without bearer tokens:
+
+```json
+{
+  "ok": true,
+  "dry_run": false,
+  "operation": "create",
+  "url": "https://buildooor.com/mmdx/<username>/<slug>",
+  "app_link": {"username": "<username>", "slug": "<slug>"},
+  "username": "<username>",
+  "slug": "<slug>",
+  "source_kind": "mmdx",
+  "source_sha256": "<sha256 of local source text>",
+  "fragment_sha256": "<sha256 of pako fragment>",
+  "diagram_state_format": "mermaid-live-pako",
+  "live_verification": "OK",
+  "metadata_written": false
+}
+```
+
+With `--dry-run`, the same object includes `dry_run: true`,
+`live_verification: "not_run"`, `endpoint`, and either `payload` or
+`payload_summary` depending on `--summary`. The payload may contain the pako
+fragment, but never includes an access token.
+
+`save --json` emits:
+
+```json
+{
+  "ok": true,
+  "latest_verification": "OK",
+  "source_sha256": "<sha256 of local source text>",
+  "diagram_id": "<diagram id>",
+  "version_id": "<latest version id>",
+  "save": {},
+  "latest": {}
+}
+```
+
+`save` only reports `latest_verification: "OK"` after the latest lookup returns
+the saved source text or omits source text. `save --dry-run` reports
+`latest_verification: "not_run"`. A mismatch exits `3`.
+
+`--preflight-only --json` emits the same envelope for `.mmd` and `.mmdx`:
+
+```json
+{
+  "ok": true,
+  "kind": "mmdx",
+  "entry": "main",
+  "ids": ["main", "detail"],
+  "links": [{"from": "main", "label": "Open detail", "to": "detail"}],
+  "link_checks": {
+    "ok": true,
+    "strict": false,
+    "checked": 1,
+    "issues": []
+  },
+  "charts": [
+    {
+      "id": "main",
+      "title": "Main Chart",
+      "diagram_type": "flowchart-v2",
+      "preflight": {}
+    }
+  ],
+  "chart_count": 1,
+  "errors": []
+}
+```
+
+For single Mermaid files, `kind` is `mermaid`, `entry` is `null`, `ids` and
+`links` are empty, `link_checks` is `null`, and `charts[0].id` is `null`. On
+validation failure under `--json`, the command prints the same top-level preflight fields with
+`ok: false`, empty `charts`/`ids`/`links`, and an `errors[]` item containing a
+non-secret error type and message.
 
 ## MMDX Directory Index
 
-`INDEX.mmdx` at the skill root is a machine-wide directory of every `.mmdx`. It renders as a Gantt chart — sections by repo, bars by file, positioned by edit date. Each bar `click`s through to the actual `.mmdx` opened in the buildooor diagrams viewer (pako-encoded). Status colors: `crit` = edited in last 24h, `active` = last 7d, `done` = older.
+`INDEX.mmdx` is a generated, gitignored directory of discovered `.mmdx` files. It renders as a Gantt chart — sections by repo, bars by file, positioned by edit date. Each bar `click`s through to the actual `.mmdx` opened in the buildooor diagrams viewer (pako-encoded). Status colors: `crit` = edited in last 24h, `active` = last 7d, `done` = older.
 
 **Always refresh before opening** — file mtimes change as the user works:
 
 ```bash
-python3 {{SKILL_DIR}}/scripts/mmdx_index.py
-python3 {{SKILL_DIR}}/scripts/mmd.py {{SKILL_DIR}}/INDEX.mmdx --open
+python3 {{SKILL_DIR}}/scripts/mmdx_index.py \
+  --scan-root "$PWD" \
+  --output {{SKILL_DIR}}/scripts/INDEX.mmdx
+python3 {{SKILL_DIR}}/scripts/mmd.py {{SKILL_DIR}}/scripts/INDEX.mmdx --open
 ```
+
+Without `--output`, `mmdx_index.py` writes `INDEX.mmdx` next to the script. Use
+repeatable `--scan-root` flags to choose the repositories to index.
 
 ## Invocation Routing
 
@@ -262,6 +570,11 @@ python3 {{SKILL_DIR}}/scripts/mmd.py {{SKILL_DIR}}/INDEX.mmdx --open
   diagram by id/title/slug, patch the local source or create a new `.mmdx`, then
   run `save --diagram-id <id>` to append a durable version. If no matching owned
   diagram exists, create a new private one with `save --title ... --chart-slug ...`.
+- Existing private/owned diagram lifecycle request: use `list --visibility
+  ... --slug-contains ... --limit ... --offset ...` to find candidates,
+  `versions <diagram-id> --json` to inspect history, `sharing <diagram-id>` to
+  change visibility/title/chart slug, and `delete <diagram-id> --yes` only for
+  explicit deletion requests. Prefer `--dry-run` first for sharing/delete.
 - New private/owned Buildooor diagram request: create the local `.mmd`/`.mmdx`,
   run `save`, and report the durable diagram/version proof. Do not make pako the
   final artifact unless auth/API prerequisites are unavailable or the user asked
@@ -337,6 +650,10 @@ Default chart-stacking methodology:
 - Let child charts change type. For example, a quadrant point can open a flowchart,
   sequence, Gantt, Ishikawa, state diagram, or another quadrant.
 - Keep link labels short, unique, and exactly visible on the source chart.
+  `mmd.py` warns when an MMDX link label is not visible in its source chart
+  using the same boundary-aware label semantics as the `/diagrams` frontend.
+  Run `--preflight-only --strict-links` before publishing or saving important
+  stacks so mismatched drilldown labels fail instead of becoming dead clicks.
 - Prefer one or two stack levels until the user proves they need more.
 - Do not render a side menu of child links. Linked elements should be clicked on the
   chart itself; the side UI is for "back" after drilldown.
@@ -427,7 +744,14 @@ Mermaid Live Editor serializes state as:
 5. URL-safe base64 encode the compressed bytes without padding.
 6. Prefix the fragment with `pako:`.
 
-The bundled script implements that path with Python standard-library `json`, `zlib`, and `base64`, then opens the `https://buildooor.com/diagrams#pako:...` URL through `osascript`. For `.mmdx`, the state `code` is the entry chart and the private `buildooorMmdx` field carries the named chart stack and links.
+The bundled script implements that path with Python standard-library `json`,
+`zlib`, and `base64`, then prints the
+`https://buildooor.com/diagrams#pako:...` URL. With `--open`, opening is
+best-effort: Linux tries `xdg-open`, macOS tries `open` and then the bundled
+AppleScript `osascript` fallback, and unsupported/headless hosts print a
+`hand this URL to the user` guidance line while still exiting 0. For `.mmdx`,
+the state `code` is the entry chart and the private `buildooorMmdx` field
+carries the named chart stack and links.
 
 When `--tmux` is passed, the script also starts an ephemeral localhost handoff server and adds a `buildooorHandoff` object to the compressed state, including the launcher command the browser should place in reopen instructions. For file inputs, including `.mmdx`, it also adds `buildooorSource` with the resolved source path. The browser reads that private hash metadata and shows `send to <tmux target>` instead of relying on clipboard copy. In handoff mode, the prompt panel previews the exact agent edit packet that will be sent. The server validates an unguessable token, accepts bridge calls only from the output URL origin, expires by TTL, and pastes an edit packet into the target tmux pane without pressing Enter by default. If `--tmux-submit` is also passed, Send pastes the edit packet and then presses Enter in the target pane. If the localhost handoff is unavailable when the user presses Send, the app copies the same agent edit packet to the clipboard as a recovery path. If a wand drilldown has no bridge, or the bridge fails, the app copies a fresh-session wand packet with an embedded MMDX skill reference so another agent can load the workflow, patch the stack, validate it, and reopen it without prior tmux context.
 
@@ -452,7 +776,8 @@ The browser must not choose arbitrary filesystem paths. It can only operate on t
 The script validates Mermaid syntax with Mermaid's own npm parser before encoding or opening.
 
 - Default behavior: run parser preflight first, auto-installing the pinned parser dependency from `scripts/package.json` when missing.
-- `--preflight-only`: validate syntax and print the detected diagram type without producing a URL.
+- `--preflight-only`: validate syntax and print the detected diagram type without producing a URL. For `.mmdx`, this also checks that each drilldown link label is visible in the source chart; mismatches warn by default.
+- `--strict-links`: with `.mmdx` preflight, fail when a drilldown link label is not visible in its source chart. Use this before durable saves or publish-link updates.
 - `--no-preflight`: bypass parser validation for drafts or unsupported edge cases.
 - `--no-parser-install`: fail instead of auto-installing the parser dependency.
 - `--setup-parser`: install the parser dependency explicitly.
@@ -461,7 +786,10 @@ If preflight fails, fix the `.mmd` before opening Mermaid Live unless the user e
 
 ## Common Options
 
-- `--open`: open the generated URL with the bundled AppleScript launcher.
+- `--open`: print the generated URL and try to open it with the local OS
+  browser opener. On Linux this uses `xdg-open`; on macOS it uses `open` with
+  an `osascript` fallback. Missing or failing openers are non-fatal: hand the
+  printed URL to the user.
 - `--view`: accepted for compatibility; buildooor diagrams uses one URL.
 - `--fragment-only`: print only `pako:...`.
 - `--tmux` / `--tmux-handoff`: attach a local handoff channel for the diagrams viewer's Send and wand buttons. For `.mmdx`, this attaches source-edit metadata so the creator agent can patch and reopen the stack.
@@ -470,6 +798,7 @@ If preflight fails, fix the `.mmd` before opening Mermaid Live unless the user e
 - `--handoff-ttl <seconds>`: lifetime for the local handoff channel, default 600.
 - `--handoff-origin <origin-or-url>`: browser origin allowed to call the local handoff bridge; defaults to the output URL origin.
 - `--preflight-only`: validate Mermaid syntax and exit.
+- `--strict-links`: fail `.mmdx` preflight when a drilldown link label is not visible in its source chart.
 - `--no-preflight`: skip parser validation.
 - `--theme <name>`: set the Mermaid config theme, default `default`.
 - `--config <json-or-path>`: use a custom Mermaid config JSON string or file.
@@ -480,9 +809,20 @@ Subcommands:
 - `save`: create a private durable Buildooor MMDX diagram or append a version to
   an owned diagram. Prefer `save --dry-run --summary` for preview proof and
   `save` for the final private account-owned artifact.
-- `list`: list owned durable diagrams.
-- `publish-link`: update an existing shareable short link. Use this only when
-  the target is a short link, not the default private library save.
+- `list`: list owned durable diagrams; supports `--visibility`,
+  `--slug-contains`, `--limit`, and `--offset` for server-backed filtering and
+  pagination.
+- `versions`: list version history for an owned durable diagram; use `--json`
+  when another agent needs stable fields.
+- `sharing`: update owner sharing metadata with `--visibility`, `--title`, or
+  `--chart-slug`.
+- `delete`: delete an owned durable diagram; requires `--yes` and should only
+  be used for explicit deletion requests.
+- `publish-link`: create or update a shareable short link. Use this only when
+  the target is a hosted short link, not the default private library save. Add
+  `--create` to mint the first short link, and add
+  `--write-short-link-metadata` for local `.mmdx` files when the returned
+  username/slug should be recorded in the header.
 
 ## Verification
 
@@ -497,6 +837,7 @@ For MMDX/chart-stacking changes, also run:
 
 ```bash
 python3 {{SKILL_DIR}}/scripts/mmd.py path/to/stack.mmdx --preflight-only
+python3 {{SKILL_DIR}}/scripts/mmd.py path/to/stack.mmdx --preflight-only --strict-links
 python3 {{SKILL_DIR}}/scripts/mmd.py path/to/stack.mmdx --fragment-only --no-preflight
 python3 {{SKILL_DIR}}/scripts/mmd.py {{SKILL_DIR}}/examples/release-gantt-stack.mmdx --preflight-only
 ```

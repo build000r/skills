@@ -1,0 +1,47 @@
+{
+  "schema_source": "buildooor-backend/docs/contracts/mmdx-openapi.json",
+  "latest_response": {
+    "diagram": {
+      "id": "diag_contract",
+      "latest_version_id": "ver_from_diagram"
+    },
+    "version": {
+      "id": "ver_from_version",
+      "diagram_id": "diag_contract",
+      "mmdx_text": "flowchart TD\n  Contract --> Skill\n"
+    },
+    "nav": {
+      "current_version_id": "ver_current",
+      "latest_version_id": "ver_from_nav"
+    }
+  },
+  "latest_response_current_version_fallback": {
+    "version": {
+      "id": "ver_from_version",
+      "mmdx_text": "flowchart TD\n  Version --> Text\n"
+    },
+    "nav": {
+      "current_version_id": "ver_current"
+    }
+  },
+  "latest_response_version_fallback": {
+    "diagram": {
+      "latest_version_id": "ver_from_diagram"
+    },
+    "version": {
+      "id": "ver_from_version",
+      "mmdx_text": "flowchart TD\n  Version --> Only\n"
+    }
+  },
+  "latest_response_diagram_fallback": {
+    "diagram": {
+      "latest_version_id": "ver_from_diagram"
+    }
+  },
+  "error_envelope": {
+    "error": {
+      "code": "MMDX_DIAGRAMS_PRO_REQUIRED",
+      "message": "Diagrams Pro is required for durable MMDX create diagram"
+    }
+  }
+}

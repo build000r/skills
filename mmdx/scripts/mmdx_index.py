@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate INDEX.mmdx — a directory of every .mmdx on the machine.
+"""Generate INDEX.mmdx for one or more portable scan roots.
 
 Renders a Gantt chart with one section per repo, one bar per file, positioned
 by mtime. Each bar is `click`-able and opens that .mmdx in the buildooor
@@ -8,6 +8,7 @@ diagrams viewer (pako-encoded URL — the actual diagram, not a raw file dump).
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import re
@@ -28,10 +29,11 @@ from mmd import (  # noqa: E402
     get_mmdx_entry_code,
 )
 
-HOME = Path.home()
-SCAN_ROOTS = [HOME / "repos", HOME / ".claude"]
+SCRIPT_DIR = Path(__file__).resolve().parent
+SKILL_DIR = SCRIPT_DIR.parent
+SKILLS_CHECKOUT_ROOT = SKILL_DIR.parent
 EXCLUDE_DIR_NAMES = {"node_modules", ".skillbox-state", ".cache", ".git"}
-OUTPUT = HOME / "repos/opensource/skills/mmdx/INDEX.mmdx"
+DEFAULT_OUTPUT = SCRIPT_DIR / "INDEX.mmdx"
 
 
 @dataclass
@@ -87,13 +89,47 @@ def encode_mmdx_url(path: Path) -> str | None:
         return None
 
 
-def collect_entries() -> list[Entry]:
+def default_scan_roots() -> list[Path]:
+    return [SKILLS_CHECKOUT_ROOT]
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Generate a generated MMDX directory index for selected scan roots."
+    )
+    parser.add_argument(
+        "--scan-root",
+        action="append",
+        default=[],
+        help=(
+            "Root to scan for .mmdx files and domain-slice .mmd files. "
+            "Repeatable. Defaults to the skills checkout root."
+        ),
+    )
+    parser.add_argument(
+        "--output",
+        default=str(DEFAULT_OUTPUT),
+        help="Output INDEX.mmdx path. Defaults next to this script.",
+    )
+    return parser.parse_args(argv)
+
+
+def resolve_scan_roots(values: list[str]) -> list[Path]:
+    roots = values or [str(path) for path in default_scan_roots()]
+    return [Path(value).expanduser().resolve() for value in roots]
+
+
+def resolve_output(value: str) -> Path:
+    return Path(value).expanduser().resolve()
+
+
+def collect_entries(scan_roots: list[Path], output: Path) -> list[Entry]:
     entries: list[Entry] = []
-    for root in SCAN_ROOTS:
+    for root in scan_roots:
         if not root.exists():
             continue
         for p in find_mmdx(root):
-            if p.resolve() == OUTPUT.resolve():
+            if p.resolve() == output.resolve():
                 continue
             try:
                 rel = p.relative_to(root)
@@ -250,16 +286,19 @@ def render_repo_detail(repo: str, items: list[Entry]) -> str:
     return "\n".join(lines)
 
 
-def main() -> int:
-    entries = collect_entries()
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+    scan_roots = resolve_scan_roots(args.scan_root)
+    output = resolve_output(args.output)
+    entries = collect_entries(scan_roots, output)
     if not entries:
         print("No .mmdx files found.", file=sys.stderr)
         return 1
     text = render_mmdx(entries)
-    OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-    OUTPUT.write_text(text)
-    print(f"Wrote {OUTPUT} with {len(entries)} entries.")
-    print(f"Open: python3 {HOME}/.claude/skills/mmdx/scripts/mmd.py {OUTPUT} --open")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(text)
+    print(f"Wrote {output} with {len(entries)} entries.")
+    print(f"Open: python3 {SCRIPT_DIR / 'mmd.py'} {output} --open")
     return 0
 
 

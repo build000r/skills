@@ -39,20 +39,31 @@ Start with:
 - `INDEX.mmdx` is a generated directory surface. Refresh it before relying on
   "latest" or "current" diagram answers.
 
+## MMDX Tool Resolution
+
+Resolve the sibling `mmdx` skill tools before running validation, open, or
+publish commands:
+
+```bash
+MMDX_SKILL_DIR="$(cd "{{SKILL_DIR}}/../mmdx" && pwd)"
+MMDX_SCRIPT="$MMDX_SKILL_DIR/scripts/mmd.py"
+MMDX_INDEX_SCRIPT="$MMDX_SKILL_DIR/scripts/mmdx_index.py"
+```
+
 ## Scanner
 
 Run the bundled scanner first:
 
 ```bash
-python3 scripts/scan_mmdx_registry.py --root . --dry-run
-python3 scripts/scan_mmdx_registry.py --root . --json --dry-run
+python3 "{{SKILL_DIR}}/scripts/scan_mmdx_registry.py" --root . --dry-run
+python3 "{{SKILL_DIR}}/scripts/scan_mmdx_registry.py" --root . --json --dry-run
 ```
 
 Use preflight only when you want the scanner to run Mermaid validation for each
 candidate file:
 
 ```bash
-python3 scripts/scan_mmdx_registry.py --root . --run-preflight --mmd-script ~/repos/opensource/skills/mmdx/scripts/mmd.py
+python3 "{{SKILL_DIR}}/scripts/scan_mmdx_registry.py" --root . --run-preflight --mmd-script "$MMDX_SCRIPT"
 ```
 
 The scanner is read-only. Without `--run-preflight`, it reports the exact
@@ -62,7 +73,7 @@ preflight commands that should be run for candidate stacks.
 
 1. Refresh any relevant generated index before making "latest" claims:
    ```bash
-   python3 ~/repos/opensource/skills/mmdx/scripts/mmdx_index.py
+   python3 "$MMDX_INDEX_SCRIPT"
    ```
 2. Run the scanner against the repo or portfolio root and save JSON for durable
    reports.
@@ -70,7 +81,7 @@ preflight commands that should be run for candidate stacks.
    skill templates, or Skillbox config.
 4. Validate high-value MMDX files with the real parser:
    ```bash
-   python3 ~/repos/opensource/skills/mmdx/scripts/mmd.py path/to/file.mmdx --preflight-only
+   python3 "$MMDX_SCRIPT" path/to/file.mmdx --preflight-only
    ```
 5. Confirm link problems by reading the MMDX metadata, chart ids, visible labels,
    and any linked local files.
@@ -139,10 +150,14 @@ Return:
 Before closing edits to this skill, run:
 
 ```bash
-python3 ~/repos/opensource/skills/skill-issue/scripts/quick_validate.py ~/repos/opensource/skills/mmdx-registry-usage-audit
-python3 ~/repos/opensource/skills/mmdx-registry-usage-audit/scripts/scan_mmdx_registry.py --root ~/repos/opensource/skills --dry-run
-python3 ~/repos/opensource/skills/mmdx-registry-usage-audit/scripts/scan_mmdx_registry.py --help
-python3 ~/repos/opensource/skills/mmdx/scripts/mmd.py ~/repos/opensource/skills/mmdx-registry-usage-audit/assets/templates/usage-audit-stack.mmdx --preflight-only
+MMDX_SKILL_DIR="$(cd "{{SKILL_DIR}}/../mmdx" && pwd)"
+MMDX_SCRIPT="$MMDX_SKILL_DIR/scripts/mmd.py"
+MMDX_INDEX_SCRIPT="$MMDX_SKILL_DIR/scripts/mmdx_index.py"
+SKILLS_ROOT="$(cd "{{SKILL_DIR}}/.." && pwd)"
+python3 "$SKILLS_ROOT/skill-issue/scripts/quick_validate.py" "{{SKILL_DIR}}"
+python3 "{{SKILL_DIR}}/scripts/scan_mmdx_registry.py" --root "$SKILLS_ROOT" --dry-run
+python3 "{{SKILL_DIR}}/scripts/scan_mmdx_registry.py" --help
+python3 "$MMDX_SCRIPT" "{{SKILL_DIR}}/assets/templates/usage-audit-stack.mmdx" --preflight-only
 ```
 
 Before closing a real audit run, also refresh the relevant index when one

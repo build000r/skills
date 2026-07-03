@@ -11,7 +11,7 @@ description: >-
 depends_on:
   - mmdx
   - reality-check-for-project
-  - eli-me
+  - eli-me-maker
 ---
 
 # Project Status MMDX
@@ -178,6 +178,15 @@ For Gantt charts, use Mermaid's built-in task classes with labels:
 
 ## Update Workflow
 
+Resolve the sibling `mmdx` skill tools before running validation, open, or
+publish commands:
+
+```bash
+MMDX_SKILL_DIR="$(cd "{{SKILL_DIR}}/../mmdx" && pwd)"
+MMDX_SCRIPT="$MMDX_SKILL_DIR/scripts/mmd.py"
+MMDX_INDEX_SCRIPT="$MMDX_SKILL_DIR/scripts/mmdx_index.py"
+```
+
 1. Find or choose the repo-local stack path.
 2. Read the existing stack if present.
 3. Run the `reality-check-for-project` evidence pass:
@@ -197,14 +206,14 @@ For Gantt charts, use Mermaid's built-in task classes with labels:
 5. Validate every chart:
 
 ```bash
-python3 ~/repos/opensource/skills/mmdx/scripts/mmd.py path/to/status.mmdx --preflight-only
-python3 ~/repos/opensource/skills/mmdx/scripts/mmd.py path/to/status.mmdx --fragment-only --no-preflight >/dev/null
+python3 "$MMDX_SCRIPT" path/to/status.mmdx --preflight-only
+python3 "$MMDX_SCRIPT" path/to/status.mmdx --fragment-only --no-preflight >/dev/null
 ```
 
 6. Open the stack when the user asked to inspect it:
 
 ```bash
-python3 ~/repos/opensource/skills/mmdx/scripts/mmd.py path/to/status.mmdx --open
+python3 "$MMDX_SCRIPT" path/to/status.mmdx --open
 ```
 
 7. Publish the refreshed stack to the `buildooor` mmdx account by editing the
@@ -234,12 +243,12 @@ closed if auth or live verification is unavailable.
 
 ```bash
 # Dry-run the exact payload first when slug or source is uncertain
-python3 ~/repos/opensource/skills/mmdx/scripts/mmd.py publish-link \
+python3 "$MMDX_SCRIPT" publish-link \
   diagrams/<repo-slug>-project-status.mmdx \
   --username buildooor --slug <recorded-slug> --dry-run
 
 # Edit the existing buildooor short link in place (republish + live-verify)
-python3 ~/repos/opensource/skills/mmdx/scripts/mmd.py publish-link \
+python3 "$MMDX_SCRIPT" publish-link \
   diagrams/<repo-slug>-project-status.mmdx \
   --username buildooor --slug <recorded-slug> \
   --title "<Repo> Project Status" \
@@ -248,43 +257,15 @@ python3 ~/repos/opensource/skills/mmdx/scripts/mmd.py publish-link \
 
 ### Headless publish lane
 
-When an interactive browser is unavailable, this is the default publish path.
-Do not set a publish Bead to `status=blocked` for lack of browser UI while this
-lane can still be attempted.
+Auth, token discovery, publishing, and live verification are owned by the
+sibling `mmdx` skill's "Authenticated MMDX Persistence" and `publish-link`
+sections. This skill adds only the project-status deltas:
 
-1. Read the stack header and validate the source:
-   `rg -n '"shortLink"|"slug"' <status.mmdx>` and
-   `python3 ~/repos/opensource/skills/mmdx/scripts/mmd.py <status.mmdx> --preflight-only`.
-2. Resolve the auth server exactly as the `mmdx` skill documents:
-   `MMDX_SPAPS_SERVER_URL` > `SPAPS_API_URL` > `NEXT_PUBLIC_SPAPS_API_URL` >
-   repo-local `.spaps/app.json`. Do not hardcode or commit bearer tokens.
-3. If no reusable token command or token env var is present, use the `mmdx`
-   skill's existing SPAPS device-code recipe. The one-time human approval URL
-   for Buildooor production is `https://buildooor.com/auth/device?user_code=<code>`;
-   keep the CLI polling the SPAPS API base. After approval, use the token
-   command path rather than pasting token values into the repo, skill, Bead, or
-   transcript.
-4. Republish the existing short link headlessly:
-
-```bash
-SPAPS_MMDX_AUTH_SERVER_URL="${MMDX_SPAPS_SERVER_URL:-${SPAPS_API_URL:-${NEXT_PUBLIC_SPAPS_API_URL:-}}}"
-test -n "$SPAPS_MMDX_AUTH_SERVER_URL" || {
-  echo "Set MMDX_SPAPS_SERVER_URL or SPAPS_API_URL before agent-side MMDX auth" >&2
-  exit 2
-}
-
-python3 ~/repos/opensource/skills/mmdx/scripts/mmd.py publish-link \
-  <status.mmdx> \
-  --username buildooor --slug <recorded-slug> \
-  --title "<Repo> Project Status" \
-  --access-token-command "spaps token --server-url $SPAPS_MMDX_AUTH_SERVER_URL"
-```
-
-The underlying authenticated path is the existing Buildooor app-link lane:
-device-code approval, headless token mint through `POST /api/app-links`, and
-keep-warm/live verification through the Buildooor proxy. Treat those mechanics
-as owned by the `mmdx` skill and its `publish-link` command; do not duplicate
-credential handling here.
+1. Read the stack header and validate the source before publishing.
+2. Preserve `shortLink`: `username: buildooor` + slug.
+3. Reuse the same slug on each status refresh; never mint a parallel link.
+4. Attempt `mmdx publish-link` headlessly before blocking on browser access.
+5. Record the receipt, live URL, or exact fail-closed reason in the Bead.
 
 Record the receipt in the publish Bead: the command shape, source path,
 `buildooor` username, slug, live `/mmdx/buildooor/<slug>` URL, and the
@@ -292,24 +273,33 @@ Record the receipt in the publish Bead: the command shape, source path,
 smallest publish Bead after this lane has been attempted or proven unavailable;
 lack of an interactive browser alone is not a blocker.
 
-First publish only (no slug recorded yet): `publish-link` cannot create a short
-link. Open the stack, have the operator click the top-right `save` once to mint
-it, then record the returned slug into the header `shortLink` so every later run
-edits that same link:
+First publish only (no slug recorded yet): mint the first short link
+headlessly, live-verify it, and write the returned `shortLink` into the local
+`.mmdx` header:
 
 ```bash
-python3 ~/repos/opensource/skills/mmdx/scripts/mmd.py \
-  diagrams/<repo-slug>-project-status.mmdx --open
+python3 "$MMDX_SCRIPT" publish-link \
+  diagrams/<repo-slug>-project-status.mmdx \
+  --create \
+  --title "<Repo> Project Status" \
+  --write-short-link-metadata \
+  --access-token-command "spaps token --server-url $SPAPS_MMDX_AUTH_SERVER_URL"
 ```
 
 ```json
 "shortLink": { "username": "buildooor", "slug": "mmdx-XXXXXXXX" }
 ```
 
+If the create command returns `402 DIAGRAMS_PRO_REQUIRED`, relay the structured
+paywall error from `mmdx publish-link` with the `$15/month` price context,
+preserve the local stack, and record the exact failure in the publish Bead. Do
+not fall back to a browser-only first mint unless the headless create lane is
+unavailable for a reason other than auth, entitlement, or live verification.
+
 If auth is unavailable after the headless lane reports the exact device-code
-recipe or token-command failure, record that receipt and the recorded slug in
-the Bead, leave the repo-local stack updated, and stop — do not mint a new
-diagram to work around missing auth.
+recipe or token-command failure, record that receipt and the existing or
+returned slug when one exists, leave the repo-local stack updated, and stop —
+do not mint a new diagram to work around missing auth.
 
 ## MMDX Skeleton
 
@@ -429,12 +419,14 @@ No generic "let me know if" ending.
 Before finishing, run:
 
 ```bash
-python3 ~/repos/opensource/skills/mmdx/scripts/mmd.py path/to/status.mmdx --preflight-only
-python3 ~/repos/opensource/skills/mmdx/scripts/mmd.py assets/templates/project-status-stack.mmdx --preflight-only
+MMDX_SKILL_DIR="$(cd "{{SKILL_DIR}}/../mmdx" && pwd)"
+MMDX_SCRIPT="$MMDX_SKILL_DIR/scripts/mmd.py"
+python3 "$MMDX_SCRIPT" path/to/status.mmdx --preflight-only
+python3 "$MMDX_SCRIPT" "{{SKILL_DIR}}/assets/templates/project-status-stack.mmdx" --preflight-only
 ```
 
-If this skill changes, validate it from the private skills repo:
+If this skill changes, validate it from the skills checkout:
 
 ```bash
-python3 ../opensource/skills/skill-issue/scripts/quick_validate.py ./project-status-mmdx
+python3 "{{SKILL_DIR}}/../skill-issue/scripts/quick_validate.py" "{{SKILL_DIR}}"
 ```

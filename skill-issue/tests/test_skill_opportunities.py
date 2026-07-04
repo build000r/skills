@@ -131,6 +131,7 @@ class SkillOpportunityReportTests(unittest.TestCase):
                     "evidence": [
                         {
                             "timestamp": "2026-03-17T11:00:00+00:00",
+                            "session_id": "codex:session-1",
                             "signal": "no validation command detected",
                             "user_request": "review this skill",
                         }
@@ -144,6 +145,8 @@ class SkillOpportunityReportTests(unittest.TestCase):
         self.assertIn("## Skill Opportunity Funnel (skill-issue)", markdown)
         self.assertIn("verification-gap", markdown)
         self.assertIn("Scope: `global`", markdown)
+        self.assertIn("Session IDs: codex:session-1", markdown)
+        self.assertIn("codex:session-1 | no validation command detected", markdown)
         self.assertIn("no validation command detected", markdown)
 
 

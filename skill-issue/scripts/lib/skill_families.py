@@ -68,6 +68,7 @@ def _predicate_matches(family_id: str, invocation: dict[str, Any]) -> bool:
 def _signal_for_family(family_id: str, invocation: dict[str, Any]) -> dict[str, Any]:
     base = {
         "invocation_id": invocation.get("invocation_id"),
+        "session_id": invocation.get("session_id"),
         "timestamp": invocation.get("timestamp"),
         "project": invocation.get("project"),
         "task_type": invocation.get("task_type"),

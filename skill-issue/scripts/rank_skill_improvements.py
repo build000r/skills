@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import subprocess
 import sys
@@ -39,6 +40,74 @@ def top_table_rows(markdown: str, limit: int) -> list[str]:
             if len(rows) >= limit:
                 break
     return rows
+
+
+def _short(text: object, max_chars: int = 150) -> str:
+    value = " ".join(str(text or "n/a").split())
+    if len(value) <= max_chars:
+        return value
+    return value[: max_chars - 3] + "..."
+
+
+def _card_scope(card: dict) -> str:
+    if card.get("scope"):
+        return str(card["scope"])
+    if isinstance(card.get("slice"), dict):
+        return str(card["slice"].get("label") or "n/a")
+    return "n/a"
+
+
+def _card_fix_class(card: dict) -> str:
+    return str(card.get("suggested_fix_class") or card.get("severity") or "n/a")
+
+
+def card_summaries_from_json(output: str, limit: int) -> str | None:
+    try:
+        report = json.loads(output)
+    except json.JSONDecodeError:
+        return None
+
+    cards = report.get("cards")
+    if not isinstance(cards, list) or not cards:
+        return None
+
+    lines = ["| Rank | Score | Type | Scope | Runs | Prev | Fix Class |"]
+    lines.append("|------|-------|------|-------|------|------|-----------|")
+    details: list[str] = []
+    for idx, card in enumerate(cards[:limit], start=1):
+        if not isinstance(card, dict):
+            continue
+        runs = f"{card.get('affected_runs', 'n/a')}/{card.get('total_runs', 'n/a')}"
+        prevalence = card.get("prevalence")
+        prevalence_text = f"{prevalence:.2f}" if isinstance(prevalence, (float, int)) else "n/a"
+        lines.append(
+            f"| {idx} | {card.get('score', 'n/a')} | {card.get('issue_type', 'n/a')} | "
+            f"{_card_scope(card)} | {runs} | {prevalence_text} | {_card_fix_class(card)} |"
+        )
+
+        evidence = card.get("evidence") if isinstance(card.get("evidence"), list) else []
+        session_ids: list[str] = []
+        excerpts: list[str] = []
+        for item in evidence[:3]:
+            if not isinstance(item, dict):
+                continue
+            session_id = item.get("session_id") or item.get("invocation_id") or "unknown-session"
+            session_id = str(session_id)
+            if session_id not in session_ids:
+                session_ids.append(session_id)
+            excerpts.append(
+                f"- {session_id}: {_short(item.get('signal'))} | {_short(item.get('user_request'))}"
+            )
+        if session_ids or excerpts:
+            details.append("")
+            details.append(f"### {idx}. {card.get('issue_type', 'n/a')} evidence")
+            if session_ids:
+                details.append(f"Session IDs: {', '.join(session_ids)}")
+            if excerpts:
+                details.append("Representative excerpts:")
+                details.extend(excerpts)
+
+    return "\n".join(lines + details)
 
 
 def section(title: str, body: str) -> None:
@@ -82,27 +151,29 @@ def main() -> int:
     print(f"- since: {args.since}")
     print(f"- skills: {', '.join(split_skills(args.skills))}")
 
-    code, portfolio = run(
-        [
-            sys.executable,
-            str(portfolio_script),
-            "--source",
-            args.source,
-            "--since",
-            args.since,
-            "--limit",
-            str(args.portfolio_limit),
-        ]
-    )
+    portfolio_command = [
+        sys.executable,
+        str(portfolio_script),
+        "--source",
+        args.source,
+        "--since",
+        args.since,
+        "--limit",
+        str(args.portfolio_limit),
+    ]
+    if not args.full:
+        portfolio_command.append("--json")
+    code, portfolio = run(portfolio_command)
     if code != 0:
         section("Portfolio Opportunities", f"Portfolio scan failed:\n\n{portfolio}")
     elif args.full:
         section("Portfolio Opportunities", portfolio)
     else:
-        rows = top_table_rows(portfolio, args.top)
+        body = card_summaries_from_json(portfolio, args.top)
+        rows = top_table_rows(portfolio, args.top) if body is None else []
         section(
             "Portfolio Opportunities",
-            "\n".join(rows) if rows else "No ranked portfolio rows found.",
+            body or ("\n".join(rows) if rows else "No ranked portfolio rows found."),
         )
 
     with tempfile.TemporaryDirectory(prefix="skill-rank-") as tmpdir:
@@ -126,19 +197,21 @@ def main() -> int:
                 section(f"{skill} Opportunities", f"Review scan failed:\n\n{review}")
                 continue
             review_path.write_text(review)
-            code, opportunities = run(
-                [sys.executable, str(opportunity_script), "--input", str(review_path)]
-            )
+            opportunity_command = [sys.executable, str(opportunity_script), "--input", str(review_path)]
+            if not args.full:
+                opportunity_command.append("--json")
+            code, opportunities = run(opportunity_command)
             if code != 0:
                 section(f"{skill} Opportunities", f"Opportunity scan failed:\n\n{opportunities}")
                 continue
             if args.full:
                 section(f"{skill} Opportunities", opportunities)
             else:
-                rows = top_table_rows(opportunities, args.top)
+                body = card_summaries_from_json(opportunities, args.top)
+                rows = top_table_rows(opportunities, args.top) if body is None else []
                 section(
                     f"{skill} Opportunities",
-                    "\n".join(rows) if rows else "No ranked skill rows found.",
+                    body or ("\n".join(rows) if rows else "No ranked skill rows found."),
                 )
 
     print("\n## Next Step")

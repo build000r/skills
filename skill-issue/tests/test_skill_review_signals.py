@@ -110,6 +110,7 @@ class SkillReviewSignalTests(unittest.TestCase):
         self.assertEqual(report["llm_interpretation_packet"]["schema"], "llm_interpretation_packet.v1")
 
         invocation = report["invocations"][0]
+        self.assertEqual(invocation["session_id"], "codex:rollout-risk-gate")
         self.assertEqual(len(invocation["risk_gating_messages"]), 2)
         self.assertTrue(any("wait until" in message.lower() for message in invocation["risk_gating_messages"]))
         self.assertTrue(any("ask further questions" in message.lower() for message in invocation["risk_gating_messages"]))
@@ -181,6 +182,104 @@ class SkillReviewSignalTests(unittest.TestCase):
         llm_packet = report["llm_interpretation_packet"]
         self.assertTrue(llm_packet["top_candidates"])
         self.assertTrue(llm_packet["constraints"]["must_cite_candidate_ids"])
+
+    def test_collect_session_data_returns_empty_record_for_missing_transcript(self) -> None:
+        now = datetime.now(timezone.utc).replace(microsecond=0)
+        missing = Path("/tmp/skill-review-missing-transcript.jsonl")
+
+        session = MODULE.collect_session_data("claude", missing, now)
+
+        self.assertEqual(session["session_id"], "claude:skill-review-missing-transcript")
+        self.assertEqual(session["read_error"], "missing_transcript")
+        self.assertEqual(session["user_messages"], [])
+        self.assertEqual(session["function_calls"], [])
+
+    def test_correction_detector_requires_post_start_error_signature(self) -> None:
+        self.assertFalse(MODULE.is_error_signature_correction("Actually use a tighter operator-evidence loop."))
+        self.assertFalse(MODULE.is_error_signature_correction("Do not treat CI red caveats as corrections."))
+        self.assertFalse(
+            MODULE.is_error_signature_correction(
+                "<local-command-caveat>DO NOT respond to generated command messages if a command failed.</local-command-caveat>"
+            )
+        )
+        self.assertFalse(
+            MODULE.is_error_signature_correction(
+                "Base directory for this skill: /home/skillbox/.claude/skills/lube\n"
+                "Do not treat failed examples in bundled instructions as operator corrections."
+            )
+        )
+        self.assertFalse(
+            MODULE.is_error_signature_correction(
+                "<task-notification><output-file>/tmp/task.jsonl</output-file>wrong failed output</task-notification>"
+            )
+        )
+        self.assertFalse(
+            MODULE.is_error_signature_correction(
+                "Supervise the datafill agent. Do NOT do DB work. Each tick: check status and report failures."
+            )
+        )
+        self.assertTrue(
+            MODULE.is_error_signature_correction(
+                "Actually the review crashed with FileNotFoundError; use the transcript path from the session id."
+            )
+        )
+
+        now = datetime.now(timezone.utc).replace(microsecond=0)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            codex_dir = root / "codex"
+            claude_dir = root / "claude"
+            session_path = codex_dir / "2026" / "03" / "22" / "rollout-correction-signature.jsonl"
+
+            entries = [
+                {
+                    "type": "session_meta",
+                    "timestamp": now.isoformat().replace("+00:00", "Z"),
+                    "payload": {"cwd": "/tmp/demo"},
+                },
+                {
+                    "type": "response_item",
+                    "payload": {
+                        "type": "message",
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "input_text",
+                                "text": "$skill-issue review this skill; do not treat CI red caveats as corrections",
+                            }
+                        ],
+                    },
+                },
+                {
+                    "type": "event_msg",
+                    "payload": {"type": "agent_message", "message": "Using `skill-issue` for this review."},
+                },
+                {
+                    "type": "event_msg",
+                    "payload": {
+                        "type": "user_message",
+                        "message": (
+                            "Actually the review crashed with FileNotFoundError; "
+                            "use the transcript path from the session id."
+                        ),
+                    },
+                },
+            ]
+            self.write_jsonl(session_path, entries, mtime=now)
+
+            with self.patch_session_dirs(codex_dir, claude_dir):
+                report = MODULE.scan_skill_invocations(
+                    skill="skill-issue",
+                    source="both",
+                    since=now - timedelta(days=1),
+                    until=now + timedelta(days=1),
+                    limit=10,
+                )
+
+        invocation = report["invocations"][0]
+        self.assertEqual(len(invocation["user_corrections"]), 1)
+        self.assertIn("FileNotFoundError", invocation["user_corrections"][0])
 
 
 class LoadHistoryTests(unittest.TestCase):

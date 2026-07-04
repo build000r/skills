@@ -640,6 +640,7 @@ def _session_summary(provider: str, path: Path, mtime: datetime, catalog: list[d
     return {
         "provider": provider,
         "file": str(path),
+        "session_id": session["session_id"],
         "project": session["project"],
         "timestamp": session["timestamp"].isoformat(),
         "user_request": truncate(user_request, 500) if user_request else None,
@@ -851,6 +852,7 @@ def _discoverability_cards(
                 "evidence": [
                     {
                         "timestamp": session["timestamp"],
+                        "session_id": session.get("session_id"),
                         "signal": (
                             f"suggested `{session['top_suggested_skills'][0]['skill']}` "
                             f"via {', '.join(session['top_suggested_skills'][0]['signal_tokens']) or 'catalog overlap'}"
@@ -933,6 +935,7 @@ def _creation_cards(
                 "evidence": [
                     {
                         "timestamp": session["timestamp"],
+                        "session_id": session.get("session_id"),
                         "signal": (
                             "weak catalog overlap"
                             + (
@@ -1029,6 +1032,7 @@ def _consolidation_cards(
         evidence = [
             {
                 "timestamp": session["timestamp"],
+                "session_id": session.get("session_id"),
                 "signal": f"same request surface matched `{left_name}` and `{right_name}`",
                 "user_request": session["user_request"],
             }
@@ -1267,6 +1271,7 @@ def render_portfolio_opportunity_markdown(report: dict[str, Any]) -> str:
         lines.append("Evidence:")
         for evidence in card.get("evidence", []):
             request = evidence.get("user_request") or "n/a"
-            lines.append(f"- {evidence.get('timestamp')} | {evidence.get('signal')} | {request}")
+            session_id = evidence.get("session_id") or "unknown-session"
+            lines.append(f"- {evidence.get('timestamp')} | {session_id} | {evidence.get('signal')} | {request}")
 
     return "\n".join(lines) + "\n"

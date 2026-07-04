@@ -112,6 +112,8 @@ def enrich_invocation(invocation: dict[str, Any]) -> dict[str, Any]:
         "risk_gating_messages": risk_gating_messages,
         "touched_paths": list(invocation.get("touched_paths", [])),
     }
+    enriched["session_id"] = invocation.get("session_id")
+    enriched["read_error"] = invocation.get("read_error")
     return enriched
 
 

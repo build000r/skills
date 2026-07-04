@@ -330,6 +330,7 @@ Stand claim edit bead source concept registry visual design inspiration.
                     "evidence": [
                         {
                             "timestamp": "2026-03-22T12:00:00+00:00",
+                            "session_id": "codex:portfolio-1",
                             "signal": "weak catalog overlap",
                             "user_request": "attach this pdf",
                         }
@@ -349,6 +350,7 @@ Stand claim edit bead source concept registry visual design inspiration.
         self.assertIn("invalid skipped=1", markdown)
         self.assertIn("Invalid skills skipped: 1", markdown)
         self.assertIn("/tmp/private-skills/bad-skill/SKILL.md (missing or empty description)", markdown)
+        self.assertIn("codex:portfolio-1 | weak catalog overlap", markdown)
 
     def test_default_catalog_roots_federate_multiple_existing_roots(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

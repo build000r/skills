@@ -69,6 +69,12 @@ def _candidate_to_card(skill: str, candidate: dict[str, Any]) -> dict[str, Any] 
         return None
     if candidate["rank"]["score"] < MIN_CARD_SCORE:
         return None
+    evidence = list(candidate.get("representative_traces", []))
+    session_ids = [
+        trace.get("session_id") or trace.get("invocation_id")
+        for trace in evidence
+        if trace.get("session_id") or trace.get("invocation_id")
+    ]
 
     card = {
         "skill": skill,
@@ -84,8 +90,9 @@ def _candidate_to_card(skill: str, candidate: dict[str, Any]) -> dict[str, Any] 
         "suggested_fix_class": candidate["allowed_fix_classes"][0],
         "allowed_fix_classes": candidate["allowed_fix_classes"],
         "target_files": candidate["target_files"],
-        "evidence": list(candidate.get("representative_traces", [])),
+        "evidence": evidence,
         "evidence_refs": list(candidate.get("evidence_refs", [])),
+        "session_ids": session_ids,
         "family_candidate_id": candidate["family_candidate_id"],
         "skill_issue_brief": (
             f"Improve `{skill}` for `{candidate['family_id']}` in the slice `{candidate['slice']['label']}`. "
@@ -237,6 +244,13 @@ def render_opportunity_markdown(report: dict[str, Any]) -> str:
         lines.append(f"Suggested change: {card['recommendation']}")
         lines.append(f"Target files: {', '.join(card['target_files'])}")
         lines.append(f"Skill-issue brief: {card['skill_issue_brief']}")
+        session_ids = card.get("session_ids") or [
+            evidence.get("session_id") or evidence.get("invocation_id")
+            for evidence in card.get("evidence", [])
+            if evidence.get("session_id") or evidence.get("invocation_id")
+        ]
+        if session_ids:
+            lines.append(f"Session IDs: {', '.join(session_ids[:3])}")
         if card.get("supporting_metrics"):
             metrics = card["supporting_metrics"]
             stems = metrics.get("top_raw_shell_stems")
@@ -250,8 +264,9 @@ def render_opportunity_markdown(report: dict[str, Any]) -> str:
         for evidence in card.get("evidence", []):
             signal = evidence.get("signal", "")
             request = evidence.get("user_request") or "n/a"
+            session_id = evidence.get("session_id") or evidence.get("invocation_id") or "unknown-session"
             lines.append(
-                f"- {evidence.get('timestamp')} | {signal} | {request}"
+                f"- {evidence.get('timestamp')} | {session_id} | {signal} | {request}"
             )
 
     return "\n".join(lines) + "\n"

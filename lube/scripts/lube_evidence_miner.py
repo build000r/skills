@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import subprocess
@@ -42,6 +43,71 @@ def top_card(markdown: str) -> dict[str, str] | None:
             "runs": cells[4] if len(cells) > 4 else "n/a",
         }
     return None
+
+
+def _short(text: object, max_chars: int = 160) -> str:
+    value = " ".join(str(text or "n/a").split())
+    if len(value) <= max_chars:
+        return value
+    return value[: max_chars - 3] + "..."
+
+
+def top_card_from_json(output: str) -> dict[str, object] | None:
+    try:
+        report = json.loads(output)
+    except json.JSONDecodeError:
+        return None
+
+    cards = report.get("cards")
+    if not isinstance(cards, list) or not cards:
+        return None
+
+    card = cards[0]
+    evidence = card.get("evidence") if isinstance(card, dict) else None
+    evidence = evidence if isinstance(evidence, list) else []
+    session_ids: list[str] = []
+    excerpts: list[str] = []
+    for item in evidence[:3]:
+        if not isinstance(item, dict):
+            continue
+        session_id = item.get("session_id") or item.get("invocation_id") or "unknown-session"
+        session_id = str(session_id)
+        if session_id not in session_ids:
+            session_ids.append(session_id)
+        excerpts.append(
+            f"{session_id}: {_short(item.get('signal'))} | {_short(item.get('user_request'))}"
+        )
+
+    scope = card.get("scope")
+    if not scope and isinstance(card.get("slice"), dict):
+        scope = card["slice"].get("label")
+
+    return {
+        "score": str(card.get("score", "n/a")),
+        "type": str(card.get("issue_type", "n/a")),
+        "scope": str(scope or "n/a"),
+        "runs": f"{card.get('affected_runs', 'n/a')}/{card.get('total_runs', 'n/a')}",
+        "session_ids": session_ids,
+        "excerpts": excerpts,
+    }
+
+
+def parse_top_card(output: str) -> dict[str, object] | None:
+    return top_card_from_json(output) or top_card(output)
+
+
+def card_observation(label: str, card: dict[str, object]) -> str:
+    message = (
+        f"{label}: top card {card['type']} in {card['scope']} "
+        f"(score {card['score']}, runs {card['runs']})"
+    )
+    session_ids = card.get("session_ids") or []
+    if session_ids:
+        message += f"; session ids {', '.join(session_ids[:3])}"
+    excerpts = card.get("excerpts") or []
+    if excerpts:
+        message += f"; excerpts {' / '.join(excerpts[:3])}"
+    return message
 
 
 def root_cause(card_type: str) -> str:
@@ -128,15 +194,13 @@ def main() -> int:
             args.source,
             "--since",
             args.since,
+            "--json",
         ],
         skill_issue_root,
     )
-    card = top_card(output)
+    card = parse_top_card(output)
     if code == 0 and card:
-        observations.append(
-            f"portfolio: top card {card['type']} in {card['scope']} "
-            f"(score {card['score']}, runs {card['runs']})"
-        )
+        observations.append(card_observation("portfolio", card))
         causes.append(f"portfolio: {root_cause(card['type'])}")
         fixes.append(f"portfolio: {durable_fix(card['type'])}")
     else:
@@ -172,15 +236,12 @@ def main() -> int:
                 continue
             review_path.write_text(review_output)
             code, opportunity_output = run(
-                [sys.executable, str(opportunities_script), "--input", str(review_path)],
+                [sys.executable, str(opportunities_script), "--input", str(review_path), "--json"],
                 skill_issue_root,
             )
-            card = top_card(opportunity_output)
+            card = parse_top_card(opportunity_output)
             if code == 0 and card:
-                observations.append(
-                    f"{skill}: top card {card['type']} in {card['scope']} "
-                    f"(score {card['score']}, runs {card['runs']})"
-                )
+                observations.append(card_observation(skill, card))
                 causes.append(f"{skill}: {root_cause(card['type'])}")
                 fixes.append(f"{skill}: {durable_fix(card['type'])}")
             else:

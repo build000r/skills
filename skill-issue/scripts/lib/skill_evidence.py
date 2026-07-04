@@ -227,13 +227,15 @@ def render_evidence_markdown(report: dict[str, Any]) -> str:
                 lines.append(f"Supporting metrics: top raw shell stems = {pretty}")
         lines.append("Representative traces:")
         for trace in packet.get("representative_traces", []):
+            session_id = trace.get("session_id") or trace.get("invocation_id") or "unknown-session"
             lines.append(
-                f"- {trace.get('timestamp')} | {trace.get('signal')} | {trace.get('user_request') or 'n/a'}"
+                f"- {trace.get('timestamp')} | {session_id} | {trace.get('signal')} | {trace.get('user_request') or 'n/a'}"
             )
         lines.append("Historical reference slice:")
         for trace in packet.get("historical_reference_slice", {}).get("holdout_examples", []):
+            session_id = trace.get("session_id") or trace.get("invocation_id") or "unknown-session"
             lines.append(
-                f"- holdout | {trace.get('timestamp')} | {trace.get('user_request') or 'n/a'}"
+                f"- holdout | {trace.get('timestamp')} | {session_id} | {trace.get('user_request') or 'n/a'}"
             )
 
     return "\n".join(lines) + "\n"

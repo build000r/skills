@@ -77,6 +77,22 @@ CORRECTION_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+VALIDATED_CORRECTION_PATTERN = re.compile(
+    r"\b(actually|wrong|missed|why did|should have|not what i meant|rather than)\b",
+    re.IGNORECASE,
+)
+
+ERROR_SIGNATURE_PATTERN = re.compile(
+    r"\b("
+    r"traceback|exception|stack trace|file ?not ?found|no such file|"
+    r"permission denied|crash(?:ed|es|ing)?|failed|error(?: code)?|"
+    r"exit code [1-9][0-9]*|non[- ]?zero|timeout|timed out|"
+    r"assertion|tests? failed|red build|ci red|broken|unparsable|"
+    r"not found|missing (?:file|transcript|helper|dependency|module|import|artifact|receipt|evidence)"
+    r")\b",
+    re.IGNORECASE,
+)
+
 RISK_GATING_PATTERN = re.compile(
     r"\b("
     r"wait until|hold on|not yet|should have asked|needed to ask|"
@@ -168,14 +184,26 @@ def normalize_user_message(text: str) -> str | None:
         return None
 
     wrapper_starts = (
+        "# /loop",
         "# AGENTS.md instructions",
+        "# Session Recovery Context",
+        "Base directory for this skill:",
         "<INSTRUCTIONS>",
+        "<bash-input>",
+        "<command-message>",
+        "<command-name>",
         "<environment_context>",
+        "<local-command-caveat>",
         "<skill>",
+        "<subagent_notification>",
+        "<task-notification>",
         "<permissions instructions>",
         "<collaboration_mode>",
+        "This session is being continued from a previous conversation",
     )
     if cleaned.startswith(wrapper_starts):
+        return None
+    if cleaned.startswith("Supervise the ") and "Each tick:" in cleaned:
         return None
     return cleaned
 
@@ -314,6 +342,14 @@ def is_risk_gating_message(message: str) -> bool:
         RISK_GATING_ACTION_PATTERN.search(message)
         and RISK_GATING_BOUNDARY_PATTERN.search(message)
     )
+
+
+def is_error_signature_correction(message: str) -> bool:
+    """Detect post-start corrections backed by a concrete failure signature."""
+    cleaned = normalize_user_message(message)
+    if not cleaned:
+        return False
+    return bool(VALIDATED_CORRECTION_PATTERN.search(cleaned) and ERROR_SIGNATURE_PATTERN.search(cleaned))
 
 
 def extract_codex_user_text(entry: dict[str, Any]) -> str | None:
@@ -470,7 +506,11 @@ def list_session_files(source: str, since: datetime, until: datetime) -> list[tu
 
     if include_codex and CODEX_SESSIONS_DIR.exists():
         for path in CODEX_SESSIONS_DIR.rglob("rollout-*.jsonl"):
-            mtime = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+            try:
+                stat = path.stat()
+            except (FileNotFoundError, OSError):
+                continue
+            mtime = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc)
             if since <= mtime <= until:
                 items.append(("codex", path, mtime))
 
@@ -478,12 +518,21 @@ def list_session_files(source: str, since: datetime, until: datetime) -> list[tu
         for path in CLAUDE_PROJECTS_DIR.rglob("*.jsonl"):
             if path.name.startswith("agent-"):
                 continue
-            mtime = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+            try:
+                stat = path.stat()
+            except (FileNotFoundError, OSError):
+                continue
+            mtime = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc)
             if since <= mtime <= until:
                 items.append(("claude", path, mtime))
 
     items.sort(key=lambda item: item[2], reverse=True)
     return items
+
+
+def transcript_session_id(provider: str, path: Path) -> str:
+    """Return a compact stable id for a transcript run."""
+    return f"{provider}:{path.stem}"
 
 
 def collect_session_data(provider: str, path: Path, mtime: datetime) -> dict[str, Any]:
@@ -494,11 +543,28 @@ def collect_session_data(provider: str, path: Path, mtime: datetime) -> dict[str
     task_complete = False
     project = None
     timestamp = mtime
+    session_id = transcript_session_id(provider, path)
 
     seen_user = set()
     seen_assistant = set()
 
-    with open(path, "r") as handle:
+    try:
+        handle = open(path, "r", encoding="utf-8")
+    except FileNotFoundError:
+        return {
+            "provider": provider,
+            "file": str(path),
+            "session_id": session_id,
+            "project": infer_project_from_path(provider, path),
+            "timestamp": timestamp,
+            "user_messages": user_messages,
+            "assistant_messages": assistant_messages,
+            "function_calls": function_calls,
+            "task_complete": task_complete,
+            "read_error": "missing_transcript",
+        }
+
+    with handle:
         for line in handle:
             if not line.strip():
                 continue
@@ -509,8 +575,12 @@ def collect_session_data(provider: str, path: Path, mtime: datetime) -> dict[str
 
             if provider == "codex":
                 if entry.get("type") == "session_meta":
-                    project = entry.get("payload", {}).get("cwd") or project
+                    payload = entry.get("payload", {})
+                    project = payload.get("cwd") or project
                     timestamp = parse_timestamp(entry.get("timestamp"), timestamp)
+                    payload_session_id = payload.get("id") or payload.get("session_id")
+                    if isinstance(payload_session_id, str) and payload_session_id.strip():
+                        session_id = payload_session_id.strip()
 
                 text = extract_codex_user_text(entry)
                 if text:
@@ -549,12 +619,14 @@ def collect_session_data(provider: str, path: Path, mtime: datetime) -> dict[str
     return {
         "provider": provider,
         "file": str(path),
+        "session_id": session_id,
         "project": project or infer_project_from_path(provider, path),
         "timestamp": timestamp,
         "user_messages": user_messages,
         "assistant_messages": assistant_messages,
         "function_calls": function_calls,
         "task_complete": task_complete,
+        "read_error": None,
     }
 
 
@@ -575,10 +647,10 @@ def parse_session(provider: str, path: Path, mtime: datetime, skill: str) -> dic
     function_calls = session["function_calls"]
     task_complete = session["task_complete"]
 
-    for text in user_messages:
+    for index, text in enumerate(user_messages):
         if has_user_trigger(text, skill):
             matched_on.add("user_trigger")
-        if CORRECTION_PATTERN.search(text):
+        if index > 0 and is_error_signature_correction(text):
             correction_messages.append(truncate(text))
         if is_risk_gating_message(text):
             risk_gating_messages.append(truncate(text))
@@ -621,10 +693,12 @@ def parse_session(provider: str, path: Path, mtime: datetime, skill: str) -> dic
     return {
         "provider": provider,
         "file": session["file"],
+        "session_id": session["session_id"],
         "project": session["project"],
         "timestamp": session["timestamp"].isoformat(),
         "matched_on": sorted(matched_on),
         "match_score": match_score,
+        "read_error": session.get("read_error"),
         "user_request": truncate(user_messages[0], 500) if user_messages else None,
         "assistant_ack": next(
             (truncate(msg, 500) for msg in assistant_messages if is_assistant_ack(msg, skill)),

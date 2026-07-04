@@ -206,10 +206,58 @@ class LoadConfigTests(unittest.TestCase):
 
 
 class TryOverlayContextTests(unittest.TestCase):
+    def test_resolves_sibling_shared_before_home_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            sibling = root / "_shared" / "scripts"
+            home_fallback = root / "home" / ".claude" / "skills" / "_shared" / "scripts"
+            sibling.mkdir(parents=True)
+            home_fallback.mkdir(parents=True)
+
+            with unittest.mock.patch.object(
+                MODULE,
+                "_shared_scripts_candidates",
+                return_value=[sibling, home_fallback],
+            ):
+                self.assertEqual(MODULE._resolve_shared_scripts(), sibling)
+
+    def test_resolves_home_shared_when_sibling_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            sibling = root / "_shared" / "scripts"
+            home_fallback = root / "home" / ".claude" / "skills" / "_shared" / "scripts"
+            home_fallback.mkdir(parents=True)
+
+            with unittest.mock.patch.object(
+                MODULE,
+                "_shared_scripts_candidates",
+                return_value=[sibling, home_fallback],
+            ):
+                self.assertEqual(MODULE._resolve_shared_scripts(), home_fallback)
+
     def test_returns_none_when_shared_missing(self) -> None:
         with unittest.mock.patch.object(Path, "exists", return_value=False):
             result = MODULE._try_overlay_context()
             self.assertIsNone(result)
+
+    def test_missing_config_guidance_names_shared_install_contract(self) -> None:
+        import os
+        with unittest.mock.patch.object(MODULE, "_try_overlay_context", return_value=None), \
+             unittest.mock.patch.object(
+                 MODULE,
+                 "_shared_scripts_candidates",
+                 return_value=[
+                     Path("/skills/_shared/scripts"),
+                     Path("/home/user/.claude/skills/_shared/scripts"),
+                 ],
+             ), \
+             unittest.mock.patch.dict(os.environ, {}, clear=True):
+            with self.assertRaises(SystemExit) as raised:
+                MODULE.load_config(None)
+            message = str(raised.exception)
+            self.assertIn("/skills/_shared/scripts", message)
+            self.assertIn("/home/user/.claude/skills/_shared/scripts", message)
+            self.assertIn("filtered skill installs that include domain-planner", message)
 
 
 class InitSliceTests(unittest.TestCase):

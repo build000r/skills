@@ -698,6 +698,12 @@ python3 ~/.claude/skills/_shared/scripts/br_helpers.py ensure
 export BR_AGENT_NAME=domain-planner BR_HARNESS=claude-code BR_MODEL="$CLAUDE_MODEL"
 ```
 
+Install contract: filtered skill installs that include `domain-planner` must
+also ship the sibling `_shared/` bundle. Helper resolution prefers
+`<skills-root>/_shared/scripts` beside the resolved `domain-planner` skill and
+falls back to `~/.claude/skills/_shared/scripts`; if neither exists, the helper
+prints both expected locations and the install requirement.
+
 Mint the epic, then one child issue per executable concern:
 
 ```bash

@@ -129,10 +129,39 @@ def _normalize_config(raw: dict) -> dict:
     return config
 
 
+def _shared_scripts_candidates() -> list[Path]:
+    """Return supported locations for the shared Skillbox helper scripts."""
+    skill_dir = Path(__file__).resolve().parent.parent
+    return [
+        skill_dir.parent / "_shared" / "scripts",
+        Path.home() / ".claude" / "skills" / "_shared" / "scripts",
+    ]
+
+
+def _resolve_shared_scripts() -> Path | None:
+    """Find the shared helper scripts using the documented install contract."""
+    for candidate in _shared_scripts_candidates():
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _shared_scripts_install_guidance() -> str:
+    expected = "\n".join(f"       - {candidate}" for candidate in _shared_scripts_candidates())
+    return (
+        "Skillbox overlay config requires the shared helper bundle.\n"
+        "Expected _shared/scripts at one of:\n"
+        f"{expected}\n"
+        "Install contract: filtered skill installs that include domain-planner "
+        "must ship _shared alongside the skill root, or provide "
+        "~/.claude/skills/_shared as the fallback."
+    )
+
+
 def _try_overlay_context() -> dict | None:
     """Try loading config from skillbox client context.yaml."""
-    shared_scripts = Path(__file__).resolve().parent.parent.parent / "_shared" / "scripts"
-    if not shared_scripts.exists():
+    shared_scripts = _resolve_shared_scripts()
+    if shared_scripts is None:
         return None
     import sys as _sys
     _sys.path.insert(0, str(shared_scripts))
@@ -249,6 +278,8 @@ def load_config(config_path: str | None) -> dict:
         '      }\n'
         '    }\n'
         '  }\n'
+        "\n"
+        f"{_shared_scripts_install_guidance()}\n"
     )
 
 

@@ -214,6 +214,12 @@ When a skill that declares `requires_beads: true` runs in a repo:
 `scripts/br_helpers.py` (in this `_shared/scripts/` bundle) wraps all of the
 above. Skills should call it rather than re-implementing.
 
+Filtered installs that include a skill depending on these helpers must ship the
+sibling `_shared/` bundle with that skill root. Domain-planner helper resolution
+checks `<skills-root>/_shared/scripts` first and falls back to
+`~/.claude/skills/_shared/scripts`; if neither exists, it reports both expected
+locations and the install requirement.
+
 ## Related
 
 - Upstream: <https://github.com/Dicklesworthstone/beads_rust>

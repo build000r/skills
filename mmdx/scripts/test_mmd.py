@@ -1595,6 +1595,16 @@ flowchart TD
         urlopen.assert_not_called()
         self.assertIn("save requires --access-token", stderr.getvalue())
 
+    def test_missing_token_help_uses_buildooor_device_client_by_default(self) -> None:
+        with patch.dict(mmd.os.environ, {}, clear=True):
+            help_text = mmd.missing_token_help("save")
+
+        self.assertIn(
+            "spaps login --server-url https://api.sweetpotato.dev --client-id buildooor",
+            help_text,
+        )
+        self.assertIn("https://buildooor.com/auth/device?user_code=<code>", help_text)
+
     def test_publish_link_rejects_non_https_api_base_before_sending_token(self) -> None:
         with tempfile.NamedTemporaryFile("w", suffix=".mmd", delete=False) as handle:
             handle.write("flowchart TD\n  A --> B\n")

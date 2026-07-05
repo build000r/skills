@@ -36,11 +36,12 @@ DEFAULT_PUBLISH_TIMEOUT_SECONDS = 20.0
 DIAGRAMS_PRO_PRICE_DISPLAY = "$15/month"
 # SPAPS device-code auth (the flow that mints the bearer token `save`/`list`/
 # `publish-link` need). `--server-url` is the SPAPS API base the CLI polls;
-# the human approves at the Buildooor verifier URL. App slug must match the
-# `app_slug` posted by `save` so the minted token is scoped to the same app.
+# the human approves at the Buildooor verifier URL. The device-code client id
+# is the Buildooor public client; do not confuse it with app-link payload
+# metadata such as `"app_slug": "mmdx"`.
 DEFAULT_SPAPS_SERVER_URL = "https://api.sweetpotato.dev"
 SPAPS_DEVICE_VERIFIER_URL = "https://buildooor.com/auth/device"
-SPAPS_APP_SLUG = "mmdx"
+SPAPS_APP_SLUG = "buildooor"
 SCRIPT_DIR = Path(__file__).resolve().parent
 PARSER_SCRIPT = SCRIPT_DIR / "validate_mermaid.mjs"
 PARSER_PACKAGE = SCRIPT_DIR / "package.json"

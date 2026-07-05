@@ -20,7 +20,7 @@ python3 {{SKILL_DIR}}/scripts/mmd.py {{SKILL_DIR}}/examples/release-gantt-stack.
 python3 {{SKILL_DIR}}/../skill-issue/scripts/quick_validate.py {{SKILL_DIR}}
 ```
 
-For authored diagrams, validate or open the exact `.mmd`/`.mmdx` the user will consume and report the file path plus the durable diagram id/version id, generated URL, or live short link. Do not mark a durable private save complete unless `save` proves `latest_verification=OK` or the equivalent API response shows the latest `mmdx_text` matches the local source. Do not mark a publish-link task complete unless dry-run or live verification has proven the target username/slug and source hash.
+For authored diagrams, validate or open the exact `.mmd`/`.mmdx` the user will consume and report the file path plus the durable diagram id/version id, generated URL, or live short link. Do not mark a durable private save complete unless `save` proves `latest_verification=OK` or the equivalent API response shows the latest `mmdx_text` matches the local source. Do not mark a publish-link task complete unless dry-run or live verification has proven the target username/slug and source hash. A live short link is not proof that the diagram appears in the authenticated account gallery; only `save` creates or appends the durable "My Diagrams" record.
 
 ## Quick Start
 
@@ -138,24 +138,32 @@ python3 {{SKILL_DIR}}/scripts/mmd.py --decode 'https://mermaid.live/edit#pako:..
 
 Browser and agent auth are two entrances to the same protected MMDX persistence surface.
 
+- Operator account-save contract: for any owned/authenticated MMDX request,
+  the primary completion path is `mmd.py save`. `publish-link` creates or
+  refreshes a shareable short URL, but it does not populate the Buildooor
+  "My Diagrams" gallery and must not be used as the final artifact for "save
+  this to my account", "my mmdx", "owned diagram", project-status MMDX, or
+  similar requests.
 - Default durable-agent flow: when the user says "mmdx", "create a private mmdx",
   "update my mmdx", "owned mmdx", "on my buildooor account", or similar, do
   not stop at a pako URL. Author or patch the `.mmd`/`.mmdx`, run `mmd.py save`,
   and report the durable `diagram_id`, `version_id`, local source path, and
   verification result. Use pako-only output only when the user explicitly asks
-  for an ephemeral/open link, when auth/API prerequisites are unavailable, or
-  as a preview before the durable save.
+  for an ephemeral/open link, as a preview before the durable save, or in the
+  auth-failure recovery packet below.
 - Browser pako flow: open the generated `/diagrams#pako:...` URL, click the bottom MMDX `save` control for a durable private version, verify the email magic link if prompted, then return to `/diagrams`. The viewer preserves the pako state in the URL or `mmdxResume` localStorage fallback and resumes the pending save after auth.
 - Browser short-link flow: click the top-right `save` control when the user wants a shareable short link for the current pako state, not a private version history record.
 - Agent/CLI private-version flow: authenticate the operator or agent through the existing SPAPS device-code flow, then run `mmd.py save` to post the saved `.mmd`/`.mmdx` source to Buildooor's `/api/mmdx/diagrams` or `/api/mmdx/diagrams/:id/versions` API with the bearer token. Do not build a separate MMDX auth system or ask a browser user to run device-code auth.
 - Agent/CLI short-link flow: after editing a local `.mmd`/`.mmdx`, use
   `publish-link --create` to mint the first hosted short link or
-  `publish-link --username <owner> --slug <slug>` to republish an existing one.
-  First run the existing SPAPS device-code login (`spaps login --server-url
-  <spaps-api-base> --client-id <app-slug>`), then pass the stored token via
-  `--access-token-command "spaps token --server-url <spaps-api-base>"`. Direct
-  env alternatives are `BUILDOOOR_ACCESS_TOKEN`, `SPAPS_ACCESS_TOKEN`, or
-  `--access-token`.
+  `publish-link --username <owner> --slug <slug>` to republish an existing one
+  only when the requested artifact is the short link itself or the user
+  explicitly asks for a share URL in addition to the private save. First run the
+  existing SPAPS device-code login (`spaps login --server-url <spaps-api-base>
+  --client-id buildooor` unless the environment overrides it), then pass the
+  stored token via `--access-token-command "spaps token --server-url
+  <spaps-api-base>"`. Direct env alternatives are `BUILDOOOR_ACCESS_TOKEN`,
+  `SPAPS_ACCESS_TOKEN`, or `--access-token`.
 
 Important URL distinction for device-code auth:
 
@@ -168,7 +176,7 @@ check whether `BUILDOOOR_ACCESS_TOKEN`, `SPAPS_ACCESS_TOKEN`,
 `BUILDOOOR_ACCESS_TOKEN_COMMAND`, or `SPAPS_TOKEN_COMMAND` is available in the
 current shell. `mmd.py list` and `mmd.py publish-link` read those variables by
 default. When none is present, the CLI fails closed with an exact device-code
-mint recipe (`spaps login --server-url <resolved> --client-id mmdx`, the
+mint recipe (`spaps login --server-url <resolved> --client-id buildooor`, the
 verifier URL, and the `export`/`--access-token-command` forms) resolved from
 `MMDX_SPAPS_SERVER_URL` > `SPAPS_API_URL` > `NEXT_PUBLIC_SPAPS_API_URL`. Relay
 that recipe to the operator verbatim instead of hand-constructing the login.
@@ -290,17 +298,37 @@ Buildooor MMDX profile through the existing browser/device-code flow, then rerun
 the same `save` command. Do not replace a failed durable save with only a pako
 link unless the user approves the fallback.
 
+Auth-failure recovery packet: when `save` cannot run because auth is missing,
+expired, rejected, or pending human approval, return all of these in the handoff
+instead of substituting `publish-link`:
+
+- the local source path that still needs durable saving
+- an immediate pako preview URL or fragment generated from that source
+- the exact device-code login command, defaulting to
+  `spaps login --server-url https://api.sweetpotato.dev --client-id buildooor`
+  when no environment override is present
+- the Buildooor verifier URL and user code printed by the login command if the
+  agent started the device-code flow; otherwise show
+  `https://buildooor.com/auth/device?user_code=<code>` as the approval shape
+- the exact `mmd.py save ...` command to rerun after approval
+
 Auth failure map:
 
 - `list` or `save` returns `401`: the token command/env exists but the resolved
   bearer token is missing, expired, or not accepted for Buildooor MMDX. Do not
-  keep retrying `save`. Re-run the SPAPS/Buildooor login for the account, then
-  prove auth with `mmd.py list` before attempting the durable mutation again.
+  keep retrying `save`, and do not call `publish-link` a replacement success.
+  Generate the auth-failure recovery packet, re-run the SPAPS/Buildooor login
+  for the account, then prove auth with `mmd.py list` before attempting the
+  durable mutation again.
 - `MMDX_PROFILE_REQUIRED`: auth is accepted, but the Buildooor MMDX profile is
   not claimed for the account. Claim/repair the profile through the existing
   browser/device-code flow, then rerun `save`.
 - `MMDX_CHART_SLUG_TAKEN`: choose an existing owned diagram from `list` and
   append with `save --diagram-id`, or pick a new chart slug.
+
+Short-link publishing is not a durable gallery save. Use it after `save` only
+when the user also needs a public/share URL, or by itself only when the user
+asked specifically to update an existing short link.
 
 ```bash
 python3 {{SKILL_DIR}}/scripts/mmd.py publish-link path/to/file.mmdx \
@@ -819,7 +847,8 @@ Subcommands:
 - `delete`: delete an owned durable diagram; requires `--yes` and should only
   be used for explicit deletion requests.
 - `publish-link`: create or update a shareable short link. Use this only when
-  the target is a hosted short link, not the default private library save. Add
+  the target is a hosted short link, not the default private library save. It
+  does not create or update the authenticated account gallery entry. Add
   `--create` to mint the first short link, and add
   `--write-short-link-metadata` for local `.mmdx` files when the returned
   username/slug should be recorded in the header.

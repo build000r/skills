@@ -553,7 +553,7 @@ Do not replace this phase with in-process self-review.
      readme: "{plan_root}/{slice}/.apr-readme.md"  # docs/vision.md + README.md concatenated
      spec: "{plan_root}/{slice}/.apr-bundle.md"    # all slice files concatenated
    oracle:
-     model: gpt-5.5
+     model: gpt-5.6-sol
      thinking_time: heavy
    rounds:
      output_dir: ".apr/rounds/{slice}"
@@ -605,7 +605,7 @@ Do not replace this phase with in-process self-review.
 If `apr` is unavailable, launch a fresh reviewer through the active worker substrate. Use `/codex:rescue` when the `codex-plugin-cc` plugin is loaded:
 
 ```
-/codex:rescue --background --model gpt-5.5 --effort xhigh \
+/codex:rescue --background --model gpt-5.6-sol --effort medium \
   Review the {slice} plan files in {plan_root}/{slice}/ for architectural quality. \
   Focus on: API contract design, failure modes, entity relationships, missing edge cases, \
   and whether better patterns exist. Read all 6 plan files. \
@@ -717,7 +717,7 @@ python3 ~/.claude/skills/_shared/scripts/br_helpers.py mint-node \
   --writes 'src/domain/{slice}/**' --writes 'tests/{slice}/**' \
   --done-when '{binary completion check}' \
   --validate '{repo-native test command}' \
-  --model-route '{Codex gpt-5.5|Codex gpt-5.5 xhigh|Claude Opus 4.8|Grok Composer 2.5 task-runner|Grok dispatcher|Grok CLI sidecar}' \
+  --model-route '{Grok 4.5 NTM orchestrator|Codex gpt-5.6-sol medium|Codex gpt-5.6-sol max escalation|Codex gpt-5.6-terra ultra fallback|Grok 4.5 design/UX|Grok 4.5 task-runner|Grok dispatcher|Grok CLI sidecar}' \
   --risk {none|human|external} \
   --depends-on {parent-issue-id}  # repeat for each dependency
 ```
@@ -730,18 +730,24 @@ Rules per node:
 - `--done-when` becomes the issue's `acceptance_criteria` field
 - `--validate` lines become `notes` for the worker to run
 - `--model-route` is required before handoff:
-  - use `Codex gpt-5.5` for no-ragrets bead composition, domain-planner
-    follow-up, orchestration, system design, architecture, high-impact code,
-    integration, review, commit acceptance, and final-say nodes
-  - use `Claude Opus 4.8` for UI/UX, visual design, design systems, CSS/tokens,
-    screenshot parity, and fresh-eyes design review when available; use `Codex
-    gpt-5.5 xhigh` as the fallback if Opus is unavailable
-  - prefer `Grok Composer 2.5 task-runner` for bounded scripting, docs,
+  - use `Grok 4.5 NTM orchestrator` only for accepted-frontier dispatch,
+    tending, harvest, and convergence; it never edits this plan
+  - use `Codex gpt-5.6-sol medium` for ordinary no-ragrets bead composition, domain-planner
+    follow-up, decomposition/synthesis, system design, architecture,
+    high-impact code, integration review, commit acceptance, and final-say
+    nodes; use `Codex gpt-5.6-sol max escalation` for pivotal planning or when
+    another model is struggling; if SOL is unavailable use
+    `Codex gpt-5.6-terra ultra fallback`
+  - use `Grok 4.5 design/UX` for UI/UX, visual design, design systems,
+    CSS/tokens, screenshot parity, and fresh-eyes design review; use `Codex
+    gpt-5.6-sol max` for pivotal route-blocker triage; ordinary authority stays
+    on SOL medium
+  - prefer `Grok 4.5 task-runner` for bounded scripting, docs,
     fixtures, generated-command cleanup, classification artifacts,
     deterministic codemods, or `$commit` nodes with exact write scope or a
-    read-only artifact, validation, stop rules, Codex `gpt-5.5` final review,
-    and final authority; escalate to Codex if the runner stalls, drifts, or
-    cannot validate
+    read-only artifact, validation, stop rules, Codex `gpt-5.6-sol` final review,
+    and final authority (Terra ultra fallback when SOL is unavailable);
+    escalate to Codex if the runner stalls, drifts, or cannot validate
   - use `Grok dispatcher` or `Grok CLI sidecar` only for routing/preflight or
     read-only evidence artifacts
 - Status flows through `br update --claim` → `br update -s blocked` → `br close`
@@ -779,7 +785,7 @@ Handoff: "Ready to implement? Run `/divide-and-conquer` for the minted `{slice}`
 
 > **External review (optional):** Use `/codex:rescue` to get an independent second opinion after the quality loop passes:
 > ```
-> /codex:rescue --background --model gpt-5.5 --effort xhigh \
+> /codex:rescue --background --model gpt-5.6-sol --effort medium \
 >   Review the {slice_name} plan in {plan_root}/{slice_name}/ against \
 >   the rubric at ~/.claude/skills/domain-planner/references/plan-quality-rubric.md. \
 >   Score all 10 dimensions (10 pts each, 100 total). \

@@ -3,8 +3,13 @@
   "entry": "main",
   "shortLink": { "username": "buildooor", "slug": "skills-project-status" },
   "links": [
-    { "from": "main", "label": "Open proof status", "to": "proof-status", "title": "Open OSS skills proof status" },
+    { "from": "main", "label": "Open epic status", "to": "epic-gantt", "title": "Open OSS skills epic status" },
+    { "from": "main", "label": "Open epic map", "to": "epic-map", "title": "Open OSS skills epic dependency map" },
     { "from": "main", "label": "Open primary flows", "to": "primary-flows", "title": "Open OSS skills primary flows" },
+    { "from": "main", "label": "Open lifecycle", "to": "lifecycle", "title": "Open OSS skills invocation lifecycle" },
+    { "from": "main", "label": "Open architecture boundary", "to": "architecture-boundary", "title": "Open OSS skills architecture boundary" },
+    { "from": "main", "label": "Open proof status", "to": "proof-status", "title": "Open OSS skills proof status" },
+    { "from": "main", "label": "Open drift", "to": "drift", "title": "Open OSS skills docs-code-beads drift" },
     { "from": "main", "label": "Open next move", "to": "next-move", "title": "Open OSS skills next move" }
   ]
 }
@@ -13,84 +18,210 @@
 ## chart main OSS Skills Project Status Crux
 ```mermaid
 flowchart LR
-  vision["build000r skills: reusable public agent workflows"]:::gray
-  targeted["GREEN targeted pytest passed 70 tests"]:::green
-  dirty["YELLOW existing dirty br_helpers and mmdx edits need closeout: skills-portfolio-reality-idea-plan-zkd.8"]:::yellow
-  full["YELLOW full catalog validation and public-clone audit: skills-portfolio-reality-idea-plan-zkd.7"]:::yellow
-  perf["YELLOW validation packaging profiling: skills-portfolio-reality-idea-plan-zkd.9"]:::yellow
-  vision --> targeted --> full --> dirty
-  targeted --> perf
+  vision["build000r/skills: 44 reusable public agent workflows"]:::gray
+  catalog["GREEN 44 SKILL.md skills, 587 tests collect clean"]:::green
+  beads["GREEN Beads backlog clear: 52 of 52 closed, 0 open"]:::green
+  drift["RED 14 uncommitted skill edits, no covering bead"]:::red
+  fullrun["GRAY full make test / full-catalog validate not run this session (disk 94%)"]:::gray
+  next["Next move: land or bead the 14 dirty edits"]:::yellow
+  vision --> catalog --> beads
+  vision --> drift --> next
+  catalog --> fullrun
+  class catalog green
+  class beads green
+  class drift red
+  class fullrun gray
+  class next yellow
+  class vision gray
   classDef green fill:#dff7df,stroke:#20833a,stroke-width:2px,color:#0f2f18
   classDef yellow fill:#fff3bf,stroke:#b7791f,stroke-width:2px,color:#3a2a00
+  classDef red fill:#ffd6d6,stroke:#c53030,stroke-width:2px,color:#3a0505
   classDef gray fill:#eef2f7,stroke:#64748b,stroke-width:1px,color:#111827
 ```
 
 ## chart epic-gantt OSS Skills Epic Status
 ```mermaid
 gantt
-  title OSS skills status as of 2026-05-28
+  title OSS skills status as of 2026-07-05
   dateFormat YYYY-MM-DD
   section GREEN Proven
-  GREEN targeted br helpers and mmdx tests :done, 2026-05-28, 1d
-  section YELLOW Planned
-  YELLOW publish status zkd.6 :active, 2026-05-28, 1d
-  YELLOW full catalog audit zkd.7 :active, 2026-05-29, 2d
-  YELLOW dirty regression closeout zkd.8 :active, 2026-05-31, 2d
-  YELLOW profiling and helper refactor zkd.9 zkd.10 :active, 2026-06-02, 2d
+  GREEN 44-skill catalog present :done, 2026-05-01, 30d
+  GREEN 587 tests collect clean :done, 2026-07-05, 1d
+  GREEN Beads epics closed 52 of 52 :done, 2026-07-04, 1d
+  section RED No bead
+  RED 14 dirty skill edits uncommitted :crit, 2026-07-05, 1d
+  section GRAY Env-skipped
+  GRAY full make test not run disk 94 :active, 2026-07-05, 1d
 ```
 
 ## chart epic-map OSS Skills Dependency Map
 ```mermaid
 flowchart TD
-  readme["GREEN README defines skill monorepo"]:::green
-  tests["GREEN targeted pytest suite"]:::green
-  full["YELLOW full catalog validation zkd.7"]:::yellow
-  dirty["YELLOW portability runtime backlog depends on full audit zkd.8"]:::yellow
-  perf["YELLOW validation packaging install profiling zkd.9"]:::yellow
-  refactor["YELLOW br and MMDX helper refactor zkd.10"]:::yellow
-  readme --> tests --> full --> dirty
-  tests --> perf --> refactor
+  readme["GREEN README defines 44-skill monorepo"]:::green
+  tests["GREEN pytest suite 38 files 587 tests collect"]:::green
+  beads["GREEN Beads: all 52 issues closed, 0 open/in_progress"]:::green
+  validate["GREEN quick_validate passes on sampled skill"]:::green
+  fullcat["GRAY full-catalog quick_validate not run this session"]:::gray
+  clone["GRAY npx public-clone install not verifiable from box (was zkd.7, now closed)"]:::gray
+  drift["RED 14 uncommitted edits (dac, domain-planner, smart, prompt-reviewer, spaps-feedback) no bead"]:::red
+  readme --> tests --> validate --> fullcat
+  readme --> beads --> drift
+  validate --> clone
+  class readme green
+  class tests green
+  class beads green
+  class validate green
+  class fullcat gray
+  class clone gray
+  class drift red
   classDef green fill:#dff7df,stroke:#20833a,stroke-width:2px,color:#0f2f18
   classDef yellow fill:#fff3bf,stroke:#b7791f,stroke-width:2px,color:#3a2a00
+  classDef red fill:#ffd6d6,stroke:#c53030,stroke-width:2px,color:#3a0505
+  classDef gray fill:#eef2f7,stroke:#64748b,stroke-width:1px,color:#111827
 ```
 
 ## chart primary-flows OSS Skills Primary Flows
 ```mermaid
 flowchart TD
   agent["Agent or operator"]:::gray
-  catalog["GREEN discovers public skill catalog"]:::green
-  install["YELLOW public clone install and packaging audit zkd.7"]:::yellow
-  run["GREEN targeted MMDX and br helper tests"]:::green
-  closeout["YELLOW dirty portability closeout zkd.8"]:::yellow
-  agent --> catalog --> install --> run --> closeout
+  discover["GREEN discovers public skill catalog (44 skills)"]:::green
+  install["GRAY npx skills add build000r/skills (public clone not verifiable from box)"]:::gray
+  invoke["GREEN agent invokes skill, reads SKILL.md, runs helper scripts"]:::green
+  test["GRAY make test lane: 587 tests collect (full run env-skipped)"]:::gray
+  overlay["GREEN private skillbox client overlays for context-heavy skills"]:::green
+  agent --> discover --> install --> invoke
+  invoke --> test
+  invoke --> overlay
+  class discover green
+  class install gray
+  class invoke green
+  class test gray
+  class overlay green
+  class agent gray
   classDef green fill:#dff7df,stroke:#20833a,stroke-width:2px,color:#0f2f18
   classDef yellow fill:#fff3bf,stroke:#b7791f,stroke-width:2px,color:#3a2a00
+  classDef red fill:#ffd6d6,stroke:#c53030,stroke-width:2px,color:#3a0505
+  classDef gray fill:#eef2f7,stroke:#64748b,stroke-width:1px,color:#111827
+```
+
+## chart lifecycle OSS Skills Invocation Lifecycle
+```mermaid
+sequenceDiagram
+  participant A as Agent
+  participant H as Harness
+  participant S as SKILL.md
+  participant R as scripts refs assets
+  participant O as Skillbox overlay
+  A->>H: trigger matches skill description
+  H->>S: load SKILL.md workflow
+  S->>O: resolve private context if overlay present
+  S->>R: run deterministic helper scripts
+  R-->>A: structured output and artifacts
+  A->>S: follow validation and closeout steps
+  Note over S,R: GREEN path proven by 587 collected tests
+```
+
+## chart architecture-boundary OSS Skills Architecture Boundary
+```mermaid
+flowchart TD
+  subgraph public["GREEN Public core tracked reusable"]
+    skills["44 top-level SKILL.md workflows"]:::green
+    helpers["scripts refs assets app-backed helpers"]:::green
+    checks["make test coverage.xml crap lanes"]:::green
+  end
+  subgraph private["GREEN Private overlays local untracked"]
+    overlay["skillbox-config clients overlay.yaml"]:::green
+  end
+  subgraph external["GRAY External platforms"]
+    gh["GitHub build000r/skills npx install source"]:::gray
+    buildooor["buildooor MMDX account status publish"]:::gray
+    spaps["SPAPS api.sweetpotato.dev auth"]:::gray
+  end
+  skills --> helpers --> checks
+  skills --> overlay
+  skills --> gh
+  checks --> buildooor
+  buildooor --> spaps
+  class skills green
+  class helpers green
+  class checks green
+  class overlay green
+  class gh gray
+  class buildooor gray
+  class spaps gray
+  classDef green fill:#dff7df,stroke:#20833a,stroke-width:2px,color:#0f2f18
   classDef gray fill:#eef2f7,stroke:#64748b,stroke-width:1px,color:#111827
 ```
 
 ## chart proof-status OSS Skills Proof Status
 ```mermaid
 flowchart TD
-  read["GREEN AGENTS and README read"]:::green
-  tests["GREEN pytest _shared br helpers and mmdx test_mmd passed 70"]:::green
-  full["YELLOW full catalog quick validation not run zkd.7"]:::yellow
-  dirty["YELLOW existing dirty files preserved zkd.8"]:::yellow
-  perf["YELLOW no validation packaging timing baseline zkd.9"]:::yellow
-  read --> tests --> full --> dirty --> perf
+  read["GREEN AGENTS.md and README read"]:::green
+  collect["GREEN pytest collect-only 587 tests 38 files clean"]:::green
+  validate["GREEN quick_validate.py sampled skill valid"]:::green
+  beads["GREEN Beads clean 0 open 52 closed"]:::green
+  fullrun["GRAY full make test not executed disk 94% no installs"]:::gray
+  fullcat["GRAY full-catalog quick_validate not executed this session"]:::gray
+  clone["GRAY public npx clone install not verifiable from box"]:::gray
+  drift["RED 14 uncommitted skill edits unproven and no bead"]:::red
+  read --> collect --> validate --> beads
+  collect --> fullrun
+  validate --> fullcat
+  validate --> clone
+  beads --> drift
+  class read green
+  class collect green
+  class validate green
+  class beads green
+  class fullrun gray
+  class fullcat gray
+  class clone gray
+  class drift red
   classDef green fill:#dff7df,stroke:#20833a,stroke-width:2px,color:#0f2f18
   classDef yellow fill:#fff3bf,stroke:#b7791f,stroke-width:2px,color:#3a2a00
+  classDef red fill:#ffd6d6,stroke:#c53030,stroke-width:2px,color:#3a0505
+  classDef gray fill:#eef2f7,stroke:#64748b,stroke-width:1px,color:#111827
+```
+
+## chart drift OSS Skills Docs-Code-Beads Drift
+```mermaid
+flowchart TD
+  code["Working tree 14 modified files"]:::red
+  beadsref["Beads 0 open 0 in_progress"]:::green
+  docs["README badge 44 skills matches on-disk count"]:::green
+  gap["RED dirty edits in dac domain-planner smart prompt-reviewer spaps-feedback with NO covering bead"]:::red
+  artifacts["GRAY committed .coverage and coverage.xml artifacts in tree"]:::gray
+  code --> gap
+  beadsref --> gap
+  docs --> beadsref
+  gap --> artifacts
+  class code red
+  class beadsref green
+  class docs green
+  class gap red
+  class artifacts gray
+  classDef green fill:#dff7df,stroke:#20833a,stroke-width:2px,color:#0f2f18
+  classDef yellow fill:#fff3bf,stroke:#b7791f,stroke-width:2px,color:#3a2a00
+  classDef red fill:#ffd6d6,stroke:#c53030,stroke-width:2px,color:#3a0505
+  classDef gray fill:#eef2f7,stroke:#64748b,stroke-width:1px,color:#111827
 ```
 
 ## chart next-move OSS Skills Next Move
 ```mermaid
 flowchart TD
-  rank["Power-map: customer is agent user needing reusable reliable workflows"]:::gray
-  one["1 run full catalog public-clone audit zkd.7"]:::yellow
-  two["2 close dirty portability regression backlog zkd.8"]:::yellow
-  three["3 profile validation packaging install paths zkd.9"]:::yellow
-  four["4 refactor br and MMDX helpers with goldens zkd.10"]:::yellow
+  rank["Power-map customer is agent user needing reliable reusable workflows"]:::gray
+  one["1 RED-action review the 14 dirty edits land or file a bead to cover them"]:::red
+  two["2 run full make test once disk headroom allows currently 94%"]:::gray
+  three["3 run full-catalog quick_validate across all 44 skills"]:::gray
+  four["4 publish status stack once SPAPS re-auth spaps login --server-url https://api.sweetpotato.dev"]:::gray
   rank --> one --> two --> three --> four
+  class rank gray
+  class one red
+  class two gray
+  class three gray
+  class four gray
+  classDef green fill:#dff7df,stroke:#20833a,stroke-width:2px,color:#0f2f18
   classDef yellow fill:#fff3bf,stroke:#b7791f,stroke-width:2px,color:#3a2a00
+  classDef red fill:#ffd6d6,stroke:#c53030,stroke-width:2px,color:#3a0505
   classDef gray fill:#eef2f7,stroke:#64748b,stroke-width:1px,color:#111827
 ```
-

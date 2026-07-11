@@ -126,23 +126,29 @@ When `/divide-and-conquer` selects Codex as the worker transport and the
 instead of shelling out to Python scripts:
 
 ```
-# Audit worker (xhigh for thorough review)
-/codex:rescue --model gpt-5.5 --effort xhigh \
+# Audit worker (SOL medium by default)
+/codex:rescue --model gpt-5.6-sol --effort medium \
   Audit the {slice} slice implementation against its plan. \
   {paste constructed worker prompt from codex-mcp-orchestration-template.md}
 
-# Fix workers (xhigh effort for bounded implementation)
-/codex:rescue --model gpt-5.5 --effort xhigh \
+# Fix workers (SOL medium by default)
+/codex:rescue --model gpt-5.6-sol --effort medium \
   Apply backend fixes for {slice} from handoff block: \
   {paste backend handoff block from AUDIT_REPORT.md}
 
-# Re-review worker (xhigh for thorough re-assessment)
-/codex:rescue --model gpt-5.5 --effort xhigh \
+# Re-review worker (SOL medium by default)
+/codex:rescue --model gpt-5.6-sol --effort medium \
   Re-review the {slice} slice after fixes (re-review #{iteration}). \
   {paste constructed re-review prompt}
 ```
 
 Add `--background` when running fix workers in parallel or when the orchestrator can continue productively.
+
+If `gpt-5.6-sol` is unavailable, rerun the same planning/review/authority worker
+with `--model gpt-5.6-terra --effort ultra`. Do not hand that judgment to the
+Grok runtime orchestrator; Grok coordinates the worker and consumes its result.
+If the work is pivotal/high-consequence or another model has struggled, keep
+SOL and rerun at `--effort max`; difficulty does not select Terra.
 
 The `launch_codex_worker.py` and `run_codex_audit_loop.py` scripts remain
 available as standalone worker transports for environments without the plugin.

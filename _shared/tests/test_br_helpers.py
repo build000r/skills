@@ -323,7 +323,7 @@ class BrHelpersTests(unittest.TestCase):
                 writes=["src/**"],
                 done_when="Done",
                 validate=["pytest"],
-                model_route="Codex gpt-5.5",
+                model_route="Codex gpt-5.6-sol",
                 repo_path="/repo",
                 branch="main",
                 run_dir="/run",
@@ -337,7 +337,7 @@ class BrHelpersTests(unittest.TestCase):
         self.assertIn("--description", update_args)
         self.assertIn("global_constraints:\n  - No push", update_args[update_args.index("--design") + 1])
         notes = update_args[update_args.index("--notes") + 1]
-        self.assertIn("model_route: Codex gpt-5.5", notes)
+        self.assertIn("model_route: Codex gpt-5.6-sol", notes)
         self.assertIn("repo_path: /repo", notes)
         self.assertIn("branch: main", notes)
         self.assertIn("run_dir: /run", notes)

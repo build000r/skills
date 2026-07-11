@@ -2,7 +2,7 @@
 """
 Critical review of a domain plan before sign-off.
 
-Launches a Codex worker (gpt-5.5, xhigh reasoning) to review all 6 plan
+Launches a Codex worker (gpt-5.6-sol, medium reasoning by default) to review all 6 plan
 files against the plan quality rubric, sibling slices, and mode context.
 Produces a REVIEW.md with per-dimension scores, concerns, and suggested upgrades.
 
@@ -14,7 +14,10 @@ Usage:
     python3 scripts/review_plan.py --slice agent_billing --execute
 
     # Override model/effort
-    python3 scripts/review_plan.py --slice agent_billing --execute --model gpt-5.5 --reasoning-effort xhigh
+    python3 scripts/review_plan.py --slice agent_billing --execute --model gpt-5.6-sol --reasoning-effort medium
+
+    # SOL-unavailable fallback
+    python3 scripts/review_plan.py --slice agent_billing --execute --model gpt-5.6-terra --reasoning-effort ultra
 """
 
 from __future__ import annotations
@@ -31,8 +34,8 @@ from textwrap import dedent
 
 DEFAULT_PLAN_ROOT = None  # Set via --plan-root or mode config (plan_root)
 DEFAULT_PLAN_INDEX = None  # Set via --plan-index or mode config (plan_index)
-DEFAULT_MODEL = "gpt-5.5"
-DEFAULT_REASONING_EFFORT = "xhigh"
+DEFAULT_MODEL = "gpt-5.6-sol"
+DEFAULT_REASONING_EFFORT = "medium"
 
 PLAN_FILES = ["plan.md", "shared.md", "backend.md", "frontend.md", "flows.md", "schema.mmd"]
 
@@ -277,7 +280,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--reasoning-effort",
         default=DEFAULT_REASONING_EFFORT,
-        choices=["minimal", "low", "medium", "high", "xhigh"],
+        choices=["minimal", "low", "medium", "high", "xhigh", "max", "ultra"],
         help=f"Reasoning effort (default: {DEFAULT_REASONING_EFFORT})",
     )
     parser.add_argument("--log-dir", default=None, help="Directory for log files")

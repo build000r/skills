@@ -45,7 +45,7 @@ When `/divide-and-conquer` selects Codex as the worker transport and the
 `codex-plugin-cc` plugin is loaded, delegate the assessor prompt to Codex:
 
 ```
-/codex:rescue --model gpt-5.5 --effort xhigh \
+/codex:rescue --model gpt-5.6-sol --effort medium \
   Assess the {slice} plan against the plan quality rubric. \
   Read the rubric: {skill_root}/references/plan-quality-rubric.md \
   Read all 6 plan files in {plan_dir}/. \
@@ -55,6 +55,13 @@ When `/divide-and-conquer` selects Codex as the worker transport and the
   Rules: be adversarial, cite specific files, include actionable fix instructions, \
   only deduct for rubric violations.
 ```
+
+If GPT-5.6 SOL is unavailable, rerun the same assessor with
+`--model gpt-5.6-terra --effort ultra`. The Grok 4.5 NTM controller may launch
+and tend this assessor but never substitutes its own planning judgment.
+SOL uses `medium` by default. For pivotal/high-consequence planning or after
+another model has struggled, rerun SOL with `--effort max`; do not select Terra
+for difficulty alone.
 
 Add `--background` if the selected transport supports it, then retrieve the
 assessment through that transport. Parse the score and issues table the same as

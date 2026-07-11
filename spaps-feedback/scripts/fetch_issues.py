@@ -166,9 +166,13 @@ def build_sql(args: argparse.Namespace, db: dict[str, Any]) -> str:
 
 
 def run_psql(db: dict[str, Any], sql: str) -> list[dict[str, Any]]:
+    # Wrap the row query in json_agg so psql emits one JSON document.
+    # A field-separator protocol breaks on non-bash container shells
+    # (dash mangles $'\x1f') and on multi-line note text; JSON does not.
+    json_sql = f"SELECT COALESCE(json_agg(t), '[]'::json) FROM ({sql.rstrip(';')}) t;"
     psql_cmd = (
         f"psql -U {shlex.quote(db['user'])} -d {shlex.quote(db['database'])} "
-        f"-At -F $'\\x1f' -c {shlex.quote(sql)}"
+        f"-Atq -c {shlex.quote(json_sql)}"
     )
     docker_cmd = f"docker exec {shlex.quote(db['container'])} sh -c {shlex.quote(psql_cmd)}"
     ssh_cmd = ["ssh", db["droplet_ssh"], docker_cmd]
@@ -176,21 +180,12 @@ def run_psql(db: dict[str, Any], sql: str) -> list[dict[str, Any]]:
         out = subprocess.check_output(ssh_cmd, stderr=subprocess.PIPE, text=True)
     except subprocess.CalledProcessError as e:
         die(f"ssh/psql failed: {e.stderr.strip()}", code=3)
-    rows: list[dict[str, Any]] = []
-    for line in out.splitlines():
-        if not line.strip():
-            continue
-        parts = line.split("\x1f")
-        if len(parts) != len(ALLOWED_COLUMNS):
-            continue
-        row = dict(zip(ALLOWED_COLUMNS, parts))
-        # target_metadata comes back as JSON text; try to parse
-        if row.get("target_metadata"):
-            try:
-                row["target_metadata"] = json.loads(row["target_metadata"])
-            except json.JSONDecodeError:
-                pass
-        rows.append(row)
+    try:
+        rows = json.loads(out.strip() or "[]")
+    except json.JSONDecodeError:
+        die(f"unexpected psql output (not JSON): {out[:200]!r}", code=3)
+    if not isinstance(rows, list):
+        die(f"unexpected psql JSON shape: {type(rows).__name__}", code=3)
     return rows
 
 

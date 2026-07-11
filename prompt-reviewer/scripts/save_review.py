@@ -7,7 +7,7 @@ Usage:
     --clarity 2.5 --context 2.0 --autonomy 1.5 --constraints 1.0 \
     --checkpoints 1.5 --followup 2.0 --collaboration 2.5 \
     --adaptability 1.5 --outcome 2.5 \
-    [--source both] [--provider claude] [--model opus] [--project /path/to/project] \
+    [--source both] [--provider claude] [--model fable-high] [--project /path/to/project] \
     [--improvements 'JSON'] [--strengths 'JSON'] \
     [--week 2025-W36]
 
@@ -51,7 +51,7 @@ def main():
     parser.add_argument("--provider", default=None,
                         help="Provider/tool: claude, codex, amp, opencode, other")
     parser.add_argument("--model", default=None,
-                        help="Model used: opus, sonnet, gpt-4o, etc.")
+                        help="Model used: fable-high, sonnet, gpt-4o, etc.")
     parser.add_argument("--project", default=None, help="Project path if filtered")
     parser.add_argument("--improvements", default=None,
                         help="JSON array of top improvements: [{axis, score, tip, example}]")

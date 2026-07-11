@@ -54,7 +54,7 @@ python3 ~/.claude/skills/_shared/scripts/br_helpers.py mint-node \
   --writes 'src/domain/**' \
   --done-when 'Binary completion check' \
   --validate 'Concrete validation command' \
-  --model-route 'Codex gpt-5.5' \
+  --model-route 'Codex gpt-5.6-sol medium' \
   --repo-path "$PWD" \
   --branch "$(git rev-parse --abbrev-ref HEAD 2>/dev/null || git rev-parse --short HEAD)" \
   --run-dir "$run_dir" \
@@ -82,22 +82,31 @@ Rules per node:
   node is not ready
 - Set `--model-route`, `--repo-path`, `--branch`, and `--run-dir` before dispatch so
   `br_helpers.py hydrate-node` can prove the node is dispatch-ready
-- Route no-ragrets bead composition, domain-planner sessions, orchestration,
-  subgoal controllers, system design, impactful execution, integration review,
-  commit acceptance, and final-say nodes to `--model-route 'Codex gpt-5.5'`.
+- Route runtime root/subgoal controller loops to
+  `--model-route 'Grok 4.5 NTM orchestrator'`; they may dispatch and tend only
+  accepted, hydrated leaves and must escalate planning.
+- Route no-ragrets bead composition, decomposition/synthesis, domain-planner
+  sessions, system design, impactful execution, integration review, commit
+  acceptance, and final-say nodes to
+  `--model-route 'Codex gpt-5.6-sol medium'` by default. Use
+  `--model-route 'Codex gpt-5.6-sol max escalation'` for pivotal planning or
+  when another model is demonstrably struggling.
+  If SOL is unavailable, use
+  `--model-route 'Codex gpt-5.6-terra ultra fallback'` for those same roles.
 - Route design work, UI/UX, visual systems, CSS/tokens, screenshot parity, and
-  design/fresh-eyes review to `--model-route 'Claude Opus 4.8'` when available;
-  use `--model-route 'Codex gpt-5.5 xhigh'` as the fallback when Opus is
-  unavailable.
+  design/fresh-eyes review to `--model-route 'Grok 4.5 design/UX'`. If the Grok
+  4.5 design route is unavailable, record the route blocker; use
+  `--model-route 'Codex gpt-5.6-sol max escalation'` only for pivotal authority
+  or explicit failed-model triage.
 - Use `--model-route 'Grok dispatcher'` only for read-only router/preflight
   nodes such as cwd selection, skill-tag extraction, cleaned-request drafting,
   and broad evidence bucketing.
 - Use `--model-route 'Grok CLI sidecar'` for Grok-authored read-only evidence
   artifacts that a stronger model will verify.
-- Prefer `--model-route 'Grok Composer 2.5 task-runner'` for narrow writer,
+- Prefer `--model-route 'Grok 4.5 task-runner'` for narrow writer,
   scripting, fixture/docs, generated-command cleanup, classification, or
   `$commit` nodes when the Bead names exact writes or a read-only artifact,
-  validation, review owner, final authority, and stop rules. Codex `gpt-5.5`
+  validation, review owner, final authority, and stop rules. Codex `gpt-5.6-sol`
   keeps final acceptance authority and owns escalation when Composer stalls,
   drifts, or cannot validate.
 - Read-only nodes: omit `--writes` entirely
@@ -145,7 +154,7 @@ python3 ~/.claude/skills/_shared/scripts/br_helpers.py mint-node \
   --writes 'backend/auth/**' \
   --done-when 'Auth sessions are validated and tested' \
   --validate 'pytest tests/auth -q' \
-  --model-route 'Codex gpt-5.5' \
+  --model-route 'Codex gpt-5.6-sol medium' \
   --repo-path "$PWD" --branch "$(git rev-parse --abbrev-ref HEAD)" \
   --run-dir "$run_dir/subgoals/auth" \
   --expected-assignee 'dac-auth-worker-001' \
@@ -200,12 +209,15 @@ The minimum Beads-backed node brief must carry:
 - run directory path (for the `WG-*_RESULT.md` artifact)
 - the node's concern, depends_on, writes, done_when, validate, risk_gate
 - attribution preamble: `export BR_AGENT_NAME=… BR_HARNESS=… BR_MODEL=…`
-- model route: Codex gpt-5.5 for orchestration, no-ragrets bead composition,
-  domain-planner sessions, system design, impactful execution, integration
-  review, commit acceptance, and final say; Claude Opus 4.8 for design-related
-  nodes, with Codex gpt-5.5 xhigh as the fallback when Opus is unavailable;
+- model route: Grok 4.5 NTM orchestrator for frontier/dispatch/tending/harvest
+  only; Codex gpt-5.6-sol for planning, no-ragrets bead composition,
+  decomposition/synthesis, domain-planner sessions, system design, impactful
+  execution, integration review, commit acceptance, and final say, with Codex
+  gpt-5.6-terra ultra as the SOL-unavailable fallback; Grok 4.5 design/UX for design-related
+  nodes, with Codex gpt-5.6-sol medium as the default and SOL max reserved for
+  pivotal planning or explicit failed-model triage;
   Grok dispatcher for read-only router/preflight nodes; Grok CLI sidecar
-  for read-only evidence artifacts; Grok Composer 2.5 task-runner for narrow
+  for read-only evidence artifacts; Grok 4.5 task-runner for narrow
   scripting, docs/fixtures, or commit batching with stronger-model review
 - verified claim state: the lead must have run `br update <id> --claim` for
   the assigned worker, and the worker must verify `br show <id>` reports

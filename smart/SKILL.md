@@ -47,10 +47,14 @@ until then, activate individual skills through `sbp`.
 
 Any swarm or NTM-coordinated work must route through `vibing-with-ntm`. Any
 large-ish, UI-facing, multi-file, naturally parallel, or review-sensitive task
-must route through `divide-and-conquer` before parallel execution. For UI work or
-ambiguous review-heavy work, include Claude Opus 4.8 in the worker or reviewer
-mix when the runtime exposes model choice; if Opus is unavailable, require Codex
-`gpt-5.5` with `xhigh` as the fallback reviewer and record that fallback.
+must route through `divide-and-conquer` before parallel execution. For UI,
+design/UX, visual, or ambiguous review-heavy work, include Grok 4.5 design/UX
+in the worker or reviewer mix. Use Grok 4.5 as the NTM runtime orchestrator,
+but keep this skill's goal selection, no-ragrets planning, decomposition,
+architecture, route-blocker review, and final authority on Codex
+`gpt-5.6-sol` with `medium` by default. Use SOL `max` for pivotal planning or
+when another model is struggling; if SOL is unavailable, use Codex
+`gpt-5.6-terra` with `ultra` for those same authority roles.
 Require a final fresh-eyes reviewer pass before completion.
 
 `smart` chooses the next move; `divide-and-conquer` turns substantial execution
@@ -341,14 +345,16 @@ For every `/smart` invocation:
   implementation slice that benefits from a Beads-backed ready frontier.
 - Use `vibing-with-ntm` for every swarm or NTM-coordinated run, including
   divide-and-conquer execution, operator tending, review loops, and transport
-  recovery.
+  recovery. The live NTM controller is Grok 4.5 and must escalate planning.
 - Use `ntm` directly only when orchestration itself is the task. For ordinary
   execution waves, route through `/divide-and-conquer` so Beads remain
   authoritative.
-- Include Claude Opus 4.8 for UI or ambiguous review-heavy work when available;
-  use Codex `gpt-5.5` xhigh if Opus is unavailable, and do not call the loop
-  complete until a fresh-eyes reviewer pass has checked the final diff and
-  validation evidence.
+- Include Grok 4.5 design/UX for UI, visual, design/UX, or ambiguous
+  review-heavy work; use Codex `gpt-5.6-sol` medium for ordinary authority and
+  SOL max for pivotal planning or failed-model escalation, falling back to
+  Codex `gpt-5.6-terra` ultra only when SOL is
+  unavailable, and do not call the loop complete until a fresh-eyes reviewer
+  pass has checked the final diff and validation evidence.
 - Do not recurse lazily by repeatedly wrapping `/smart` around itself with no new artifact or verification. Each loop must either sharpen the goal, produce a concrete repo or artifact delta, route an unresolved question, or prove that the success criteria have been met.
 
 ### Completion Gate

@@ -50,7 +50,7 @@ Context that affects scoring expectations:
 - **Experience level**: junior | mixed | senior
 - **Typical task complexity**: simple fixes | feature work | architecture | mixed
 - **Primary tools**: Claude Code | Codex | AMP | OpenCode | mixed
-- **Model usage**: opus | sonnet | haiku | mixed
+- **Model usage**: fable-high | sonnet | haiku | mixed
 - **Shared context level**: high (same codebase daily) | low (diverse projects)
 
 ## Output Preferences

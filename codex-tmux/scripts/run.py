@@ -28,7 +28,7 @@ Usage:
     # Set explicit model/effort/prefix
     python3 scripts/run.py launch \
         --task "..." --cd ~/repos/myapp \
-        --prefix dac-review --model gpt-5.5 --reasoning-effort xhigh
+        --prefix dac-review --model gpt-5.6-sol --reasoning-effort medium
 """
 
 from __future__ import annotations
@@ -42,14 +42,15 @@ from datetime import datetime
 from pathlib import Path
 from textwrap import dedent
 
-DEFAULT_MODEL = "gpt-5.5"
+DEFAULT_MODEL = "gpt-5.6-sol"
 ALLOWED_MODELS = [
     DEFAULT_MODEL,
+    "gpt-5.6-terra",
     "gpt-5.4",
     "gpt-5.4-mini",
     "codex-mini-latest",
 ]
-DEFAULT_REASONING_EFFORT = "high"
+DEFAULT_REASONING_EFFORT = "medium"
 DEFAULT_RESULT_DIR = Path("/tmp/codex-tmux")
 DEFAULT_PREFIX = "codex"
 
@@ -415,7 +416,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
                               f"allowed: {', '.join(ALLOWED_MODELS)})"
                           ))
     p_launch.add_argument("--reasoning-effort", default=DEFAULT_REASONING_EFFORT,
-                          choices=["medium", "high", "xhigh"],
+                          choices=["medium", "high", "xhigh", "max", "ultra"],
                           help="Reasoning effort (prefer higher tiers; when unsure, pick the next higher tier)")
     p_launch.add_argument("--codex-bin", default="codex")
 

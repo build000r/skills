@@ -71,5 +71,7 @@ For each design-related node or final visual review:
   rerun validation/screenshots, and restart the consecutive-review count at
   zero.
 
-Use the normal design route for this lane: Claude Fable high when available,
-with Codex `gpt-5.5` xhigh as the recorded fallback.
+Use the normal design route for this lane: Grok 4.5 design/UX, with Codex
+`gpt-5.6-sol` medium for ordinary authority and max reserved for pivotal
+planning or explicit failed-model triage. Terra ultra applies only when SOL is
+unavailable.

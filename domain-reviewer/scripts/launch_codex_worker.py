@@ -29,8 +29,8 @@ DEFAULT_SESSION_PLAN_INDEX = None  # Set via --session-plan-index or mode config
 
 # Default model + reasoning effort per worker type.
 # Override with --model and/or --reasoning-effort on the CLI.
-DEFAULT_MODEL = "gpt-5.5"
-DEFAULT_REASONING_EFFORT = "xhigh"
+DEFAULT_MODEL = "gpt-5.6-sol"
+DEFAULT_REASONING_EFFORT = "medium"
 WORKER_DEFAULTS: dict[str, dict[str, str]] = {
     "audit":        {"model": DEFAULT_MODEL, "reasoning_effort": DEFAULT_REASONING_EFFORT},
     "re-review":    {"model": DEFAULT_MODEL, "reasoning_effort": DEFAULT_REASONING_EFFORT},
@@ -597,7 +597,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--reasoning-effort",
         default=None,
-        choices=["minimal", "low", "medium", "high", "xhigh"],
+        choices=["minimal", "low", "medium", "high", "xhigh", "max", "ultra"],
         help="Override reasoning effort (default: per-worker tier, see WORKER_DEFAULTS)",
     )
     parser.add_argument("--log-dir", default=None, help="Directory for worker log files (default: /tmp/domain-reviewer-logs)")

@@ -1,27 +1,28 @@
 # Grok Sidecar Task Selection
 
-Use this reference when a divide-and-conquer run can use Grok or Composer 2.5
+Use this reference when a divide-and-conquer run can use Grok 4.5
 as a bounded task runner without turning that lane into an unsupervised
 implementation or review owner.
 
 ## Default Posture
 
-Grok/Composer is a task-runner lane, not an authority lane. Route it through the
+Grok 4.5 is a task-runner lane, not an authority lane. Route it through the
 NTM Grok plugin when interactive pane preflight passes; otherwise use the shared
 dispatcher, a Swimmers hidden session, a direct headless prompt-file one-shot,
-or the locally configured Composer 2.5 task-runner lane. Reconcile all output
+or the locally configured Grok 4.5 task-runner lane. Reconcile all output
 through Beads and the normal result artifact.
 
-Prefer Grok/Composer when the work is cheap to verify, read-only by default or
+Prefer Grok 4.5 when the work is cheap to verify, read-only by default or
 scoped to exact files, and useful even when the output is only a rough first
-pass. Composer 2.5 is the preferred runner for narrow writer tasks when the
+pass. Grok 4.5 is the preferred runner for narrow writer tasks when the
 Bead names exact files, validation, stop rules, a stronger-model review owner,
-and final authority. Avoid Grok/Composer when the work needs trusted final
-judgment, secret-bearing access, UI taste, broad writes, or architecture
+and final authority. Avoid Grok 4.5 when the work needs trusted final
+judgment, secret-bearing access, broad writes, or architecture authority. Use
+the dedicated Grok 4.5 design/UX route for UI taste, visual parity, interaction
+copy, and design-system review, with Codex retaining final acceptance
 authority. If the runner stalls, produces no artifact, fails validation, edits
-outside scope, or asks for a decision it does not own, escalate to Codex
-`gpt-5.5` xhigh or Claude Opus 4.8 for design work instead of retrying
-indefinitely.
+outside scope, or asks for a decision it does not own, escalate authority
+questions to Codex `gpt-5.6-sol` max instead of retrying indefinitely.
 
 ## Good Grok Work
 
@@ -43,7 +44,7 @@ These tasks are good default sidecar candidates:
 - generated-command cleanup or deterministic codemods with a tiny revert path
 - `$commit` / logical commit batching when the Bead names the intended scope,
   leave-list, no-wildcard staging rules, privacy scan, validation commands, and
-  Codex `gpt-5.5` final acceptance owner
+  Codex `gpt-5.6-sol` final acceptance owner
 
 Good signs:
 
@@ -88,14 +89,14 @@ Use these tiers when deciding how much autonomy to give Grok:
 | --- | --- | --- | --- |
 | G0 router | cwd, skill tags, prompt cleanup | read-only, no tools beyond search | lead inspects output before dispatch |
 | G1 evidence sidecar | inventories, doc audits, candidate file lists | read-only shell/search | artifact plus reproducible commands |
-| G2 task-runner | mechanical scripts, docs, fixtures, deterministic codemods, commit batching | explicit write scope only | diff/commit plan reviewed by Codex gpt-5.5 and validation rerun |
-| G3 never | secrets, deploys, final review, architecture, UI taste | none | route to Codex gpt-5.5 xhigh or Claude Opus 4.8 for design |
+| G2 task-runner | mechanical scripts, docs, fixtures, deterministic codemods, commit batching | explicit write scope only | diff/commit plan reviewed by Codex gpt-5.6-sol and validation rerun |
+| G3 never | secrets, deploys, final authority, architecture | none | route ordinary authority to Codex gpt-5.6-sol medium and pivotal/failed-model escalation to SOL max; route UI/UX and visual review to Grok 4.5 design/UX |
 
 Default fuzzy or exploratory work to G0/G1. When a Bead is already clear and
-task-runner safe, default that execution node to G2 Composer 2.5 rather than a
+task-runner safe, default that execution node to Grok 4.5 rather than a
 smarter model doing clerk work. G2 requires exact files, an easy revert path,
-deterministic validation, stop rules, and Codex `gpt-5.5` review before final
-acceptance. A G2 `$commit` node may create the commit, but Codex `gpt-5.5` still
+deterministic validation, stop rules, and Codex `gpt-5.6-sol` review before final
+acceptance. A G2 `$commit` node may create the commit, but Codex `gpt-5.6-sol` still
 owns the final review and any amend/follow-up decision.
 
 ## CASS Search Recipes
@@ -278,9 +279,9 @@ CLI-invocation gotcha worth remembering (cost ~4 retries this session):
 ## Current Routing Notes
 
 When a live run has multiple NTM panes writing in the same git worktree, do not
-use Grok/Composer as an implementation or integration sidecar for broad code
+use Grok 4.5 as an implementation or integration sidecar for broad code
 changes. The useful Grok lane in that situation is G0/G1, plus preferred G2
-task-runner nodes when Beads prove non-overlapping writes and a Codex `gpt-5.5`
+task-runner nodes when Beads prove non-overlapping writes and a Codex `gpt-5.6-sol`
 review node owns acceptance. Examples: clean up dispatch prompts, identify
 likely write-overlap risks from Beads metadata, produce a read-only evidence
 inventory, write a bounded helper script, classify a bounded repo set into a
@@ -318,13 +319,15 @@ treat Grok output as advisory evidence and keep the owning Beads node open.
 
 ## Observed Outcomes Log
 
-A running log of real Grok Composer 2.5 sidecar runs so future rounds calibrate
+A running log of real Grok 4.5 sidecar runs so future rounds calibrate
 task selection by evidence, not vibes. Append newest entries last. Each entry:
 date, task class + leeway tier, prompt shape, outcome, and a CASS hook to find
 the run. The lead always re-verifies independently — these "PASS" marks are
 lead-verified, not Grok self-reports.
 
-### 2026-06-13 — sbp epic divide-and-conquer round (Opus 4.8 lead + Grok sidecars)
+### 2026-06-13 — sbp epic divide-and-conquer round (legacy Claude lead + Grok sidecars)
+
+> **Note (2026-07):** This entry records a historical run. Current Grok CLI default model is `grok-4.5` (replaces `grok-composer-2.5-fast`).
 
 Two **G2 commit-runner** tasks, both clean PASS:
 
@@ -354,7 +357,7 @@ Two **G2 commit-runner** tasks, both clean PASS:
   runs the commit; the lead owns correctness and acceptance.
 
 **Leeway update:** two clean runs (incl. a 60-dirty-path minefield) → Grok
-Composer 2.5 is reliable for **G2 `$commit` / commit-batching** when the prompt
+Grok 4.5 is reliable for **G2 `$commit` / commit-batching** when the prompt
 names the exact paths, the no-wildcard rules, and the leave-list, and the lead
 pre-validates the diff. Keep it **G3 (never)** for: deciding WHAT to commit,
 judging whether a diff is correct, push/amend, or any commit whose scope is
@@ -374,9 +377,11 @@ cass search "grok sidecar baseline commit minefield dirty paths leave-list" --ro
 cass search "grok prompt-file always-approve dcg fwc MCP spawn failed shell ok" --robot --limit 10 --days 30
 ```
 
-**Update (same session, +3 more clean runs → 5 total, 0 failures):** grok also cleanly executed (3) a **2-commit split** and (4) a **3-commit split** from a single multi-file diff, plus (5) another 2-commit opensource split — each commit's file list specified exactly in the prompt. Conclusion reinforced: when the prompt names the exact per-commit file lists + no-wildcard rules + the leave-list, and the lead pre-validates the diff and re-verifies after, Grok Composer 2.5 is a dependable G2 commit-runner even for multi-commit splits and minefield repos. The lead doing the *grouping decision* (which files → which commit) and grok doing the *mechanical staging+commit* is the reliable division of labor — do NOT ask grok to decide the grouping itself.
+**Update (same session, +3 more clean runs → 5 total, 0 failures):** grok also cleanly executed (3) a **2-commit split** and (4) a **3-commit split** from a single multi-file diff, plus (5) another 2-commit opensource split — each commit's file list specified exactly in the prompt. Conclusion reinforced: when the prompt names the exact per-commit file lists + no-wildcard rules + the leave-list, and the lead pre-validates the diff and re-verifies after, Grok 4.5 is a dependable G2 commit-runner even for multi-commit splits and minefield repos. The lead doing the *grouping decision* (which files → which commit) and grok doing the *mechanical staging+commit* is the reliable division of labor — do NOT ask grok to decide the grouping itself.
 
-### 2026-06-14 — portfolio autonomous-burndown run (Opus 4.8 NTM lead, grok-composer-2.5-fast sidecar)
+### 2026-06-14 — portfolio autonomous-burndown run (legacy Claude NTM lead, grok-composer-2.5-fast sidecar)
+
+> **Note (2026-07):** This entry records a historical run. Current Grok CLI default model is `grok-4.5` (replaces `grok-composer-2.5-fast`).
 
 **Invocation gotcha (record this — it cost ~5 probe cycles).** In this devbox session the *only* reliable headless one-shot is the documented `--prompt-file` form. The `--output-format plain|json` top-level path **fails silently**: `grok --output-format plain "prompt"` returns `rc=1` with **empty stdout, empty stderr, and an empty `--debug-file`** — no error surfaced. `grok agent stdio` is a JSON-RPC channel (rejects a plain-text line: `failed to parse incoming message: expected value at line 1 column 1`). `grok agent headless` is the WebSocket-relay lane (needs relay/leader infra). Auth itself was fine throughout (`grok models` → "logged in with grok.com", default `grok-composer-2.5-fast`). **Working command:**
 
@@ -386,9 +391,9 @@ grok --prompt-file /tmp/task.txt --cwd <repo-or-portfolio-root> --always-approve
 
 **GOOD (G1 read-only clerk + single-file write).** Tasked grok to classify all 39 `.beads`-bearing repos under `/srv/skillbox/repos` into IOS_MAC / LINUX / OTHER by reading manifest files only and writing the result to one `/tmp` artifact. Wall-time **17s**, `rc=0`, artifact written exactly to spec. Accuracy on independent spot-check: **100%** — including the non-obvious `dream` → IOS_MAC (it carries both `Package.swift` and `Dream.xcodeproj`; a quick `ls` of the repo root would have mislabeled it). It also respected the manifest-scope rule precisely (`dogswipe`/`finalreceipts` → OTHER because no recognized top-level manifest, not because grok gave up). This is the canonical good-grok shape: a precise rule, read-only, one declared write target, bounded turns. The lead still verifies the surprising rows.
 
-**Division of labor that worked:** lead writes the exact rule + the single output path into the prompt file; grok does the filesystem traversal + classification + write; lead independently re-checks the surprising buckets with `ls`/`find`. Token cost to the Opus lead: ~one Bash call to verify vs. doing the whole 39-repo traversal itself.
+**Division of labor that worked:** lead writes the exact rule + the single output path into the prompt file; grok does the filesystem traversal + classification + write; lead independently re-checks the surprising buckets with `ls`/`find`. Token cost to the legacy Claude lead: ~one Bash call to verify vs. doing the whole 39-repo traversal itself.
 
-**Routing consequence for this run:** direct headless grok is GREEN for `--prompt-file` shell/clerk/commit-runner one-shots; sidecar work that needs `--output-format`-style streamed text should instead route through the `voice-to-text` dispatcher / Swimmers lane, or just be given a file-write target. When in doubt this run defaulted token-saving sidecar execution to **codex gpt-5.5** (proven live in the htma_server panes) and reserved grok for `--prompt-file` clerk/commit one-shots.
+**Historical routing consequence for this run (not current model guidance):** direct headless grok was GREEN for `--prompt-file` shell/clerk/commit-runner one-shots; sidecar work that needed `--output-format`-style streamed text instead routed through the `voice-to-text` dispatcher / Swimmers lane, or received a file-write target. That run defaulted token-saving sidecar execution to **Codex gpt-5.5** (proven live in the htma_server panes) and reserved grok for `--prompt-file` clerk/commit one-shots.
 
 CASS hooks to find this or similar runs:
 
@@ -396,7 +401,7 @@ CASS hooks to find this or similar runs:
 cass search "grok output-format plain silent rc=1 empty stderr debug-file prompt-file works" --robot --limit 10 --days 30
 cass search "grok agent stdio JSON-RPC failed to parse expected value headless relay leader" --robot --limit 10 --days 30
 cass search "grok prompt-file classify repos manifest IOS_MAC LINUX read-only single write 17s" --robot --limit 10 --days 30
-cass search "design model unavailable route design opus ntm spawn cc opus" --robot --limit 10 --days 30
+cass search "design model unavailable route design grok ntm spawn grok" --robot --limit 10 --days 30
 ```
 
 ### 2026-06-14 — Sweet Potato open-bead revenue/auth wave
@@ -406,7 +411,7 @@ selected four backend Beads: Stripe subscription-missing-row revocation, CFO
 service-admin token scoping, dayrate free-booking audit emission, and Mailgun
 suppression fallback. All four were revenue/auth/security writer nodes with
 deterministic `make pytest` + `make lint` validation and overlapping risk
-around shared trust boundaries. The correct route was Codex `gpt-5.5` NTM panes
+around shared trust boundaries. The correct route for that historical run was Codex `gpt-5.5` NTM panes
 with Beads claims and narrow write scopes. Grok was deliberately not launched.
 
 **Reusable rule:** treat "do not use Grok" as useful routing evidence when the

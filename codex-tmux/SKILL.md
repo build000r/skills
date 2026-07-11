@@ -63,8 +63,14 @@ No recursive agents. No `claude --resume`. The signal is a dumb tmux primitive.
 
 ## Model Policy
 
-- Default to `gpt-5.5`. For bounded or budget-sensitive work, `gpt-5.4`, `gpt-5.4-mini`, and `codex-mini-latest` are also allowed. Older `gpt-5.x-codex` variants remain out of scope for this skill.
-- Default to `high` reasoning. Use `medium` only for clearly bounded work, and `xhigh` for reviews, ambiguity, or high-risk changes.
+- Default to `gpt-5.6-sol`. If SOL is unavailable and the task is planning,
+  architecture, synthesis, review, or final authority, use `gpt-5.6-terra` at
+  `ultra`. For bounded or budget-sensitive non-authority work, `gpt-5.4`,
+  `gpt-5.4-mini`, and `codex-mini-latest` are also allowed. Older
+  `gpt-5.x-codex` variants remain out of scope for this skill.
+- Default SOL to `medium`. Use SOL `max` for pivotal/high-consequence planning
+  or when another model is demonstrably struggling. Use `ultra` for the Terra
+  planning/authority fallback, and only when SOL is unavailable.
 - When unsure between two reasoning tiers, choose the next higher one.
 
 ## Usage Protocol
@@ -82,7 +88,7 @@ python3 ~/.claude/skills/codex-tmux/scripts/run.py launch \
     --cd "<repo working directory>"
 ```
 
-Defaults are `gpt-5.5` and `high` reasoning. For routine or budget-sensitive work, pass `--model gpt-5.4`, `--model gpt-5.4-mini`, or `--model codex-mini-latest`. Raise to `xhigh` when the task is reviewer-grade or ambiguous.
+Defaults are `gpt-5.6-sol` and `medium` reasoning. Use `--reasoning-effort max` for pivotal planning or when another model is struggling. If SOL is unavailable for a planning/authority task, pass `--model gpt-5.6-terra --reasoning-effort ultra`. For routine or budget-sensitive work, pass `--model gpt-5.4`, `--model gpt-5.4-mini`, or `--model codex-mini-latest`.
 The launcher runs `codex --search exec --dangerously-bypass-approvals-and-sandbox`
 inside the tmux wrapper so detached research and commit tasks do not hang on
 browser/search or approval prompts.
@@ -157,8 +163,8 @@ python3 scripts/run.py launch \
     --cd ~/repos/myapp \
     [--prefix codex]              # session name prefix (default: codex)
     [--result-dir /tmp/codex-tmux] # where to write results (default: /tmp/codex-tmux)
-    [--model gpt-5.5]             # default model; also allows gpt-5.4, gpt-5.4-mini, and codex-mini-latest
-    [--reasoning-effort high]     # medium|high|xhigh (default: high; round up when unsure)
+    [--model gpt-5.6-sol]         # default; Terra is the SOL-unavailable planning/authority fallback
+    [--reasoning-effort medium]   # default; SOL escalation=max, Terra fallback=ultra
     [--codex-bin codex]            # path to codex binary (default: codex)
 ```
 

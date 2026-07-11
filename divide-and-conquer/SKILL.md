@@ -91,8 +91,17 @@ that explicitly understands non-blocking hierarchy before spawning workers.
 
 This skill now defaults to an external NTM swarm for execution. Do not fall
 back to ad hoc local subagents or `/codex:rescue` as the primary path unless
-the user explicitly asks to bypass the swarm. If `ntm` is unavailable, stop and
-surface the missing prerequisite instead of silently degrading.
+the user explicitly asks to bypass the swarm. Before declaring `ntm`
+unavailable, normalize the common agent-shell PATH gap:
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+command -v ntm >/dev/null 2>&1 || test -x "$HOME/.local/bin/ntm"
+ntm version >/dev/null 2>&1 || ntm deps -v >/dev/null
+```
+
+If `ntm` is still unavailable after that check, stop and surface the missing
+prerequisite instead of silently degrading.
 
 Because execution is swarm/NTM-coordinated, `vibing-with-ntm` is mandatory for
 every divide-and-conquer run. Activate it through `sbp` when needed, then follow
@@ -107,80 +116,99 @@ operator-tending concern. See [NTM Project Root Preflight](#ntm-project-root-pre
 
 Use this skill for large-ish, UI-facing, multi-file, naturally parallel, or
 review-sensitive tasks even when the user did not explicitly ask for a swarm.
-When Beads are clearly defined, prefer Grok with Composer 2.5 for bounded
+When Beads are clearly defined, prefer Grok 4.5 for bounded
 task-runner work: cwd/workflow routing, worker-request cleanup, read-only
 inventories, bounded scripting, fixtures/docs cleanup, generated-command
-cleanup, and scoped commit batching. A Bead is clear enough for Composer only
+cleanup, and scoped commit batching. A Bead is clear enough for Grok 4.5 only
 when it names the exact write scope or read-only artifact, validation commands,
 stop rules, review owner, and final authority. Route through the shared Grok
 lanes in `../_shared/references/orchestration-contract.md`: `voice-to-text`
 dispatcher for cheap routing/preflight, the NTM Grok plugin when interactive
-pane preflight passes, Swimmers or the local Composer route for maintained
+pane preflight passes, Swimmers or the local Grok 4.5 route for maintained
 task-runner sessions, and direct headless Grok with a prompt file for bounded
-one-shots. If Composer stalls, emits no artifact, violates scope, or needs a
-judgment it does not own, escalate the node to Codex `gpt-5.5` xhigh (or Claude
-Opus 4.8 for design) and record the route failure in the result artifact.
-Design-related execution nodes should run on Claude Opus 4.8 via `--cc=N:opus`;
-if Opus is unavailable, fall back to Codex `gpt-5.5` with `xhigh` and record the
-missing design-model route. Orchestration, system design, domain-planner quality
-loops, no-ragrets bead composition, impactful architecture/code decisions,
-integration review, commit acceptance, and final say must run on Codex
-`gpt-5.5`. Require a final fresh-eyes reviewer pass before completion.
+one-shots. If Grok 4.5 stalls, emits no artifact, violates scope, or needs a
+judgment it does not own, escalate the node to Codex `gpt-5.6-sol` max, or route
+design/UX work to a Grok 4.5 design lane, and record the route failure in the
+result artifact.
+Design-related execution nodes should run on Grok 4.5 through the NTM Grok
+plugin when preflight passes, otherwise through the Swimmers/local/direct
+headless Grok 4.5 route. If no Grok 4.5 design route is available, surface the
+routing blocker rather than silently reassigning design work to Codex.
+Runtime orchestration must run on Grok 4.5 through the NTM plugin: it owns
+frontier reads, claims, dispatch, tending, harvest, and convergence, but never
+planning. System design, domain-planner quality loops, no-ragrets bead
+composition, decomposition, dependency topology, acceptance-criteria design,
+impactful architecture/code decisions, integration review, commit acceptance,
+and final say must run on Codex `gpt-5.6-sol`; if SOL is unavailable, use Codex
+`gpt-5.6-terra` at `ultra`. Require a final fresh-eyes reviewer pass before
+completion.
 
 ## Model Routing Is Mandatory
 
 Route every ready node before spawning workers:
 
-- **Codex gpt-5.5 owns orchestration and final authority.** Route root
-  orchestration, subgoal controllers, no-ragrets bead composition,
+- **Grok 4.5 owns NTM runtime orchestration.** Route root and subgoal controller
+  loops to the NTM Grok plugin. Grok may census, read the accepted ready
+  frontier, claim hydrated leaves for workers, dispatch, observe, unstick,
+  harvest, reconcile verified statuses, and detect convergence. It must not
+  decompose goals, invent or repair plan topology, author material acceptance
+  criteria, resolve architectural ambiguity, synthesize planning branches, or
+  make final acceptance decisions. When those needs appear, it dispatches an
+  authority node and waits for the accepted result before continuing.
+- **Codex GPT-5.6 SOL owns planning and final authority.** Route no-ragrets bead
+  composition, divide-and-conquer decomposition and root synthesis,
   domain-planner sessions and quality loops, system design, architecture,
   security-sensitive or high-impact code decisions, ambiguous repairs,
-  integration review, commit acceptance, and any "final say" review node to
-  Codex `gpt-5.5`. Use `xhigh` effort for architecture, final review, and
-  ambiguous integration; use `high` for ordinary orchestration and impactful
-  execution. These nodes may author or repair Beads and may overrule task-runner
-  output.
-- **Claude Opus 4.8 owns design-related work when available.** Treat a node as design-related
+  integration review, commit acceptance, and any final-say review node to
+  Codex `gpt-5.6-sol`. If SOL is unavailable, use Codex `gpt-5.6-terra` with
+  `ultra` effort for those same roles. SOL uses `medium` by default; use `max`
+  for pivotal/high-consequence planning or when another model is demonstrably
+  struggling. Planning/authority nodes may author or
+  repair Beads and may overrule task-runner output; the Grok controller may not.
+- **Grok 4.5 owns design/UX and visual review work.** Treat a node as design-related
   when it touches UI/UX, visual design, design systems, frontend screen or
   component layout, CSS/tokens, responsive behavior, screenshots, visual
   parity, product interaction copy, or fresh-eyes review of those surfaces.
-  Dispatch these nodes to `--cc=N:opus`. If Opus is unavailable, fall back to
-  Codex `gpt-5.5` with `xhigh` and report that the dedicated design-review route
-  was unavailable.
-- **Grok with Composer 2.5 is the preferred bounded task-runner lane for clear
+  Dispatch these nodes to Grok 4.5 through the NTM Grok plugin when available,
+  or through the approved sidecar/direct Grok 4.5 route. If no Grok 4.5 design
+  route is available, surface the route blocker and keep Codex as final
+  acceptance authority, not as the default design worker.
+- **Grok 4.5 is the preferred bounded task-runner lane for clear
   Beads.** The `voice-to-text` dispatcher is the preferred cheap router for cwd
   selection, skill-tag extraction, request cleanup, broad evidence bucketing,
   and other clerk work. For execution nodes that are task-runner safe, prefer
-  Composer 2.5 through the NTM Grok plugin when preflight passes; otherwise use
+  Grok 4.5 through the NTM Grok plugin when preflight passes; otherwise use
   the Swimmers hidden-session lane with `spawn_tool: "grok"`, the locally
-  configured Composer route, or direct headless Grok with a prompt file for a
+  configured Grok 4.5 route, or direct headless Grok with a prompt file for a
   bounded one-shot. Good candidates are `$commit`/logical commit batching,
   mechanical scripts, fixtures, narrow docs edits, generated-command cleanup,
   manifest/file classification, and other "task rabbit" work with explicit
   files, validation, and revertability. Record `Model route: Grok dispatcher`
   for pure routing/preflight, `Model route: Grok CLI sidecar` for a
-  Grok-authored read-only evidence artifact, and `Model route: Grok Composer
+  Grok-authored read-only evidence artifact, and `Model route: Grok 4.5
   2.5 task-runner` for narrow writer or commit-runner nodes. Do not treat a
-  Grok/Composer result as authority to bypass Beads hydration, ownership,
+  Grok 4.5 result as authority to bypass Beads hydration, ownership,
   validation, stronger-model review, or the final review gate. If the result is
   empty, off-scope, validation-failing, or asks for judgment beyond the Bead,
-  escalate the node to Codex `gpt-5.5` xhigh or Claude Opus 4.8 for design
-  instead of retrying indefinitely. For task-selection heuristics and CASS query examples, see
+  escalate authority questions to Codex `gpt-5.6-sol` max or reroute design/UX
+  work to the Grok 4.5 design lane instead of retrying indefinitely. For
+  task-selection heuristics and CASS query examples, see
   [references/grok-sidecar-selection.md](references/grok-sidecar-selection.md).
 - **Routine non-design execution first checks task-runner safety.** If a
   backend, API, data, test, refactor, validation, ops, or integration node has
-  exact Beads guidance and is cheap to verify/revert, prefer Grok Composer 2.5
+  exact Beads guidance and is cheap to verify/revert, prefer Grok 4.5
   as the task runner. If the node is broad, high-impact, secret-bearing,
   architecture-sensitive, integration-heavy, or still fuzzy, route it to Codex
-  `gpt-5.5`: `--cod=N:gpt-5.5`.
+  `gpt-5.6-sol` at the ordinary default effort: `--cod=N:gpt-5.6-sol:medium`.
 - Ambiguous nodes are design-related if visual/product interaction quality is a
-  material acceptance criterion; otherwise route ambiguity to Codex `gpt-5.5`.
+  material acceptance criterion; otherwise route ambiguity to Codex `gpt-5.6-sol`.
   Split mixed nodes before launch when the model routing would otherwise be
   unclear.
 - Record the selected route in the Beads dispatch contract and worker prompt:
-  `Model route: Grok dispatcher`, `Model route: Grok CLI sidecar`,
-  `Model route: Grok Composer 2.5 task-runner`, `Model route: Claude Opus 4.8`,
-  or `Model route: Codex gpt-5.5 xhigh`.
+  `Model route: Grok 4.5 NTM orchestrator`, `Model route: Grok dispatcher`, `Model route: Grok CLI sidecar`,
+  `Model route: Grok 4.5 task-runner`, `Model route: Grok 4.5 design/UX`,
+  `Model route: Codex gpt-5.6-sol medium`, `Model route: Codex gpt-5.6-sol max escalation`, or
+  `Model route: Codex gpt-5.6-terra ultra fallback`.
 
 ## Related Skills
 
@@ -275,10 +303,11 @@ auto-generated `context.yaml`.
 
 ## Swarm Runtime (Default)
 
-`divide-and-conquer` uses the same external swarm posture as
-`modes-of-reasoning-project-analysis`: the lead agent owns selection,
-dispatch, monitoring, collection, and synthesis; the swarm workers do the node
-execution.
+`divide-and-conquer` uses an external NTM swarm with split authority. The Grok
+4.5 runtime controller owns accepted-frontier selection, claims, dispatch,
+monitoring, collection, and convergence. A Codex planning authority owns
+decomposition, topology, synthesis, integration acceptance, and final say;
+workers execute the nodes.
 
 The lead is handoff-first. It should not personally implement or deeply audit a
 leaf Bead merely because it selected that Bead. For non-trivial work, the lead
@@ -293,10 +322,13 @@ unblocks that are explicitly recorded as root-owned.
 | Argument | Default | Description |
 |----------|---------|-------------|
 | `--project=NAME` | derived from cwd + wave id | NTM swarm project name |
-| `--cc=N:opus` | auto | Claude Opus 4.8 panes for design-related nodes |
-| `--cod=N:gpt-5.5` | auto | Codex panes for orchestration, high-impact execution, integration, review, and final-say nodes |
+| `--grok=1` | 1 controller | Installed Grok 4.5 NTM runtime orchestrator for frontier/dispatch/tending/harvest; never planning |
+| Grok 4.5 design/UX lanes | auto | UI/UX, visual design, design-system, screenshot, visual parity, interaction-copy, and fresh-eyes review nodes |
+| `--cod=N:gpt-5.6-sol:medium` | auto | Default Codex planning/authority panes |
+| `--cod=N:gpt-5.6-sol:max` | escalation only | Pivotal/high-consequence planning or another model struggling |
+| `--cod=N:gpt-5.6-terra:ultra` | SOL fallback only | Planning/authority fallback when GPT-5.6 SOL is unavailable |
 | `--gmi=N` | 0 | Optional Gemini panes |
-| Grok/Composer runners | eligible clear Beads | Grok plugin or sidecar lanes via `voice-to-text`/NTM Grok/Swimmers/local task-runner routes for explicit task-runner nodes |
+| Grok 4.5 runners | eligible clear Beads | Grok plugin or sidecar lanes via `voice-to-text`/NTM Grok/Swimmers/local task-runner routes for explicit task-runner nodes |
 | `--max-workers=N` | 10 | Hard cap per wave |
 | `--wave-timeout-min=N` | 45 | Hard timeout for a wave before collect-and-triage |
 | `--monitor-cron` | every 3 minutes | Swarm health checks and nudges |
@@ -306,19 +338,23 @@ unblocks that are explicitly recorded as root-owned.
 - Size each wave from the current ready frontier, not from the full graph
 - Default to one worker per ready node
 - If the frontier exceeds `--max-workers`, split it into multiple subwaves
-- Prefer Grok Composer 2.5 for task-runner-safe nodes when the Bead gives an
+- Prefer Grok 4.5 for task-runner-safe nodes when the Bead gives an
   exact write scope or read-only artifact, validation, stop rules, and
   stronger-model review owner; keep dispatcher/preflight nodes read-only
-- Route design-related execution nodes to Claude Opus 4.8; use Codex `gpt-5.5`
-  xhigh only when Opus is unavailable
-- Route orchestration, no-ragrets bead composition, domain-planner sessions,
-  system design, impactful execution, integration, review, and final-say nodes
-  to Codex `gpt-5.5`
-- Use `gpt-5.5` whenever you set a Codex model explicitly
-- Fall back to `gpt-5.4` or `gpt-5.3-codex` only when the runtime rejects 5.5,
-  quota/account limits require it, or the user asks for a cheaper/lower model
-- Default to `high`; use `medium` only for clearly bounded read-only nodes and
-  `xhigh` for integration review or ambiguous repairs
+- Route design-related execution nodes and design/fresh-eyes review nodes to
+  Grok 4.5; use Codex `gpt-5.6-sol` medium for ordinary authority and max for
+  pivotal planning or explicit failed-model escalation, not as the default design worker
+- Route NTM controller/orchestration loops to Grok 4.5. Route no-ragrets bead
+  composition, decomposition/synthesis, domain-planner sessions, system design,
+  impactful execution, integration review, and final-say nodes to Codex
+  `gpt-5.6-sol`; use `gpt-5.6-terra:ultra` only when SOL is unavailable
+- Use `gpt-5.6-sol:medium` for normal Codex authority allocations and
+  `gpt-5.6-sol:max` only for the named escalation triggers
+- For planning/authority, fall back to `gpt-5.6-terra` at `ultra`; do not use a
+  lower model merely because the controller is Grok
+- Default SOL to `medium`. Use SOL `max` for pivotal/high-consequence planning
+  or when Grok/another model has demonstrably struggled. Terra always uses
+  `ultra` and only when SOL is unavailable.
 
 ## Subgoal Mode
 
@@ -422,9 +458,11 @@ orchestrators do not commit.
 Run this before every wave spawn, including review waves:
 
 ```bash
+export PATH="$HOME/.local/bin:$PATH"
 repo_root="$(git rev-parse --show-toplevel)"
 pwd
 rg '^projects_base' ~/.config/ntm/config.toml
+ntm version
 ntm list --json
 ```
 
@@ -561,11 +599,13 @@ ready node is not launchable until `br show {id} --json` or
 - current dependencies, blocked state, and ready frontier membership
 - `writes`, `done_when`, `validate_cmds`, `risk_gate`, non-goals, and stop rules
 - global constraints: no remote push, no cross-repo edits, no write-scope theft
-- model route per node: Codex gpt-5.5 for orchestration, no-ragrets bead
-  composition, domain-planner sessions, impactful execution, integration,
-  review, and final say; Claude Opus 4.8 for design-related nodes; Grok dispatcher
+- model route per node: Grok 4.5 NTM orchestrator for frontier/claim/dispatch/
+  tending/harvest/convergence only; Codex gpt-5.6-sol for no-ragrets bead
+  composition, decomposition/synthesis, domain-planner sessions, architecture,
+  impactful execution, integration review, and final say, with Codex
+  gpt-5.6-terra ultra as the SOL-unavailable fallback; Grok 4.5 design/UX for design-related nodes; Grok dispatcher
   for read-only router/preflight nodes; Grok CLI sidecar for Grok-authored
-  read-only artifacts; Grok Composer 2.5 task-runner as the preferred runner
+  read-only artifacts; Grok 4.5 task-runner as the preferred runner
   for narrow writer, scripting, fixture/docs cleanup, generated-command cleanup,
   classification, or commit-runner nodes with exact writes, validation, stop
   rules, explicit review ownership, and final authority
@@ -594,31 +634,40 @@ frontier_json="$(python3 ~/.claude/skills/_shared/scripts/br_helpers.py ready --
 # frontier_json="$(python3 ~/.claude/skills/_shared/scripts/br_helpers.py scheduler)"
 
 ntm spawn "$WAVE_PROJECT" \
-  --cc="${NUM_DESIGN}:opus" --cod="${NUM_NON_DESIGN}:gpt-5.5" \
+  --grok=1 \
+  --cod="${NUM_CODEX}:gpt-5.6-sol:medium" --grok="${NUM_GROK}:grok-4.5" \
   --no-user \
   --stagger-mode=smart
 ```
 
-If the Grok plugin preflight passes and the frontier has Composer task-runner
-nodes, add the Grok count explicitly:
+If the Grok plugin preflight passes and the frontier has Grok 4.5 design/UX or
+task-runner nodes, include the Grok count explicitly:
 
 ```bash
 ntm spawn "$WAVE_PROJECT" \
-  --cc="${NUM_DESIGN}:opus" --cod="${NUM_NON_DESIGN}:gpt-5.5" \
-  --grok="${NUM_GROK}:grok-composer-2.5-fast" \
+  --grok=1 \
+  --cod="${NUM_CODEX}:gpt-5.6-sol:medium" \
+  --grok="${NUM_GROK}:grok-4.5" \
   --no-user \
   --stagger-mode=smart
 ```
 
-If any count is zero, omit that flag rather than spawning an empty worker
-class. Never satisfy a design-related node by increasing `NUM_NON_DESIGN`, and
-never satisfy a Codex authority node by increasing `NUM_GROK`.
-Grok/Composer task-runner nodes are launched after the same Beads claim
+The first `--grok=1` is the installed Grok 4.5 controller allocation; `NUM_GROK` counts
+Grok execution/design workers and may be zero. Discover the controller's pane
+by command/title after spawn rather than assuming pane 0 because plugin panes
+may be reported as `user`. If any worker count is zero, omit that worker flag.
+Never satisfy a design-related node by increasing `NUM_CODEX`, and never
+satisfy a Codex planning/authority node by increasing `NUM_GROK`.
+If the provider rejects or cannot allocate GPT-5.6 SOL, retry only the Codex
+planning/authority allocation as `--cod="${NUM_CODEX}:gpt-5.6-terra:ultra"`.
+Do not invoke the fallback merely because a worker's task or validation failed;
+Terra ultra is an availability fallback, not a retry lottery.
+Grok 4.5 task-runner nodes are launched after the same Beads claim
 handshake, through the NTM Grok plugin when preflight passes, the
-`voice-to-text`/Swimmers Grok lane, a local Composer 2.5 task-runner route, or a
+`voice-to-text`/Swimmers Grok lane, a local Grok 4.5 task-runner route, or a
 direct headless Grok one-shot, and are tracked by their issue ID plus result
 artifact. Do not inflate the Codex count to cover a Grok-routed node, and do
-not rely on `ntm --robot-*` alone as proof that a Grok/Composer runner
+not rely on `ntm --robot-*` alone as proof that a Grok 4.5 runner
 completed; verify the artifact, Beads state, validation, and stronger-model
 review.
 
@@ -746,17 +795,21 @@ Validate:
 Risk gate:
 - none | <gate>
 Model route:
+- Grok 4.5 NTM orchestrator for ready-frontier reads, claim/dispatch, tending,
+  harvest, and convergence only; it never plans or makes final decisions
 - Grok dispatcher for read-only router/preflight nodes
 - Grok CLI sidecar for Grok-authored read-only evidence artifacts
-- Grok Composer 2.5 task-runner for narrow scripting, docs, fixtures, or commit
+- Grok 4.5 task-runner for narrow scripting, docs, fixtures, or commit
   batching nodes with explicit write scope, validation, stop rules,
-  stronger-model review, and final authority; escalate to Codex gpt-5.5 if the
+  stronger-model review, and final authority; escalate to Codex gpt-5.6-sol if the
   runner stalls, drifts, or cannot validate
-- Claude Opus 4.8 for design-related nodes; Codex gpt-5.5 xhigh if Opus is
-  unavailable
-- Codex gpt-5.5 for orchestration, system design, domain-planner sessions,
-  no-ragrets bead composition, impactful execution, integration review, and
-  final say
+- Grok 4.5 design/UX for design-related nodes and design/fresh-eyes review;
+  Codex gpt-5.6-sol medium owns ordinary authority; SOL max owns pivotal
+  planning or failed-model escalation
+- Codex gpt-5.6-sol for planning, decomposition/synthesis, system design,
+  domain-planner sessions, no-ragrets bead composition, impactful execution,
+  integration review, and final say; Codex gpt-5.6-terra ultra only when SOL
+  is unavailable
 Expected Beads assignee:
 - <worker-id>
 
@@ -919,12 +972,19 @@ same invocation. Final integration and closeout are never left as open or
 blocked Beads for a future session. Use the same swarm runtime; do not default
 to `/codex:rescue`.
 
-Spawn a small review swarm, usually 1-2 workers:
+Spawn a small review swarm: one Grok runtime controller, one independent Grok
+fresh-eyes reviewer, and one Codex final-authority reviewer:
 
 ```bash
-ntm spawn "$REVIEW_PROJECT" --cc=1:opus --cod=1:gpt-5.5:xhigh --no-user --stagger-mode=smart
+ntm spawn "$REVIEW_PROJECT" --grok=2:grok-4.5 --cod=1:gpt-5.6-sol:medium --no-user --stagger-mode=smart
 ntm --robot-wait="$REVIEW_PROJECT" --condition=idle --timeout=120s
 ```
+
+If SOL is unavailable, replace the Codex allocation with
+`--cod=1:gpt-5.6-terra:ultra`; do not ask the Grok controller to make the final
+acceptance decision.
+If the review becomes pivotal/high-consequence or another model has already
+failed to resolve it, use `--cod=1:gpt-5.6-sol:max` instead.
 
 Reviewer prompt:
 - Read the original task, live Beads state via `br show` / `hydrate-node`, the
@@ -933,9 +993,10 @@ Reviewer prompt:
 - Run relevant build, test, lint, and typecheck commands
 - Fix only integration bugs or validation failures
 - For UI, UX, visual, design-system, screenshot, or ambiguous review-heavy work,
-  use Claude Opus 4.8 for the fresh-eyes review of the final diff and validation
-  evidence. If Opus is unavailable, use Codex `gpt-5.5` with `xhigh` and record
-  the fallback instead of routing to a dead model.
+  use Grok 4.5 for the fresh-eyes review of the final diff and validation
+  evidence. If the Grok 4.5 design route is unavailable, record that route
+  blocker and use Codex `gpt-5.6-sol` max only for pivotal authority or explicit
+  failed-model triage; ordinary authority remains SOL medium.
 - For visual parity, ask independent fresh-context reviewers the ORIGINAL
   question and require severity-classified findings until two consecutive
   reviews report no blocker or material shortfall.
@@ -944,9 +1005,9 @@ Reviewer prompt:
 - Run `python3 ~/.claude/skills/_shared/scripts/br_helpers.py flush` so
   `.beads/issues.jsonl` reflects current state
 - Commit if there are clean, scoped changes to save (include `.beads/issues.jsonl`,
-  exclude `.beads/*.db*`). Prefer Grok Composer 2.5 for the mechanical
+  exclude `.beads/*.db*`). Prefer Grok 4.5 for the mechanical
   execution of a `$commit` node when the Bead names the exact commit scope,
-  validation, leave-list, and no-wildcard staging rules; Codex `gpt-5.5` owns
+  validation, leave-list, and no-wildcard staging rules; Codex `gpt-5.6-sol` owns
   acceptance of the commit plan and final review of the result.
 - Write `<absolute-run-dir>/DAC_FINAL_RESULT.md`
 
@@ -986,8 +1047,10 @@ When the final review result is available:
   before launch
 - Subgoal controller issues are durable delegation boundaries. NTM session
   names and `SUBGOAL_RESULT.md` files are derived evidence, not topology
-- The root owns subgoal creation, shared files, cross-subgoal graph shape,
-  final integration, final validation, Beads flush, and commit
+- The Codex root planning authority owns subgoal creation, shared files,
+  cross-subgoal graph shape, final integration judgment, and commit acceptance.
+  The Grok runtime controller coordinates final validation, Beads flush, and
+  the accepted commit operation.
 - Child orchestrators may claim/close/block only leaf issues in their assigned
   `slice:{root},subgoal:{slug}` frontier and must propose cross-subgoal changes
   to the root instead of mutating topology directly
@@ -999,14 +1062,15 @@ When the final review result is available:
   read-only clerk/preflight nodes, bounded scripting, fixture/docs cleanup,
   generated-command cleanup, classification, and scoped commit-runner nodes
   should prefer the `voice-to-text` Grok dispatcher, NTM Grok plugin, Swimmers
-  hidden Grok sessions, direct headless Grok, or a local Composer 2.5
+  hidden Grok sessions, direct headless Grok, or a local Grok 4.5
   task-runner route when the Bead is explicit; reconcile all output through the
   normal Beads/result-artifact contract, validation, and stronger-model review
-- Design-related nodes and design/fresh-eyes review nodes should use Claude Opus
-  4.8; if Opus is unavailable, use Codex `gpt-5.5` with `xhigh`;
-  orchestration, no-ragrets bead composition, domain-planner sessions, system
-  design, impactful execution, integration, review, and final-say nodes must use
-  Codex gpt-5.5 by default
+- NTM runtime orchestration must use a Grok 4.5 plugin controller. Design-related
+  nodes and design/fresh-eyes review nodes should also use Grok 4.5. Planning,
+  no-ragrets bead composition, decomposition/synthesis, domain-planner sessions,
+  system design, impactful execution, integration review, commit acceptance,
+  and final-say nodes must use Codex gpt-5.6-sol by default, with Codex
+  gpt-5.6-terra at ultra only when SOL is unavailable
 - The lead must claim every dispatched node for the assigned worker and verify
   `status=in_progress` plus assignee before edits begin; unclaimed pane activity
   does not count as in-flight work

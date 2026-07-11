@@ -46,6 +46,21 @@ per-skill usage reviews, then emits the lube output shape below. It is evidence
 gathering only; after reading it, still execute the smallest safe unblocker
 directly when the fix is local and non-destructive.
 
+For "mine cass for repeated agent pain" requests, do not hand-roll 10+
+`sbp cass search` calls; run the frequency mode instead:
+
+```bash
+python3 scripts/lube_evidence_miner.py --mode frequency --top 5
+```
+
+It batch-searches a curated friction-signal list through the `sbp cass search`
+backend, aggregates hits per pattern across sessions, ranks by
+session-frequency × approximate matched tokens, and emits ranked JSON with
+`pattern`, `score`, `session_ids`, `sample_snippet`, and a suggested
+`lube_target` classification ready for bead creation. Add ad-hoc signals with
+`--terms "signal one, signal two"`; override the backend with `--cass-command`
+or `LUBE_CASS_COMMAND` (used by tests to mock the backend).
+
 ## Skillbox Log Review
 
 When the friction source is an orchestration or Skillbox runtime issue, inspect

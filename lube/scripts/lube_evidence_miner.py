@@ -7,6 +7,7 @@ import argparse
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -15,6 +16,63 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SKILL_ISSUE_ROOT = ROOT / "skill-issue"
+DEFAULT_CASS_COMMAND = "sbp cass search"
+
+# Curated friction signals mined repeatedly from past sessions. Each pattern
+# groups the search terms that surface it and the lube root-cause class the
+# resulting bead should target.
+FRICTION_PATTERNS: list[dict[str, object]] = [
+    {
+        "pattern": "permission-prompt-friction",
+        "terms": ["permission denied", "requires approval", "permission prompt"],
+        "lube_target": "weak defaults",
+    },
+    {
+        "pattern": "retry-loop",
+        "terms": ["retrying", "retry loop"],
+        "lube_target": "missing automation",
+    },
+    {
+        "pattern": "timeout",
+        "terms": ["timed out", "timeout exceeded"],
+        "lube_target": "weak defaults",
+    },
+    {
+        "pattern": "skill-visibility-miss",
+        "terms": ["doesn't see", "can't find the skill", "skill not found"],
+        "lube_target": "missing skill trigger",
+    },
+    {
+        "pattern": "rate-limit",
+        "terms": ["rate limit", "rate limited"],
+        "lube_target": "missing runbook",
+    },
+    {
+        "pattern": "context-compression",
+        "terms": ["context compression", "context compaction", "context low"],
+        "lube_target": "missing automation",
+    },
+    {
+        "pattern": "tui-blocked",
+        "terms": ["TUI blocked", "interactive prompt", "cannot interact"],
+        "lube_target": "brittle manual step",
+    },
+    {
+        "pattern": "missing-command",
+        "terms": ["command not found"],
+        "lube_target": "missing environment setup",
+    },
+    {
+        "pattern": "missing-credentials",
+        "terms": ["missing API key", "unauthorized", "credentials not found"],
+        "lube_target": "absent API key",
+    },
+    {
+        "pattern": "stale-lock",
+        "terms": ["stale lock", "lock held"],
+        "lube_target": "missing runbook",
+    },
+]
 
 
 def run(command: list[str], cwd: Path) -> tuple[int, str]:
@@ -140,9 +198,156 @@ def parse_skills(value: str) -> list[str]:
     return [item.strip() for item in re.split(r"[, ]+", value) if item.strip()]
 
 
+def classify_lube_target(text: str) -> str:
+    lowered = text.lower()
+    rules = (
+        (("permission", "approval", "allowlist"), "weak defaults"),
+        (("api key", "credential", "unauthorized", "token"), "absent API key"),
+        (("doesn't see", "can't find", "not visible", "skill"), "missing skill trigger"),
+        (("command not found", "no such file", "not installed"), "missing environment setup"),
+        (("interactive", "tui", "prompt", "cannot interact"), "brittle manual step"),
+        (("rate limit", "lock"), "missing runbook"),
+        (("timeout", "timed out"), "weak defaults"),
+    )
+    for needles, target in rules:
+        if any(needle in lowered for needle in needles):
+            return target
+    return "missing automation"
+
+
+def cass_search(
+    term: str,
+    limit: int,
+    timeout_seconds: int,
+    command: str = DEFAULT_CASS_COMMAND,
+) -> dict[str, object]:
+    """Run one query through the sbp cass search backend and parse its JSON."""
+    argv = shlex.split(command) + [
+        term,
+        "--json",
+        "--limit",
+        str(limit),
+        "--fields",
+        "all",
+        "--timeout-seconds",
+        str(timeout_seconds),
+    ]
+    code, output = run(argv, Path.cwd())
+    if code != 0:
+        return {"error": f"exit {code}: {_short(output)}"}
+    try:
+        payload = json.loads(output)
+    except json.JSONDecodeError:
+        return {"error": f"unparsable backend output: {_short(output)}"}
+    result = payload.get("result") if isinstance(payload, dict) else None
+    if not isinstance(result, dict):
+        return {"error": f"backend returned no result object: {_short(output)}"}
+    hits = result.get("hits")
+    return {
+        "hits": hits if isinstance(hits, list) else [],
+        "total_matches": int(result.get("total_matches") or 0),
+    }
+
+
+def session_id_from_hit(hit: dict[str, object]) -> str:
+    source_path = str(hit.get("source_path") or "")
+    return Path(source_path).stem if source_path else "unknown-session"
+
+
+def aggregate_pattern(
+    pattern: dict[str, object],
+    searches: list[dict[str, object]],
+) -> dict[str, object]:
+    """Fold per-term search results into one ranked friction-pattern row."""
+    session_ids: list[str] = []
+    seen_hits: set[tuple[str, object]] = set()
+    approx_tokens = 0
+    total_matches = 0
+    sample_snippet = ""
+    errors: list[str] = []
+    for search in searches:
+        error = search.get("error")
+        if error:
+            errors.append(str(error))
+            continue
+        total_matches += int(search.get("total_matches") or 0)
+        for hit in search.get("hits") or []:
+            if not isinstance(hit, dict):
+                continue
+            key = (str(hit.get("source_path") or ""), hit.get("line_number"))
+            if key in seen_hits:
+                continue
+            seen_hits.add(key)
+            text = str(hit.get("content") or hit.get("title") or "")
+            approx_tokens += max(len(text) // 4, 1)
+            if not sample_snippet and text:
+                sample_snippet = _short(text)
+            session_id = session_id_from_hit(hit)
+            if session_id not in session_ids:
+                session_ids.append(session_id)
+    session_count = len(session_ids)
+    return {
+        "pattern": pattern["pattern"],
+        "lube_target": pattern["lube_target"],
+        "terms": list(pattern["terms"]),
+        "score": session_count * max(approx_tokens, 1),
+        "session_count": session_count,
+        "total_matches": total_matches,
+        "approx_match_tokens": approx_tokens,
+        "session_ids": session_ids[:10],
+        "sample_snippet": sample_snippet,
+        "errors": errors,
+    }
+
+
+def frequency_patterns(extra_terms: list[str]) -> list[dict[str, object]]:
+    patterns = [dict(pattern) for pattern in FRICTION_PATTERNS]
+    for term in extra_terms:
+        patterns.append(
+            {
+                "pattern": re.sub(r"[^a-z0-9]+", "-", term.lower()).strip("-") or "custom",
+                "terms": [term],
+                "lube_target": classify_lube_target(term),
+            }
+        )
+    return patterns
+
+
+def parse_terms(value: str) -> list[str]:
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def run_frequency_mode(args: argparse.Namespace) -> int:
+    patterns = frequency_patterns(parse_terms(args.terms))
+    rows: list[dict[str, object]] = []
+    for pattern in patterns:
+        searches = [
+            cass_search(term, args.per_term_limit, args.timeout_seconds, args.cass_command)
+            for term in pattern["terms"]
+        ]
+        rows.append(aggregate_pattern(pattern, searches))
+    rows.sort(key=lambda row: (-int(row["score"]), -int(row["total_matches"])))
+    report = {
+        "mode": "frequency",
+        "backend": args.cass_command,
+        "per_term_limit": args.per_term_limit,
+        "patterns": rows[: args.top],
+    }
+    print(json.dumps(report, indent=2))
+    if all(row["errors"] and not row["session_count"] for row in rows):
+        return 2
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Run skill-issue evidence scans and emit lube friction output."
+    )
+    parser.add_argument(
+        "--mode",
+        default="evidence",
+        choices=("evidence", "frequency"),
+        help="evidence: skill-issue scans (default). frequency: batch cass friction mining.",
     )
     parser.add_argument(
         "--skills",
@@ -158,7 +363,38 @@ def main() -> int:
         default=DEFAULT_SKILL_ISSUE_ROOT,
         help="Path to the skill-issue skill directory.",
     )
+    parser.add_argument(
+        "--terms",
+        default="",
+        help="Frequency mode: comma-separated extra friction terms to mine.",
+    )
+    parser.add_argument(
+        "--per-term-limit",
+        type=int,
+        default=20,
+        help="Frequency mode: hits fetched per search term.",
+    )
+    parser.add_argument(
+        "--top",
+        type=int,
+        default=10,
+        help="Frequency mode: ranked patterns to emit.",
+    )
+    parser.add_argument(
+        "--timeout-seconds",
+        type=int,
+        default=30,
+        help="Frequency mode: per-search backend timeout.",
+    )
+    parser.add_argument(
+        "--cass-command",
+        default=os.environ.get("LUBE_CASS_COMMAND", DEFAULT_CASS_COMMAND),
+        help="Frequency mode: cass search front door (env LUBE_CASS_COMMAND).",
+    )
     args = parser.parse_args()
+
+    if args.mode == "frequency":
+        return run_frequency_mode(args)
 
     skill_issue_root = args.skill_issue_root.expanduser().resolve()
     portfolio_script = skill_issue_root / "scripts" / "generate_skill_portfolio_opportunities.py"

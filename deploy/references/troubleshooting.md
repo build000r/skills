@@ -1,35 +1,38 @@
 # Troubleshooting
 
-Use this after mode load and basic preflight.
-Use only the surfaces your stack actually has. If deploys are not GitHub-driven,
-skip the `gh` commands. If the project does not publish a package, skip the
-package checks.
+Use this after mode load and basic preflight. Use only the variables and
+surfaces declared by the selected overlay.
 
 ## Fast Read-Only Triage
 
 ```bash
-gh run list -R "$MODE_REPO_SLUG_API" --limit 5
-curl -fsS "$MODE_HEALTH_URL_API"
+test -z "${MODE_RELEASE_MANIFEST_DIR:-}" || ls -lt "$MODE_RELEASE_MANIFEST_DIR" | head
+curl -fsS "$MODE_HEALTH_URL"
 ssh "$MODE_DROPLET_SSH" "docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'"
-ssh "$MODE_DROPLET_SSH" "docker logs '$MODE_COMPOSE_SERVICE_API' --tail 120"
+ssh "$MODE_DROPLET_SSH" "docker logs '$MODE_COMPOSE_SERVICE' --tail 120"
 ssh "$MODE_DROPLET_SSH" "df -h"
 ```
 
 ## Deploy Failed
 
 Symptoms:
-- workflow red
+- local release command failed
+- release manifest is absent or reports failure
+- artifact transport or activation failed
 - compose update failed
 - health check never recovered
 
 Debug:
 
 ```bash
-gh run view -R "$MODE_REPO_SLUG_API" <run-id> --log-failed
 ssh "$MODE_DROPLET_SSH" \
-  "cd '$MODE_DEPLOY_ROOT_API' && docker compose -p '$MODE_COMPOSE_PROJECT_API' ps"
-ssh "$MODE_DROPLET_SSH" "docker logs '$MODE_COMPOSE_SERVICE_API' --tail 200"
+  "cd '$MODE_DEPLOY_ROOT' && docker compose -p '$MODE_COMPOSE_PROJECT' ps"
+ssh "$MODE_DROPLET_SSH" "docker logs '$MODE_COMPOSE_SERVICE' --tail 200"
 ```
+
+If the manual hosted fallback was the path that failed, inspect that run after
+the local release evidence. A red fallback does not make a proven local release
+unhealthy, but it does mean recovery parity is degraded.
 
 Common causes:
 - missing env key
@@ -48,9 +51,9 @@ First split:
 Useful checks:
 
 ```bash
-curl -v "$MODE_HEALTH_URL_API"
-ssh "$MODE_DROPLET_SSH" "curl -fsS '$MODE_HEALTH_URL_API'"
-ssh "$MODE_DROPLET_SSH" "docker logs '$MODE_COMPOSE_SERVICE_API' --tail 200 | tail -n 80"
+curl -v "$MODE_HEALTH_URL"
+ssh "$MODE_DROPLET_SSH" "curl -fsS '$MODE_HEALTH_URL'"
+ssh "$MODE_DROPLET_SSH" "docker logs '$MODE_COMPOSE_SERVICE' --tail 200 | tail -n 80"
 ```
 
 If the server-local curl works but the public URL fails, inspect proxy, CDN, or firewall layers next.
@@ -60,8 +63,8 @@ If the server-local curl works but the public URL fails, inspect proxy, CDN, or 
 Debug:
 
 ```bash
-ssh "$MODE_DROPLET_SSH" "docker inspect '$MODE_COMPOSE_SERVICE_API' --format '{{.State.Status}} {{.State.ExitCode}}'"
-ssh "$MODE_DROPLET_SSH" "docker logs '$MODE_COMPOSE_SERVICE_API' --tail 200"
+ssh "$MODE_DROPLET_SSH" "docker inspect '$MODE_COMPOSE_SERVICE' --format '{{.State.Status}} {{.State.ExitCode}}'"
+ssh "$MODE_DROPLET_SSH" "docker logs '$MODE_COMPOSE_SERVICE' --tail 200"
 ```
 
 Likely causes:
@@ -80,7 +83,7 @@ Questions:
 Checks:
 
 ```bash
-curl -I "$MODE_HEALTH_URL_FRONTEND"
+curl -I "$MODE_HEALTH_URL"
 ```
 
 Then inspect the frontend deploy surface defined in the project runbook or local mode notes.
@@ -157,7 +160,7 @@ challenge, or route-not-found response from the app API.
 Also verify runtime state, not just behavior:
 
 ```bash
-curl -fsS "$MODE_HEALTH_URL_API"
+curl -fsS "$MODE_HEALTH_URL"
 # Then compare the reported version, container image tag, or deploy metadata
 # with the commit/tag intended for this release.
 ```
@@ -188,7 +191,7 @@ publicly served.
 Checks:
 
 ```bash
-git -C "$MODE_REPO_ROOT_API" describe --tags --always
+git -C "$MODE_REPO_ROOT" describe --tags --always
 npm view "$MODE_PACKAGE_NAME" version
 python -m pip index versions "$MODE_PACKAGE_NAME"
 ```
@@ -206,7 +209,7 @@ Checks:
 ```bash
 ssh "$MODE_DROPLET_SSH" "df -h"
 ssh "$MODE_DROPLET_SSH" "df -h '$MODE_STORAGE_ROOT'"
-ssh "$MODE_DROPLET_SSH" "ls -lah '$MODE_BACKUP_ROOT' | tail -n 20"
+test -z "${MODE_BACKUP_ROOT:-}" || ssh "$MODE_DROPLET_SSH" "ls -lah '$MODE_BACKUP_ROOT' | tail -n 20"
 ```
 
 If storage pressure is the root cause, stop deploy work until cleanup or capacity planning is explicit.

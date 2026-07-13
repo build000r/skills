@@ -38,6 +38,13 @@ class SelectModeTests(unittest.TestCase):
                                     "compose_file": "deploy/docker-compose.prod.yml",
                                     "compose_service": "api",
                                     "health_url": "https://api.example.test/health",
+                                    "release": {
+                                        "command": "make release",
+                                        "gate": "make verify",
+                                        "ref_policy": "origin/main",
+                                        "transport": "registryless",
+                                        "manifest_dir": "/var/tmp/api-service-release/manifests",
+                                    },
                                 }
                             },
                         },
@@ -62,6 +69,14 @@ class SelectModeTests(unittest.TestCase):
             self.assertEqual(payload["MODE_SURFACE"], "docker_compose")
             self.assertEqual(payload["MODE_REPO_SLUG"], "acme/api-service")
             self.assertEqual(payload["MODE_HEALTH_URL"], "https://api.example.test/health")
+            self.assertEqual(payload["MODE_RELEASE_COMMAND"], "make release")
+            self.assertEqual(payload["MODE_RELEASE_GATE"], "make verify")
+            self.assertEqual(payload["MODE_RELEASE_REF_POLICY"], "origin/main")
+            self.assertEqual(payload["MODE_RELEASE_TRANSPORT"], "registryless")
+            self.assertEqual(
+                payload["MODE_RELEASE_MANIFEST_DIR"],
+                "/var/tmp/api-service-release/manifests",
+            )
 
     def test_error_path_probes_legacy_sources_and_prints_valid_stub(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -128,6 +143,14 @@ class SelectModeTests(unittest.TestCase):
                                     "repo_root": str(repo),
                                     "repo_slug": "acme/clawgs",
                                     "crates_io_url": "https://crates.io/crates/clawgs",
+                                    "release": {
+                                        "command": "make release",
+                                        "gate": "make verify",
+                                        "ref_policy": "signed_tag",
+                                        "transport": "registry_cli",
+                                        "credential_probe": "cargo login --help",
+                                        "manifest_dir": "/var/tmp/clawgs-release/manifests",
+                                    },
                                 }
                             },
                         },
@@ -151,6 +174,14 @@ class SelectModeTests(unittest.TestCase):
             self.assertEqual(payload["MODE_NAME"], "clawgs")
             self.assertEqual(payload["MODE_SURFACE"], "package_publish")
             self.assertEqual(payload["MODE_REPO_SLUG"], "acme/clawgs")
+            self.assertEqual(payload["MODE_RELEASE_COMMAND"], "make release")
+            self.assertEqual(payload["MODE_RELEASE_GATE"], "make verify")
+            self.assertEqual(payload["MODE_RELEASE_REF_POLICY"], "signed_tag")
+            self.assertEqual(payload["MODE_RELEASE_TRANSPORT"], "registry_cli")
+            self.assertEqual(
+                payload["MODE_RELEASE_CREDENTIAL_PROBE"],
+                "cargo login --help",
+            )
 
 
 if __name__ == "__main__":

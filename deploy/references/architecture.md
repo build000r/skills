@@ -19,6 +19,19 @@ encoding one portfolio's exact topology.
 
 Treat those as examples only. Use mode values for the real paths.
 
+## Default Release Control Plane
+
+Prefer a repo-owned local self-release command over a push-triggered hosted
+workflow. The release host owns the exact-SHA worktree, canonical gate, artifact
+build, transport, and release manifest. The production target activates the
+artifact but does not build it. A hosted workflow may remain as a manual
+fallback or for a deliberate exception such as untrusted contributor checks or
+a platform that is unavailable on the trusted host.
+
+Read `self-release.md` before designing or converting a release lane. It defines
+the build-once invariant, credential cutover proof, target-specific transport,
+behavior and state receipts, and migration-aware rollback contract.
+
 ## What Usually Changes Together
 
 - app code + image tag
@@ -34,3 +47,5 @@ Before deploying:
 2. Which runtime surface must be healthy when this is done?
 3. Is there a DB or secret change that forces a two-phase rollout?
 4. What single command proves the runtime is on the expected version?
+5. Which repo command is the canonical exact-SHA gate and release entry point?
+6. Is the deployed artifact byte-for-byte or digest-identical to the gated artifact?

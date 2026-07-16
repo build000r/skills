@@ -16,10 +16,12 @@ dropbox-ocr/
 *.bak.*
 briefs/
 # local session artifacts from dueling-idea-wizards runs
+.duel-artifacts/
 DUELING_WIZARDS_REPORT.md
 WIZARD_IDEAS_*.md
 WIZARD_REACTIONS_*.md
 WIZARD_SCORES_*.md
+WIZARD_BLINDSPOTS_*.md
 # private AI runtime overlays and admin-only skill packs
 modes/
 */modes/

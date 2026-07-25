@@ -13,12 +13,17 @@ CLI usage (every command emits JSON on stdout, non-zero exit on failure):
   br_helpers.py ensure                              # init .beads/ + AGENTS.md if missing
   br_helpers.py status                              # `br doctor` + `br where` summary
   br_helpers.py ready [--limit N] [--label …]       # `br ready --json`
+  br_helpers.py ready --plan {slug} --require-handoff-ready
+                                                    # accepted no-ragrets intake
   br_helpers.py scheduler [--limit N]               # `br scheduler --json`
   br_helpers.py mint-node exec-001-backend-api 'Backend API' \\
       --concern backend-api --repo backend \\
       --writes 'src/domain/**' --done-when '...' \\
       --validate 'npm test' --risk none \\
       --depends-on br-exec-000-... [--epic br-epic-...]
+  br_helpers.py mint-subgoal auth-hardening 'Subgoal: auth hardening' \\
+      --slice {slice-slug} --writes 'backend/auth/**' \\
+      --shared-file 'backend/migrations/**' --max-workers 3
   br_helpers.py update-node {id} --writes 'src/domain/**' --validate 'npm test'
   br_helpers.py hydrate-node {id}                    # Beads-backed dispatch contract
   br_helpers.py render-node-brief {id}               # Worker prompt from Beads
@@ -38,6 +43,7 @@ explicitly via the `commit` skill.
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import json
 import os
 import re
@@ -53,6 +59,32 @@ BR_AGENTS_MARKER = "<!-- br-agent-instructions-v1 -->"
 CURATED_AGENTS_MARKERS = (
     "<!-- bv-agent-instructions-v2 -->",
 )
+
+# ---- accepted no-ragrets plan vocabulary (see ../references/beads-contract.md) ----
+# `no-ragrets` owns the planning graph and stamps these labels; this helper is the
+# consumer side. Only the dispatchable roles may ever enter an execution frontier.
+PLAN_LABEL_PREFIX = "plan"
+PLAN_ROLE_PREFIX = "plan-role"
+PLAN_STATE_PREFIX = "plan-state"
+PLAN_EVIDENCE_PREFIX = "plan-evidence"
+PLAN_ROOT_ROLE = "root"
+PLAN_HANDOFF_STATE = "handoff-ready"
+PLAN_DISPATCHABLE_ROLES = ("execution-leaf", "integration", "review")
+PLAN_GROUPING_ROLES = ("root", "branch")
+PLAN_HISTORICAL_ROLES = ("historical-evidence",)
+PLAN_HISTORICAL_EVIDENCE = "historical-only"
+PLAN_NOTE_SCALARS = ("planning_parent", "supports", "local_criteria", "produces")
+PLAN_ROOT_NOTE_SCALARS = ("synthesis_receipt", "plan_score", "hard_gate_result")
+
+# Values that look filled in but carry no invocation-specific meaning. An accepted
+# plan is written before a swarm exists, so `run_dir`/`expected_assignee` are the
+# two fields that must be hydrated at admission time rather than trusted as-is.
+_PLACEHOLDER_TOKENS = frozenset({
+    "tbd", "tba", "todo", "none", "null", "nil", "n/a", "na", "unknown",
+    "unassigned", "placeholder", "pending", "fixme", "xxx", "example",
+    "worker", "worker-id", "agent", "someone", "?", "-",
+})
+_PLACEHOLDER_SHAPE = re.compile(r"<[^>]*>|\{[^}]*\}|\$\{?[A-Z_][A-Z0-9_]*\}?|\.\.\.")
 
 
 # ----------------------------- core shell-out -----------------------------
@@ -176,6 +208,49 @@ def _label_value(labels: Iterable[str], prefix: str) -> Optional[str]:
     return None
 
 
+def _label_values(labels: Iterable[str], prefix: str) -> list[str]:
+    """Every value carried under one label prefix (roles can be duplicated)."""
+    marker = f"{prefix}:"
+    return [label[len(marker):] for label in labels if label.startswith(marker)]
+
+
+def _is_placeholder(value: Optional[str]) -> bool:
+    """True when a field is blank or a template stand-in rather than a real value."""
+    if value is None:
+        return True
+    text = str(value).strip()
+    if not text:
+        return True
+    if _PLACEHOLDER_SHAPE.search(text):
+        return True
+    return text.strip("`'\"").lower() in _PLACEHOLDER_TOKENS
+
+
+def _normalize_scope(scope: str) -> str:
+    text = str(scope).strip().strip("'\"")
+    if text.startswith("./"):
+        text = text[2:]
+    return text.rstrip("/")
+
+
+def _scopes_overlap(left: str, right: str) -> bool:
+    """Conservative write-scope collision test over exact paths and globs.
+
+    Fails loud rather than silent: `fnmatch` treats `*` as matching `/` too, so a
+    glob such as `skill/**` is reported as overlapping `skill/SKILL.md`. Directory
+    containment is checked separately because plain prefixes carry no wildcard.
+    """
+    a = _normalize_scope(left)
+    b = _normalize_scope(right)
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    if fnmatch.fnmatch(a, b) or fnmatch.fnmatch(b, a):
+        return True
+    return a.startswith(f"{b}/") or b.startswith(f"{a}/")
+
+
 def _lines_from_text(text: Optional[str]) -> list[str]:
     if not text:
         return []
@@ -286,7 +361,426 @@ def list_issues(
     return []
 
 
+# ------------------- accepted no-ragrets plan intake (read) -------------------
+
+
+def _rejection(issue_id: Optional[str], reason: str, detail: str, repair: str) -> dict:
+    """One machine-readable admission failure that says how to repair itself."""
+    return {"id": issue_id, "reason": reason, "detail": detail, "repair": repair}
+
+
+def _split_ids(value: Optional[str]) -> list[str]:
+    if not value:
+        return []
+    return [part.strip() for part in re.split(r"[,\s]+", str(value)) if part.strip()]
+
+
+def _plan_node_view(issue: dict) -> dict:
+    """Project one Beads issue onto the canonical plan vocabulary."""
+    labels = _labels(issue)
+    notes = issue.get("notes")
+    view = {
+        "id": issue.get("id"),
+        "title": issue.get("title"),
+        "status": issue.get("status"),
+        "labels": labels,
+        "plan": _label_value(labels, PLAN_LABEL_PREFIX),
+        "roles": _label_values(labels, PLAN_ROLE_PREFIX),
+        "plan_state": _label_value(labels, PLAN_STATE_PREFIX),
+        "plan_evidence": _label_value(labels, PLAN_EVIDENCE_PREFIX),
+    }
+    for key in (*PLAN_NOTE_SCALARS, *PLAN_ROOT_NOTE_SCALARS):
+        view[key] = _parse_scalar(notes, key)
+    return view
+
+
+def _is_historical(view: dict) -> bool:
+    """Historical-evidence nodes are read-only provenance, never executable work."""
+    if view.get("plan_evidence") == PLAN_HISTORICAL_EVIDENCE:
+        return True
+    return any(role in PLAN_HISTORICAL_ROLES for role in view.get("roles") or [])
+
+
+def _hydrate_plan_node(issue: dict) -> dict:
+    """Merge `br show` rich fields into a thin `br list`/`br ready` row.
+
+    `br ready --json` rows carry neither `labels` nor `notes` on some versions,
+    so a label check against the raw row would silently drop every node.
+    """
+    issue_id = str(issue.get("id") or "")
+    if not issue_id or ("labels" in issue and "notes" in issue):
+        return issue
+    try:
+        return {**issue, **show_issue(issue_id)}
+    except (subprocess.CalledProcessError, RuntimeError, json.JSONDecodeError):
+        return issue
+
+
+def _admit_plan_node(view: dict) -> tuple[Optional[dict], Optional[dict]]:
+    """Return (admitted_contract, rejection) for one ready plan node.
+
+    Role filtering uses OR semantics here in helper code rather than repeated
+    `br ready --label` flags, because `br`'s multi-label behavior is not proven
+    to be AND across versions and the allowed roles are alternatives, not a
+    conjunction.
+    """
+    issue_id = view["id"]
+    roles = [role for role in view.get("roles") or []]
+    if not roles:
+        return None, _rejection(
+            issue_id,
+            "plan_role_missing",
+            "ready plan node carries no plan-role:* label",
+            f"br update {issue_id} --labels plan-role:execution-leaf "
+            "(or plan-role:branch to keep it non-dispatchable)",
+        )
+    if len(set(roles)) > 1:
+        return None, _rejection(
+            issue_id,
+            "plan_role_ambiguous",
+            f"multiple plan-role labels: {', '.join(sorted(set(roles)))}",
+            f"remove the extra plan-role:* labels from {issue_id} so exactly one remains",
+        )
+    role = roles[0]
+    if role in PLAN_GROUPING_ROLES:
+        return None, _rejection(
+            issue_id,
+            "plan_role_not_dispatchable",
+            f"plan-role:{role} is a grouping node but is in the ready frontier",
+            f"make {issue_id} non-dispatchable (epic/grouping shape or a blocking "
+            "dependency on its children); grouping nodes never dispatch",
+        )
+    if role not in PLAN_DISPATCHABLE_ROLES:
+        return None, _rejection(
+            issue_id,
+            "plan_role_unknown",
+            f"plan-role:{role} is not a canonical role",
+            f"relabel {issue_id} with one of "
+            + ", ".join(f"plan-role:{allowed}" for allowed in PLAN_DISPATCHABLE_ROLES),
+        )
+
+    try:
+        contract = hydrate_node_contract(issue_id, include_comments=False)
+    except (RuntimeError, subprocess.CalledProcessError) as exc:
+        return None, _rejection(
+            issue_id,
+            "hydration_failed",
+            f"br show could not hydrate the node: {exc}",
+            f"verify {issue_id} exists and `br show {issue_id} --json` returns an issue",
+        )
+    if not contract.get("concern"):
+        return None, _rejection(
+            issue_id,
+            "concern_label_missing",
+            "admitted nodes must carry at least one concern:* label",
+            f"br update {issue_id} --labels concern:<slug>",
+        )
+    if not contract["dispatch_ready"]:
+        missing = ", ".join(contract["missing_dispatch_fields"])
+        return None, _rejection(
+            issue_id,
+            "hydration_incomplete",
+            f"missing dispatch fields: {missing}",
+            f"python3 br_helpers.py update-node {issue_id} "
+            "--run-dir <absolute-run-dir> --expected-assignee <worker-id> "
+            "--repo-path <repo> --branch <branch> --model-route <route> "
+            "--validate <cmd> --done-when <check> --global-constraint <rule>",
+        )
+    if _is_placeholder(contract.get("run_dir")) or not str(contract["run_dir"]).startswith("/"):
+        return None, _rejection(
+            issue_id,
+            "run_dir_placeholder",
+            f"run_dir is not an invocation-specific absolute path: {contract.get('run_dir')!r}",
+            f"python3 br_helpers.py update-node {issue_id} --run-dir "
+            "{invocation_root}/{repo_slug}/divide-and-conquer/{run_id}",
+        )
+    if _is_placeholder(contract.get("expected_assignee")):
+        return None, _rejection(
+            issue_id,
+            "expected_assignee_placeholder",
+            f"expected_assignee is not a concrete worker: {contract.get('expected_assignee')!r}",
+            f"python3 br_helpers.py update-node {issue_id} --expected-assignee <worker-id>",
+        )
+
+    admitted = dict(contract)
+    admitted["plan_role"] = role
+    for key in PLAN_NOTE_SCALARS:
+        admitted[key] = view.get(key)
+    return admitted, None
+
+
+def _serialize_write_scopes(
+    admitted: list[dict],
+    *,
+    materialize: bool = False,
+) -> tuple[list[dict], list[dict], list[dict]]:
+    """Split an admitted frontier into a concurrently-safe set plus deferrals.
+
+    Ready siblings cannot already be ordered by `br` (an open dependency would
+    keep them out of the frontier), so any declared write-scope collision between
+    two ready nodes is unsafe concurrency. We materialize the ordering edge and
+    defer the later node instead of dispatching both.
+    """
+    concurrent: list[dict] = []
+    deferred: list[dict] = []
+    edges: list[dict] = []
+    for candidate in admitted:
+        conflict = None
+        for accepted in concurrent:
+            overlap = [
+                [left, right]
+                for left in candidate.get("writes") or []
+                for right in accepted.get("writes") or []
+                if _scopes_overlap(left, right)
+            ]
+            if overlap:
+                conflict = (accepted, overlap)
+                break
+        if conflict is None:
+            concurrent.append(candidate)
+            continue
+        accepted, overlap = conflict
+        edge = {
+            "blocked": candidate["id"],
+            "blocked_by": accepted["id"],
+            "overlapping_writes": overlap,
+            "repair": f"br dep add {candidate['id']} {accepted['id']}",
+            "materialized": False,
+        }
+        if materialize:
+            try:
+                _run(["dep", "add", candidate["id"], accepted["id"]], capture=True)
+                edge["materialized"] = True
+            except subprocess.CalledProcessError as exc:
+                edge["error"] = f"br dep add failed (exit {exc.returncode})"
+        edges.append(edge)
+        deferred.append({
+            "id": candidate["id"],
+            "plan_role": candidate.get("plan_role"),
+            "reason": "write_scope_overlap",
+            "detail": f"declared writes collide with {accepted['id']}: {overlap}",
+            "repair": edge["repair"],
+        })
+    return concurrent, deferred, edges
+
+
+def plan_admission(
+    plan_slug: str,
+    *,
+    limit: int = 20,
+    require_handoff_ready: bool = True,
+    materialize_serialization: bool = False,
+) -> dict:
+    """Intake an accepted `no-ragrets` graph without reminting or flattening it.
+
+    Consumes the producer contract documented in
+    `../references/beads-contract.md`: exactly one `plan:{slug}` root labeled
+    `plan-role:root` and `plan-state:handoff-ready`, then dispatches only ready
+    `plan-role:execution-leaf`, `plan-role:integration`, and `plan-role:review`
+    nodes. Everything else becomes a machine-readable rejection carrying its own
+    repair instruction. This helper never creates, closes, or relabels plan
+    nodes; the existing epic and its children are reused as-is.
+    """
+    plan_label = f"{PLAN_LABEL_PREFIX}:{plan_slug}"
+    result: dict[str, Any] = {
+        "plan": plan_slug,
+        "plan_label": plan_label,
+        "require_handoff_ready": require_handoff_ready,
+        "root": None,
+        "plan_state": None,
+        "handoff_ready": False,
+        "admitted": [],
+        "deferred": [],
+        "serialization_edges": [],
+        "excluded_historical": [],
+        "rejected": [],
+        "coverage": {"declared": [], "covered": [], "uncovered": [], "by_criterion": {}},
+        "ok": False,
+    }
+    try:
+        raw_nodes = list_issues(labels=[plan_label])
+    except subprocess.CalledProcessError as exc:
+        result["rejected"].append(_rejection(
+            None,
+            "plan_query_failed",
+            f"br list --label {plan_label} failed (exit {exc.returncode})",
+            f"verify the plan label exists: br list --label {plan_label} --json",
+        ))
+        return result
+
+    # Defensive helper-side filter: some `br` versions OR label filters.
+    views = [
+        _plan_node_view(_hydrate_plan_node(issue))
+        for issue in raw_nodes
+        if plan_label in _labels(issue)
+    ]
+    by_id = {view["id"]: view for view in views}
+
+    roots = [view for view in views if PLAN_ROOT_ROLE in (view.get("roles") or [])]
+    if not roots:
+        result["rejected"].append(_rejection(
+            None,
+            "plan_root_missing",
+            f"no issue labeled {plan_label} carries plan-role:root",
+            f"label the accepted epic with {plan_label} and plan-role:root, "
+            "or re-run no-ragrets synthesis before handoff",
+        ))
+    elif len(roots) > 1:
+        result["rejected"].append(_rejection(
+            None,
+            "plan_root_duplicate",
+            "multiple accepted roots: " + ", ".join(sorted(str(r["id"]) for r in roots)),
+            "keep exactly one plan-role:root for this plan and demote the rest to "
+            "plan-role:branch",
+        ))
+    else:
+        root = roots[0]
+        result["root"] = root
+        result["plan_state"] = root.get("plan_state")
+        result["handoff_ready"] = root.get("plan_state") == PLAN_HANDOFF_STATE
+        if require_handoff_ready and not result["handoff_ready"]:
+            result["rejected"].append(_rejection(
+                root["id"],
+                "plan_state_not_handoff_ready",
+                "root plan-state is "
+                f"{root.get('plan_state') or 'unset'}, expected {PLAN_HANDOFF_STATE}",
+                "finish no-ragrets synthesis, prove grouping nodes cannot dispatch, "
+                f"then set plan-state:{PLAN_HANDOFF_STATE} on {root['id']}",
+            ))
+
+    try:
+        frontier = ready_frontier(limit=limit, labels=[plan_label])
+    except subprocess.CalledProcessError as exc:
+        result["rejected"].append(_rejection(
+            None,
+            "plan_frontier_query_failed",
+            f"br ready --label {plan_label} failed (exit {exc.returncode})",
+            f"verify readiness directly: br ready --label {plan_label} --json",
+        ))
+        frontier = []
+
+    admitted: list[dict] = []
+    for issue in frontier:
+        # `br ready` already applied dependency readiness; only role/hydration
+        # filtering happens here so we never widen the frontier. Resolve the
+        # label-bearing view first: ready rows can be thin, so filtering on the
+        # raw row would drop the whole frontier.
+        view = by_id.get(issue.get("id")) or _plan_node_view(_hydrate_plan_node(issue))
+        if plan_label not in (view.get("labels") or []):
+            continue
+        if _is_historical(view):
+            result["excluded_historical"].append({
+                "id": view["id"],
+                "reason": "historical_evidence_never_dispatches",
+                "roles": view.get("roles"),
+                "plan_evidence": view.get("plan_evidence"),
+            })
+            continue
+        node, rejection = _admit_plan_node(view)
+        if rejection is not None:
+            result["rejected"].append(rejection)
+            continue
+        admitted.append(node)
+
+    concurrent, deferred, edges = _serialize_write_scopes(
+        admitted, materialize=materialize_serialization
+    )
+    result["admitted"] = concurrent
+    result["deferred"] = deferred
+    result["serialization_edges"] = edges
+
+    # Criterion coverage deliberately ignores historical-evidence nodes so a
+    # criterion "covered" only by past proof still reads as uncovered.
+    live = [view for view in views if not _is_historical(view)]
+    root_view = result["root"]
+    declared: list[str] = []
+    if root_view and root_view.get("local_criteria"):
+        declared = _split_ids(root_view["local_criteria"])
+    else:
+        seen: list[str] = []
+        for view in views:
+            for criterion in _split_ids(view.get("supports")):
+                if criterion not in seen:
+                    seen.append(criterion)
+        declared = seen
+    by_criterion: dict[str, list[str]] = {criterion: [] for criterion in declared}
+    for view in live:
+        if root_view and view["id"] == root_view["id"]:
+            continue
+        for criterion in _split_ids(view.get("supports")):
+            by_criterion.setdefault(criterion, [])
+            if view["id"] not in by_criterion[criterion]:
+                by_criterion[criterion].append(view["id"])
+    covered = [criterion for criterion in declared if by_criterion.get(criterion)]
+    uncovered = [criterion for criterion in declared if not by_criterion.get(criterion)]
+    result["coverage"] = {
+        "declared": declared,
+        "covered": covered,
+        "uncovered": uncovered,
+        "by_criterion": by_criterion,
+    }
+
+    result["ok"] = not result["rejected"]
+    return result
+
+
 # ----------------------------- write paths -----------------------------
+
+
+def _create_issue(
+    *,
+    slug: str,
+    title: str,
+    issue_type: str,
+    priority: int,
+    labels: Iterable[str],
+    epic: Optional[str] = None,
+) -> str:
+    """`br create` with the small flag set it accepts, returning the new ID.
+
+    Rich fields like --design, --notes, and --acceptance-criteria are
+    update-only, so callers create first and flow the rest through `br update`.
+    """
+    create_args = [
+        "create",
+        title,
+        "--slug", slug,
+        "--type", issue_type,
+        "--priority", str(priority),
+        "--labels", ",".join(labels),
+        "--json",
+    ]
+    if epic:
+        create_args += ["--parent", epic]
+    proc = _run(create_args)
+    try:
+        envelope = json.loads(proc.stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"br create returned non-JSON: {proc.stdout!r}") from exc
+    issue_id = envelope.get("id") or envelope.get("issue", {}).get("id")
+    if not issue_id:
+        raise RuntimeError(f"br create envelope missing id: {envelope!r}")
+    return issue_id
+
+
+def _add_dependencies(issue_id: str, depends_on: Iterable[str]) -> None:
+    """Add each dependency edge; a failed edge must not lose the minted issue.
+
+    Accepts both repeated flags and comma-joined lists because `br dep add`
+    takes exactly one dependency per call.
+    """
+    dep_ids = [d.strip() for entry in depends_on for d in str(entry).split(",") if d.strip()]
+    for parent in dep_ids:
+        try:
+            # capture=True so `br dep add` chatter does not pollute our stdout
+            # JSON envelope when this helper is invoked from a shell pipeline.
+            _run(["dep", "add", issue_id, parent], capture=True)
+        except subprocess.CalledProcessError as exc:
+            print(
+                f"warning: {issue_id} minted but dep edge on {parent!r} failed "
+                f"(exit {exc.returncode}); repair with: br dep add {issue_id} {parent}",
+                file=sys.stderr,
+            )
 
 
 def mint_node(
@@ -343,29 +837,14 @@ def mint_node(
     if expected_assignee:
         notes_lines.append(f"expected_assignee: {expected_assignee}")
 
-    # `br create` only accepts a small set of flags; rich fields like
-    # --design, --notes, --acceptance-criteria are update-only. We create
-    # first with the small set, then flow the rich fields via update.
-    create_args = [
-        "create",
-        title,
-        "--slug", slug,
-        "--type", issue_type,
-        "--priority", str(priority),
-        "--labels", ",".join(label_list),
-        "--json",
-    ]
-    if epic:
-        create_args += ["--parent", epic]
-
-    proc = _run(create_args)
-    try:
-        envelope = json.loads(proc.stdout)
-    except json.JSONDecodeError as exc:
-        raise RuntimeError(f"br create returned non-JSON: {proc.stdout!r}") from exc
-    issue_id = envelope.get("id") or envelope.get("issue", {}).get("id")
-    if not issue_id:
-        raise RuntimeError(f"br create envelope missing id: {envelope!r}")
+    issue_id = _create_issue(
+        slug=slug,
+        title=title,
+        issue_type=issue_type,
+        priority=priority,
+        labels=label_list,
+        epic=epic,
+    )
 
     # Apply rich fields via update if any were provided.
     update_args: list[str] = []
@@ -380,25 +859,102 @@ def mint_node(
     if update_args:
         _run(["update", issue_id, *update_args, "--json"], capture=True)
 
-    # Accept both repeated --depends-on flags and comma-joined lists; `br dep
-    # add` takes exactly one dependency per call. A failed edge must not lose
-    # the already-minted issue id, so warn and continue instead of raising.
-    dep_ids = [d.strip() for entry in depends_on for d in str(entry).split(",") if d.strip()]
-    for parent in dep_ids:
-        try:
-            # capture=True so `br dep add` chatter does not pollute our stdout
-            # JSON envelope when this helper is invoked from a shell pipeline.
-            _run(["dep", "add", issue_id, parent], capture=True)
-        except subprocess.CalledProcessError as exc:
-            print(
-                f"warning: {issue_id} minted but dep edge on {parent!r} failed "
-                f"(exit {exc.returncode}); repair with: br dep add {issue_id} {parent}",
-                file=sys.stderr,
-            )
+    _add_dependencies(issue_id, depends_on)
     if not (branch and expected_assignee and global_constraints):
         print(
             f"note: {issue_id} is not dispatch-ready yet; render-node-brief requires "
             "branch, expected_assignee, and global_constraints (backfill via update-node)",
+            file=sys.stderr,
+        )
+    return issue_id
+
+
+def mint_subgoal(
+    slug: str,
+    title: str,
+    *,
+    slice_slug: str,
+    description: Optional[str] = None,
+    writes: Iterable[str] = (),
+    shared_files: Iterable[str] = (),
+    stop_rules: Iterable[str] = (),
+    escalation: Iterable[str] = (),
+    parent_run_dir: Optional[str] = None,
+    subgoal_run_dir: Optional[str] = None,
+    frontier_filter: Optional[str] = None,
+    child_orchestrator: Optional[str] = None,
+    ntm_project: Optional[str] = None,
+    max_workers: Optional[int] = None,
+    max_subgoal_depth: Optional[int] = None,
+    isolation: str = "checkout",
+    status_artifact: Optional[str] = None,
+    done_when: Optional[str] = None,
+    depends_on: Iterable[str] = (),
+    epic: Optional[str] = None,
+    priority: int = 1,
+    labels: Iterable[str] = (),
+) -> str:
+    """Create a durable subgoal **controller** issue and return its ID.
+
+    Controllers are delegation boundaries, not executable leaves: they carry the
+    subgoal's outer write scope, root-owned shared files, frontier filter, and
+    run directories. Leaves inside the subgoal are ordinary `mint_node` calls
+    plus `subgoal:{slug}` / `subgoal-role:leaf` labels. Field mapping lives in
+    `../references/beads-contract.md` under "Subgoal Controller Field Mapping".
+    """
+    label_list = [
+        f"slice:{slice_slug}",
+        f"subgoal:{slug}",
+        "subgoal-role:controller",
+        *labels,
+    ]
+    design_lines: list[str] = []
+    _append_block(design_lines, "writes", writes)
+    _append_block(design_lines, "shared_files", shared_files)
+    _append_block(design_lines, "stop_rules", stop_rules)
+    _append_block(design_lines, "escalation", escalation)
+    notes_lines: list[str] = [f"subgoal_id: {slug}", f"parent_slice: {slice_slug}"]
+    scalars = {
+        "parent_run_dir": parent_run_dir,
+        "subgoal_run_dir": subgoal_run_dir,
+        "frontier_filter": frontier_filter or f"slice:{slice_slug},subgoal:{slug}",
+        "child_orchestrator": child_orchestrator,
+        "ntm_project": ntm_project,
+        "max_workers": max_workers,
+        "max_subgoal_depth": max_subgoal_depth,
+        "isolation": isolation,
+        "status_artifact": status_artifact,
+    }
+    for key, value in scalars.items():
+        if value is not None and str(value).strip():
+            notes_lines.append(f"{key}: {value}")
+
+    issue_id = _create_issue(
+        slug=f"subgoal-{slug}",
+        title=title,
+        issue_type="task",
+        priority=priority,
+        labels=label_list,
+        epic=epic,
+    )
+
+    update_args: list[str] = []
+    if description:
+        update_args += ["--description", description]
+    if design_lines:
+        update_args += ["--design", "\n".join(design_lines)]
+    if notes_lines:
+        update_args += ["--notes", "\n".join(notes_lines)]
+    if done_when:
+        update_args += ["--acceptance-criteria", done_when]
+    if update_args:
+        _run(["update", issue_id, *update_args, "--json"], capture=True)
+
+    _add_dependencies(issue_id, depends_on)
+    if not writes:
+        print(
+            f"note: {issue_id} has no declared subgoal writes; the root cannot prove "
+            "cohort write isolation until `writes:` is set (backfill via br update --design)",
             file=sys.stderr,
         )
     return issue_id
@@ -760,6 +1316,25 @@ def main(argv: Optional[list[str]] = None) -> int:
     sp = sub.add_parser("ready")
     sp.add_argument("--limit", type=int, default=20)
     sp.add_argument("--label", action="append", default=[])
+    sp.add_argument(
+        "--plan",
+        help="Accepted no-ragrets plan slug; switches ready into plan-intake mode",
+    )
+    sp.add_argument(
+        "--require-handoff-ready",
+        action="store_true",
+        help="Reassert the default plan-state:handoff-ready gate (fails closed anyway)",
+    )
+    sp.add_argument(
+        "--allow-draft-plan",
+        action="store_true",
+        help="Inspect a draft/synthesized plan without enforcing the handoff gate",
+    )
+    sp.add_argument(
+        "--materialize-serialization",
+        action="store_true",
+        help="Run `br dep add` for write-scope collisions instead of only proposing them",
+    )
 
     sp = sub.add_parser("scheduler")
     sp.add_argument("--limit", type=int, default=20)
@@ -786,6 +1361,33 @@ def main(argv: Optional[list[str]] = None) -> int:
     sp.add_argument("--epic")
     sp.add_argument("--priority", type=int, default=2)
     sp.add_argument("--type", default="task", dest="issue_type")
+    sp.add_argument("--label", action="append", default=[], dest="labels")
+
+    sp = sub.add_parser(
+        "mint-subgoal",
+        help="Create a durable subgoal controller issue (delegation boundary, not a leaf)",
+    )
+    sp.add_argument("slug")
+    sp.add_argument("title")
+    sp.add_argument("--slice", required=True, dest="slice_slug")
+    sp.add_argument("--description")
+    sp.add_argument("--writes", action="append", default=[])
+    sp.add_argument("--shared-file", action="append", default=[], dest="shared_files")
+    sp.add_argument("--stop-rule", action="append", default=[], dest="stop_rules")
+    sp.add_argument("--escalation", action="append", default=[])
+    sp.add_argument("--parent-run-dir")
+    sp.add_argument("--subgoal-run-dir")
+    sp.add_argument("--frontier-filter")
+    sp.add_argument("--child-orchestrator")
+    sp.add_argument("--ntm-project")
+    sp.add_argument("--max-workers", type=int)
+    sp.add_argument("--max-subgoal-depth", type=int)
+    sp.add_argument("--isolation", default="checkout", choices=["checkout", "worktree"])
+    sp.add_argument("--status-artifact")
+    sp.add_argument("--done-when")
+    sp.add_argument("--depends-on", action="append", default=[])
+    sp.add_argument("--epic")
+    sp.add_argument("--priority", type=int, default=1)
     sp.add_argument("--label", action="append", default=[], dest="labels")
 
     sp = sub.add_parser("update-node")
@@ -846,6 +1448,21 @@ def main(argv: Optional[list[str]] = None) -> int:
     elif args.cmd == "status":
         _emit(status())
     elif args.cmd == "ready":
+        if args.plan:
+            if args.require_handoff_ready and args.allow_draft_plan:
+                p.error("--require-handoff-ready and --allow-draft-plan are mutually exclusive")
+            admission = plan_admission(
+                args.plan,
+                limit=args.limit,
+                require_handoff_ready=not args.allow_draft_plan,
+                materialize_serialization=args.materialize_serialization,
+            )
+            _emit(admission)
+            # Non-zero so a shell gate cannot mistake a rejected plan for a
+            # dispatchable frontier. Generic (non-plan) `ready` still exits 0.
+            return 0 if admission["ok"] else 2
+        if args.require_handoff_ready or args.allow_draft_plan or args.materialize_serialization:
+            p.error("--require-handoff-ready/--allow-draft-plan/--materialize-serialization require --plan")
         _emit(ready_frontier(limit=args.limit, labels=args.label))
     elif args.cmd == "scheduler":
         _emit(scheduler_ranked(limit=args.limit))
@@ -872,6 +1489,31 @@ def main(argv: Optional[list[str]] = None) -> int:
             epic=args.epic,
             priority=args.priority,
             issue_type=args.issue_type,
+            labels=args.labels,
+        )})
+    elif args.cmd == "mint-subgoal":
+        _emit({"id": mint_subgoal(
+            slug=args.slug,
+            title=args.title,
+            slice_slug=args.slice_slug,
+            description=args.description,
+            writes=args.writes,
+            shared_files=args.shared_files,
+            stop_rules=args.stop_rules,
+            escalation=args.escalation,
+            parent_run_dir=args.parent_run_dir,
+            subgoal_run_dir=args.subgoal_run_dir,
+            frontier_filter=args.frontier_filter,
+            child_orchestrator=args.child_orchestrator,
+            ntm_project=args.ntm_project,
+            max_workers=args.max_workers,
+            max_subgoal_depth=args.max_subgoal_depth,
+            isolation=args.isolation,
+            status_artifact=args.status_artifact,
+            done_when=args.done_when,
+            depends_on=args.depends_on,
+            epic=args.epic,
+            priority=args.priority,
             labels=args.labels,
         )})
     elif args.cmd == "update-node":

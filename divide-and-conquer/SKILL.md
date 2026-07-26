@@ -69,6 +69,51 @@ artifact. Cross-skill conventions (naming, labels, lifecycle, attribution env
 vars, commit policy) live in
 [`_shared/references/beads-contract.md`](../_shared/references/beads-contract.md).
 
+### No-ragrets handoff intake (binding)
+
+Consume an accepted `no-ragrets` Beads graph in place. Never remint, flatten,
+or reinterpret it as a new divide-and-conquer epic.
+
+Before rendering or dispatching, run the owning intake contract against the
+scoped graph and the same scope's raw Beads-ready result:
+
+```bash
+python3 divide-and-conquer/scripts/plan_intake.py \
+  --plan {root-slug} \
+  --issues-file <(br list --label "plan:{root-slug}" --json) \
+  --ready-file <(br ready --label "plan:{root-slug}" --json)
+```
+
+The consumer recognizes and validates all canonical planning metadata:
+
+- exactly one `plan:{root-slug}` and one canonical `plan-role:*` label per node
+- exactly one root with one
+  `plan-state:{draft|synthesized|handoff-ready}` label
+- exactly one non-empty `planning_parent:`, `supports:`, `local_criteria:`,
+  and `produces:` notes scalar per node
+- a complete, in-scope, acyclic `planning_parent` hierarchy with root parent
+  `none`
+
+The receipt separates `candidate_frontier` from `admitted_frontier`.
+`candidate_frontier` may show what Beads considers ready, but
+`admitted_frontier` stays empty until the root is
+`plan-state:handoff-ready` and every canonical field passes. Missing
+observations remain `null` in the receipt and fail closed; do not infer or fill
+them from a worker prompt or rendered view.
+
+`plan-role:root` and `plan-role:branch` nodes must remain epics and are always
+excluded, even if raw `br ready` includes them. Only dependency-ready
+`plan-role:execution-leaf`, `plan-role:integration`, and `plan-role:review`
+nodes may enter the admitted frontier. Deferred grouping epics remain
+non-dispatchable; do not un-defer them or retire them through a generic
+`br epic close-eligible` pass.
+
+Treat exit `0` as executable intake. Exit `2` is an intentional closed gate:
+preserve the graph and return the receipt's exact `defects` and `gate_reasons`
+to the Codex planning authority. Record the receipt with the run evidence,
+including root/state, role counts, recognized metadata count, excluded
+grouping IDs, raw ready IDs, candidate frontier, and admitted frontier.
+
 Bootstrap on entry (idempotent):
 
 ```bash

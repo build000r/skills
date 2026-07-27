@@ -1,7 +1,7 @@
 import json
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import contextmanager, redirect_stdout
 from io import StringIO
 from importlib.machinery import SourceFileLoader
 from pathlib import Path
@@ -47,6 +47,86 @@ ISSUE = {
     "labels": ["concern:contract", "repo:skills", "risk:none"],
     "dependencies": [{"depends_on_id": "skills-epic-001"}],
 }
+
+
+PLAN = "loop-indispensable"
+
+
+def plan_node(
+    issue_id: str,
+    roles,
+    *,
+    plan: str = PLAN,
+    plan_state: str | None = None,
+    plan_evidence: str | None = None,
+    supports: str | None = None,
+    local_criteria: str | None = None,
+    writes=("src/module_a.py",),
+    concern: str | None = "contract",
+    run_dir: str | None = "/invocations/repo/divide-and-conquer/2026-07-25T00-00-00Z",
+    expected_assignee: str | None = "dac-worker-001",
+    validate: bool = True,
+) -> dict:
+    """Build one accepted-plan Beads issue in the canonical vocabulary."""
+    labels = [f"plan:{plan}", "risk:none"]
+    labels += [f"plan-role:{role}" for role in roles]
+    if plan_state:
+        labels.append(f"plan-state:{plan_state}")
+    if plan_evidence:
+        labels.append(f"plan-evidence:{plan_evidence}")
+    if concern:
+        labels.append(f"concern:{concern}")
+
+    notes = []
+    if validate:
+        notes += ["validate:", "  - pytest -q"]
+    notes += [
+        "model_route: Codex gpt-5.6-sol medium",
+        "repo_path: /repo",
+        "branch: main",
+        "planning_parent: none",
+        "produces: named proof artifact",
+    ]
+    if run_dir is not None:
+        notes.append(f"run_dir: {run_dir}")
+    if expected_assignee is not None:
+        notes.append(f"expected_assignee: {expected_assignee}")
+    if supports:
+        notes.append(f"supports: {supports}")
+    if local_criteria:
+        notes.append(f"local_criteria: {local_criteria}")
+
+    design = []
+    if writes:
+        design += ["writes:"] + [f"  - {scope}" for scope in writes]
+    design += ["global_constraints:", "  - No remote push"]
+
+    return {
+        "id": issue_id,
+        "title": f"{issue_id} title",
+        "status": "open",
+        "labels": labels,
+        "notes": "\n".join(notes),
+        "design": "\n".join(design),
+        "acceptance_criteria": "Named proof exists.",
+        "dependencies": [],
+    }
+
+
+@contextmanager
+def plan_graph(nodes: list[dict], frontier_ids: list[str]):
+    """Patch the br read paths so admission sees one isolated fixture graph."""
+    by_id = {node["id"]: node for node in nodes}
+    frontier = [by_id[issue_id] for issue_id in frontier_ids]
+    with mock.patch.object(MODULE, "list_issues", return_value=list(nodes)), \
+         mock.patch.object(MODULE, "ready_frontier", return_value=frontier), \
+         mock.patch.object(MODULE, "show_issue", side_effect=lambda iid: by_id[iid]), \
+         mock.patch.object(MODULE, "issue_comments", return_value=[]):
+        yield
+
+
+def reasons(result: dict) -> list[str]:
+    return [rejection["reason"] for rejection in result["rejected"]]
 
 
 def run_cli(argv: list[str]) -> tuple[int, str]:
@@ -483,6 +563,407 @@ class RenderWorkgraphFallbackTests(unittest.TestCase):
             rendered = MODULE.render_workgraph(epic="skills-epic-002")
 
         self.assertIn("skills-epic-002", rendered)
+
+
+class AcceptedPlanIntakeTests(unittest.TestCase):
+    """`no-ragrets` handoff-ready graphs are consumed, never reminted."""
+
+    def accepted_root(self, **kwargs) -> dict:
+        return plan_node(
+            "plan-root",
+            ["root"],
+            plan_state="handoff-ready",
+            writes=(),
+            concern=None,
+            **kwargs,
+        )
+
+    def test_admits_ready_execution_leaf_integration_and_review(self) -> None:
+        nodes = [
+            self.accepted_root(),
+            plan_node("plan-leaf-1", ["execution-leaf"], writes=("src/a.py",)),
+            plan_node("plan-int-1", ["integration"], writes=("src/b.py",)),
+            plan_node("plan-rev-1", ["review"], writes=()),
+        ]
+        with plan_graph(nodes, ["plan-leaf-1", "plan-int-1", "plan-rev-1"]):
+            result = MODULE.plan_admission(PLAN)
+
+        self.assertTrue(result["ok"], result["rejected"])
+        self.assertTrue(result["handoff_ready"])
+        self.assertEqual(result["root"]["id"], "plan-root")
+        self.assertEqual(
+            [node["id"] for node in result["admitted"]],
+            ["plan-leaf-1", "plan-int-1", "plan-rev-1"],
+        )
+        self.assertEqual(
+            sorted(node["plan_role"] for node in result["admitted"]),
+            ["execution-leaf", "integration", "review"],
+        )
+        # Consumed, not reminted: admission is a read path only.
+        self.assertTrue(all(node["dispatch_ready"] for node in result["admitted"]))
+
+    def test_root_and_branch_never_dispatch_even_when_otherwise_ready(self) -> None:
+        nodes = [
+            self.accepted_root(),
+            plan_node("plan-branch-1", ["branch"], writes=()),
+            plan_node("plan-leaf-1", ["execution-leaf"]),
+        ]
+        # Both grouping nodes are fully hydrated and returned by `br ready`.
+        with plan_graph(nodes, ["plan-root", "plan-branch-1", "plan-leaf-1"]):
+            result = MODULE.plan_admission(PLAN)
+
+        admitted_ids = [node["id"] for node in result["admitted"]]
+        self.assertEqual(admitted_ids, ["plan-leaf-1"])
+        self.assertNotIn("plan-root", admitted_ids)
+        self.assertNotIn("plan-branch-1", admitted_ids)
+        self.assertFalse(result["ok"])
+        self.assertEqual(reasons(result), ["plan_role_not_dispatchable"] * 2)
+        for rejection in result["rejected"]:
+            self.assertIn("never dispatch", rejection["repair"])
+
+    def test_draft_and_synthesized_plans_reject_with_repair(self) -> None:
+        for state in ("draft", "synthesized", None):
+            with self.subTest(state=state):
+                nodes = [
+                    plan_node("plan-root", ["root"], plan_state=state, writes=(), concern=None),
+                    plan_node("plan-leaf-1", ["execution-leaf"]),
+                ]
+                with plan_graph(nodes, ["plan-leaf-1"]):
+                    result = MODULE.plan_admission(PLAN)
+
+                self.assertFalse(result["ok"])
+                self.assertFalse(result["handoff_ready"])
+                self.assertIn("plan_state_not_handoff_ready", reasons(result))
+                repair = result["rejected"][0]["repair"]
+                self.assertIn("plan-state:handoff-ready", repair)
+
+    def test_allow_draft_plan_inspects_without_enforcing_the_gate(self) -> None:
+        nodes = [
+            plan_node("plan-root", ["root"], plan_state="draft", writes=(), concern=None),
+            plan_node("plan-leaf-1", ["execution-leaf"]),
+        ]
+        with plan_graph(nodes, ["plan-leaf-1"]):
+            result = MODULE.plan_admission(PLAN, require_handoff_ready=False)
+
+        self.assertTrue(result["ok"])
+        self.assertFalse(result["handoff_ready"])
+        self.assertEqual(result["plan_state"], "draft")
+
+    def test_missing_and_duplicate_accepted_roots_reject(self) -> None:
+        leaf_only = [plan_node("plan-leaf-1", ["execution-leaf"])]
+        with plan_graph(leaf_only, ["plan-leaf-1"]):
+            missing = MODULE.plan_admission(PLAN)
+        self.assertFalse(missing["ok"])
+        self.assertIn("plan_root_missing", reasons(missing))
+        self.assertIsNone(missing["root"])
+
+        duplicated = [
+            self.accepted_root(),
+            plan_node("plan-root-2", ["root"], plan_state="handoff-ready", writes=(), concern=None),
+            plan_node("plan-leaf-1", ["execution-leaf"]),
+        ]
+        with plan_graph(duplicated, ["plan-leaf-1"]):
+            duplicate = MODULE.plan_admission(PLAN)
+        self.assertFalse(duplicate["ok"])
+        self.assertIn("plan_root_duplicate", reasons(duplicate))
+        self.assertIn("plan-role:branch", duplicate["rejected"][0]["repair"])
+
+    def test_missing_and_ambiguous_plan_roles_reject(self) -> None:
+        nodes = [
+            self.accepted_root(),
+            plan_node("plan-norole-1", []),
+            plan_node("plan-dual-1", ["execution-leaf", "branch"]),
+            plan_node("plan-bogus-1", ["executable"]),
+        ]
+        with plan_graph(nodes, ["plan-norole-1", "plan-dual-1", "plan-bogus-1"]):
+            result = MODULE.plan_admission(PLAN)
+
+        self.assertEqual(result["admitted"], [])
+        self.assertEqual(
+            reasons(result),
+            ["plan_role_missing", "plan_role_ambiguous", "plan_role_unknown"],
+        )
+        self.assertIn("plan-role:execution-leaf", result["rejected"][0]["repair"])
+
+    def test_missing_run_dir_assignee_or_concern_rejects_with_repair(self) -> None:
+        cases = [
+            ("plan-noconcern", {"concern": None}, "concern_label_missing", "concern:"),
+            ("plan-norun", {"run_dir": None}, "hydration_incomplete", "--run-dir"),
+            ("plan-placeholder-run", {"run_dir": "<absolute-run-dir>"}, "run_dir_placeholder", "--run-dir"),
+            ("plan-relative-run", {"run_dir": "run/dir"}, "run_dir_placeholder", "--run-dir"),
+            ("plan-noassignee", {"expected_assignee": None}, "hydration_incomplete", "--expected-assignee"),
+            (
+                "plan-placeholder-assignee",
+                {"expected_assignee": "TBD"},
+                "expected_assignee_placeholder",
+                "--expected-assignee",
+            ),
+            ("plan-novalidate", {"validate": False}, "hydration_incomplete", "--validate"),
+        ]
+        for issue_id, overrides, expected_reason, repair_hint in cases:
+            with self.subTest(case=issue_id):
+                nodes = [self.accepted_root(), plan_node(issue_id, ["execution-leaf"], **overrides)]
+                with plan_graph(nodes, [issue_id]):
+                    result = MODULE.plan_admission(PLAN)
+
+                self.assertEqual(result["admitted"], [])
+                self.assertFalse(result["ok"])
+                self.assertEqual(reasons(result), [expected_reason])
+                rejection = result["rejected"][0]
+                self.assertEqual(rejection["id"], issue_id)
+                self.assertIn(repair_hint, rejection["repair"])
+                self.assertTrue(rejection["detail"])
+
+    def test_historical_evidence_never_dispatches_or_inflates_coverage(self) -> None:
+        nodes = [
+            self.accepted_root(local_criteria="SC-1,SC-2"),
+            plan_node("plan-leaf-1", ["execution-leaf"], supports="SC-1"),
+            plan_node("plan-hist-role", ["historical-evidence"], supports="SC-2", writes=()),
+            plan_node(
+                "plan-hist-label",
+                ["execution-leaf"],
+                plan_evidence="historical-only",
+                supports="SC-2",
+                writes=(),
+            ),
+        ]
+        with plan_graph(nodes, ["plan-leaf-1", "plan-hist-role", "plan-hist-label"]):
+            result = MODULE.plan_admission(PLAN)
+
+        self.assertEqual([node["id"] for node in result["admitted"]], ["plan-leaf-1"])
+        self.assertEqual(
+            sorted(node["id"] for node in result["excluded_historical"]),
+            ["plan-hist-label", "plan-hist-role"],
+        )
+        # Excluded, not rejected: historical provenance is legitimate, just not work.
+        self.assertEqual(result["rejected"], [])
+        self.assertTrue(result["ok"])
+        # SC-2 is supported ONLY by historical nodes, so it must still read uncovered.
+        self.assertEqual(result["coverage"]["declared"], ["SC-1", "SC-2"])
+        self.assertEqual(result["coverage"]["covered"], ["SC-1"])
+        self.assertEqual(result["coverage"]["uncovered"], ["SC-2"])
+        self.assertEqual(result["coverage"]["by_criterion"]["SC-1"], ["plan-leaf-1"])
+        self.assertEqual(result["coverage"]["by_criterion"]["SC-2"], [])
+
+    def test_overlapping_exact_and_glob_writes_cannot_be_concurrently_admitted(self) -> None:
+        nodes = [
+            self.accepted_root(),
+            plan_node("plan-leaf-exact", ["execution-leaf"], writes=("divide-and-conquer/SKILL.md",)),
+            plan_node("plan-leaf-glob", ["execution-leaf"], writes=("divide-and-conquer/**",)),
+            plan_node("plan-leaf-clear", ["execution-leaf"], writes=("_shared/scripts/br_helpers.py",)),
+        ]
+        with plan_graph(nodes, ["plan-leaf-exact", "plan-leaf-glob", "plan-leaf-clear"]):
+            result = MODULE.plan_admission(PLAN)
+
+        admitted_ids = [node["id"] for node in result["admitted"]]
+        self.assertIn("plan-leaf-exact", admitted_ids)
+        self.assertIn("plan-leaf-clear", admitted_ids)
+        self.assertNotIn("plan-leaf-glob", admitted_ids)
+
+        # No admitted pair may share a write scope.
+        for left in result["admitted"]:
+            for right in result["admitted"]:
+                if left["id"] == right["id"]:
+                    continue
+                for a in left["writes"]:
+                    for b in right["writes"]:
+                        self.assertFalse(
+                            MODULE._scopes_overlap(a, b),
+                            f"{left['id']} and {right['id']} share {a!r}/{b!r}",
+                        )
+
+        self.assertEqual([entry["id"] for entry in result["deferred"]], ["plan-leaf-glob"])
+        self.assertEqual(result["deferred"][0]["reason"], "write_scope_overlap")
+        edge = result["serialization_edges"][0]
+        self.assertEqual(edge["blocked"], "plan-leaf-glob")
+        self.assertEqual(edge["blocked_by"], "plan-leaf-exact")
+        self.assertFalse(edge["materialized"])
+        self.assertEqual(edge["repair"], "br dep add plan-leaf-glob plan-leaf-exact")
+
+    def test_materialize_serialization_writes_the_ordering_edge(self) -> None:
+        nodes = [
+            self.accepted_root(),
+            plan_node("plan-leaf-exact", ["execution-leaf"], writes=("skill/SKILL.md",)),
+            plan_node("plan-leaf-glob", ["execution-leaf"], writes=("skill/**",)),
+        ]
+        with plan_graph(nodes, ["plan-leaf-exact", "plan-leaf-glob"]), \
+             mock.patch.object(MODULE, "_run") as run:
+            result = MODULE.plan_admission(PLAN, materialize_serialization=True)
+
+        run.assert_called_once_with(
+            ["dep", "add", "plan-leaf-glob", "plan-leaf-exact"], capture=True
+        )
+        self.assertTrue(result["serialization_edges"][0]["materialized"])
+
+    def test_helper_side_filtering_ignores_foreign_plan_labels(self) -> None:
+        foreign = plan_node("other-leaf", ["execution-leaf"], plan="other-plan")
+        nodes = [self.accepted_root(), plan_node("plan-leaf-1", ["execution-leaf"]), foreign]
+        by_id = {node["id"]: node for node in nodes}
+        with mock.patch.object(MODULE, "list_issues", return_value=nodes), \
+             mock.patch.object(MODULE, "ready_frontier", return_value=[by_id["plan-leaf-1"], foreign]), \
+             mock.patch.object(MODULE, "show_issue", side_effect=lambda iid: by_id[iid]), \
+             mock.patch.object(MODULE, "issue_comments", return_value=[]):
+            result = MODULE.plan_admission(PLAN)
+
+        self.assertEqual([node["id"] for node in result["admitted"]], ["plan-leaf-1"])
+        self.assertTrue(result["ok"])
+
+    def test_thin_ready_rows_are_hydrated_before_the_label_filter(self) -> None:
+        """`br ready --json` omits labels/notes on some versions.
+
+        Filtering the raw row would silently drop the entire frontier, so thin
+        rows must be resolved through `br show` first.
+        """
+        nodes = [self.accepted_root(), plan_node("plan-leaf-1", ["execution-leaf"])]
+        by_id = {node["id"]: node for node in nodes}
+        thin_row = {"id": "plan-leaf-1", "title": "plan-leaf-1 title", "status": "open"}
+        with mock.patch.object(MODULE, "list_issues", return_value=[]), \
+             mock.patch.object(MODULE, "ready_frontier", return_value=[thin_row]), \
+             mock.patch.object(MODULE, "show_issue", side_effect=lambda iid: by_id[iid]), \
+             mock.patch.object(MODULE, "issue_comments", return_value=[]):
+            result = MODULE.plan_admission(PLAN, require_handoff_ready=False)
+
+        self.assertEqual([node["id"] for node in result["admitted"]], ["plan-leaf-1"])
+
+    def test_scopes_overlap_matrix(self) -> None:
+        overlapping = [
+            ("src/a.py", "src/a.py"),
+            ("src/a.py", "src/**"),
+            ("src/**", "src/nested/deep.py"),
+            ("./src/a.py", "src/a.py"),
+            ("src", "src/a.py"),
+            ("src/", "src/a.py"),
+        ]
+        disjoint = [
+            ("src/a.py", "src/b.py"),
+            ("src/**", "docs/**"),
+            ("_shared/scripts/br_helpers.py", "divide-and-conquer/SKILL.md"),
+            ("", "src/a.py"),
+        ]
+        for left, right in overlapping:
+            with self.subTest(pair=(left, right)):
+                self.assertTrue(MODULE._scopes_overlap(left, right))
+                self.assertTrue(MODULE._scopes_overlap(right, left))
+        for left, right in disjoint:
+            with self.subTest(pair=(left, right)):
+                self.assertFalse(MODULE._scopes_overlap(left, right))
+                self.assertFalse(MODULE._scopes_overlap(right, left))
+
+
+class ReadyCliPlanModeTests(unittest.TestCase):
+    def test_generic_ready_slice_behavior_is_unchanged(self) -> None:
+        ready = [{"id": "skills-exec-001"}]
+        with mock.patch.object(MODULE, "ready_frontier", return_value=ready) as frontier, \
+             mock.patch.object(MODULE, "plan_admission") as admission:
+            exit_code, stdout = run_cli(["ready", "--label", "slice:demo"])
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(json.loads(stdout), ready)
+        frontier.assert_called_once_with(limit=20, labels=["slice:demo"])
+        admission.assert_not_called()
+
+    def test_plan_mode_emits_admission_and_exits_zero_when_ok(self) -> None:
+        payload = {"plan": PLAN, "ok": True, "admitted": []}
+        with mock.patch.object(MODULE, "plan_admission", return_value=payload) as admission:
+            exit_code, stdout = run_cli(
+                ["ready", "--plan", PLAN, "--require-handoff-ready", "--limit", "5"]
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(json.loads(stdout), payload)
+        admission.assert_called_once_with(
+            PLAN, limit=5, require_handoff_ready=True, materialize_serialization=False
+        )
+
+    def test_plan_mode_exits_nonzero_when_admission_is_rejected(self) -> None:
+        payload = {"plan": PLAN, "ok": False, "rejected": [{"reason": "plan_root_missing"}]}
+        with mock.patch.object(MODULE, "plan_admission", return_value=payload):
+            exit_code, stdout = run_cli(["ready", "--plan", PLAN, "--require-handoff-ready"])
+
+        self.assertEqual(exit_code, 2)
+        self.assertFalse(json.loads(stdout)["ok"])
+
+    def test_plan_flags_are_rejected_without_a_plan_and_are_mutually_exclusive(self) -> None:
+        with self.assertRaises(SystemExit):
+            run_cli(["ready", "--require-handoff-ready"])
+        with self.assertRaises(SystemExit):
+            run_cli(["ready", "--plan", PLAN, "--require-handoff-ready", "--allow-draft-plan"])
+
+
+class MintSubgoalTests(unittest.TestCase):
+    def test_mint_subgoal_writes_the_controller_contract(self) -> None:
+        calls = []
+
+        def fake_run(args, **kwargs):
+            calls.append(args)
+            if args[0] == "create":
+                return SimpleNamespace(stdout='{"id": "skills-subgoal-auth"}')
+            return SimpleNamespace(stdout="{}")
+
+        with mock.patch.object(MODULE, "_run", fake_run):
+            issue_id = MODULE.mint_subgoal(
+                "auth",
+                "Subgoal: auth hardening",
+                slice_slug="loop",
+                writes=["backend/auth/**"],
+                shared_files=["backend/migrations/**"],
+                stop_rules=["Escalate cross-subgoal edits to the root"],
+                escalation=["Root planning authority"],
+                parent_run_dir="/inv/run",
+                subgoal_run_dir="/inv/run/subgoals/auth",
+                max_workers=3,
+                status_artifact="/inv/run/subgoals/auth/SUBGOAL_RESULT.md",
+                depends_on=["skills-epic-001"],
+                epic="skills-epic-001",
+            )
+
+        self.assertEqual(issue_id, "skills-subgoal-auth")
+        create_args = calls[0]
+        self.assertEqual(create_args[0], "create")
+        labels = create_args[create_args.index("--labels") + 1]
+        self.assertIn("slice:loop", labels)
+        self.assertIn("subgoal:auth", labels)
+        self.assertIn("subgoal-role:controller", labels)
+        self.assertEqual(create_args[create_args.index("--slug") + 1], "subgoal-auth")
+
+        update_args = calls[1]
+        design = update_args[update_args.index("--design") + 1]
+        self.assertIn("writes:\n  - backend/auth/**", design)
+        self.assertIn("shared_files:\n  - backend/migrations/**", design)
+        self.assertIn("escalation:\n  - Root planning authority", design)
+        notes = update_args[update_args.index("--notes") + 1]
+        self.assertIn("subgoal_id: auth", notes)
+        self.assertIn("parent_slice: loop", notes)
+        self.assertIn("frontier_filter: slice:loop,subgoal:auth", notes)
+        self.assertIn("subgoal_run_dir: /inv/run/subgoals/auth", notes)
+        self.assertIn("max_workers: 3", notes)
+        self.assertIn("isolation: checkout", notes)
+        self.assertEqual(calls[2], ["dep", "add", "skills-subgoal-auth", "skills-epic-001"])
+
+    def test_main_mint_subgoal_delegates_with_flags(self) -> None:
+        with mock.patch.object(MODULE, "mint_subgoal", return_value="skills-subgoal-auth") as mint:
+            exit_code, stdout = run_cli(
+                [
+                    "mint-subgoal",
+                    "auth",
+                    "Subgoal: auth hardening",
+                    "--slice", "loop",
+                    "--writes", "backend/auth/**",
+                    "--shared-file", "backend/migrations/**",
+                    "--max-workers", "3",
+                    "--isolation", "worktree",
+                ]
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(json.loads(stdout), {"id": "skills-subgoal-auth"})
+        kwargs = mint.call_args.kwargs
+        self.assertEqual(kwargs["slug"], "auth")
+        self.assertEqual(kwargs["slice_slug"], "loop")
+        self.assertEqual(kwargs["writes"], ["backend/auth/**"])
+        self.assertEqual(kwargs["shared_files"], ["backend/migrations/**"])
+        self.assertEqual(kwargs["max_workers"], 3)
+        self.assertEqual(kwargs["isolation"], "worktree")
 
 
 if __name__ == "__main__":

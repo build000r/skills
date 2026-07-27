@@ -78,11 +78,106 @@ Use `--labels` consistently:
 - `subgoal-role:{controller|leaf}` — whether the issue is the durable
   subgoal controller or normal executable work inside that subgoal
 - `subgoal-depth:{n}` — child-orchestrator depth; default is `1`
+- `plan:{slug}`, `plan-role:{…}`, `plan-state:{…}`, `plan-evidence:{…}` —
+  the accepted `no-ragrets` planning vocabulary; see
+  [Accepted Plan Vocabulary](#accepted-plan-vocabulary-no-ragrets--divide-and-conquer)
 
 Subgoal labels are grouping and delegation metadata, not dependency edges.
 Every subgoal controller and leaf must also keep the root `slice:{name}` label
 so the root orchestrator can query, validate, and close the whole slice without
 reconstructing state from NTM sessions or markdown artifacts.
+
+## Accepted Plan Vocabulary (`no-ragrets` → `divide-and-conquer`)
+
+`no-ragrets` owns recursive executive planning and produces a Beads graph;
+`divide-and-conquer` owns execution and **consumes** that graph. This section is
+the single canonical definition of the interface between them. The producer
+stamps these labels and notes scalars; the consumer reads them and never
+remints, flattens, or relabels the accepted plan.
+
+| Label | Applies to | Values |
+|---|---|---|
+| `plan:{root-slug}` | every node in the plan, including the root | one slug per plan |
+| `plan-role:{role}` | every node, exactly one | `root`, `branch`, `execution-leaf`, `integration`, `review`, `historical-evidence` |
+| `plan-state:{state}` | the root only | `draft`, `synthesized`, `handoff-ready` |
+| `plan-evidence:{kind}` | provenance nodes | `historical-only` |
+
+Notes scalars on every plan node:
+
+```text
+planning_parent: {bead-id|none}
+supports: {comma-separated SC-* and PC-* IDs}
+local_criteria: {comma-separated PC-* IDs|none}
+produces: {named artifact or proof}
+```
+
+The root additionally carries `synthesis_receipt:`, `plan_score:`, and
+`hard_gate_result:`.
+
+Role semantics are a hard contract, not documentation:
+
+- **Dispatchable roles** are exactly `plan-role:execution-leaf`,
+  `plan-role:integration`, and `plan-role:review`. Only these may enter an
+  executable ready frontier.
+- **Grouping roles** are `plan-role:root` and `plan-role:branch`. They carry the
+  outcome contract and criterion coverage and must never be dispatched, even
+  when `br ready` returns them. A ready grouping node is a graph defect to
+  repair, not work to hand a worker.
+- **`plan-role:historical-evidence`** (and any node labeled
+  `plan-evidence:historical-only`) is read-only provenance. It never dispatches
+  and never counts toward criterion coverage — a criterion supported only by
+  historical evidence still reads as uncovered.
+- A node with no `plan-role:*` label, or with more than one, is rejected. The
+  ambiguity is repaired in the graph, not guessed at by the consumer.
+
+`plan-state:handoff-ready` is the execution gate. `no-ragrets` sets it only
+after proving grouping nodes cannot be dispatched and every ready execution node
+is hydrated. A consumer must refuse to dispatch a `draft` or `synthesized` plan.
+
+Consume an accepted plan through the helper rather than raw `br ready`:
+
+```bash
+python3 ~/.claude/skills/_shared/scripts/br_helpers.py \
+  ready --plan {root-slug} --require-handoff-ready
+```
+
+It preserves `br`'s dependency readiness (the frontier still comes from
+`br ready`), then applies OR-semantics role filtering in helper code because
+`br`'s multi-label behavior is not proven to be AND across versions. Verified
+live: `br ready --json` rows can omit `labels` and `notes` entirely, so rows are
+re-hydrated through `br show` before any label check — filtering the raw row
+drops the whole frontier and reads as "nothing to do." It exits `0` only when
+the plan is admissible and `2` otherwise, and emits:
+
+| Key | Meaning |
+|---|---|
+| `root`, `plan_state`, `handoff_ready` | the single accepted root and its gate state |
+| `admitted` | hydrated, concurrently-safe dispatch contracts |
+| `deferred` | admissible nodes held back by a write-scope collision |
+| `serialization_edges` | the `br dep add` ordering each collision requires |
+| `excluded_historical` | provenance nodes that were skipped, not rejected |
+| `rejected` | `{id, reason, detail, repair}` per defect |
+| `coverage` | `declared` / `covered` / `uncovered` / `by_criterion`, historical excluded |
+| `ok` | true only when there are no rejections |
+
+Rejection reasons are stable identifiers: `plan_root_missing`,
+`plan_root_duplicate`, `plan_state_not_handoff_ready`, `plan_role_missing`,
+`plan_role_ambiguous`, `plan_role_not_dispatchable`, `plan_role_unknown`,
+`concern_label_missing`, `hydration_incomplete`, `hydration_failed`,
+`run_dir_placeholder`, `expected_assignee_placeholder`, `plan_query_failed`,
+`plan_frontier_query_failed`. Every one carries a `repair` string the consumer
+can run in place.
+
+An accepted plan is written before any swarm exists, so `run_dir` and
+`expected_assignee` are always hydrated at admission time. Template stand-ins
+(`<absolute-run-dir>`, `TBD`, `none`, `worker-id`, `${VAR}`, relative paths) are
+rejected rather than dispatched.
+
+Plan roles and subgoal roles are different axes. `plan-role:branch` is a
+*recursive planning* grouping node produced by `no-ragrets`;
+`subgoal-role:controller` is a *divide-and-conquer execution* delegation
+boundary. A branch is never a controller, and admission never converts one into
+the other.
 
 ## Lifecycle Mapping
 
@@ -148,7 +243,8 @@ evidence attachments only.
 A subgoal controller is a Beads issue that lets a root orchestrator delegate a
 filtered ready frontier without making runtime pane state authoritative.
 Controller issues are normal `br` issues with the labels above plus the
-following fields:
+following fields, and are minted with
+`br_helpers.py mint-subgoal {slug} '{title}' --slice {slice}`:
 
 | Controller field | Canonical Beads location |
 |---|---|

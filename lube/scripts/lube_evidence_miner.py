@@ -39,7 +39,13 @@ FRICTION_PATTERNS: list[dict[str, object]] = [
     },
     {
         "pattern": "skill-visibility-miss",
-        "terms": ["doesn't see", "can't find the skill", "skill not found"],
+        "terms": [
+            "doesn't see the skill",
+            "can't find the skill",
+            "skill not found",
+            "skill appears inactive",
+            "not in the available skills",
+        ],
         "lube_target": "missing skill trigger",
     },
     {
@@ -254,6 +260,25 @@ def session_id_from_hit(hit: dict[str, object]) -> str:
     return Path(source_path).stem if source_path else "unknown-session"
 
 
+# Injected harness/catalog text echoes friction vocabulary without any friction
+# having occurred ("cass grep contamination"). Hits matching these signatures
+# are counted separately and never contribute to score or sample snippets.
+DOC_ECHO_SIGNATURES = (
+    "<system-reminder>",
+    "<command-message>",
+    "<command-name>",
+    "base directory for this skill",
+    "# claudemd",
+    "the following skills are available",
+    "use the skill tool",
+)
+
+
+def is_doc_echo(text: str) -> bool:
+    lowered = text.lower()
+    return any(signature in lowered for signature in DOC_ECHO_SIGNATURES)
+
+
 def aggregate_pattern(
     pattern: dict[str, object],
     searches: list[dict[str, object]],
@@ -263,6 +288,7 @@ def aggregate_pattern(
     seen_hits: set[tuple[str, object]] = set()
     approx_tokens = 0
     total_matches = 0
+    doc_echo_hits = 0
     sample_snippet = ""
     errors: list[str] = []
     for search in searches:
@@ -279,6 +305,9 @@ def aggregate_pattern(
                 continue
             seen_hits.add(key)
             text = str(hit.get("content") or hit.get("title") or "")
+            if is_doc_echo(text):
+                doc_echo_hits += 1
+                continue
             approx_tokens += max(len(text) // 4, 1)
             if not sample_snippet and text:
                 sample_snippet = _short(text)
@@ -294,6 +323,7 @@ def aggregate_pattern(
         "session_count": session_count,
         "total_matches": total_matches,
         "approx_match_tokens": approx_tokens,
+        "doc_echo_hits": doc_echo_hits,
         "session_ids": session_ids[:10],
         "sample_snippet": sample_snippet,
         "errors": errors,

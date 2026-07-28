@@ -1,0 +1,18 @@
+{
+  "plan": "fixture-plan",
+  "issues_payload": [
+    {
+      "id": "fixture-root",
+      "issue_type": "epic",
+      "labels": ["plan:fixture-plan", "plan-role:root", "plan-state:handoff-ready"],
+      "notes": "planning_parent: none\nsupports: SC-1\nlocal_criteria: PC-root-1\nproduces: Accepted plan hierarchy."
+    },
+    {
+      "id": "fixture-leaf",
+      "issue_type": "task",
+      "labels": ["plan:fixture-plan", "plan-role:execution-leaf"],
+      "notes": "planning_parent: fixture-root\nsupports: SC-1\nlocal_criteria: none"
+    }
+  ],
+  "ready_payload": [{"id": "fixture-leaf"}]
+}

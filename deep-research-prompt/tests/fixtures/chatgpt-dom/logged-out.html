@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+  <head><title>ChatGPT fixture: logged out</title></head>
+  <body>
+    <main data-session="guest">
+      <nav><a data-testid="login-button" href="/auth/login">Log in</a></nav>
+      <form data-testid="composer">
+        <div id="prompt-textarea" contenteditable="true" role="textbox"></div>
+      </form>
+    </main>
+    <script type="application/json" id="fixture-contract">
+      {"schema":"oracle-subagent.dom-fixture.v1","case":"logged-out","expected":{"session":"guest","challenge":false,"model_id":null,"tool":"none","run_state":"idle","assistant_after_user":false,"result_nonempty":false}}
+    </script>
+  </body>
+</html>

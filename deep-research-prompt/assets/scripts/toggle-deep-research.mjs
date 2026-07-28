@@ -1,347 +1,331 @@
 #!/usr/bin/env node
-// Toggle ChatGPT's "Deep research" tool on the intended ChatGPT submit tab.
-//
-// Connects to a running Chrome via the DevTools Protocol (default
-// 127.0.0.1:9222), finds a chatgpt.com tab, opens the composer tool picker
-// ("+" button), and clicks the "Deep research" menu item.
-//
-// Intended flow (see references/deep-research-tool-toggle.md):
-//   1. Skill launches Chrome headful with --remote-debugging-port=9222 using
-//      the user's logged-in ChatGPT profile.
-//   2. Skill opens the intended ChatGPT project/conversation tab.
-//   3. Skill runs this script to turn Deep research on for that tab, using
-//      ORACLE_CHATGPT_TARGET_ID or ORACLE_CHATGPT_URL_MATCH if more than one
-//      ChatGPT tab is open on the same DevTools port.
-//   4. Skill runs Oracle only if that same tab is the one Oracle will submit in.
-//      Deep research is composer/tab-local, not Chrome-global.
-//      Oracle v0.9.0 remote mode opens a fresh dedicated tab for its ChatGPT
-//      URL, so run check-oracle-tab-local-route.mjs before submitting.
-//
-// Exit codes:
-//   0 — Deep research is on (either toggled by us or already selected).
-//   2 — chatgpt.com tab not found.
-//   3 — composer tool menu ("+") not found.
-//   4 — "Deep research" menu item not found.
-//   5 — CDP connection failed.
-//   6 — verification failed (click dispatched but indicator says off).
-//   7 — multiple matching chatgpt.com tabs found, so the submit tab is ambiguous.
-//   8 — requested ChatGPT target selector matched no tab.
 
-import { argv, exit, env } from 'node:process';
+import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 
-const HOST = env.ORACLE_CDP_HOST ?? '127.0.0.1';
-const PORT = parseInt(env.ORACLE_CDP_PORT ?? '9222', 10);
-const TARGET_ID = env.ORACLE_CHATGPT_TARGET_ID ?? '';
-const URL_MATCH =
-  env.ORACLE_CHATGPT_URL_MATCH ?? env.DEEP_RESEARCH_CHATGPT_URL_MATCH ?? '';
-const VERBOSE = argv.includes('--verbose') || env.DEEP_RESEARCH_VERBOSE === '1';
+import {
+  bindExactChatGptTarget,
+  ChatGptComposerError,
+  createLoopbackCdpTransport,
+} from "./chatgpt-composer.mjs";
 
-const log = (...args) => {
-  if (VERBOSE) console.error('[toggle-deep-research]', ...args);
-};
+const MESSAGE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
+const MAX_CONTROL_BYTES = 64 * 1024;
 
-async function fetchTargets() {
-  const res = await fetch(`http://${HOST}:${PORT}/json`);
-  if (!res.ok) {
-    throw new Error(`CDP /json returned ${res.status}`);
+export class DeepResearchComposerError extends Error {
+  constructor(code) {
+    super("deep research composer: rejected");
+    this.name = "DeepResearchComposerError";
+    this.code = code;
   }
-  return res.json();
 }
 
-function chatGPTTargets(targets) {
-  return targets.filter(
-    (t) => t.type === 'page' && /chatgpt\.com/.test(t.url ?? ''),
+function reject(code) {
+  throw new DeepResearchComposerError(code);
+}
+
+function isPlainObject(value) {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    Object.getPrototypeOf(value) === Object.prototype
   );
 }
 
-function describeTarget(target) {
-  return `${target.id} ${target.url} ${target.title ?? ''}`.trim();
+function exactObject(value, required, optional, code) {
+  if (!isPlainObject(value)) reject(code);
+  const allowed = new Set([...required, ...optional]);
+  if (
+    required.some((key) => !Object.hasOwn(value, key)) ||
+    Object.keys(value).some((key) => !allowed.has(key))
+  ) {
+    reject(code);
+  }
+  return value;
 }
 
-function selectChatGPTTarget(targets) {
-  const tabs = chatGPTTargets(targets);
-  if (tabs.length === 0) {
-    return { status: 'none', candidates: [] };
+export async function deepResearchPageAction(action, payload) {
+  if (
+    typeof payload?.expected_target_url !== "string" ||
+    location.href !== payload.expected_target_url
+  ) {
+    return { ok: false, code: "target_url_mismatch" };
   }
-
-  if (TARGET_ID) {
-    const matches = tabs.filter((t) => t.id === TARGET_ID);
-    if (matches.length === 1) {
-      return { status: 'selected', tab: matches[0], candidates: matches };
-    }
-    return { status: 'selector-missing', candidates: tabs };
-  }
-
-  const candidates = URL_MATCH
-    ? tabs.filter((t) => (t.url ?? '').includes(URL_MATCH))
-    : tabs;
-
-  if (candidates.length === 0) {
-    return { status: URL_MATCH ? 'selector-missing' : 'none', candidates: tabs };
-  }
-  if (candidates.length === 1) {
-    return { status: 'selected', tab: candidates[0], candidates };
-  }
-  return { status: 'ambiguous', candidates };
-}
-
-async function cdpEval(wsUrl, expression) {
-  const WebSocketClient =
-    globalThis.WebSocket ?? (await import('ws')).default;
-  return new Promise((resolve, reject) => {
-    const ws = new WebSocketClient(wsUrl);
-    const messageId = 1;
-    const timer = setTimeout(() => {
-      ws.close();
-      reject(new Error('CDP eval timed out'));
-    }, 15000);
-
-    const onOpen = () => {
-      ws.send(
-        JSON.stringify({
-          id: messageId,
-          method: 'Runtime.evaluate',
-          params: {
-            expression,
-            awaitPromise: true,
-            returnByValue: true,
-          },
-        }),
-      );
-    };
-
-    const onMessage = (raw) => {
-      const data = raw?.data ?? raw;
-      const msg = JSON.parse(
-        typeof data === 'string' ? data : Buffer.from(data).toString(),
-      );
-      if (msg.id === messageId) {
-        clearTimeout(timer);
-        ws.close();
-        if (msg.error) return reject(new Error(msg.error.message));
-        resolve(msg.result?.result?.value);
-      }
-    };
-
-    const onError = (err) => {
-      clearTimeout(timer);
-      reject(err?.error ?? err);
-    };
-
-    if (typeof ws.addEventListener === 'function') {
-      ws.addEventListener('open', onOpen);
-      ws.addEventListener('message', onMessage);
-      ws.addEventListener('error', onError);
-    } else {
-      ws.on('open', onOpen);
-      ws.on('message', onMessage);
-      ws.on('error', onError);
-    }
-  });
-}
-
-// Runs inside the ChatGPT page. Returns one of:
-//   { status: 'already-on' | 'turned-on' | 'tool-button-missing' | 'menu-missing' | 'option-missing' | 'verification-failed', detail? }
-function pageScript() {
-  return `(async () => {
-    const normalize = (s) =>
-      (s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-
-    const dispatchClick = (el) => {
-      if (!el) return;
-      el.scrollIntoView({ block: 'center', inline: 'center' });
-      const rect = el.getBoundingClientRect();
-      const x = rect.left + rect.width / 2;
-      const y = rect.top + rect.height / 2;
-      for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) {
-        el.dispatchEvent(
-          new PointerEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0 }),
-        );
-      }
-    };
-
-    const composerIsOnDeepResearch = () => {
-      // When Deep research is enabled, ChatGPT renders a pill/chip in the composer
-      // with aria-label, data-testid, or visible text containing "deep research".
-      const selectors = [
-        '[aria-label*="deep research" i]',
-        '[data-testid*="deep-research" i]',
-        'button[aria-pressed="true"]',
-      ];
-      for (const sel of selectors) {
-        for (const node of document.querySelectorAll(sel)) {
-          const label = normalize(
-            (node.getAttribute('aria-label') || '') + ' ' + (node.textContent || ''),
-          );
-          if (label.includes('deep research')) return true;
-        }
-      }
-      // Also check the composer chip row.
-      const chips = document.querySelectorAll('[data-testid*="composer"] [role="button"], [data-testid*="composer"] button');
-      for (const chip of chips) {
-        if (normalize(chip.textContent).includes('deep research')) return true;
-      }
-      return false;
-    };
-
-    if (composerIsOnDeepResearch()) {
-      return { status: 'already-on' };
-    }
-
-    // Find the composer "+" / tools button.
-    const toolButtonSelectors = [
-      '[data-testid="composer-plus-btn"]',
-      '[data-testid*="tools" i] button',
-      'button[aria-label*="tools" i]',
-      'button[aria-label*="add" i][aria-haspopup]',
-      'button[aria-haspopup="menu"][aria-label*="attach" i]',
-    ];
-    let toolButton = null;
-    for (const sel of toolButtonSelectors) {
-      const btn = document.querySelector(sel);
-      if (btn) {
-        toolButton = btn;
-        break;
-      }
-    }
-    // Fallback: find any aria-haspopup button in the composer that isn't the thinking pill.
-    if (!toolButton) {
-      const composer = document.querySelector('[data-testid*="composer"]') || document.querySelector('form');
-      if (composer) {
-        for (const btn of composer.querySelectorAll('button[aria-haspopup]')) {
-          const label = normalize(btn.getAttribute('aria-label') || btn.textContent || '');
-          if (label.includes('thinking') || label.includes('pro')) continue;
-          toolButton = btn;
-          break;
-        }
-      }
-    }
-    if (!toolButton) {
-      return { status: 'tool-button-missing' };
-    }
-
-    dispatchClick(toolButton);
-
-    // Wait for the menu to render.
-    const waitForMenu = () =>
-      new Promise((resolve) => {
-        const start = performance.now();
-        const tick = () => {
-          const menus = document.querySelectorAll(
-            '[role="menu"], [data-radix-menu-content], [data-testid*="menu"]',
-          );
-          for (const menu of menus) {
-            if (normalize(menu.textContent).includes('deep research')) {
-              return resolve(menu);
-            }
-          }
-          if (performance.now() - start > 8000) return resolve(null);
-          setTimeout(tick, 100);
-        };
-        tick();
-      });
-
-    const menu = await waitForMenu();
-    if (!menu) return { status: 'menu-missing' };
-
-    // Find the Deep research menu item.
-    let target = null;
-    for (const item of menu.querySelectorAll('[role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], button, li')) {
-      const text = normalize(item.textContent);
-      if (text.includes('deep research')) {
-        target = item;
-        break;
-      }
-    }
-    if (!target) return { status: 'option-missing' };
-
-    dispatchClick(target);
-
-    // Give the composer a moment to re-render the active-tool chip.
-    await new Promise((resolve) => setTimeout(resolve, 400));
-
-    if (!composerIsOnDeepResearch()) {
-      return { status: 'verification-failed' };
-    }
-    return { status: 'turned-on' };
-  })()`;
-}
-
-async function main() {
-  let targets;
-  try {
-    targets = await fetchTargets();
-  } catch (err) {
-    console.error(`Failed to reach Chrome DevTools at ${HOST}:${PORT}:`, err.message);
-    exit(5);
-  }
-
-  const selection = selectChatGPTTarget(targets);
-  if (selection.status === 'none') {
-    console.error(`No chatgpt.com tab found on ${HOST}:${PORT}.`);
-    exit(2);
-  }
-  if (selection.status === 'selector-missing') {
-    const selector = TARGET_ID
-      ? `ORACLE_CHATGPT_TARGET_ID=${TARGET_ID}`
-      : `ORACLE_CHATGPT_URL_MATCH=${URL_MATCH}`;
-    console.error(
-      `No chatgpt.com tab on ${HOST}:${PORT} matched ${selector}.`,
+  const visible = (element) => {
+    if (!element) return false;
+    const rectangle = element.getBoundingClientRect();
+    const style = getComputedStyle(element);
+    return (
+      rectangle.width > 1 &&
+      rectangle.height > 1 &&
+      style.display !== "none" &&
+      style.visibility !== "hidden"
     );
-    for (const t of selection.candidates) {
-      console.error(`- ${describeTarget(t)}`);
-    }
-    exit(8);
-  }
-  if (selection.status === 'ambiguous') {
-    const scope = URL_MATCH
-      ? `matching ORACLE_CHATGPT_URL_MATCH=${URL_MATCH}`
-      : 'on the DevTools port';
-    console.error(
-      `Multiple chatgpt.com tabs ${scope}; Deep research is tab-local, so the submit tab is ambiguous.`,
+  };
+  const enabled = (element) =>
+    !element.disabled && element.getAttribute("aria-disabled") !== "true";
+  const sleep = (milliseconds) =>
+    new Promise((resolvePromise) =>
+      setTimeout(resolvePromise, milliseconds),
     );
-    for (const t of selection.candidates) {
-      console.error(`- ${describeTarget(t)}`);
-    }
-    console.error('Set ORACLE_CHATGPT_TARGET_ID or narrow ORACLE_CHATGPT_URL_MATCH.');
-    exit(7);
+  const promptFields = Array.from(
+    document.querySelectorAll(
+      "#prompt-textarea[contenteditable='true'],[contenteditable='true'][role='textbox']",
+    ),
+  ).filter(visible);
+  if (promptFields.length !== 1) {
+    return { ok: false, code: "composer_ambiguous" };
   }
-  const tab = selection.tab;
-  log('found tab', describeTarget(tab));
+  const composer =
+    promptFields[0].closest("[data-testid='composer']") ||
+    promptFields[0].closest("form");
+  if (!composer || !visible(composer)) {
+    return { ok: false, code: "composer_ambiguous" };
+  }
+  const activeDeepResearchChips = () =>
+    Array.from(
+      composer.querySelectorAll(
+        "[data-testid='composer-tool-chip'][data-tool='deep-research'],[data-tool='deep-research']",
+      ),
+    ).filter(
+      (element) =>
+        visible(element) &&
+        (element.getAttribute("aria-pressed") === "true" ||
+          ["active", "on"].includes(element.getAttribute("data-state"))),
+    );
+  const click = (element) => {
+    element.scrollIntoView({ block: "center", inline: "center" });
+    element.click();
+  };
 
+  if (action === "set-tool") {
+    if (typeof payload?.enabled !== "boolean") {
+      return { ok: false, code: "tool_request_invalid" };
+    }
+    const active = activeDeepResearchChips();
+    if (active.length > 1) {
+      return { ok: false, code: "tool_state_ambiguous" };
+    }
+    if (payload.enabled && active.length === 1) {
+      return { ok: true, tool: "deep-research", enabled: true };
+    }
+    if (!payload.enabled && active.length === 0) {
+      return { ok: true, tool: "none", enabled: true };
+    }
+    if (!payload.enabled) {
+      if (!enabled(active[0])) {
+        return { ok: false, code: "tool_control_disabled" };
+      }
+      click(active[0]);
+      await sleep(100);
+      if (activeDeepResearchChips().length !== 0) {
+        return { ok: false, code: "tool_verification_failed" };
+      }
+      return { ok: true, tool: "none", enabled: true };
+    }
+
+    const toolButtons = Array.from(
+      composer.querySelectorAll("[data-testid='composer-plus-btn']"),
+    ).filter((element) => visible(element) && enabled(element));
+    if (toolButtons.length !== 1) {
+      return { ok: false, code: "tool_button_ambiguous" };
+    }
+    click(toolButtons[0]);
+    await sleep(100);
+    const menuRoots = Array.from(
+      document.querySelectorAll(
+        "[role='menu'],[role='listbox'],[data-radix-menu-content]",
+      ),
+    ).filter(visible);
+    const options = menuRoots.flatMap((root) =>
+      Array.from(
+        root.querySelectorAll(
+          "[role='menuitem'][data-tool='deep-research'],[role='option'][data-tool='deep-research']",
+        ),
+      ).filter((element) => visible(element) && enabled(element)),
+    );
+    if (options.length !== 1) {
+      return { ok: false, code: "tool_option_ambiguous" };
+    }
+    click(options[0]);
+    await sleep(100);
+    if (activeDeepResearchChips().length !== 1) {
+      return { ok: false, code: "tool_verification_failed" };
+    }
+    return { ok: true, tool: "deep-research", enabled: true };
+  }
+
+  if (action === "start-review") {
+    const userMessageId = payload?.user_message_id;
+    if (
+      typeof userMessageId !== "string" ||
+      !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/.test(userMessageId)
+    ) {
+      return { ok: false, code: "user_message_invalid" };
+    }
+    const cards = Array.from(
+      document.querySelectorAll(
+        "[data-testid='deep-research-review-card'][data-parent-message-id][data-review-id]",
+      ),
+    ).filter(
+      (element) =>
+        visible(element) &&
+        element.getAttribute("data-parent-message-id") === userMessageId &&
+        element.getAttribute("data-state") === "awaiting-start",
+    );
+    if (cards.length !== 1) {
+      return { ok: false, code: "review_card_ambiguous" };
+    }
+    const buttons = Array.from(
+      cards[0].querySelectorAll(
+        "[data-testid='deep-research-start-button']",
+      ),
+    ).filter((element) => visible(element) && enabled(element));
+    if (buttons.length !== 1) {
+      return { ok: false, code: "review_start_ambiguous" };
+    }
+    const reviewId = cards[0].getAttribute("data-review-id");
+    if (
+      typeof reviewId !== "string" ||
+      !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/.test(reviewId)
+    ) {
+      return { ok: false, code: "review_id_invalid" };
+    }
+    click(buttons[0]);
+    await sleep(100);
+    return {
+      ok: true,
+      review_id: reviewId,
+      parent_user_message_id: userMessageId,
+      started: true,
+    };
+  }
+
+  return { ok: false, code: "action_invalid" };
+}
+
+export function deepResearchPageActionDeclaration() {
+  return deepResearchPageAction.toString();
+}
+
+export async function runDeepResearchAction(
+  transport,
+  rawTarget,
+  action,
+  payload,
+) {
+  const target = await bindExactChatGptTarget(transport, rawTarget);
+  if (!["set-tool", "start-review"].includes(action)) {
+    reject("action_invalid");
+  }
+  if (
+    action === "set-tool" &&
+    (!isPlainObject(payload) || typeof payload.enabled !== "boolean")
+  ) {
+    reject("tool_request_invalid");
+  }
+  if (
+    action === "start-review" &&
+    (!isPlainObject(payload) ||
+      typeof payload.user_message_id !== "string" ||
+      !MESSAGE_ID_PATTERN.test(payload.user_message_id))
+  ) {
+    reject("user_message_invalid");
+  }
   let result;
   try {
-    result = await cdpEval(tab.webSocketDebuggerUrl, pageScript());
-  } catch (err) {
-    console.error('CDP eval failed:', err.message);
-    exit(5);
+    const pagePayload = {
+      ...payload,
+      expected_target_url: target.target_url,
+    };
+    result = await transport.invoke(
+      target.target_id,
+      deepResearchPageActionDeclaration(),
+      [action, pagePayload],
+    );
+  } catch (error) {
+    if (
+      error instanceof DeepResearchComposerError ||
+      error instanceof ChatGptComposerError
+    ) {
+      throw error;
+    }
+    reject("page_action_failed");
   }
-
-  log('result', result);
-
-  switch (result?.status) {
-    case 'already-on':
-      console.log('Deep research: already on');
-      exit(0);
-    case 'turned-on':
-      console.log('Deep research: turned on');
-      exit(0);
-    case 'tool-button-missing':
-      console.error('Deep research: composer tool button not found');
-      exit(3);
-    case 'menu-missing':
-      console.error('Deep research: composer tool menu did not render');
-      exit(3);
-    case 'option-missing':
-      console.error('Deep research: menu item not found (ChatGPT UI may have changed)');
-      exit(4);
-    case 'verification-failed':
-      console.error('Deep research: click dispatched but composer did not pick it up');
-      exit(6);
-    default:
-      console.error('Deep research: unknown outcome', result);
-      exit(6);
+  if (!isPlainObject(result) || result.ok !== true) {
+    reject(
+      typeof result?.code === "string"
+        ? `page_${result.code}`
+        : "page_action_failed",
+    );
   }
+  return Object.freeze(structuredClone(result));
 }
 
-main();
+async function readStdin() {
+  const chunks = [];
+  let bytes = 0;
+  for await (const chunk of process.stdin) {
+    bytes += chunk.length;
+    if (bytes > MAX_CONTROL_BYTES) reject("control_invalid");
+    chunks.push(chunk);
+  }
+  if (bytes === 0) reject("control_invalid");
+  return Buffer.concat(chunks).toString("utf8");
+}
+
+export async function main(rawArguments = process.argv.slice(2)) {
+  if (
+    rawArguments.length !== 1 ||
+    rawArguments[0] !== "--control-stdin"
+  ) {
+    reject("arguments_invalid");
+  }
+  let control;
+  try {
+    control = JSON.parse(await readStdin());
+  } catch (error) {
+    if (error instanceof DeepResearchComposerError) throw error;
+    reject("control_invalid");
+  }
+  exactObject(
+    control,
+    ["endpoint", "target_id", "target_url", "action"],
+    ["enabled", "user_message_id"],
+    "control_invalid",
+  );
+  if (control.action === "start-review") {
+    reject("adapter_required");
+  }
+  const transport = createLoopbackCdpTransport(control.endpoint);
+  const payload =
+    control.action === "set-tool"
+      ? { enabled: control.enabled }
+      : { user_message_id: control.user_message_id };
+  const result = await runDeepResearchAction(
+    transport,
+    {
+      target_id: control.target_id,
+      target_url: control.target_url,
+    },
+    control.action,
+    payload,
+  );
+  process.stdout.write(`${JSON.stringify(result)}\n`);
+}
+
+const invokedPath = process.argv[1]
+  ? pathToFileURL(resolve(process.argv[1])).href
+  : "";
+if (invokedPath === import.meta.url) {
+  main().catch((error) => {
+    const code =
+      error instanceof DeepResearchComposerError ||
+      error instanceof ChatGptComposerError
+        ? error.code
+        : "unexpected_failure";
+    process.stderr.write(`toggle-deep-research:${code}\n`);
+    process.exitCode = 1;
+  });
+}

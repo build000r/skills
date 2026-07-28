@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head><title>ChatGPT fixture: historical assistant only</title></head>
+  <body>
+    <main data-session="authenticated">
+      <section data-testid="conversation">
+        <article
+          data-message-author-role="assistant"
+          data-message-id="assistant-baseline"
+          data-turn-position="1"
+          data-run-state="completed"
+        >Historical answer that must not complete the new run.</article>
+        <article
+          data-message-author-role="user"
+          data-message-id="user-current"
+          data-turn-position="2"
+        >[request redacted]</article>
+      </section>
+      <form data-testid="composer">
+        <div id="prompt-textarea" contenteditable="true" role="textbox"></div>
+        <button
+          type="button"
+          data-testid="model-switcher"
+          data-model-id="gpt-5-pro"
+          aria-label="Model selector, Pro"
+        >Pro</button>
+      </form>
+    </main>
+    <script type="application/json" id="fixture-contract">
+      {"schema":"oracle-subagent.dom-fixture.v1","case":"old-assistant-turn","expected":{"session":"authenticated","challenge":false,"model_id":"gpt-5-pro","tool":"none","run_state":"submitted","assistant_after_user":false,"result_nonempty":false}}
+    </script>
+  </body>
+</html>

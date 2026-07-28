@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head><title>ChatGPT fixture: selector drift</title></head>
+  <body>
+    <main data-session="authenticated">
+      <aside>
+        <button type="button" aria-label="Account profile">Pro</button>
+        <p>Deep Research guide and help text</p>
+      </aside>
+      <form data-testid="composer">
+        <div id="prompt-textarea" contenteditable="true" role="textbox"></div>
+        <button
+          type="button"
+          data-testid="model-switcher"
+          data-model-id="gpt-5-instant"
+          aria-label="Model selector, Instant"
+        >Instant</button>
+        <button
+          type="button"
+          data-testid="composer-tool-chip"
+          data-tool="deep-research"
+          aria-pressed="false"
+        >Deep research</button>
+      </form>
+    </main>
+    <script type="application/json" id="fixture-contract">
+      {"schema":"oracle-subagent.dom-fixture.v1","case":"model-tool-drift","expected":{"session":"authenticated","challenge":false,"model_id":"gpt-5-instant","tool":"none","run_state":"idle","assistant_after_user":false,"result_nonempty":false}}
+    </script>
+  </body>
+</html>

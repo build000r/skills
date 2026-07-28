@@ -1,0 +1,34 @@
+{
+  "schema": "oracle-subagent.oracle-capability-pin.v1",
+  "package": {
+    "name": "@steipete/oracle",
+    "version": "0.9.0",
+    "package_json_sha256": "b612197c2dc1fa55e664718028a62571d51772c5b748c3d422310cca71859e77",
+    "tree": {
+      "schema": "oracle-subagent.oracle-package-tree.v1",
+      "sha256": "ad508bbbb5e3c4d405c7afee2da75027d32783e1cfefcb1924c311d315741950",
+      "files": 14827,
+      "directories": 1429,
+      "symlinks": 11,
+      "bytes": 171451479
+    }
+  },
+  "files": {
+    "cli": {
+      "path": "dist/bin/oracle-cli.js",
+      "sha256": "1c96b766be6e182b92c90fa7c2716cfa3e44737d0db5490bab88ffd9348e77f2"
+    },
+    "browser_config": {
+      "path": "dist/src/cli/browserConfig.js",
+      "sha256": "d21c5be24462bf9e60cb2e762ae1849205d8c793cdd3e3df4ddfdcc1639879e1"
+    },
+    "browser_runner": {
+      "path": "dist/src/browser/index.js",
+      "sha256": "ca86ba9cb8dc5696987394e14fbbf312b658a6b7f2894138a184e11dce006e1e"
+    },
+    "dry_run": {
+      "path": "dist/src/cli/dryRun.js",
+      "sha256": "83dcbf78773c4acf8589c8049ecaf8847db5b3a279869b1b73fde7efebd30881"
+    }
+  }
+}

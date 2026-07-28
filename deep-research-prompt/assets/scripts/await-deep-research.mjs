@@ -1,582 +1,776 @@
 #!/usr/bin/env node
-// Wait for a submitted ChatGPT Deep Research run to finish, then print the
-// final assistant/research text. This is a pragmatic CDP watcher for Oracle
-// browser runs; ChatGPT DOM changes can still require selector maintenance.
-//
-// Exit codes:
-//   0  - assistant/research output captured
-//   2  - no chatgpt.com tab found on the DevTools port
-//   5  - CDP connection/eval failed
-//   7  - multiple matching chatgpt.com tabs found
-//   8  - requested target selector matched no tab
-//   9  - timed out before completion/stabilization
-//   10 - timed out with no assistant output
-//   11 - concrete ChatGPT/browser error text detected
-//   12 - failed to write DEEP_RESEARCH_OUTPUT/--output
-//   64 - invalid arguments
 
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
-import { argv, env, exit, stderr, stdout } from 'node:process';
+import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 
-const DEFAULT_FIRST_POLL_MS = 30 * 60 * 1000;
-const DEFAULT_POLL_INTERVAL_MS = 15 * 60 * 1000;
-const DEFAULT_MAX_WAIT_MS = 2 * 60 * 60 * 1000;
-const DEFAULT_STABLE_POLLS = 2;
+import {
+  bindExactChatGptTarget,
+  ChatGptComposerError,
+  normalizeExactChatGptUrl,
+  normalizeExactTarget,
+} from "./chatgpt-composer.mjs";
 
-const options = parseArgs(argv.slice(2));
+export const CONVERSATION_OBSERVATION_SCHEMA =
+  "oracle-subagent.conversation-observation.v1";
+export const EMPTY_ROOT_BASELINE_TURN_ID =
+  "baseline:empty-root:no-assistant";
+export const EMPTY_ROOT_BASELINE_TURN_POSITION = 0;
 
-const HOST = env.ORACLE_CDP_HOST ?? '127.0.0.1';
-const PORT = parseInt(env.ORACLE_CDP_PORT ?? '9222', 10);
-const TARGET_ID = env.ORACLE_CHATGPT_TARGET_ID ?? '';
-const URL_MATCH =
-  env.ORACLE_CHATGPT_URL_MATCH ?? env.DEEP_RESEARCH_CHATGPT_URL_MATCH ?? '';
-const VERBOSE = options.verbose || env.DEEP_RESEARCH_VERBOSE === '1';
-const OUTPUT_PATH = options.output ?? env.DEEP_RESEARCH_OUTPUT ?? '';
+const TARGET_ID_PATTERN = /^[A-Fa-f0-9]{16,128}$/;
+const MESSAGE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
+const CONVERSATION_PATH_PATTERN =
+  /^\/c\/[A-Za-z0-9][A-Za-z0-9_-]{0,255}$/;
+const CHATGPT_ROOT_URL = "https://chatgpt.com/";
+const MAX_RESULT_CHARACTERS = 16 * 1024 * 1024;
 
-const FIRST_POLL_MS = options.noInitialDelay
-  ? 0
-  : durationOption(
-      options.firstPoll,
-      env.DEEP_RESEARCH_FIRST_POLL ?? env.DEEP_RESEARCH_FIRST_POLL_MS,
-      DEFAULT_FIRST_POLL_MS,
-    );
-const POLL_INTERVAL_MS = durationOption(
-  options.pollInterval,
-  env.DEEP_RESEARCH_POLL_INTERVAL ?? env.DEEP_RESEARCH_POLL_INTERVAL_MS,
-  DEFAULT_POLL_INTERVAL_MS,
-);
-const MAX_WAIT_MS = durationOption(
-  options.maxWait,
-  env.DEEP_RESEARCH_MAX_WAIT ?? env.DEEP_RESEARCH_MAX_WAIT_MS,
-  DEFAULT_MAX_WAIT_MS,
-);
-const STABLE_POLLS = parsePositiveInt(
-  options.stablePolls ?? env.DEEP_RESEARCH_STABLE_POLLS,
-  DEFAULT_STABLE_POLLS,
-);
-
-function usage() {
-  stderr.write(`await-deep-research.mjs [options]
-
-Wait for a ChatGPT Deep Research conversation to finish over Chrome DevTools.
-
-Options:
-  --first-poll DUR       Delay before first poll (default: 30m)
-  --poll-interval DUR    Delay between polls (default: 15m)
-  --max-wait DUR         Total wait before timeout (default: 2h)
-  --stable-polls N       Consecutive unchanged polls required (default: 2)
-  --output FILE          Also write captured report to FILE
-  --no-initial-delay     Poll immediately (use only if 30m already passed)
-  --once                 Inspect once and exit non-zero unless complete
-  --verbose              Print extra CDP/selector details
-  -h, --help             Show this help
-
-Environment:
-  ORACLE_CDP_HOST, ORACLE_CDP_PORT
-  ORACLE_CHATGPT_TARGET_ID
-  ORACLE_CHATGPT_URL_MATCH or DEEP_RESEARCH_CHATGPT_URL_MATCH
-  DEEP_RESEARCH_OUTPUT
-  DEEP_RESEARCH_FIRST_POLL, DEEP_RESEARCH_POLL_INTERVAL, DEEP_RESEARCH_MAX_WAIT
-  DEEP_RESEARCH_STABLE_POLLS, DEEP_RESEARCH_VERBOSE=1
-
-Durations accept ms, s, m, or h suffixes. Bare numbers are milliseconds.
-`);
-}
-
-function dieUsage(message) {
-  stderr.write(`error: ${message}\n\n`);
-  usage();
-  exit(64);
-}
-
-function parseArgs(args) {
-  const parsed = {
-    firstPoll: null,
-    pollInterval: null,
-    maxWait: null,
-    stablePolls: null,
-    output: null,
-    noInitialDelay: false,
-    once: false,
-    verbose: false,
-  };
-
-  for (let i = 0; i < args.length; i += 1) {
-    const arg = args[i];
-    switch (arg) {
-      case '--first-poll':
-        parsed.firstPoll = args[++i] ?? dieUsage('--first-poll requires a value');
-        break;
-      case '--poll-interval':
-        parsed.pollInterval =
-          args[++i] ?? dieUsage('--poll-interval requires a value');
-        break;
-      case '--max-wait':
-        parsed.maxWait = args[++i] ?? dieUsage('--max-wait requires a value');
-        break;
-      case '--stable-polls':
-        parsed.stablePolls =
-          args[++i] ?? dieUsage('--stable-polls requires a value');
-        break;
-      case '--output':
-        parsed.output = args[++i] ?? dieUsage('--output requires a value');
-        break;
-      case '--no-initial-delay':
-        parsed.noInitialDelay = true;
-        break;
-      case '--once':
-        parsed.once = true;
-        break;
-      case '--verbose':
-        parsed.verbose = true;
-        break;
-      case '-h':
-      case '--help':
-        usage();
-        exit(0);
-        break;
-      default:
-        dieUsage(`unknown argument: ${arg}`);
-    }
-  }
-  return parsed;
-}
-
-function parsePositiveInt(value, fallback) {
-  if (value === undefined || value === null || value === '') return fallback;
-  const parsed = Number.parseInt(String(value), 10);
-  if (!Number.isFinite(parsed) || parsed < 1) {
-    dieUsage(`expected a positive integer, got: ${value}`);
-  }
-  return parsed;
-}
-
-function durationOption(cliValue, envValue, fallback) {
-  const value = cliValue ?? envValue;
-  if (value === undefined || value === null || value === '') return fallback;
-  const parsed = parseDuration(value);
-  if (!Number.isFinite(parsed) || parsed < 0) {
-    dieUsage(`invalid duration: ${value}`);
-  }
-  return parsed;
-}
-
-function parseDuration(value) {
-  const text = String(value).trim().toLowerCase();
-  const match = text.match(/^(\d+(?:\.\d+)?)(ms|s|m|h)?$/);
-  if (!match) return Number.NaN;
-  const amount = Number.parseFloat(match[1]);
-  const unit = match[2] ?? 'ms';
-  switch (unit) {
-    case 'ms':
-      return Math.round(amount);
-    case 's':
-      return Math.round(amount * 1000);
-    case 'm':
-      return Math.round(amount * 60 * 1000);
-    case 'h':
-      return Math.round(amount * 60 * 60 * 1000);
-    default:
-      return Number.NaN;
+export class OracleConversationError extends Error {
+  constructor(code) {
+    super("oracle conversation: rejected");
+    this.name = "OracleConversationError";
+    this.code = code;
   }
 }
 
-function formatDuration(ms) {
-  if (ms % (60 * 60 * 1000) === 0) return `${ms / (60 * 60 * 1000)}h`;
-  if (ms % (60 * 1000) === 0) return `${ms / (60 * 1000)}m`;
-  if (ms % 1000 === 0) return `${ms / 1000}s`;
-  return `${ms}ms`;
+function reject(code) {
+  throw new OracleConversationError(code);
 }
 
-const log = (...args) => {
-  stderr.write(`[await-deep-research] ${args.join(' ')}\n`);
-};
-
-const verbose = (...args) => {
-  if (VERBOSE) log(...args);
-};
-
-async function fetchTargets() {
-  const res = await fetch(`http://${HOST}:${PORT}/json`);
-  if (!res.ok) {
-    throw new Error(`CDP /json returned ${res.status}`);
-  }
-  return res.json();
-}
-
-function chatGPTTargets(targets) {
-  return targets.filter(
-    (t) => t.type === 'page' && /chatgpt\.com/.test(t.url ?? ''),
+function isPlainObject(value) {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    Object.getPrototypeOf(value) === Object.prototype
   );
 }
 
-function describeTarget(target) {
-  return `${target.id} ${target.url} ${target.title ?? ''}`.trim();
+function exactObject(value, required, optional, code) {
+  if (!isPlainObject(value)) reject(code);
+  const allowed = new Set([...required, ...optional]);
+  if (
+    required.some((key) => !Object.hasOwn(value, key)) ||
+    Object.keys(value).some((key) => !allowed.has(key))
+  ) {
+    reject(code);
+  }
+  return value;
 }
 
-function selectChatGPTTarget(targets) {
-  const tabs = chatGPTTargets(targets);
-  if (tabs.length === 0) {
-    return { status: 'none', candidates: [] };
+function identifier(value, code) {
+  if (typeof value !== "string" || !MESSAGE_ID_PATTERN.test(value)) {
+    reject(code);
   }
-
-  if (TARGET_ID) {
-    const matches = tabs.filter((t) => t.id === TARGET_ID);
-    if (matches.length === 1) {
-      return { status: 'selected', tab: matches[0], candidates: matches };
-    }
-    return { status: 'selector-missing', candidates: tabs };
-  }
-
-  const candidates = URL_MATCH
-    ? tabs.filter((t) => (t.url ?? '').includes(URL_MATCH))
-    : tabs;
-
-  if (candidates.length === 0) {
-    return { status: URL_MATCH ? 'selector-missing' : 'none', candidates: tabs };
-  }
-  if (candidates.length === 1) {
-    return { status: 'selected', tab: candidates[0], candidates };
-  }
-  return { status: 'ambiguous', candidates };
+  return value;
 }
 
-async function cdpEval(wsUrl, expression) {
-  const WebSocketClient =
-    globalThis.WebSocket ?? (await import('ws')).default;
-  return new Promise((resolve, reject) => {
-    const ws = new WebSocketClient(wsUrl);
-    const messageId = 1;
-    const timer = setTimeout(() => {
-      ws.close();
-      reject(new Error('CDP eval timed out'));
-    }, 20000);
+function position(value, code) {
+  if (!Number.isSafeInteger(value) || value < 1) reject(code);
+  return value;
+}
 
-    const onOpen = () => {
-      ws.send(
-        JSON.stringify({
-          id: messageId,
-          method: 'Runtime.evaluate',
-          params: {
-            expression,
-            awaitPromise: true,
-            returnByValue: true,
-          },
-        }),
-      );
-    };
+function canonicalTimestamp(value, code) {
+  if (typeof value !== "string") reject(code);
+  const milliseconds = Date.parse(value);
+  if (
+    !Number.isFinite(milliseconds) ||
+    new Date(milliseconds).toISOString() !== value
+  ) {
+    reject(code);
+  }
+  return value;
+}
 
-    const onMessage = (raw) => {
-      const data = raw?.data ?? raw;
-      const msg = JSON.parse(
-        typeof data === 'string' ? data : Buffer.from(data).toString(),
-      );
-      if (msg.id === messageId) {
-        clearTimeout(timer);
-        ws.close();
-        if (msg.error) return reject(new Error(msg.error.message));
-        resolve(msg.result?.result?.value);
+export function conversationPageProbe(targetId) {
+  const visible = (element) => {
+    if (!element) return false;
+    const rectangle = element.getBoundingClientRect();
+    const style = getComputedStyle(element);
+    return (
+      rectangle.width > 1 &&
+      rectangle.height > 1 &&
+      style.display !== "none" &&
+      style.visibility !== "hidden"
+    );
+  };
+  const safeId = (value) =>
+    /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/.test(String(value || ""))
+      ? String(value)
+      : null;
+  const mainRoots = Array.from(document.querySelectorAll("main")).filter(
+    visible,
+  );
+  const root = mainRoots.length === 1 ? mainRoots[0] : null;
+  const messageNodes = root
+    ? Array.from(
+        root.querySelectorAll(
+          "[data-message-author-role='user'][data-message-id],[data-message-author-role='assistant'][data-message-id]",
+        ),
+      ).filter(visible)
+    : [];
+  const turns = messageNodes.map((node, index) => {
+    const role = node.getAttribute("data-message-author-role");
+    const rawId = safeId(node.getAttribute("data-message-id"));
+    const basePosition = (index + 1) * 10;
+    let status = role === "user" ? "submitted" : "ambiguous";
+    if (role === "assistant") {
+      const explicit = node.getAttribute("data-message-status");
+      const streaming = Array.from(
+        node.querySelectorAll("[data-testid='message-streaming-indicator']"),
+      ).filter(visible);
+      const completed = Array.from(
+        node.querySelectorAll("[data-testid='message-complete']"),
+      ).filter(visible);
+      if (
+        ["streaming", "completed", "error"].includes(explicit) &&
+        streaming.length <= 1 &&
+        completed.length <= 1
+      ) {
+        status = explicit;
+      } else if (streaming.length === 1 && completed.length === 0) {
+        status = "streaming";
+      } else if (completed.length === 1 && streaming.length === 0) {
+        status = "completed";
       }
-    };
-
-    const onError = (err) => {
-      clearTimeout(timer);
-      reject(err?.error ?? err);
-    };
-
-    if (typeof ws.addEventListener === 'function') {
-      ws.addEventListener('open', onOpen);
-      ws.addEventListener('message', onMessage);
-      ws.addEventListener('error', onError);
-    } else {
-      ws.on('open', onOpen);
-      ws.on('message', onMessage);
-      ws.on('error', onError);
     }
+    const contentNodes =
+      role === "assistant"
+        ? Array.from(node.querySelectorAll("[data-message-content]")).filter(
+            visible,
+          )
+        : [];
+    const content =
+      contentNodes.length === 1
+        ? String(contentNodes[0].innerText || contentNodes[0].textContent || "")
+            .replace(/[ \t]+\n/g, "\n")
+            .replace(/\n[ \t]+/g, "\n")
+            .replace(/\n{3,}/g, "\n\n")
+            .trim()
+        : "";
+    return {
+      raw_id: rawId,
+      role,
+      position: basePosition,
+      status,
+      content,
+    };
+  });
+  const turnByRawId = new Map(
+    turns.filter((turn) => turn.raw_id).map((turn) => [turn.raw_id, turn]),
+  );
+  const reviewCards = root
+    ? Array.from(
+        root.querySelectorAll(
+          "[data-testid='deep-research-review-card'][data-parent-message-id][data-review-id]",
+        ),
+      )
+        .filter(visible)
+        .map((card) => ({
+          review_id: safeId(card.getAttribute("data-review-id")),
+          parent_user_message_id: safeId(
+            card.getAttribute("data-parent-message-id"),
+          ),
+          state: card.getAttribute("data-state") || "",
+        }))
+    : [];
+  const activeResearch = root
+    ? Array.from(
+        root.querySelectorAll(
+          "[data-testid='deep-research-progress'][data-state='active'][data-parent-message-id][data-research-id]",
+        ),
+      )
+        .filter(visible)
+        .map((element) => {
+          const message = element.closest(
+            "[data-message-author-role='assistant'][data-message-id]",
+          );
+          const turn = turnByRawId.get(
+            message?.getAttribute("data-message-id"),
+          );
+          return {
+            research_id: safeId(element.getAttribute("data-research-id")),
+            parent_user_message_id: safeId(
+              element.getAttribute("data-parent-message-id"),
+            ),
+            assistant_message_id: turn?.raw_id || null,
+            position: turn?.position || 0,
+          };
+        })
+    : [];
+  const dossiers = root
+    ? Array.from(
+        root.querySelectorAll(
+          "[data-testid='deep-research-dossier'][data-state='completed'][data-parent-message-id][data-research-id][data-dossier-id]",
+        ),
+      )
+        .filter(visible)
+        .map((element) => {
+          const message = element.closest(
+            "[data-message-author-role='assistant'][data-message-id]",
+          );
+          const turn = turnByRawId.get(
+            message?.getAttribute("data-message-id"),
+          );
+          const content = String(
+            element.innerText || element.textContent || "",
+          )
+            .replace(/[ \t]+\n/g, "\n")
+            .replace(/\n[ \t]+/g, "\n")
+            .replace(/\n{3,}/g, "\n\n")
+            .trim();
+          return {
+            dossier_id: safeId(element.getAttribute("data-dossier-id")),
+            research_id: safeId(element.getAttribute("data-research-id")),
+            parent_user_message_id: safeId(
+              element.getAttribute("data-parent-message-id"),
+            ),
+            assistant_message_id: turn?.raw_id || null,
+            position: turn?.position || 0,
+            content,
+          };
+        })
+    : [];
+  return {
+    schema: "oracle-subagent.conversation-observation.v1",
+    observed_at: new Date().toISOString(),
+    target_id: targetId,
+    target_url: location.href,
+    main_count: mainRoots.length,
+    turns,
+    review_cards: reviewCards,
+    active_research: activeResearch,
+    dossiers,
+  };
+}
+
+export function conversationPageProbeExpression(targetId) {
+  if (
+    typeof targetId !== "string" ||
+    !TARGET_ID_PATTERN.test(targetId)
+  ) {
+    reject("target_invalid");
+  }
+  return `(${conversationPageProbe})(${JSON.stringify(targetId)})`;
+}
+
+function normalizeTurn(rawTurn) {
+  exactObject(
+    rawTurn,
+    ["raw_id", "role", "position", "status", "content"],
+    [],
+    "observation_invalid",
+  );
+  if (
+    !["user", "assistant"].includes(rawTurn.role) ||
+    !["submitted", "streaming", "completed", "error", "ambiguous"].includes(
+      rawTurn.status,
+    ) ||
+    typeof rawTurn.content !== "string" ||
+    rawTurn.content.length > MAX_RESULT_CHARACTERS
+  ) {
+    reject("observation_invalid");
+  }
+  return {
+    raw_id: identifier(rawTurn.raw_id, "observation_invalid"),
+    role: rawTurn.role,
+    position: position(rawTurn.position, "observation_invalid"),
+    status: rawTurn.status,
+    content: rawTurn.content,
+  };
+}
+
+function normalizeReview(rawReview) {
+  exactObject(
+    rawReview,
+    ["review_id", "parent_user_message_id", "state"],
+    [],
+    "observation_invalid",
+  );
+  if (!["awaiting-start", "started"].includes(rawReview.state)) {
+    reject("observation_invalid");
+  }
+  return {
+    review_id: identifier(rawReview.review_id, "observation_invalid"),
+    parent_user_message_id: identifier(
+      rawReview.parent_user_message_id,
+      "observation_invalid",
+    ),
+    state: rawReview.state,
+  };
+}
+
+function normalizeActive(rawActive) {
+  exactObject(
+    rawActive,
+    [
+      "research_id",
+      "parent_user_message_id",
+      "assistant_message_id",
+      "position",
+    ],
+    [],
+    "observation_invalid",
+  );
+  return {
+    research_id: identifier(rawActive.research_id, "observation_invalid"),
+    parent_user_message_id: identifier(
+      rawActive.parent_user_message_id,
+      "observation_invalid",
+    ),
+    assistant_message_id: identifier(
+      rawActive.assistant_message_id,
+      "observation_invalid",
+    ),
+    position: position(rawActive.position, "observation_invalid"),
+  };
+}
+
+function normalizeDossier(rawDossier) {
+  exactObject(
+    rawDossier,
+    [
+      "dossier_id",
+      "research_id",
+      "parent_user_message_id",
+      "assistant_message_id",
+      "position",
+      "content",
+    ],
+    [],
+    "observation_invalid",
+  );
+  if (
+    typeof rawDossier.content !== "string" ||
+    rawDossier.content.length > MAX_RESULT_CHARACTERS
+  ) {
+    reject("observation_invalid");
+  }
+  return {
+    dossier_id: identifier(rawDossier.dossier_id, "observation_invalid"),
+    research_id: identifier(
+      rawDossier.research_id,
+      "observation_invalid",
+    ),
+    parent_user_message_id: identifier(
+      rawDossier.parent_user_message_id,
+      "observation_invalid",
+    ),
+    assistant_message_id: identifier(
+      rawDossier.assistant_message_id,
+      "observation_invalid",
+    ),
+    position: position(rawDossier.position, "observation_invalid"),
+    content: rawDossier.content,
+  };
+}
+
+export function normalizeConversationObservation(rawObservation, expected) {
+  exactObject(
+    rawObservation,
+    [
+      "schema",
+      "observed_at",
+      "target_id",
+      "target_url",
+      "main_count",
+      "turns",
+      "review_cards",
+      "active_research",
+      "dossiers",
+    ],
+    [],
+    "observation_invalid",
+  );
+  const target = normalizeExactTarget(expected);
+  if (
+    rawObservation.schema !== CONVERSATION_OBSERVATION_SCHEMA ||
+    rawObservation.target_id !== target.target_id ||
+    normalizeExactChatGptUrl(rawObservation.target_url) !==
+      target.target_url ||
+    rawObservation.main_count !== 1 ||
+    !Array.isArray(rawObservation.turns) ||
+    !Array.isArray(rawObservation.review_cards) ||
+    !Array.isArray(rawObservation.active_research) ||
+    !Array.isArray(rawObservation.dossiers)
+  ) {
+    reject("observation_invalid");
+  }
+  canonicalTimestamp(rawObservation.observed_at, "observation_invalid");
+  const turns = rawObservation.turns.map(normalizeTurn);
+  if (
+    new Set(turns.map((turn) => turn.raw_id)).size !== turns.length ||
+    turns.some(
+      (turn, index) =>
+        index > 0 && turn.position <= turns[index - 1].position,
+    )
+  ) {
+    reject("observation_invalid");
+  }
+  return Object.freeze({
+    schema: CONVERSATION_OBSERVATION_SCHEMA,
+    observed_at: rawObservation.observed_at,
+    target_id: target.target_id,
+    target_url: target.target_url,
+    turns,
+    review_cards: rawObservation.review_cards.map(normalizeReview),
+    active_research: rawObservation.active_research.map(normalizeActive),
+    dossiers: rawObservation.dossiers.map(normalizeDossier),
   });
 }
 
-function pageScript() {
-  return `(() => {
-    const normalize = (s) =>
-      (s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-
-    const cleanText = (node) => {
-      const clone = node.cloneNode(true);
-      for (const sel of [
-        'script',
-        'style',
-        'svg',
-        'button',
-        'textarea',
-        '[contenteditable="true"]',
-        '[role="button"]',
-        '[data-testid*="copy"]',
-        '[data-testid*="composer"]',
-      ]) {
-        for (const nested of clone.querySelectorAll(sel)) nested.remove();
-      }
-      return (clone.innerText || clone.textContent || '')
-        .replace(/[ \\t]+\\n/g, '\\n')
-        .replace(/\\n[ \\t]+/g, '\\n')
-        .replace(/\\n{3,}/g, '\\n\\n')
-        .trim();
-    };
-
-    const visibleSnippet = (node) =>
-      (node.innerText || node.textContent || '').replace(/\\s+/g, ' ').trim();
-
-    const errorPhrases = [
-      'something went wrong',
-      'network error',
-      'error generating response',
-      'unable to load conversation',
-      'conversation not found',
-      'message not found',
-      'you have reached the limit',
-      'limit reached',
-      'please try again later',
-    ];
-
-    const errorSignals = [];
-    const bodyText = normalize(document.body?.innerText || '');
-    for (const phrase of errorPhrases) {
-      if (bodyText.includes(phrase)) errorSignals.push(phrase);
-    }
-
-    const activeSignals = [];
-    const activePhrases = [
-      'stop generating',
-      'stop streaming',
-      'researching',
-      'searching the web',
-      'reading sources',
-      'analyzing sources',
-      'gathering sources',
-      'research in progress',
-      'still working',
-      'working on it',
-    ];
-    const activeNodes = document.querySelectorAll(
-      'button,[role="status"],[aria-live],[data-testid*="status"],[data-testid*="thinking"],[data-testid*="progress"],[data-testid*="composer"]',
-    );
-    for (const node of activeNodes) {
-      const label = normalize(
-        [
-          node.getAttribute?.('aria-label') || '',
-          node.getAttribute?.('data-testid') || '',
-          visibleSnippet(node),
-        ].join(' '),
-      );
-      if (!label || label.length > 500) continue;
-      for (const phrase of activePhrases) {
-        if (label.includes(phrase)) activeSignals.push(phrase);
-      }
-    }
-
-    let assistantNodes = Array.from(
-      document.querySelectorAll('[data-message-author-role="assistant"]'),
-    );
-
-    if (assistantNodes.length === 0) {
-      assistantNodes = Array.from(
-        document.querySelectorAll('main .markdown, article .markdown, [class*="markdown"]'),
-      );
-    }
-
-    const assistantTexts = assistantNodes
-      .map(cleanText)
-      .filter((text) => text.length >= 40);
-    const lastAssistantText = assistantTexts.at(-1) || '';
-    const headings = lastAssistantText
-      .split('\\n')
-      .map((line) => line.trim())
-      .filter((line) => /^#{1,4}\\s+/.test(line))
-      .slice(0, 12);
-
-    let status = 'no-output';
-    if (errorSignals.length > 0) {
-      status = 'error';
-    } else if (activeSignals.length > 0) {
-      status = 'active';
-    } else if (lastAssistantText) {
-      status = 'candidate';
-    }
-
-    return {
-      status,
-      url: location.href,
-      title: document.title,
-      assistantCount: assistantTexts.length,
-      lastAssistantText,
-      textLength: lastAssistantText.length,
-      headings,
-      activeSignals: [...new Set(activeSignals)],
-      errorSignals: [...new Set(errorSignals)],
-    };
-  })()`;
-}
-
-async function inspectTarget() {
-  let targets;
+export async function probeConversation(transport, rawTarget) {
+  const target = await bindExactChatGptTarget(transport, rawTarget);
+  let rawObservation;
   try {
-    targets = await fetchTargets();
-  } catch (err) {
-    stderr.write(`Failed to reach Chrome DevTools at ${HOST}:${PORT}: ${err.message}\n`);
-    exit(5);
-  }
-
-  const selection = selectChatGPTTarget(targets);
-  if (selection.status === 'none') {
-    stderr.write(`No chatgpt.com tab found on ${HOST}:${PORT}.\n`);
-    exit(2);
-  }
-  if (selection.status === 'selector-missing') {
-    const selector = TARGET_ID
-      ? `ORACLE_CHATGPT_TARGET_ID=${TARGET_ID}`
-      : `ORACLE_CHATGPT_URL_MATCH=${URL_MATCH}`;
-    stderr.write(`No chatgpt.com tab on ${HOST}:${PORT} matched ${selector}.\n`);
-    for (const target of selection.candidates) {
-      stderr.write(`- ${describeTarget(target)}\n`);
-    }
-    exit(8);
-  }
-  if (selection.status === 'ambiguous') {
-    const scope = URL_MATCH
-      ? `matching ORACLE_CHATGPT_URL_MATCH=${URL_MATCH}`
-      : 'on the DevTools port';
-    stderr.write(
-      `Multiple chatgpt.com tabs ${scope}; Deep Research completion target is ambiguous.\n`,
+    rawObservation = await transport.evaluate(
+      target.target_id,
+      conversationPageProbeExpression(target.target_id),
     );
-    for (const target of selection.candidates) {
-      stderr.write(`- ${describeTarget(target)}\n`);
+  } catch (error) {
+    if (
+      error instanceof OracleConversationError ||
+      error instanceof ChatGptComposerError
+    ) {
+      throw error;
     }
-    stderr.write('Set ORACLE_CHATGPT_TARGET_ID or narrow ORACLE_CHATGPT_URL_MATCH.\n');
-    exit(7);
+    reject("probe_failed");
   }
+  return normalizeConversationObservation(rawObservation, target);
+}
 
-  verbose('target', describeTarget(selection.tab));
-
+export function captureConversationBaseline(observation) {
+  if (
+    !isPlainObject(observation) ||
+    observation.schema !== CONVERSATION_OBSERVATION_SCHEMA ||
+    !Array.isArray(observation.turns)
+  ) {
+    reject("baseline_invalid");
+  }
+  const turns = observation.turns;
+  const last = turns.at(-1);
+  let targetUrl;
   try {
-    return await cdpEval(selection.tab.webSocketDebuggerUrl, pageScript());
-  } catch (err) {
-    stderr.write(`CDP eval failed: ${err.message}\n`);
-    exit(5);
+    targetUrl = normalizeExactChatGptUrl(observation.target_url);
+  } catch {
+    reject("baseline_invalid");
   }
-}
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function wait(ms, label) {
-  if (ms <= 0) return;
-  log(`${label}; sleeping ${formatDuration(ms)}`);
-  await sleep(ms);
-}
-
-function writeResult(text) {
-  const finalText = text.endsWith('\n') ? text : `${text}\n`;
-  if (OUTPUT_PATH) {
-    try {
-      mkdirSync(dirname(OUTPUT_PATH), { recursive: true });
-      writeFileSync(OUTPUT_PATH, finalText);
-    } catch (err) {
-      stderr.write(`Failed to write output ${OUTPUT_PATH}: ${err.message}\n`);
-      exit(12);
-    }
-    log(`wrote output ${OUTPUT_PATH}`);
+  if (turns.length === 0 && targetUrl === CHATGPT_ROOT_URL) {
+    return Object.freeze({
+      target_id: observation.target_id,
+      target_url: targetUrl,
+      turns: [],
+      baseline_assistant_turn_id: EMPTY_ROOT_BASELINE_TURN_ID,
+      baseline_assistant_turn_position:
+        EMPTY_ROOT_BASELINE_TURN_POSITION,
+    });
   }
-  stdout.write(finalText);
+  if (
+    !last ||
+    last.role !== "assistant" ||
+    last.status !== "completed" ||
+    !last.content
+  ) {
+    reject("baseline_missing");
+  }
+  return Object.freeze({
+    target_id: observation.target_id,
+    target_url: targetUrl,
+    turns: turns.map(({ raw_id, role, position }) => ({
+      raw_id,
+      role,
+      position,
+    })),
+    baseline_assistant_turn_id: `assistant:${last.raw_id}:completed`,
+    baseline_assistant_turn_position: last.position + 1,
+  });
 }
 
-async function main() {
-  log(
-    `target=${TARGET_ID || URL_MATCH || 'single chatgpt.com tab'} first-poll=${formatDuration(FIRST_POLL_MS)} interval=${formatDuration(POLL_INTERVAL_MS)} max-wait=${formatDuration(MAX_WAIT_MS)} stable-polls=${STABLE_POLLS}`,
+export function proveCausalConversationUrl(
+  preSendUrl,
+  observedUrl,
+) {
+  let before;
+  let after;
+  try {
+    before = normalizeExactChatGptUrl(preSendUrl);
+    after = normalizeExactChatGptUrl(observedUrl);
+  } catch {
+    reject("target_url_drift");
+  }
+  if (after === before) return after;
+  const beforePath = new URL(before).pathname;
+  const afterPath = new URL(after).pathname;
+  if (
+    beforePath !== "/" ||
+    !CONVERSATION_PATH_PATTERN.test(afterPath)
+  ) {
+    reject("target_url_drift");
+  }
+  return after;
+}
+
+function assertBaselinePrefix(baseline, observation) {
+  const observedUrl = proveCausalConversationUrl(
+    baseline.target_url,
+    observation.target_url,
   );
-
-  const startedAt = Date.now();
-  let previousText = '';
-  let stablePolls = 0;
-  let sawAssistant = false;
-
-  if (!options.once) {
-    await wait(FIRST_POLL_MS, 'waiting before first poll');
+  if (
+    baseline.target_id !== observation.target_id ||
+    baseline.turns.length > observation.turns.length
+  ) {
+    reject("thread_mismatch");
   }
-
-  for (;;) {
-    const elapsedMs = Date.now() - startedAt;
-    const state = await inspectTarget();
-
-    if (state?.status === 'error') {
-      stderr.write(
-        `ChatGPT/browser error evidence detected: ${state.errorSignals.join(', ')}\n`,
-      );
-      exit(11);
+  for (const [index, expected] of baseline.turns.entries()) {
+    const actual = observation.turns[index];
+    if (
+      !actual ||
+      actual.raw_id !== expected.raw_id ||
+      actual.role !== expected.role ||
+      actual.position !== expected.position
+    ) {
+      reject("thread_mismatch");
     }
+  }
+  return observedUrl;
+}
 
-    if (state?.lastAssistantText) {
-      sawAssistant = true;
-    }
+export function proveSubmittedUserTurn(baseline, observation) {
+  const observedUrl = assertBaselinePrefix(baseline, observation);
+  const additions = observation.turns.slice(baseline.turns.length);
+  if (
+    additions.length === 0 ||
+    (new URL(baseline.target_url).pathname === "/" &&
+      observedUrl === baseline.target_url)
+  ) {
+    reject("evidence_pending");
+  }
+  const users = additions.filter((turn) => turn.role === "user");
+  if (
+    additions[0]?.role !== "user" ||
+    users.length !== 1 ||
+    users[0].status !== "submitted" ||
+    users[0].position <= baseline.baseline_assistant_turn_position
+  ) {
+    reject("submitted_turn_invalid");
+  }
+  return Object.freeze({
+    conversation_url: observation.target_url,
+    raw_user_message_id: users[0].raw_id,
+    user_turn_id: `user:${users[0].raw_id}:submitted`,
+    user_turn_position: users[0].position,
+  });
+}
 
-    if (state?.status === 'candidate') {
-      if (state.lastAssistantText === previousText) {
-        stablePolls += 1;
-      } else {
-        previousText = state.lastAssistantText;
-        stablePolls = 1;
-      }
-
-      log(
-        `candidate output length=${state.textLength} assistant-turns=${state.assistantCount} stable-polls=${stablePolls}/${STABLE_POLLS}`,
-      );
-      if (VERBOSE && state.headings?.length) {
-        log(`headings=${state.headings.join(' | ')}`);
-      }
-
-      if (stablePolls >= STABLE_POLLS) {
-        writeResult(state.lastAssistantText);
-        exit(0);
-      }
-    } else if (state?.status === 'active') {
-      stablePolls = 0;
-      log(
-        `active Deep Research signals: ${(state.activeSignals ?? []).join(', ') || 'unknown active UI'}`,
-      );
-    } else {
-      stablePolls = 0;
-      log('no assistant/research output visible yet');
-    }
-
-    if (options.once) {
-      if (sawAssistant) {
-        stderr.write(
-          'Assistant output exists, but completion was not confirmed in this single poll.\n',
-        );
-        exit(9);
-      }
-      stderr.write('No assistant output visible in this single poll.\n');
-      exit(10);
-    }
-
-    const nextElapsedMs = Date.now() - startedAt;
-    if (nextElapsedMs >= MAX_WAIT_MS) {
-      if (!sawAssistant) {
-        stderr.write(
-          `Timed out after ${formatDuration(nextElapsedMs)} with no assistant output.\n`,
-        );
-        exit(10);
-      }
-      stderr.write(
-        `Timed out after ${formatDuration(nextElapsedMs)} before output stabilized or active signals cleared.\n`,
-      );
-      exit(9);
-    }
-
-    const remainingMs = MAX_WAIT_MS - nextElapsedMs;
-    await wait(Math.min(POLL_INTERVAL_MS, remainingMs), 'waiting before next poll');
+function assertSubmittedThread(observation, submitted) {
+  const matchingUsers = observation.turns.filter(
+    (turn) =>
+      turn.role === "user" && turn.raw_id === submitted.raw_user_message_id,
+  );
+  const laterUsers = observation.turns.filter(
+    (turn) =>
+      turn.role === "user" &&
+      turn.position >= submitted.user_turn_position,
+  );
+  if (
+    observation.target_url !== submitted.conversation_url ||
+    matchingUsers.length !== 1 ||
+    laterUsers.length !== 1
+  ) {
+    reject("thread_mismatch");
   }
 }
 
-main();
+export function proveProStarted(observation, submitted) {
+  assertSubmittedThread(observation, submitted);
+  const assistants = observation.turns.filter(
+    (turn) =>
+      turn.role === "assistant" &&
+      turn.position > submitted.user_turn_position,
+  );
+  if (
+    assistants.length !== 1 ||
+    !["streaming", "completed"].includes(assistants[0].status)
+  ) {
+    reject("evidence_pending");
+  }
+  return Object.freeze({
+    assistant_signal_id: `assistant:${assistants[0].raw_id}:started`,
+    assistant_signal_position: assistants[0].position,
+    raw_assistant_message_id: assistants[0].raw_id,
+  });
+}
+
+export function proveProCompleted(observation, submitted, started) {
+  assertSubmittedThread(observation, submitted);
+  const assistants = observation.turns.filter(
+    (turn) =>
+      turn.role === "assistant" &&
+      turn.position > submitted.user_turn_position,
+  );
+  if (
+    assistants.length !== 1 ||
+    assistants[0].status !== "completed" ||
+    assistants[0].content.length === 0
+  ) {
+    reject("evidence_pending");
+  }
+  if (
+    assistants[0].raw_id !== started.raw_assistant_message_id
+  ) {
+    reject("assistant_identity_mismatch");
+  }
+  const finalPosition = assistants[0].position + 1;
+  if (finalPosition <= started.assistant_signal_position) {
+    reject("completion_invalid");
+  }
+  if (assistants[0].position !== started.assistant_signal_position) {
+    reject("completion_invalid");
+  }
+  return Object.freeze({
+    final_assistant_turn_id: `assistant:${assistants[0].raw_id}:completed`,
+    final_assistant_turn_position: finalPosition,
+    content: assistants[0].content,
+  });
+}
+
+export function proveDeepResearchReview(observation, submitted) {
+  assertSubmittedThread(observation, submitted);
+  const matches = observation.review_cards.filter(
+    (card) =>
+      card.parent_user_message_id === submitted.raw_user_message_id &&
+      card.state === "awaiting-start",
+  );
+  if (matches.length !== 1) reject("evidence_pending");
+  return Object.freeze({
+    review_id: matches[0].review_id,
+    parent_user_message_id: matches[0].parent_user_message_id,
+    review_position: submitted.user_turn_position + 1,
+  });
+}
+
+export function proveDeepResearchStarted(observation, submitted, review) {
+  assertSubmittedThread(observation, submitted);
+  const matches = observation.active_research.filter(
+    (active) =>
+      active.parent_user_message_id === submitted.raw_user_message_id &&
+      active.position > review.review_position,
+  );
+  if (matches.length !== 1) reject("evidence_pending");
+  const assistants = observation.turns.filter(
+    (turn) =>
+      turn.role === "assistant" &&
+      turn.raw_id === matches[0].assistant_message_id &&
+      turn.position === matches[0].position &&
+      ["streaming", "completed"].includes(turn.status),
+  );
+  if (assistants.length !== 1) reject("evidence_pending");
+  return Object.freeze({
+    assistant_signal_id: `research:${matches[0].research_id}:active`,
+    assistant_signal_position: matches[0].position,
+    raw_research_id: matches[0].research_id,
+    raw_assistant_message_id: matches[0].assistant_message_id,
+  });
+}
+
+export function proveDeepResearchCompleted(
+  observation,
+  submitted,
+  started,
+) {
+  assertSubmittedThread(observation, submitted);
+  const matches = observation.dossiers.filter(
+    (dossier) =>
+      dossier.parent_user_message_id === submitted.raw_user_message_id &&
+      dossier.content.length > 0,
+  );
+  if (matches.length !== 1) reject("evidence_pending");
+  if (matches[0].research_id !== started.raw_research_id) {
+    reject("research_identity_mismatch");
+  }
+  if (
+    matches[0].assistant_message_id !==
+      started.raw_assistant_message_id
+  ) {
+    reject("assistant_identity_mismatch");
+  }
+  const assistants = observation.turns.filter(
+    (turn) =>
+      turn.role === "assistant" &&
+      turn.raw_id === matches[0].assistant_message_id &&
+      turn.position === matches[0].position &&
+      turn.status === "completed",
+  );
+  if (assistants.length !== 1) reject("evidence_pending");
+  const finalPosition = matches[0].position + 1;
+  if (finalPosition <= started.assistant_signal_position) {
+    reject("completion_invalid");
+  }
+  if (matches[0].position !== started.assistant_signal_position) {
+    reject("completion_invalid");
+  }
+  return Object.freeze({
+    final_assistant_turn_id: `dossier:${matches[0].dossier_id}:completed`,
+    final_assistant_turn_position: finalPosition,
+    content: matches[0].content,
+  });
+}
+
+export async function waitForConversationEvidence({
+  probe,
+  prove,
+  sleep,
+  poll_interval_ms = 1_000,
+  max_polls = 120,
+}) {
+  if (
+    typeof probe !== "function" ||
+    typeof prove !== "function" ||
+    typeof sleep !== "function" ||
+    !Number.isSafeInteger(poll_interval_ms) ||
+    poll_interval_ms < 0 ||
+    !Number.isSafeInteger(max_polls) ||
+    max_polls < 1 ||
+    max_polls > 10_000
+  ) {
+    reject("wait_options_invalid");
+  }
+  for (let poll = 0; poll < max_polls; poll += 1) {
+    const observation = await probe();
+    try {
+      return await prove(observation);
+    } catch (error) {
+      if (
+        !(error instanceof OracleConversationError) ||
+        error.code !== "evidence_pending"
+      ) {
+        throw error;
+      }
+    }
+    if (poll + 1 < max_polls) await sleep(poll_interval_ms);
+  }
+  reject("evidence_timeout");
+}
+
+export async function main(rawArguments = process.argv.slice(2)) {
+  if (
+    rawArguments.length !== 1 ||
+    rawArguments[0] !== "--control-stdin"
+  ) {
+    reject("arguments_invalid");
+  }
+  reject("adapter_required");
+}
+
+const invokedPath = process.argv[1]
+  ? pathToFileURL(resolve(process.argv[1])).href
+  : "";
+if (invokedPath === import.meta.url) {
+  main().catch((error) => {
+    const code =
+      error instanceof OracleConversationError ||
+      error instanceof ChatGptComposerError
+        ? error.code
+        : "unexpected_failure";
+    process.stderr.write(`await-deep-research:${code}\n`);
+    process.exitCode = 1;
+  });
+}

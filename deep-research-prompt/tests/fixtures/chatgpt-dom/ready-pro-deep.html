@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head><title>ChatGPT fixture: Pro and Deep Research ready</title></head>
+  <body>
+    <main data-session="authenticated">
+      <form data-testid="composer">
+        <div id="prompt-textarea" contenteditable="true" role="textbox"></div>
+        <button
+          type="button"
+          data-testid="model-switcher"
+          data-model-id="gpt-5-pro"
+          aria-label="Model selector, Pro"
+        >Pro</button>
+        <button
+          type="button"
+          data-testid="composer-tool-chip"
+          data-tool="deep-research"
+          aria-pressed="true"
+        >Deep research</button>
+      </form>
+    </main>
+    <script type="application/json" id="fixture-contract">
+      {"schema":"oracle-subagent.dom-fixture.v1","case":"ready-pro-deep","expected":{"session":"authenticated","challenge":false,"model_id":"gpt-5-pro","tool":"deep-research","run_state":"idle","assistant_after_user":false,"result_nonempty":false}}
+    </script>
+  </body>
+</html>

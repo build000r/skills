@@ -329,6 +329,7 @@ class LaunchChatgptCdpTests(unittest.TestCase):
             #!/bin/bash -p
             set -euo pipefail
             script="$(cat)"
+            printf 'hide\n' >> "$FAKE_OSASCRIPT_LOG"
             [ "$1" = "-" ]
             [ "$2" = "4242" ]
             for required in \
@@ -421,6 +422,7 @@ class LaunchChatgptCdpTests(unittest.TestCase):
                     self.root / "listener-swapped"
                 ),
                 "FAKE_OPEN_LOG": str(self.open_log),
+                "FAKE_OSASCRIPT_LOG": str(self.root / "osascript.log"),
                 "FAKE_PROFILE_ROOT": str(self.profile_root.resolve()),
                 "FAKE_REQUESTED_URL": "https://chatgpt.com/",
                 "ORACLE_LAUNCHER_TEST_MODE": "1",
@@ -880,6 +882,33 @@ class LaunchChatgptCdpTests(unittest.TestCase):
         self.assertEqual(result.returncode, 3)
         self.assertIn("failed visibility contract", result.stderr)
         self.assertEqual(result.stdout, "")
+
+    def test_hidden_reused_browser_accepts_macos_coordinate_clamping(self) -> None:
+        self.state_path.touch()
+        result = self._run(
+            env=self._environment(
+                FAKE_VISIBILITY_OUTPUT="false:false:false:2",
+            )
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        receipt = json.loads(result.stdout)
+        self.assertTrue(receipt["visibility_verified"])
+        self.assertFalse(receipt["process_visible"])
+        self.assertFalse(receipt["process_frontmost"])
+        self.assertEqual(receipt["window_count"], 2)
+        self.assertFalse(receipt["windows_offscreen"])
+
+    def test_post_ownership_failure_rehides_before_exit(self) -> None:
+        result = self._run(
+            env=self._environment(
+                FAKE_VISIBILITY_OUTPUT="false:true:true:0",
+            )
+        )
+        self.assertNotEqual(result.returncode, 0)
+        hide_calls = (self.root / "osascript.log").read_text(
+            encoding="utf-8"
+        ).splitlines()
+        self.assertGreaterEqual(len(hide_calls), 2)
 
     def test_stale_dead_pid_lock_is_recovered(self) -> None:
         self.runtime_root.mkdir(mode=0o700)

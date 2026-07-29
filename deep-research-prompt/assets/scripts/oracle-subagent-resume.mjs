@@ -330,8 +330,47 @@ function resultSummary(receipt) {
   };
 }
 
+function executionCandidate(claim, receipt, queue) {
+  return (
+    claim.send_authorized === true &&
+    queue.status === "leased" &&
+    EXECUTION_GRANT_STATES.has(receipt.state)
+  );
+}
+
+async function revalidateExecutionQueue(
+  artifactRoot,
+  claim,
+  receipt,
+  queue,
+  request,
+  queueConfig,
+  options,
+) {
+  if (!executionCandidate(claim, receipt, queue)) return queue;
+  const current = await claimQueue(
+    artifactRoot,
+    claim.run_id,
+    claim.request_fingerprint,
+    {
+      ...request,
+      now_ms: request.now_ms,
+    },
+    queueConfig,
+    options,
+  );
+  if (
+    current.run_id !== claim.run_id ||
+    current.request_fingerprint !== claim.request_fingerprint
+  ) {
+    reject("resume_queue_revalidation_invalid");
+  }
+  return current;
+}
+
 function requireTargetBinding(receipt, queue) {
   if (
+    !TERMINAL_SET.has(receipt.state) &&
     queue.status === "leased" &&
     receipt.target !== null &&
     queue.target_id !== receipt.target.id
@@ -364,9 +403,7 @@ function directiveFor(claim, receipt, queue, sendAuthorized) {
 function buildResult(command, claim, receipt, queue) {
   const sendAuthorized =
     command === "resume" &&
-    claim.send_authorized === true &&
-    queue.status === "leased" &&
-    EXECUTION_GRANT_STATES.has(receipt.state);
+    executionCandidate(claim, receipt, queue);
   const lease = sendAuthorized
     ? {
         target_id: queue.target_id,
@@ -518,6 +555,16 @@ export async function resumeOracleRun(
   ) {
     claim = { ...claim, disposition: "reattached" };
   }
+  queue = await revalidateExecutionQueue(
+    artifactRoot,
+    claim,
+    receipt,
+    queue,
+    request,
+    queueConfig,
+    options,
+  );
+  receipt = await readBoundReceipt(claim);
   requireTargetBinding(receipt, queue);
   if (TERMINAL_SET.has(receipt.state)) {
     queue = await reconcileTerminalQueue(
@@ -601,17 +648,12 @@ export async function cancelOracleRun(
     options,
   );
   const canonicalRunId = queue.run_id ?? request.candidate_run_id;
-  const claim = await claimIdentity(
+  const claim = pendingIdentity(
     artifactRoot,
-    request,
-    options,
     canonicalRunId,
+    request.request_fingerprint,
   );
-  if (claim.run_id !== canonicalRunId) {
-    reject("resume_queue_identity_mismatch");
-  }
   const before = await readBoundReceipt(claim);
-  requireTargetBinding(before, queue);
   const receipt = await transitionCancellation(
     claim,
     before,

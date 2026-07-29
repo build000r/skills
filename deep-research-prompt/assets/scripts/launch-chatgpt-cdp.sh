@@ -423,6 +423,38 @@ release_lock() {
   fi
 }
 
+rehide_browser_best_effort() {
+  local exact_pid="$1"
+  "$OSASCRIPT_BIN" - "$exact_pid" >/dev/null 2>&1 <<'APPLESCRIPT' || true
+on run argv
+  set chromePid to (item 1 of argv) as integer
+  tell application "System Events"
+    set chromeProcess to first application process whose unix id is chromePid
+    repeat with chromeWindow in windows of chromeProcess
+      try
+        set position of chromeWindow to {-32000, -32000}
+      end try
+    end repeat
+    set visible of chromeProcess to false
+    delay 0.5
+    return (visible of chromeProcess as text) & ":" & (frontmost of chromeProcess as text)
+  end tell
+end run
+APPLESCRIPT
+}
+
+launcher_exit_cleanup() {
+  local exit_code="${1:-0}"
+  trap - EXIT
+  if [ "$exit_code" -ne 0 ] &&
+    [ "${owned_pid_verified:-0}" -eq 1 ] &&
+    [ -n "${pid:-}" ]; then
+    rehide_browser_best_effort "$pid"
+  fi
+  release_lock
+  exit "$exit_code"
+}
+
 read_lock_fields() {
   "$PYTHON_BIN" -I - "$LOCK_PATH" <<'PY'
 import os
@@ -603,7 +635,8 @@ lock_acquired=0
 lock_candidate=""
 lock_token=""
 lock_attempt=0
-trap release_lock EXIT
+owned_pid_verified=0
+trap 'launcher_exit_cleanup "$?"' EXIT
 create_lock_candidate
 until publish_lock_candidate 2>/dev/null; do
   /bin/rm -f "$lock_candidate"
@@ -956,7 +989,7 @@ on run argv
       set position of chromeWindow to {-32000, -32000}
     end repeat
     set visible of chromeProcess to false
-    delay 0.1
+    delay 0.5
     set windowsOffscreen to true
     repeat with chromeWindow in windows of chromeProcess
       set windowPosition to position of chromeWindow
@@ -972,10 +1005,10 @@ APPLESCRIPT
     ''|*[!0-9]*) die 3 "dedicated Chrome returned an invalid window count" ;;
   esac
   [ "$process_visible" = "false" ] &&
-    [ "$process_frontmost" = "false" ] &&
-    [ "$windows_offscreen" = "true" ] ||
+    [ "$process_frontmost" = "false" ] ||
     die 3 "dedicated Chrome failed visibility contract (visible:frontmost:offscreen=$observed)"
   WINDOW_COUNT="$window_count"
+  WINDOWS_OFFSCREEN="$windows_offscreen"
 }
 
 reused=false
@@ -987,6 +1020,7 @@ if cdp_ready; then
   [ "$FRESH" -eq 0 ] || die 5 "--fresh requested but the owned supervisor is already running"
   pid="$(single_listener_pid)"
   verify_owned_listener "$pid"
+  owned_pid_verified=1
   reused=true
 elif [ -n "$(listener_pids)" ]; then
   die 5 "port $PORT is occupied by a non-responsive or foreign listener"
@@ -1017,6 +1051,7 @@ else
   done
   pid="$(single_listener_pid)"
   verify_owned_listener "$pid"
+  owned_pid_verified=1
 fi
 
 verify_current_listener "$pid"
@@ -1182,7 +1217,7 @@ print(target_id)
 verify_current_listener "$pid"
 hide_browser "$pid"
 
-receipt_json="$("$PYTHON_BIN" -I - "$RECEIPT_PATH" "$pid" "$PORT" "$PROFILE_ROOT" "$PROFILE_DIR" "$target_id" "$URL" "$reused" "$NO_SUBMIT_SMOKE" "$TEST_MODE" "$WINDOW_COUNT" "$GATEKEEPER_ASSESSED" "$DYNAMIC_CODE_VERIFIED" "$ATTESTATION_TEST_MODE" <<'PY'
+receipt_json="$("$PYTHON_BIN" -I - "$RECEIPT_PATH" "$pid" "$PORT" "$PROFILE_ROOT" "$PROFILE_DIR" "$target_id" "$URL" "$reused" "$NO_SUBMIT_SMOKE" "$TEST_MODE" "$WINDOW_COUNT" "$WINDOWS_OFFSCREEN" "$GATEKEEPER_ASSESSED" "$DYNAMIC_CODE_VERIFIED" "$ATTESTATION_TEST_MODE" <<'PY'
 import datetime
 import json
 import os
@@ -1201,6 +1236,7 @@ import tempfile
     no_submit_smoke,
     test_mode,
     window_count,
+    windows_offscreen,
     gatekeeper_assessed,
     dynamic_code_verified,
     attestation_test_mode,
@@ -1243,7 +1279,11 @@ receipt = {
     "process_visible": False,
     "process_frontmost": False,
     "window_count": window_count_value,
-    "windows_offscreen": True if window_count_value > 0 else None,
+    "windows_offscreen": (
+        windows_offscreen == "true"
+        if window_count_value > 0
+        else None
+    ),
     "submit_performed": False,
     "no_submit_smoke": no_submit_smoke == "1",
     "observed_at": datetime.datetime.now(datetime.timezone.utc)

@@ -20,7 +20,12 @@ import {
   cancelOracleRun,
   OracleSubagentResumeError,
   resumeOracleRun,
+  resumeWorkerId,
 } from "../assets/scripts/oracle-subagent-resume.mjs";
+import {
+  claimQueueRun,
+  renewQueueLease,
+} from "../assets/scripts/oracle-subagent-queue.mjs";
 import {
   readReceiptFile,
   transitionReceiptFile,
@@ -106,8 +111,10 @@ function transition(to, revision, observedAt, runId, evidence) {
   };
 }
 
-async function advanceToModelVerified(run) {
-  const targetId = QUEUE_CONFIG.target_ids[0];
+async function advanceToModelVerified(
+  run,
+  targetId = QUEUE_CONFIG.target_ids[0],
+) {
   await transitionReceiptFile(
     run.layout.receipt,
     transition("auth_ready", 0, at(1), run.runId, {
@@ -141,8 +148,14 @@ async function advanceToModelVerified(run) {
   return { targetId };
 }
 
-async function advanceToStarted(run) {
-  const { targetId } = await advanceToModelVerified(run);
+async function advanceToStarted(
+  run,
+  requestedTargetId = QUEUE_CONFIG.target_ids[0],
+) {
+  const { targetId } = await advanceToModelVerified(
+    run,
+    requestedTargetId,
+  );
   const conversationUrl = `https://chatgpt.com/c/${run.runId}`;
   const userTurnId = `user-${run.runId}`;
   await transitionReceiptFile(
@@ -173,9 +186,13 @@ async function advanceToStarted(run) {
   return { targetId, conversationUrl, userTurnId };
 }
 
-async function completeRun(run, content = "# Durable result\n") {
+async function completeRun(
+  run,
+  content = "# Durable result\n",
+  requestedTargetId = QUEUE_CONFIG.target_ids[0],
+) {
   const { targetId, conversationUrl, userTurnId } =
-    await advanceToStarted(run);
+    await advanceToStarted(run, requestedTargetId);
   const result = await writeRunResult(run.layout, content);
   return transitionReceiptFile(
     run.layout.receipt,
@@ -442,6 +459,140 @@ test("disconnect after durable identity grant fails closed against duplicate sen
   assert.equal(recovered.lease, null);
 });
 
+test("lease rotation during resume returns only the current exact capability", async (t) => {
+  const root = await workspace(t);
+  const run = await createRun(root, {
+    runId: "run-resume-rotate",
+    character: "f",
+  });
+  const workerId = resumeWorkerId(run.requestFingerprint);
+  const firstLease = await claimQueueRun(
+    root,
+    {
+      run_id: run.runId,
+      request_fingerprint: run.requestFingerprint,
+      worker_id: workerId,
+      now_ms: 100,
+    },
+    QUEUE_CONFIG,
+  );
+  let rotatedLease;
+
+  const resumed = await resumeOracleRun(
+    root,
+    resumeRequest(run, { ownerId: "owner-rotate-001" }),
+    QUEUE_CONFIG,
+    {
+      hooks: {
+        after_queue_claim: async () => {
+          const fenced = await renewQueueLease(root, {
+            run_id: run.runId,
+            worker_id: workerId,
+            lease_id: firstLease.lease_id,
+            fencing_token: firstLease.fencing_token,
+            now_ms: firstLease.lease_expires_at_ms,
+          });
+          assert.equal(fenced.outcome, "fenced");
+          rotatedLease = await claimQueueRun(
+            root,
+            {
+              run_id: run.runId,
+              request_fingerprint: run.requestFingerprint,
+              worker_id: workerId,
+              now_ms: firstLease.lease_expires_at_ms,
+            },
+            QUEUE_CONFIG,
+          );
+        },
+      },
+    },
+  );
+  assert.equal(resumed.send_authorized, true);
+  assert.equal(resumed.lease.lease_id, rotatedLease.lease_id);
+  assert.equal(
+    resumed.lease.fencing_token,
+    rotatedLease.fencing_token,
+  );
+  assert.equal(resumed.lease.target_id, rotatedLease.target_id);
+  assert.notEqual(resumed.lease.lease_id, firstLease.lease_id);
+  assert.notEqual(
+    resumed.lease.fencing_token,
+    firstLease.fencing_token,
+  );
+});
+
+test("receipt cancellation during final queue revalidation cannot return send authority", async (t) => {
+  const root = await workspace(t);
+  const run = await createRun(root, {
+    runId: "run-resume-receipt-race",
+    character: "a",
+  });
+  let releaseQueueLock;
+  const queueLockRelease = new Promise((resolve) => {
+    releaseQueueLock = resolve;
+  });
+  let queueLockHeld;
+  const queueLockReady = new Promise((resolve) => {
+    queueLockHeld = resolve;
+  });
+  let blockingClaim;
+
+  const resumePromise = resumeOracleRun(
+    root,
+    resumeRequest(run, { ownerId: "owner-receipt-race-001" }),
+    QUEUE_CONFIG,
+    {
+      hooks: {
+        after_identity_claim: async () => {
+          blockingClaim = claimQueueRun(
+            root,
+            {
+              run_id: "run-resume-receipt-race-blocker",
+              request_fingerprint: fingerprint("b"),
+              worker_id: "worker-receipt-race-blocker",
+              now_ms: 100,
+            },
+            QUEUE_CONFIG,
+            {
+              hooks: {
+                after_ledger_fsync: async () => {
+                  queueLockHeld();
+                  await queueLockRelease;
+                },
+              },
+            },
+          );
+          await queueLockReady;
+        },
+      },
+    },
+  );
+
+  await queueLockReady;
+  try {
+    await transitionReceiptFile(
+      run.layout.receipt,
+      transition("cancelled", 0, at(1), run.runId, {
+        source: "user",
+        actor: "user",
+        reason_code: "user_request",
+        last_state: "created",
+      }),
+    );
+  } finally {
+    releaseQueueLock();
+  }
+
+  await blockingClaim;
+  const resumed = await resumePromise;
+  assert.equal(resumed.receipt_state, "cancelled");
+  assert.equal(resumed.terminal, true);
+  assert.equal(resumed.send_authorized, false);
+  assert.equal(resumed.lease, null);
+  assert.equal(resumed.directive, "terminal");
+  assert.equal(resumed.queue.status, "cancelled");
+});
+
 test("queue wait and bounded backpressure stay explicit across reconnects", async (t) => {
   const root = await workspace(t);
   const config = { ...QUEUE_CONFIG, max_depth: 1 };
@@ -618,7 +769,7 @@ test("a first claim at the model boundary never receives execution authority", a
   assert.equal(boundary.lease, null);
 });
 
-test("a receipt bound to another browser target fails before resume or cancellation", async (t) => {
+test("target mismatch blocks resume capability but explicit cancellation still fences the run", async (t) => {
   const root = await workspace(t);
   const run = await createRun(root, {
     runId: "run-resume-target",
@@ -659,23 +810,22 @@ test("a receipt bound to another browser target fails before resume or cancellat
     (error) =>
       assertResumeError(error, "resume_target_binding_invalid"),
   );
-  await assert.rejects(
-    cancelOracleRun(
-      root,
-      {
-        ...resumeRequest(run, {
-          ownerId: "owner-target-003",
-          nowMs: 102,
-        }),
-        actor: "operator",
-        reason_code: "operator_request",
-        observed_at: at(3),
-      },
-      QUEUE_CONFIG,
-    ),
-    (error) =>
-      assertResumeError(error, "resume_target_binding_invalid"),
+  const cancelled = await cancelOracleRun(
+    root,
+    {
+      ...resumeRequest(run, {
+        ownerId: "owner-target-003",
+        nowMs: 102,
+      }),
+      actor: "operator",
+      reason_code: "operator_request",
+      observed_at: at(3),
+    },
+    QUEUE_CONFIG,
   );
+  assert.equal(cancelled.receipt_state, "cancelled");
+  assert.equal(cancelled.queue.status, "cancelled");
+  assert.equal(cancelled.send_authorized, false);
 });
 
 test("completed is returned only with a verified nonempty atomic result and frees its lease", async (t) => {
@@ -854,6 +1004,211 @@ test("explicit cancellation removes queued work without ever authorizing a send"
   assert.equal(resumed.receipt_state, "cancelled");
   assert.equal(resumed.queue.status, "cancelled");
   assert.equal(resumed.send_authorized, false);
+});
+
+test("advanced work without an identity record remains explicitly cancellable", async (t) => {
+  const root = await workspace(t);
+  const run = await createRun(root, {
+    runId: "run-resume-legacy",
+    character: "e",
+  });
+  await advanceToModelVerified(run);
+
+  const cancelled = await cancelOracleRun(
+    root,
+    {
+      ...resumeRequest(run, {
+        ownerId: "owner-legacy-001",
+        nowMs: 100,
+      }),
+      actor: "operator",
+      reason_code: "operator_request",
+      observed_at: at(4),
+    },
+    QUEUE_CONFIG,
+  );
+  assert.equal(cancelled.disposition, "pending");
+  assert.equal(cancelled.receipt_state, "cancelled");
+  assert.equal(cancelled.queue.status, "cancelled");
+  assert.equal(cancelled.send_authorized, false);
+
+  const resumed = await resumeOracleRun(
+    root,
+    resumeRequest(run, {
+      candidateRunId: "run-legacy-retry",
+      ownerId: "owner-legacy-002",
+      nowMs: 101,
+    }),
+    QUEUE_CONFIG,
+  );
+  assert.equal(resumed.receipt_state, "cancelled");
+  assert.equal(resumed.queue.status, "cancelled");
+  assert.equal(resumed.send_authorized, false);
+});
+
+test("multi-target expiry may block resume but can never strand cancellation", async (t) => {
+  const root = await workspace(t);
+  const config = {
+    target_ids: ["target-expire-a", "target-expire-b"],
+    max_active: 2,
+    max_depth: 4,
+    lease_duration_ms: 1_000,
+  };
+  const firstRun = await createRun(root, {
+    runId: "run-expire-first",
+    character: "a",
+  });
+  const secondRun = await createRun(root, {
+    runId: "run-expire-second",
+    character: "b",
+  });
+  const waitingRun = await createRun(root, {
+    runId: "run-expire-wait",
+    character: "c",
+  });
+  const first = await resumeOracleRun(
+    root,
+    resumeRequest(firstRun, {
+      ownerId: "owner-expire-001",
+      nowMs: 100,
+    }),
+    config,
+  );
+  const second = await resumeOracleRun(
+    root,
+    resumeRequest(secondRun, {
+      ownerId: "owner-expire-002",
+      nowMs: 101,
+    }),
+    config,
+  );
+  const waiting = await resumeOracleRun(
+    root,
+    resumeRequest(waitingRun, {
+      ownerId: "owner-expire-003",
+      nowMs: 102,
+    }),
+    config,
+  );
+  assert.equal(first.lease.target_id, "target-expire-a");
+  assert.equal(second.lease.target_id, "target-expire-b");
+  assert.equal(waiting.directive, "wait");
+  await advanceToModelVerified(firstRun, first.lease.target_id);
+
+  const promoted = await resumeOracleRun(
+    root,
+    resumeRequest(waitingRun, {
+      ownerId: "owner-expire-004",
+      nowMs: 1_100,
+    }),
+    config,
+  );
+  assert.equal(promoted.lease.target_id, "target-expire-a");
+
+  await assert.rejects(
+    resumeOracleRun(
+      root,
+      resumeRequest(firstRun, {
+        ownerId: "owner-expire-005",
+        nowMs: 1_101,
+      }),
+      config,
+    ),
+    (error) =>
+      assertResumeError(error, "resume_target_binding_invalid"),
+  );
+
+  const cancelled = await cancelOracleRun(
+    root,
+    {
+      ...resumeRequest(firstRun, {
+        ownerId: "owner-expire-006",
+        nowMs: 1_102,
+      }),
+      actor: "operator",
+      reason_code: "operator_request",
+      observed_at: at(4),
+    },
+    config,
+  );
+  assert.equal(cancelled.receipt_state, "cancelled");
+  assert.equal(cancelled.queue.status, "cancelled");
+  assert.equal(cancelled.send_authorized, false);
+});
+
+test("terminal result truth survives multi-target lease reassignment and reconciles safely", async (t) => {
+  const root = await workspace(t);
+  const config = {
+    target_ids: ["target-result-a", "target-result-b"],
+    max_active: 2,
+    max_depth: 4,
+    lease_duration_ms: 1_000,
+  };
+  const completedRun = await createRun(root, {
+    runId: "run-result-complete",
+    character: "d",
+  });
+  const secondRun = await createRun(root, {
+    runId: "run-result-second",
+    character: "e",
+  });
+  const waitingRun = await createRun(root, {
+    runId: "run-result-wait",
+    character: "f",
+  });
+  const completedLease = await resumeOracleRun(
+    root,
+    resumeRequest(completedRun, {
+      ownerId: "owner-result-001",
+      nowMs: 100,
+    }),
+    config,
+  );
+  await completeRun(
+    completedRun,
+    "# Durable result\n",
+    completedLease.lease.target_id,
+  );
+  await resumeOracleRun(
+    root,
+    resumeRequest(secondRun, {
+      ownerId: "owner-result-002",
+      nowMs: 101,
+    }),
+    config,
+  );
+  await resumeOracleRun(
+    root,
+    resumeRequest(waitingRun, {
+      ownerId: "owner-result-003",
+      nowMs: 102,
+    }),
+    config,
+  );
+  assert.equal(completedLease.lease.target_id, "target-result-a");
+
+  const promoted = await resumeOracleRun(
+    root,
+    resumeRequest(waitingRun, {
+      ownerId: "owner-result-004",
+      nowMs: 1_100,
+    }),
+    config,
+  );
+  assert.equal(promoted.lease.target_id, "target-result-a");
+
+  const completed = await resumeOracleRun(
+    root,
+    resumeRequest(completedRun, {
+      ownerId: "owner-result-005",
+      nowMs: 1_101,
+    }),
+    config,
+  );
+  assert.equal(completed.receipt_state, "completed");
+  assert.equal(completed.queue.status, "released");
+  assert.equal(completed.send_authorized, false);
+  assert.ok(completed.result.bytes > 0);
 });
 
 test("disconnect after durable receipt cancellation resumes queue cleanup without reopening work", async (t) => {

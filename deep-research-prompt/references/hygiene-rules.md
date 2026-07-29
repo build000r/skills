@@ -49,3 +49,49 @@ Any single rule above is defeatable. Running all four together produces a prompt
 ## Rule of thumb
 
 Imagine the prompt pasted into a new browser tab, preceded by a random paragraph of unrelated text, and followed by a stack trace from something else. If it still works, it passes.
+
+## The hard-constraint stanza
+
+Every composed research prompt carries a tuned version of this block. The exact
+wording changes per task; the shape stays constant.
+
+- Topic scope only. Do not drift into adjacent topics — enumerate the adjacent
+  topics by name.
+- Authoritative sources only. Every citation must resolve to an official domain
+  class that you name explicitly. Enumerate disallowed aggregators by name —
+  LexisNexis, Westlaw, Justia, FindLaw, Crunchbase, Wikipedia, law-firm
+  marketing pages, whatever fits the domain.
+- Every factual claim must be traceable to a cited source. If you cannot find a
+  direct citation, say "not found" or "inferred from [X]" — do not make it up.
+- Do not invent citations, identifiers, or dates. If you cite something, the URL
+  must actually open to that thing.
+- Do not write finished prose for the end audience. The output is facts and
+  citations, not marketing copy or plain-language pages.
+- Do not ask clarifying questions before starting. Begin immediately unless a
+  hard constraint makes the task impossible; if so, state the blocker and
+  produce the closest valid scoped report.
+- Do not pad. If multiple entities have substantively identical findings, say so
+  in the executive summary and let the reader decide.
+- Be honest about complexity — name the specific framework, transition, or
+  methodology nuance that must not be flattened.
+- Be honest about uncertainty. A row marked "confidence: low, needs human
+  review" is more valuable than a confident-sounding fabrication.
+
+### Image variant
+
+No citations, but image generators have their own drift modes:
+
+- No watermarks, signatures, logos, captions, borders, or stock-photo overlays
+  unless explicitly specified.
+- Do NOT default to — enumerate the generic drift modes for this subject by
+  name, e.g. "smiling stock-pose models", "lens flares as a substitute for
+  atmosphere", "extra fingers or malformed hands", "AI-uncanny symmetric faces".
+- Stay within the named style. Do not blend with [adjacent style that would
+  dilute it].
+- For unspecified regions, default to clean negative space or natural background
+  extension. Do not invent additional subjects, props, or focal points.
+- Anatomy and physics must be plausible unless the named style explicitly
+  permits stylization — and even then, name the stylization.
+- Generate the image; do not substitute a written description. If a spec element
+  is genuinely impossible, generate the closest faithful version and name the
+  deviation in the verification caption.

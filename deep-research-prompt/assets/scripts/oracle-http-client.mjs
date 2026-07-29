@@ -128,6 +128,7 @@ export function summariseConversationStream(frames) {
   let handoff = false;
   let inputMessageId = null;
   let error = null;
+  let activePath = null;
   const parts = [];
 
   for (const f of frames) {
@@ -138,13 +139,33 @@ export function summariseConversationStream(frames) {
     if (d.type === "input_message") inputMessageId ??= d.input_message?.id ?? null;
     if (d.type === "error" || d.error) error ??= d.error ?? d.detail ?? null;
 
-    // Inline streaming: `{"o":"add"|"append","v":...}` delta operations.
+    // Inline streaming, delta_encoding v1. Three frame shapes carry answer
+    // text and all three are required: the opening `add` message, an explicit
+    // `append` naming the parts path, and then bare `{"v":"…"}` continuation
+    // frames that omit both `p` and `o` because the path is already implied.
+    // The continuation frames are the bulk of the answer — dropping them
+    // truncates every fast-model reply after its first chunk.
     const msg = d.v?.message ?? d.message;
     if (msg && msg.author?.role === "assistant" && msg.recipient === "all") {
       const p = msg.content?.parts;
       if (Array.isArray(p) && typeof p[0] === "string" && p[0]) parts.push(p[0]);
+      activePath = "/message/content/parts/0";
     } else if (d.o === "append" && typeof d.v === "string" && /\/parts\//.test(d.p ?? "")) {
       parts.push(d.v);
+      activePath = d.p;
+    } else if (
+      activePath &&
+      d.o === undefined &&
+      d.p === undefined &&
+      typeof d.v === "string"
+    ) {
+      parts.push(d.v);
+    } else if (d.o === "patch" && Array.isArray(d.v)) {
+      for (const op of d.v) {
+        if (op?.o === "append" && typeof op.v === "string" && /\/parts\//.test(op.p ?? "")) {
+          parts.push(op.v);
+        }
+      }
     }
   }
   return {
@@ -162,6 +183,34 @@ export function summariseConversationStream(frames) {
  * payload. Ignores reasoning/tool nodes (`recipient !== "all"`, tool authors,
  * and `content_type` values other than `text`).
  */
+/**
+ * Observed `conversation.async_status` while a Pro turn is still generating.
+ * This is the API counterpart of ChatGPT's composer still showing the stop
+ * button: while it holds, the turn can still be cancelled, so it is not done.
+ */
+export const ASYNC_STATUS_GENERATING = 3;
+
+/**
+ * True while the turn is still producing output.
+ *
+ * `end_turn` alone is NOT sufficient on Pro. Observed 2026-07-28: 32s into a
+ * Pro turn the conversation already contained an assistant/all text message
+ * with `status: finished_successfully`, `end_turn: true` and a `model_slug` —
+ * satisfying every "looks final" filter — while `web.run` was still running and
+ * `async_status` stayed 3 for minutes afterwards. Treating that as the answer
+ * returned a 189-character fragment instead of the real reply.
+ *
+ * Two independent signals, either of which means "still going": a message in
+ * `in_progress`, or the async turn status. The pair covers the gap between
+ * messages where nothing is individually in progress yet.
+ */
+export function turnInProgress(conversation) {
+  if (conversation?.async_status === ASYNC_STATUS_GENERATING) return true;
+  const mapping = conversation?.mapping;
+  if (!mapping || typeof mapping !== "object") return false;
+  return Object.values(mapping).some((node) => node?.message?.status === "in_progress");
+}
+
 export function extractFinalAnswer(conversation, { afterCreateTime = 0 } = {}) {
   const mapping = conversation?.mapping;
   if (!mapping || typeof mapping !== "object") fail("conversation_invalid", "missing mapping");
@@ -176,7 +225,13 @@ export function extractFinalAnswer(conversation, { afterCreateTime = 0 } = {}) {
     // reasoning recaps carry no model_slug; the answer message does
     .filter((m) => typeof m.metadata?.model_slug === "string")
     .sort((a, b) => (a.create_time ?? 0) - (b.create_time ?? 0));
-  const last = candidates[candidates.length - 1];
+  // A genuinely finished reply carries finish_details (observed `type: "stop"`);
+  // Pro's interim end_turn message does not. Prefer a stopped message when one
+  // exists, else fall back to newest-wins so models that omit the field still
+  // resolve.
+  const stopped = candidates.filter((m) => m.metadata?.finish_details?.type);
+  const pool = stopped.length ? stopped : candidates;
+  const last = pool[pool.length - 1];
   if (!last) return null;
   const text = (last.content.parts ?? []).filter((p) => typeof p === "string").join("");
   return { text, messageId: last.id, modelSlug: last.metadata.model_slug, createTime: last.create_time ?? null };
@@ -197,11 +252,11 @@ export function buildConversationBody(
   const conversationMode = projectId
     ? { kind: "gizmo_interaction", gizmo_id: projectId }
     : base.conversation_mode;
-  // Starting a fresh turn in a Project must not inherit a prior conversation's
-  // id, or the ask appends to that chat instead of creating one in the Project.
-  const resolvedConversationId = projectId
-    ? conversationId
-    : (conversationId ?? base.conversation_id ?? undefined);
+  // A fresh chat is the default. The harvested template carries whatever
+  // conversation the donor tab was sitting on, so inheriting it silently
+  // appends to an unrelated thread. Continuing is opt-in: the caller must pass
+  // an explicit conversationId.
+  const resolvedConversationId = conversationId ?? undefined;
   return {
     ...base,
     action: "next",
@@ -547,6 +602,8 @@ export async function askOracle({
   port = Number(process.env.ORACLE_CDP_PORT ?? DEFAULT_PORT),
   timeoutMs = Number(process.env.ORACLE_HTTP_TIMEOUT_MS ?? DEFAULT_TIMEOUT_MS),
   project = process.env.ORACLE_CHATGPT_PROJECT_URL ?? null,
+  // null starts a fresh chat; pass an id to continue that conversation.
+  conversationId = null,
   fetchImpl = globalThis.fetch,
   onProgress = () => {},
 } = {}) {
@@ -568,10 +625,14 @@ export async function askOracle({
     prompt,
     model,
     parentMessageId: bundle.template.parent_message_id,
-    conversationId: bundle.template.conversation_id,
+    conversationId,
     projectId,
   });
-  onProgress({ phase: "target", project: projectId ?? "root" });
+  onProgress({
+    phase: "target",
+    project: projectId ?? "root",
+    thread: conversationId ? "continued" : "new",
+  });
   const postedAt = Date.now() / 1000;
   const { sse } = await postConversation({
     body,
@@ -590,16 +651,21 @@ export async function askOracle({
   }
 
   // Handed-off turn (Pro / reasoning): the answer lands on the conversation.
-  const conversationId = summary.conversationId ?? body.conversation_id;
-  if (!conversationId) fail("conversation_id_missing");
+  const answerThreadId = summary.conversationId ?? body.conversation_id;
+  if (!answerThreadId) fail("conversation_id_missing");
   const deadline = started + timeoutMs;
   while (Date.now() < deadline) {
-    const conversation = await getConversation(conversationId, creds, { fetchImpl });
-    const answer = extractFinalAnswer(conversation, { afterCreateTime: postedAt });
+    const conversation = await getConversation(answerThreadId, creds, { fetchImpl });
+    // Never harvest mid-flight: Pro publishes an interim end_turn message long
+    // before it stops generating, and reading it yields a fragment.
+    const generating = turnInProgress(conversation);
+    const answer = generating
+      ? null
+      : extractFinalAnswer(conversation, { afterCreateTime: postedAt });
     if (answer) {
-      return { ...answer, model, conversationId, source: "polled", elapsedMs: Date.now() - started };
+      return { ...answer, model, conversationId: answerThreadId, source: "polled", elapsedMs: Date.now() - started };
     }
-    onProgress({ phase: "poll", elapsedMs: Date.now() - started });
+    onProgress({ phase: "poll", elapsedMs: Date.now() - started, generating });
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
   }
   fail("answer_timeout", `${timeoutMs}ms`);

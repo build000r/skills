@@ -18,6 +18,7 @@ import {
   redact,
   sseComplete,
   summariseConversationStream,
+  turnInProgress,
 } from "../assets/scripts/oracle-http-client.mjs";
 
 /* ------------------------------------------------------------------ *
@@ -261,9 +262,134 @@ test("buildConversationBody puts the model in the JSON body", () => {
   );
   assert.equal(body.model, "gpt-5-6-pro");
   assert.equal(body.action, "next");
-  assert.equal(body.conversation_id, CONVERSATION_ID);
+  // The template's thread is NOT inherited — every ask opens a new one.
+  assert.equal(body.conversation_id, undefined);
   assert.equal(body.parent_message_id, "p1");
   assert.equal(body.thinking_effort, "standard");
+});
+
+test("an explicit conversationId continues that thread", () => {
+  const body = buildConversationBody(
+    { conversation_id: "donor-tab-thread" },
+    { prompt: "hi", model: "gpt-5-6-pro", parentMessageId: "p1", conversationId: CONVERSATION_ID },
+  );
+  assert.equal(body.conversation_id, CONVERSATION_ID);
+});
+
+/** Shapes captured from a real gpt-5-5-instant stream, 2026-07-28. */
+const CONTINUATION_SSE = [
+  `event: delta_encoding`,
+  `data: "v1"`,
+  ``,
+  `event: delta`,
+  `data: {"p": "", "o": "add", "v": {"message": {"id": "a1", "author": {"role": "assistant"}, "recipient": "all", "content": {"content_type": "text", "parts": [""]}}}, "c": 0}`,
+  ``,
+  `event: delta`,
+  `data: {"p": "/message/content/parts/0", "o": "append", "v": "In 2023, most progress"}`,
+  ``,
+  // the bulk of the answer: no `p`, no `o` — path implied by the last append
+  `event: delta`,
+  `data: {"v": " came from stretching context"}`,
+  ``,
+  `event: delta`,
+  `data: {"v": " windows."}`,
+  ``,
+  `data: [DONE]`,
+  ``,
+].join("\n");
+
+test("inline assembly keeps bare {v} continuation frames", () => {
+  // Regression: dropping these truncated every fast-model answer after its
+  // first chunk, leaving a sentence fragment that read like model terseness.
+  const s = summariseConversationStream(parseSseFrames(CONTINUATION_SSE));
+  assert.equal(s.inlineText, "In 2023, most progress came from stretching context windows.");
+  assert.equal(s.handoff, false);
+  assert.equal(s.complete, true);
+});
+
+test("bare {v} frames are ignored before an assistant part is open", () => {
+  // A tool-authored delta must not open the path, or Pro's pre-handoff frames
+  // would be glued into the answer.
+  const sse = [
+    `event: delta`,
+    `data: {"p": "", "o": "add", "v": {"message": {"id": "t1", "author": {"role": "tool", "name": "a8km123"}, "recipient": "all", "content": {"content_type": "text", "parts": [""]}}}, "c": 0}`,
+    ``,
+    `event: delta`,
+    `data: {"v": "tool noise"}`,
+    ``,
+    `data: [DONE]`,
+    ``,
+  ].join("\n");
+  assert.equal(summariseConversationStream(parseSseFrames(sse)).inlineText, "");
+});
+
+test("patch ops appending to parts are collected", () => {
+  const sse = [
+    `event: delta`,
+    `data: {"p": "", "o": "add", "v": {"message": {"id": "a1", "author": {"role": "assistant"}, "recipient": "all", "content": {"content_type": "text", "parts": ["start"]}}}, "c": 0}`,
+    ``,
+    `event: delta`,
+    `data: {"p": "", "o": "patch", "v": [{"p": "/message/content/parts/0", "o": "append", "v": " end"}]}`,
+    ``,
+    `data: [DONE]`,
+    ``,
+  ].join("\n");
+  assert.equal(summariseConversationStream(parseSseFrames(sse)).inlineText, "start end");
+});
+
+/**
+ * Shape captured from a live gpt-5-6-pro turn at t+32s, 2026-07-28: an interim
+ * assistant message already claims end_turn while web.run is still running.
+ */
+const PRO_MIDFLIGHT = {
+  async_status: 3,
+  mapping: {
+    t1: { id: "t1", message: { id: "t1", author: { role: "tool" }, recipient: "all", status: "in_progress", end_turn: null, create_time: 1001, content: { content_type: "text", parts: [""] }, metadata: { model_slug: "gpt-5-6-pro" } } },
+    a1: { id: "a1", message: { id: "a1", author: { role: "assistant" }, recipient: "all", status: "finished_successfully", end_turn: true, create_time: 1002, content: { content_type: "text", parts: ["x".repeat(189)] }, metadata: { model_slug: "gpt-5-6-pro" } } },
+  },
+};
+
+test("a mid-flight Pro turn is reported as still generating", () => {
+  // The interim message satisfies every "looks final" filter, so the guard —
+  // not extractFinalAnswer — is what must hold the poll open.
+  assert.equal(turnInProgress(PRO_MIDFLIGHT), true);
+  assert.equal(extractFinalAnswer(PRO_MIDFLIGHT, { afterCreateTime: 0 })?.text.length, 189);
+});
+
+test("async_status alone keeps the turn open with nothing in_progress", () => {
+  // Covers the gap between messages, where no single message is in progress.
+  assert.equal(turnInProgress({ async_status: 3, mapping: {} }), true);
+});
+
+test("a settled turn is not generating", () => {
+  const done = {
+    async_status: 4,
+    mapping: {
+      a1: { message: { id: "a1", author: { role: "assistant" }, recipient: "all", status: "finished_successfully", end_turn: true, create_time: 1002, content: { content_type: "text", parts: ["full answer"] }, metadata: { model_slug: "gpt-5-6-pro" } } },
+    },
+  };
+  assert.equal(turnInProgress(done), false);
+  assert.equal(extractFinalAnswer(done, { afterCreateTime: 0 }).text, "full answer");
+});
+
+test("the stopped reply wins over an interim end_turn message", () => {
+  // Live shape: interim 189ch with no finish_details, real 15270ch with
+  // finish_details.type "stop" — the API's version of the stop button clearing.
+  const settled = {
+    async_status: 4,
+    mapping: {
+      interim: { message: { id: "interim", author: { role: "assistant" }, recipient: "all", status: "finished_successfully", end_turn: true, create_time: 2000, content: { content_type: "text", parts: ["interim"] }, metadata: { model_slug: "gpt-5-6-pro" } } },
+      real: { message: { id: "real", author: { role: "assistant" }, recipient: "all", status: "finished_successfully", end_turn: true, create_time: 1000, content: { content_type: "text", parts: ["the real answer"] }, metadata: { model_slug: "gpt-5-6-pro", finish_details: { type: "stop" } } } },
+    },
+  };
+  // `real` is OLDER, so newest-wins alone would pick the interim message.
+  assert.equal(extractFinalAnswer(settled, { afterCreateTime: 0 }).text, "the real answer");
+});
+
+test("turnInProgress tolerates a missing or malformed mapping", () => {
+  assert.equal(turnInProgress({}), false);
+  assert.equal(turnInProgress(null), false);
+  assert.equal(turnInProgress({ mapping: "nope" }), false);
 });
 
 test("projectIdFromUrl accepts a project URL, a bare id, and rejects junk", () => {
@@ -305,11 +431,12 @@ test("a projectId never inherits a drifted tab's conversation_id", () => {
 
 test("without a projectId the harvested conversation_mode is preserved", () => {
   const body = buildConversationBody(
-    { conversation_mode: { kind: "primary_assistant" }, conversation_id: "keep-me" },
+    { conversation_mode: { kind: "primary_assistant" }, conversation_id: "donor-tab-thread" },
     { prompt: "hi", model: "gpt-5-6-pro", parentMessageId: "root" },
   );
   assert.deepEqual(body.conversation_mode, { kind: "primary_assistant" });
-  assert.equal(body.conversation_id, "keep-me");
+  // Mode is inherited; the donor tab's thread is not.
+  assert.equal(body.conversation_id, undefined);
 });
 
 test("buildConversationBody produces one well-formed user message", () => {

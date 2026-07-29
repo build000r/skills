@@ -96,7 +96,16 @@ const NEEDS_VALUE = new Set([
   "--prompt-file",
   "--out",
   "--project",
+  "--conversation",
 ]);
+
+/** Remembers the last thread so `--continue` needs no id. */
+export const LAST_THREAD_PATH = join(
+  homedir(),
+  ".oracle",
+  "oracle-subagent",
+  "last-conversation.json",
+);
 
 /**
  * Positional words are the prompt. `--` ends option parsing so a prompt may
@@ -110,6 +119,9 @@ export function parseArgs(argv, env = {}) {
     // Answers file into this ChatGPT Project. Accepts a full project URL or a
     // bare g-p-… id. Without it the answer lands in root chat.
     project: env.ORACLE_CHATGPT_PROJECT_URL || null,
+    // Every ask opens a new thread unless continuation is asked for.
+    continueLast: false,
+    conversationId: null,
     json: false,
     quiet: false,
     words: [],
@@ -135,9 +147,19 @@ export function parseArgs(argv, env = {}) {
       else if (arg === "--prompt-file") out.promptFile = value;
       else if (arg === "--out") out.out = value;
       else if (arg === "--project") out.project = value;
+      else if (arg === "--conversation") out.conversationId = value;
       continue;
     }
     switch (arg) {
+      case "--continue":
+      case "--resume":
+        out.continueLast = true;
+        break;
+      case "--new":
+        // Explicit form of the default; useful to override a shell alias.
+        out.continueLast = false;
+        out.conversationId = null;
+        break;
       case "--json":
         out.json = true;
         break;
@@ -366,6 +388,9 @@ Options
   --port <n>             loopback CDP port (default ${DEFAULT_PORT})
   --project <url|g-p-id> file the answer into a ChatGPT Project
                          (default \$ORACLE_CHATGPT_PROJECT_URL; else root chat)
+  --continue             continue the last thread (default: start a new one)
+  --conversation <id>    continue this specific thread
+  --new                  explicit form of the default
   --prompt-file <path>   read the prompt from a file instead of argv
   --out <path>           also write the answer text to a file
   --json                 emit the full result object instead of bare text
@@ -460,26 +485,75 @@ async function main(argv) {
     );
   }
 
+  // Fresh thread unless continuation was requested. An explicit id wins over
+  // --continue; --continue with no remembered thread is an error rather than a
+  // silent new chat, so "continue" never quietly means "start over".
+  let conversationId = args.conversationId;
+  if (!conversationId && args.continueLast) {
+    try {
+      const raw = JSON.parse(await readFile(LAST_THREAD_PATH, "utf8"));
+      conversationId = typeof raw?.conversation_id === "string" ? raw.conversation_id : null;
+    } catch {
+      conversationId = null;
+    }
+    if (!conversationId) {
+      throw new UsageError(
+        "--continue: no remembered thread yet; ask once without it, or pass --conversation <id>",
+      );
+    }
+  }
+
   log(`asking ${model} (${prompt.length} chars, deadline ${args.timeoutSeconds}s)`);
   const result = await askOracle({
     prompt,
     model,
+    conversationId,
     port: args.port,
     timeoutMs: args.timeoutSeconds * 1000,
     project: args.project,
     onProgress: (p) => {
       if (p.phase === "credentials") log(`session ok (plan ${p.planType ?? "unknown"})`);
       else if (p.phase === "sentinel") log("submission token minted");
-      else if (p.phase === "target") log(`filing into ${p.project}`);
+      else if (p.phase === "target") log(`${p.thread} thread in ${p.project}`);
       else if (p.phase === "stream") log(p.handoff ? "handed off; waiting for the answer" : "streaming");
-      else if (p.phase === "poll") log(`still working (${Math.round(p.elapsedMs / 1000)}s)`);
+      else if (p.phase === "poll")
+        log(
+          `${p.generating ? "still generating" : "waiting for the answer"} (${Math.round(p.elapsedMs / 1000)}s)`,
+        );
     },
   });
+
+  // Remember the thread so --continue works next time. Best effort: failing to
+  // record it must not lose an answer we already have.
+  if (result.conversationId) {
+    try {
+      await mkdir(dirname(LAST_THREAD_PATH), { recursive: true, mode: 0o700 });
+      await writeFile(
+        LAST_THREAD_PATH,
+        `${JSON.stringify({ conversation_id: result.conversationId, model, at: new Date().toISOString() })}\n`,
+        { encoding: "utf8", mode: 0o600 },
+      );
+    } catch {
+      log("note: could not record this thread for --continue");
+    }
+  }
 
   if (args.out) await writeFile(args.out, `${result.text}\n`, "utf8");
   process.stdout.write(args.json ? JSON.stringify(result, null, 2) + "\n" : `${result.text}\n`);
   log(`answered in ${(result.elapsedMs / 1000).toFixed(1)}s via ${result.source}`);
   if (args.out) log(`written to ${args.out}`);
+
+  // Last line, so the follow-up is the thing left on screen. Named exactly as
+  // invoked (sbp oracle / oracle-ask / node …) so it pastes without editing.
+  // --json callers already have conversationId in the payload.
+  if (!args.json && result.conversationId) {
+    const as = process.env.ORACLE_ASK_INVOKED_AS || "oracle-ask";
+    const model = args.model === DEFAULT_MODEL_ALIAS ? "" : ` --model ${args.model}`;
+    process.stderr.write(
+      `\ncontinue this thread:\n  ${as} --continue${model} "your follow-up"\n` +
+        `  ${as} --conversation ${result.conversationId}${model} "your follow-up"\n`,
+    );
+  }
   return EXIT.ok;
 }
 
@@ -491,6 +565,13 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
     .catch((error) => {
       if (error instanceof OracleHttpError) {
         process.exitCode = reportFailure(error.code, error.detail);
+        return;
+      }
+      // Usage problems raised after arg parsing (e.g. --continue with no
+      // remembered thread) are still usage, not an internal failure.
+      if (error instanceof UsageError) {
+        process.stderr.write(`oracle-ask: ${error.message}\n`);
+        process.exitCode = EXIT.usage;
         return;
       }
       process.stderr.write(`oracle-ask: unexpected error: ${error?.message ?? error}\n`);

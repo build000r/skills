@@ -58,7 +58,7 @@
 //   ssh d3 'node ~/bin/oracle-credential.mjs doctor'
 
 import { createHash } from "node:crypto";
-import { constants as fsConstants } from "node:fs";
+import { constants as fsConstants, realpathSync } from "node:fs";
 import { chmod, mkdir, open, rename, stat, unlink } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -719,7 +719,19 @@ async function main(argv) {
   await handler(flags);
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
+// Realpath argv[1] before comparing: node realpath-resolves import.meta.url,
+// so a symlinked or unnormalized invocation path would otherwise make the CLI
+// silently load as a library and exit 0.
+const invokedAsMain = (() => {
+  const argPath = process.argv[1];
+  if (!argPath) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(argPath)).href;
+  } catch {
+    return false;
+  }
+})();
+if (invokedAsMain) {
   main(process.argv.slice(2)).catch((error) => {
     const code = error instanceof CredentialError ? error.code : "unexpected_error";
     process.stderr.write(`oracle-credential ${code}: ${error.message}\n`);

@@ -34,6 +34,7 @@
  *   ORACLE_ASK_BIN_DIR            install destination (default ~/.local/bin)
  */
 
+import { realpathSync } from "node:fs";
 import { mkdir, readFile, symlink, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -557,7 +558,20 @@ async function main(argv) {
   return EXIT.ok;
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
+// import.meta.url is realpath-resolved by node, so argv[1] must be too —
+// otherwise invocation through a symlink or an unnormalized path (sbp on the
+// devbox reaches this file via repos/opensource/skills -> repos/skills) fails
+// the comparison and the CLI silently loads as a library and exits 0.
+const invokedAsMain = (() => {
+  const argPath = process.argv[1];
+  if (!argPath) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(argPath)).href;
+  } catch {
+    return false;
+  }
+})();
+if (invokedAsMain) {
   main(process.argv.slice(2))
     .then((code) => {
       process.exitCode = code;

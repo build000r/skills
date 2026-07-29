@@ -107,7 +107,10 @@ function ageIsFresh(timestamp, nowMs, maximumAgeMs) {
   return age >= -5_000 && age <= maximumAgeMs;
 }
 
-function normalizeChatGptUrl(value, code = "browser_receipt_invalid") {
+export function normalizeChatGptUrl(
+  value,
+  code = "browser_receipt_invalid",
+) {
   if (typeof value !== "string") gateError(code);
   let parsed;
   try {
@@ -123,11 +126,86 @@ function normalizeChatGptUrl(value, code = "browser_receipt_invalid") {
     parsed.password ||
     parsed.search ||
     parsed.hash ||
-    parsed.origin !== "https://chatgpt.com"
+    parsed.origin !== "https://chatgpt.com" ||
+    parsed.href !== value ||
+    value !== `${parsed.origin}${parsed.pathname}`
+  ) {
+    gateError(code);
+  }
+  if (
+    parsed.pathname !== "/" &&
+    !/^\/g\/g-p-[A-Za-z0-9_-]{8,128}\/project$/.test(parsed.pathname)
   ) {
     gateError(code);
   }
   return parsed.href;
+}
+
+export function isPermittedLoginTarget(
+  requestedTargetUrl,
+  observedTargetUrl,
+) {
+  return (
+    classifyPermittedLoginTarget(
+      requestedTargetUrl,
+      observedTargetUrl,
+    ) !== null
+  );
+}
+
+function classifyPermittedLoginTarget(
+  requestedTargetUrl,
+  observedTargetUrl,
+) {
+  let requested;
+  let observed;
+  try {
+    requested = new URL(requestedTargetUrl);
+    observed = new URL(observedTargetUrl);
+  } catch {
+    return null;
+  }
+  if (
+    requested.protocol !== "https:" ||
+    requested.hostname !== "chatgpt.com" ||
+    requested.port ||
+    requested.username ||
+    requested.password ||
+    requested.search ||
+    requested.hash ||
+    requested.href !== requestedTargetUrl ||
+    requestedTargetUrl !==
+      `${requested.origin}${requested.pathname}` ||
+    (requested.pathname !== "/" &&
+      !/^\/g\/g-p-[A-Za-z0-9_-]{8,128}\/project$/.test(
+        requested.pathname,
+      )) ||
+    observed.protocol !== "https:" ||
+    observed.hostname !== "chatgpt.com" ||
+    observed.port ||
+    observed.username ||
+    observed.password ||
+    observed.hash ||
+    observed.href !== observedTargetUrl ||
+    observedTargetUrl !==
+      `${observed.origin}${observed.pathname}${observed.search}`
+  ) {
+    return null;
+  }
+  if (
+    observed.pathname === "/auth" ||
+    observed.pathname.startsWith("/auth/")
+  ) {
+    return "auth";
+  }
+  if (
+    requested.pathname !== "/" &&
+    observed.pathname === "/" &&
+    !observed.search
+  ) {
+    return "root";
+  }
+  return null;
 }
 
 function normalizeBrowserReceipt(value) {
@@ -679,7 +757,11 @@ function inspectVisibility(pid) {
   });
   if (result.error || result.status !== 0) gateError("visibility_unverifiable");
   const [visible, frontmost, offscreen] = result.stdout.trim().split(":");
-  return visible === "false" && frontmost === "false" && offscreen === "true";
+  return (
+    visible === "false" &&
+    frontmost === "false" &&
+    new Set(["true", "false"]).has(offscreen)
+  );
 }
 
 function requireLoopbackWebSocket(value, port, code) {
@@ -769,7 +851,10 @@ async function cdpCall(webSocketUrl, method, params = {}, timeoutMs = 5_000) {
   });
 }
 
-export function canonicalProCapability(modelsBody) {
+export function canonicalProCapability(
+  modelsBody,
+  proEffortSelected = false,
+) {
   const models = Array.isArray(modelsBody?.models)
     ? modelsBody.models
     : modelsBody?.models &&
@@ -789,6 +874,9 @@ export function canonicalProCapability(modelsBody) {
         /^gpt-[a-z0-9]+(?:[.-][a-z0-9]+)*-pro$/.test(model.slug),
     )
     .map((model) => model.slug);
+  if (proEffortSelected === true && models.length > 0) {
+    identifiers.push("ui-selected-pro-effort");
+  }
   return {
     available: identifiers.length > 0,
     identifiers,
@@ -800,6 +888,7 @@ export function deriveAccountCapability(
   accountsResponse,
   loginControl,
   proModelAvailable,
+  proPlanUiAvailable = false,
 ) {
   const me =
     meResponse?.ok === true &&
@@ -822,16 +911,6 @@ export function deriveAccountCapability(
       entry.can_access_with_session === true &&
       entry.account?.is_deactivated !== true,
   );
-  const planName = (entry) =>
-    String(
-      entry?.account?.plan_type ??
-        entry?.entitlement?.subscription_plan ??
-        "",
-    ).toLowerCase();
-  const nonGuest = accessible.filter(
-    (entry) =>
-      !new Set(["guest", "chatgptguestplan", ""]).has(planName(entry)),
-  );
   const proAccounts = accessible.filter((entry) => {
     const accountPlan = String(entry?.account?.plan_type ?? "").toLowerCase();
     const subscriptionPlan = String(
@@ -847,23 +926,75 @@ export function deriveAccountCapability(
   const identity =
     typeof me?.id === "string" && me.id.length > 0 ? me.id : null;
   let sessionState = "ambiguous";
-  if (loginControl === true || (accountMap && nonGuest.length === 0)) {
-    sessionState = "guest";
-  } else if (identity && nonGuest.length > 0) {
+  if (
+    identity &&
+    accessible.length > 0 &&
+    (loginControl !== true || proPlanUiAvailable === true)
+  ) {
     sessionState = "authenticated";
+  } else if (loginControl === true || (accountMap && accessible.length === 0)) {
+    sessionState = "guest";
   }
-  const uniquePro = proAccounts.length === 1 ? proAccounts[0] : null;
-  const workspaceIdentity =
-    uniquePro?.account &&
+  // ChatGPT exposes one account twice: once under its UUID and once under the
+  // "default" alias, with an identical account_id. Collapse aliases before the
+  // uniqueness test, or a single-account Pro user reads as ambiguous and the
+  // Pro plan is never proven. Prefer the concrete key so the workspace identity
+  // does not become the literal string "default".
+  const aliasKey = (entry) =>
     [
-      uniquePro.account.account_id,
-      uniquePro.account.account_user_id,
-      uniquePro.account.organization_id,
+      entry?.account?.account_id,
+      entry?.account?.organization_id,
+      entry?.account?.account_user_id,
+    ].find((value) => typeof value === "string" && value.length > 0) ?? null;
+  const collapseAliases = (entries) => {
+    const distinct = [];
+    for (const entry of entries) {
+      const key = aliasKey(entry);
+      if (key === null) {
+        distinct.push(entry);
+        continue;
+      }
+      const seenAt = distinct.findIndex((seen) => aliasKey(seen) === key);
+      if (seenAt === -1) {
+        distinct.push(entry);
+        continue;
+      }
+      const seenMapKey = accountMap
+        ? Object.entries(accountMap).find(
+            ([, value]) => value === distinct[seenAt],
+          )?.[0]
+        : null;
+      if (seenMapKey === "default") distinct[seenAt] = entry;
+    }
+    return distinct;
+  };
+  const distinctPro = collapseAliases(proAccounts);
+  const distinctAccessible = collapseAliases(accessible);
+  const uniquePro = distinctPro.length === 1 ? distinctPro[0] : null;
+  const selectedAccount =
+    uniquePro ??
+    (proPlanUiAvailable === true && distinctAccessible.length === 1
+      ? distinctAccessible[0]
+      : null);
+  const selectedAccountMapKey =
+    selectedAccount !== null && accountMap
+      ? Object.entries(accountMap).find(
+          ([, entry]) => entry === selectedAccount,
+        )?.[0]
+      : null;
+  const workspaceIdentity =
+    selectedAccount?.account &&
+    [
+      selectedAccount.account.account_id,
+      selectedAccount.account.account_user_id,
+      selectedAccount.account.organization_id,
+      selectedAccountMapKey,
     ].find((value) => typeof value === "string" && value.length > 0);
   const proPlan =
     sessionState === "authenticated" &&
     proModelAvailable === true &&
-    uniquePro !== null &&
+    selectedAccount !== null &&
+    (uniquePro !== null || proPlanUiAvailable === true) &&
     typeof workspaceIdentity === "string";
   return {
     session_state: sessionState,
@@ -873,8 +1004,8 @@ export function deriveAccountCapability(
         ? `${identity}\0${workspaceIdentity}`
         : null,
     features:
-      uniquePro && Array.isArray(uniquePro.features)
-        ? uniquePro.features.filter((value) => typeof value === "string")
+      selectedAccount && Array.isArray(selectedAccount.features)
+        ? selectedAccount.features.filter((value) => typeof value === "string")
         : [],
   };
 }
@@ -902,11 +1033,28 @@ async function authPageProbe(
       .map((byte) => byte.toString(16).padStart(2, "0"))
       .join("");
   };
+  // backend-api authenticates by bearer, not by cookie. Without this header it
+  // answers 200 describing a guest: plan_type "guest" and 5 free model slugs
+  // instead of "pro" and 19 including gpt-5-6-pro and research. That failed
+  // open, leaving the DOM as the only real evidence of the Pro plan.
+  const bearer = await (async () => {
+    try {
+      const session = await fetch("/api/auth/session", {
+        credentials: "include",
+        cache: "no-store",
+      });
+      const body = await session.json().catch(() => null);
+      return typeof body?.accessToken === "string" ? body.accessToken : "";
+    } catch {
+      return "";
+    }
+  })();
   const readJson = async (path) => {
     try {
       const response = await fetch(path, {
         credentials: "include",
         cache: "no-store",
+        headers: bearer ? { Authorization: `Bearer ${bearer}` } : {},
       });
       const body = await response.json().catch(() => null);
       return { ok: response.ok, status: response.status, body };
@@ -926,11 +1074,28 @@ async function authPageProbe(
         }`,
       ),
     );
-  const composerAvailable = Boolean(
-    document.querySelector(
-      "#prompt-textarea[contenteditable='true'],[contenteditable='true'][role='textbox']",
-    ),
+  const composer = document.querySelector(
+    "#prompt-textarea[contenteditable='true'],[contenteditable='true'][role='textbox']",
   );
+  const composerAvailable = Boolean(composer);
+  const composerForm = composer?.closest("form") ?? null;
+  const profileProAvailable = Array.from(
+    document.querySelectorAll("[data-testid='accounts-profile-button']"),
+  )
+    .filter(isVisible)
+    .some((element) =>
+      Array.from(element.querySelectorAll("*")).some(
+        (child) => normalizedText(child.textContent) === "pro",
+      ),
+    );
+  const proEffortSelected =
+    composerForm !== null &&
+    Array.from(composerForm.querySelectorAll("button,[role='button']"))
+      .filter(isVisible)
+      .some(
+        (element) =>
+          normalizedText(element.innerText || element.textContent) === "pro",
+      );
   const challengePresent =
     /just a moment|attention required|checking your browser/i.test(
       document.title,
@@ -955,29 +1120,32 @@ async function authPageProbe(
   ]);
   const modelCapability = canonicalProCapabilityFunction(
     modelsResponse.ok ? modelsResponse.body : null,
+    proEffortSelected,
   );
   const accountCapability = deriveAccountCapabilityFunction(
     meResponse,
     accountsResponse,
     loginControl,
     modelCapability.available,
+    profileProAvailable,
   );
   const deepResearchAvailable =
     accountCapability.features.some((value) => /deep.?research/i.test(value)) ||
     controls.some((value) => /deep research/.test(value));
 
   const requested = new URL(requestedUrl);
-  const normalizedPath = (path) =>
-    path.length > 1 && path.endsWith("/") ? path.slice(0, -1) : path;
-  const requestedPath = normalizedPath(requested.pathname);
-  const currentPath = normalizedPath(location.pathname);
   let projectAccess = "not_requested";
-  if (requestedPath !== "/") {
-    if (projectDenied) {
+  if (requested.pathname !== "/") {
+    if (
+      !/^\/g\/g-p-[A-Za-z0-9_-]{8,128}\/project$/.test(
+        requested.pathname,
+      )
+    ) {
+      projectAccess = "ambiguous";
+    } else if (projectDenied) {
       projectAccess = "denied";
     } else if (
-      location.origin === requested.origin &&
-      currentPath === requestedPath &&
+      location.href === requested.href &&
       composerAvailable
     ) {
       projectAccess = "granted";
@@ -1053,31 +1221,33 @@ async function collectObservation(
   const target = matches.length === 1 ? matches[0] : null;
   let targetMatches = false;
   let observation = null;
+  let targetWebSocket = null;
+  let loginNavigationState = null;
   if (target?.type === "page") {
     let parsedTarget;
     try {
       parsedTarget = new URL(target.url);
     } catch {}
     const exactTargetUrl = parsedTarget?.href === receipt.target_url;
-    const permittedAuthNavigation =
+    const permittedLoginNavigation =
       allowAuthNavigation &&
-      parsedTarget?.protocol === "https:" &&
-      parsedTarget.hostname === "chatgpt.com" &&
-      parsedTarget.pathname.startsWith("/auth/");
-    if (exactTargetUrl || permittedAuthNavigation) {
-      const targetWebSocket = requireLoopbackWebSocket(
+      classifyPermittedLoginTarget(receipt.target_url, target.url);
+    loginNavigationState = exactTargetUrl
+      ? "exact"
+      : permittedLoginNavigation;
+    if (exactTargetUrl || permittedLoginNavigation) {
+      targetWebSocket = requireLoopbackWebSocket(
         target.webSocketDebuggerUrl,
         receipt.port,
         "exact_target_mismatch",
       );
       const targetWebSocketPath = new URL(targetWebSocket).pathname;
-      targetMatches =
-        exactTargetUrl &&
-        targetWebSocketPath === `/devtools/page/${receipt.target_id}` &&
-        target.id === receipt.target_id;
       const exactTargetSocket =
         targetWebSocketPath === `/devtools/page/${receipt.target_id}` &&
         target.id === receipt.target_id;
+      targetMatches =
+        exactTargetSocket &&
+        Boolean(loginNavigationState);
       if (exactTargetSocket) {
         const expression = `(${authPageProbe})(${JSON.stringify(
           receipt.target_url,
@@ -1108,6 +1278,8 @@ async function collectObservation(
     targetMatches,
     observation,
     browserWebSocket,
+    targetWebSocket,
+    loginNavigationState,
   };
 }
 
@@ -1246,6 +1418,8 @@ async function collectLiveContext({ allowAuthNavigation = false } = {}) {
     observation: collected.observation,
     policy,
     browserWebSocket: collected.browserWebSocket,
+    targetWebSocket: collected.targetWebSocket,
+    loginNavigationState: collected.loginNavigationState,
     security: {
       runtime_private: true,
       receipt_private: true,
@@ -1308,8 +1482,31 @@ export function sameBrowserContext(left, right) {
   return (
     fields.every((field) => left.receipt[field] === right.receipt[field]) &&
     left.paths?.runtimeRoot === right.paths?.runtimeRoot &&
-    left.browserWebSocket === right.browserWebSocket
+    left.browserWebSocket === right.browserWebSocket &&
+    left.targetWebSocket === right.targetWebSocket
   );
+}
+
+function loginRestoreReady(context) {
+  return (
+    context?.loginNavigationState === "root" &&
+    context?.observation?.session_state === "authenticated" &&
+    context.observation.pro_plan === true &&
+    context.observation.pro_model_available === true &&
+    context.observation.composer_available === true
+  );
+}
+
+async function restorePinnedLoginTarget(context) {
+  if (
+    context?.loginNavigationState !== "root" ||
+    typeof context?.targetWebSocket !== "string"
+  ) {
+    gateError("exact_target_mismatch");
+  }
+  await cdpCall(context.targetWebSocket, "Page.navigate", {
+    url: context.receipt.target_url,
+  });
 }
 
 function samePolicySnapshot(left, right) {
@@ -1450,7 +1647,9 @@ function parseCli(rawArguments) {
 }
 
 async function runLogin(options) {
-  const anchor = await collectLiveContext();
+  const anchor = await collectLiveContext({
+    allowAuthNavigation: true,
+  });
   const preflight = reportForContext(anchor);
   if (!loginPreflightReady(preflight)) {
     gateError("login_preflight_failed");
@@ -1470,6 +1669,9 @@ async function runLogin(options) {
   process.once("SIGTERM", interrupt);
   let madeVisible = false;
   try {
+    if (anchor.loginNavigationState === "root") {
+      await restorePinnedLoginTarget(anchor);
+    }
     madeVisible = true;
     await setInteractiveVisibility(anchor, true);
     const deadline = Date.now() + options.timeoutSeconds * 1_000;
@@ -1482,6 +1684,10 @@ async function runLogin(options) {
       }
       if (!samePolicySnapshot(anchor.policy, context.policy)) {
         gateError("auth_policy_changed");
+      }
+      if (loginRestoreReady(context)) {
+        await restorePinnedLoginTarget(context);
+        continue;
       }
       const report = reportForContext(context);
       if (loginCandidateReady(report, context.policy !== null)) {
@@ -1522,7 +1728,9 @@ export async function main(rawArguments = process.argv.slice(2)) {
     options = parseCli(rawArguments);
   } catch (error) {
     const report = safeFailure(
-      rawArguments[0] || "unknown",
+      new Set(["status", "doctor", "login"]).has(rawArguments[0])
+        ? rawArguments[0]
+        : "unknown",
       error instanceof AuthGateError ? error.code : "internal_error",
     );
     emit(report, rawArguments.includes("--json"));

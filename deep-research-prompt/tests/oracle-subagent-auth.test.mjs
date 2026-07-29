@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import {
   chmod,
   lstat,
@@ -22,8 +23,10 @@ import {
   canonicalProCapability,
   deriveAccountCapability,
   evaluateAuthDoctor,
+  isPermittedLoginTarget,
   loginCandidateReady,
   loginPreflightReady,
+  normalizeChatGptUrl,
   parseListenerRecords,
   readAuthPolicy,
   sameBrowserContext,
@@ -270,6 +273,19 @@ test("live capability classifiers require canonical available Pro model and uniq
     }),
     { available: true, identifiers: ["gpt-5-5-pro"] },
   );
+  assert.deepEqual(
+    canonicalProCapability(
+      {
+        models: [{ slug: "gpt-5-6-sol", title: "GPT-5.6 Sol" }],
+      },
+      true,
+    ),
+    { available: true, identifiers: ["ui-selected-pro-effort"] },
+  );
+  assert.deepEqual(
+    canonicalProCapability({ models: [] }, true),
+    { available: false, identifiers: [] },
+  );
 
   const meResponse = { ok: true, body: { id: "user-synthetic" } };
   const proEntry = {
@@ -338,6 +354,76 @@ test("live capability classifiers require canonical available Pro model and uniq
   );
   assert.equal(ambiguousPro.pro_plan, false);
   assert.equal(ambiguousPro.account_identity, null);
+});
+
+test("current Pro UI contract overrides stale free-plan metadata without weakening identity proof", () => {
+  const meResponse = { ok: true, body: { id: "user-synthetic" } };
+  const freeMetadataEntry = {
+    can_access_with_session: true,
+    account: {
+      plan_type: "guest",
+      is_deactivated: false,
+    },
+    entitlement: {
+      has_active_subscription: false,
+      is_delinquent: false,
+      subscription_plan: "free",
+    },
+    features: [],
+  };
+  const accountsResponse = {
+    ok: true,
+    body: { accounts: { current: freeMetadataEntry } },
+  };
+
+  const capability = deriveAccountCapability(
+    meResponse,
+    accountsResponse,
+    true,
+    true,
+    true,
+  );
+  assert.equal(capability.session_state, "authenticated");
+  assert.equal(capability.pro_plan, true);
+  assert.equal(
+    capability.account_identity,
+    "user-synthetic\0current",
+  );
+
+  const noUiProof = deriveAccountCapability(
+    meResponse,
+    accountsResponse,
+    false,
+    true,
+    false,
+  );
+  assert.equal(noUiProof.session_state, "authenticated");
+  assert.equal(noUiProof.pro_plan, false);
+  assert.equal(noUiProof.account_identity, null);
+
+  const ambiguousWorkspace = deriveAccountCapability(
+    meResponse,
+    {
+      ok: true,
+      body: {
+        accounts: {
+          one: freeMetadataEntry,
+          two: {
+            ...structuredClone(freeMetadataEntry),
+            account: {
+              ...structuredClone(freeMetadataEntry.account),
+              account_id: "workspace-other",
+            },
+          },
+        },
+      },
+    },
+    false,
+    true,
+    true,
+  );
+  assert.equal(ambiguousWorkspace.pro_plan, false);
+  assert.equal(ambiguousWorkspace.account_identity, null);
 });
 
 test("stale receipts and observations are independent failures", () => {
@@ -426,6 +512,76 @@ test("login preflight rejects unsafe reveal and browser rollover", () => {
   assert.equal(sameBrowserContext(context, rollover), false);
 });
 
+test("explicit login permits only the pinned target's ChatGPT auth route", () => {
+  const requested =
+    "https://chatgpt.com/g/g-p-local-proof/project";
+  assert.equal(
+    isPermittedLoginTarget(
+      requested,
+      "https://chatgpt.com/auth/login?next=%2Fg%2Fg-p-local-proof%2Fproject",
+    ),
+    true,
+  );
+  assert.equal(
+    isPermittedLoginTarget(requested, "https://chatgpt.com/auth"),
+    true,
+  );
+  assert.equal(
+    isPermittedLoginTarget(requested, "https://chatgpt.com/"),
+    true,
+  );
+  assert.equal(
+    isPermittedLoginTarget(
+      "https://chatgpt.com/c/not-a-project",
+      "https://chatgpt.com/auth/login",
+    ),
+    false,
+  );
+  for (const observed of [
+    "http://chatgpt.com/auth/login",
+    "https://chatgpt.com:443/auth/login",
+    "https://user@chatgpt.com/auth/login",
+    "https://chatgpt.com/auth/login#fragment",
+    "https://chatgpt.com/auth#",
+    "https://chatgpt.com/auth?",
+    "https://chatgpt.com/auth?#",
+    "https://chatgpt.com/authentic",
+    "https://chatgpt.com/?next=project",
+    "https://chatgpt.com/?",
+    "https://chatgpt.com/#",
+    "https://chatgpt.com/?#",
+    "https://chatgpt.com/c/conversation",
+    "https://evil.example/auth/login",
+  ]) {
+    assert.equal(
+      isPermittedLoginTarget(requested, observed),
+      false,
+      observed,
+    );
+  }
+});
+
+test("receipt target accepts only exact canonical root or Project URLs", () => {
+  const project =
+    "https://chatgpt.com/g/g-p-local-proof/project";
+  assert.equal(normalizeChatGptUrl("https://chatgpt.com/"), "https://chatgpt.com/");
+  assert.equal(normalizeChatGptUrl(project), project);
+  for (const candidate of [
+    "https://chatgpt.com:443/",
+    "https://chatgpt.com/?",
+    "https://chatgpt.com/#",
+    "https://chatgpt.com/?#",
+    `${project}?`,
+    `${project}#`,
+    "https://chatgpt.com/c/not-a-project",
+  ]) {
+    assert.throws(
+      () => normalizeChatGptUrl(candidate),
+      /auth gate failed/,
+    );
+  }
+});
+
 test("listener parser preserves exact bind evidence for wildcard rejection", () => {
   const loopback = parseListenerRecords(
     "p58193\ncGoogle Chrome\nu501\nf64\nn127.0.0.1:9222\n",
@@ -499,6 +655,30 @@ test("strict inputs and reports cannot echo identity or attacker fields", () => 
   );
   const report = evaluateAuthDoctor(healthyInput());
   assert.doesNotMatch(JSON.stringify(report), /account_fingerprint|profile_fingerprint/);
+
+  const script = path.resolve(
+    "deep-research-prompt/assets/scripts/oracle-subagent-auth.mjs",
+  );
+  const attackerCommand =
+    "https://chatgpt.com/auth?target=TARGET-ABCDEF0123456789";
+  for (const flags of [[], ["--json"]]) {
+    const attempted = spawnSync(
+      process.execPath,
+      [script, attackerCommand, ...flags],
+      {
+        cwd: path.resolve("."),
+        encoding: "utf8",
+      },
+    );
+    assert.equal(attempted.status, 2);
+    assert.doesNotMatch(attempted.stdout, /TARGET-ABCDEF0123456789/);
+    assert.doesNotMatch(attempted.stdout, /chatgpt\.com/);
+    if (flags.length > 0) {
+      const parsed = JSON.parse(attempted.stdout);
+      assert.equal(parsed.command, "unknown");
+      assert.deepEqual(parsed.reasons, ["usage"]);
+    }
+  }
 });
 
 test("page probe is observation-only and contains no credential extraction or send path", () => {
@@ -511,5 +691,11 @@ test("page probe is observation-only and contains no credential extraction or se
   assert.doesNotMatch(source, /Input\.|dispatchEvent|\.click\(/);
   assert.doesNotMatch(source, /send-button|composer-submit|Send prompt/);
   assert.match(source, /\^gpt-/);
+  assert.match(source, /ui-selected-pro-effort/);
+  assert.match(source, /accounts-profile-button/);
+  assert.match(source, /composerForm/);
   assert.doesNotMatch(source, /modelLabels|account_ordering\[0\]/);
+  assert.match(source, /location\.href === requested\.href/);
+  assert.match(source, /g-p-\[A-Za-z0-9_-\]\{8,128\}/);
+  assert.doesNotMatch(source, /normalizedPath|endsWith\(["']\\\/["']\)/);
 });

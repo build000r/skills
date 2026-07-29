@@ -7,8 +7,13 @@ receive a browser port, cookie database, session token, or copied profile.
 
 True headless Chrome is currently blocked by ChatGPT's challenge path. The
 steady state is therefore hidden-headful: the exact Google Chrome process is
-loopback-only, non-frontmost, and offscreen. Authentication is the only time
-the dedicated browser is intentionally visible.
+loopback-only, OS-hidden, and non-frontmost. The launcher also requests
+offscreen coordinates, but macOS may clamp those coordinates after an
+interactive login; exact-PID process visibility is the authoritative hard
+gate, and the observed coordinate state remains in the private receipt.
+Authentication is the only time the dedicated browser is intentionally
+visible. Every post-ownership launcher failure makes a final best-effort
+re-hide before returning.
 
 ## One-time clean login
 
@@ -28,8 +33,14 @@ node deep-research-prompt/assets/scripts/oracle-subagent-auth.mjs \
 ```
 
 The command reveals only the dedicated, already-attested Chrome target and
-waits for an authenticated Pro session. Log in normally in that window. Once
-the account API and model catalog both prove Pro, the command stores only:
+waits for an authenticated Pro session. Log in normally in that window. The
+current ChatGPT UI exposes Pro as the selected effort under GPT-5.6 Sol rather
+than as a separate `gpt-*-pro` model. Enrollment therefore accepts either the
+legacy canonical Pro model contract or the current exact profile-Pro badge plus
+selected composer-Pro-effort contract, while still requiring the account API
+identity, one unique accessible workspace and its stable account-map identity,
+and a nonempty model catalog. Once those independent signals agree, the command
+stores only:
 
 - a SHA-256 fingerprint of the canonical profile identity;
 - a SHA-256 fingerprint of the ChatGPT user plus its unique accessible Pro
@@ -45,8 +56,20 @@ re-hide the browser.
 Before revealing anything, `login` requires a fresh receipt, private files,
 one loopback-only listener, the live browser PID, the exact receipt URL/target,
 and a hidden browser. It pins that browser/target/receipt for the whole login.
-A launcher receipt rollover aborts enrollment and re-hides the originally
-revealed process.
+A logged-out target may already have been redirected to a
+`https://chatgpt.com/auth/...` path; explicit `login` permits that temporary
+route only when the receipt PID, target ID, DevTools socket, listener, profile,
+and requested canonical root/Project URL remain pinned. When a logged-out
+Project target instead lands on canonical ChatGPT root, explicit login alone
+may tolerate that same pinned page and immediately navigate it back to the
+exact requested Project. Same-origin login query parameters are allowed on the
+temporary auth route; root queries, hashes, userinfo, foreign ports/origins,
+arbitrary ChatGPT paths, and noncanonical requested targets still fail.
+Invalid CLI arguments are reported as a generic command and are never
+reflected into output. A launcher receipt rollover aborts enrollment and
+re-hides the originally revealed process. Enrollment does not finish until
+the same target returns to the exact requested URL, proves its composer and
+Pro capability, and passes the strict hidden doctor.
 
 An existing enrollment is immutable. Later `login` invocations require the
 same account fingerprint:
@@ -87,8 +110,9 @@ text. The doctor independently checks:
 - fresh browser-derived auth observation and no current or stale challenge;
 - non-guest session and exact enrolled account/profile fingerprints;
 - requested project access, when a project path was requested;
-- one unique active/non-delinquent Pro workspace plus an actually returned,
-  available canonical `gpt-*-pro` model identifier (display text never counts);
+- one unique accessible workspace plus either an actually returned, available
+  canonical `gpt-*-pro` model identifier or the current authenticated
+  profile-Pro badge with the composer Pro effort selected;
 - an available composer.
 
 Common hard-failure codes include:

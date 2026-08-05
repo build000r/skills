@@ -102,6 +102,37 @@ class ResolveContextTests(unittest.TestCase):
             {"plan_index": str(overlay_dir / "plans" / "INDEX.md")},
         )
 
+    def test_duplicate_aliases_for_one_context_are_not_ambiguous(self) -> None:
+        module = _load_module()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir).resolve()
+            repo = root / "htma"
+            repo.mkdir()
+            alias = root / "repos" / "htma"
+            alias.parent.mkdir()
+            alias.symlink_to(repo, target_is_directory=True)
+            context_dir = root / "skillbox-config" / "clients" / "htma"
+            context_dir.mkdir(parents=True)
+            (context_dir / "context.yaml").write_text(
+                "cwd_match:\n"
+                f"  - {repo}\n"
+                f"  - {alias}\n"
+                "deploy:\n"
+                "  surface: pages_edge\n",
+                encoding="utf-8",
+            )
+
+            with (
+                mock.patch.object(module, "WORKSPACE_CLIENTS_GLOB", str(root / "missing" / "*.yaml")),
+                mock.patch.object(module, "LOCAL_SKILLBOX_CLIENTS", root / "missing-local"),
+                mock.patch.dict(os.environ, {}, clear=False),
+            ):
+                os.environ.pop("SKILLBOX_CLIENT_CONTEXT", None)
+                payload = module.resolve(str(repo), section="deploy")
+
+        self.assertEqual(payload, {"surface": "pages_edge"})
+
     def test_env_context_wraps_scalar_sections_like_local_context(self) -> None:
         module = _load_module()
 

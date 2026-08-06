@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { createHash, randomUUID } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import { constants as fsConstants, realpathSync } from "node:fs";
 import {
   chmod,
@@ -9,6 +10,9 @@ import {
   rename,
   unlink,
 } from "node:fs/promises";
+import http from "node:http";
+import https from "node:https";
+import { isIP } from "node:net";
 import {
   basename,
   dirname,
@@ -22,6 +26,7 @@ import { pathToFileURL } from "node:url";
 export const ORACLE_FLEET_REQUEST_SCHEMA = "oracle-fleet.request.v1";
 export const ORACLE_FLEET_RESPONSE_SCHEMA = "oracle-fleet.response.v1";
 export const ORACLE_FLEET_RECEIPT_SCHEMA = "oracle-fleet.receipt.v1";
+export const ORACLE_FLEET_HEALTH_SCHEMA = "oracle-fleet.health.v1";
 export const FLEET_LIMITS = Object.freeze({
   body_bytes: 12 * 1024 * 1024,
   prompt_bytes: 256 * 1024,
@@ -41,6 +46,7 @@ const SAFE_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._ -]{0,127}$/;
 const MEDIA_TYPE_PATTERN =
   /^[a-z0-9][a-z0-9!#$&^_.+-]{0,63}\/[a-z0-9][a-z0-9!#$&^_.+-]{0,63}$/;
 const SAFE_CODE_PATTERN = /^[a-z][a-z0-9_]{1,63}$/;
+const SAFE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:+@-]{0,255}$/;
 const MEDIA_TYPES = Object.freeze({
   ".csv": "text/csv",
   ".gif": "image/gif",
@@ -57,7 +63,7 @@ const MEDIA_TYPES = Object.freeze({
   ".webp": "image/webp",
   ".xml": "application/xml",
 });
-const CLIENT_HELP = `usage: oracle-rpc-client (--host MAGICDNS | --endpoint URL) --result PATH [options]
+const CLIENT_HELP = `usage: oracle-rpc-client (--host MAGICDNS | --endpoint URL) (--result PATH | --health) [options]
 
 Options:
   --port N              direct-tailnet port (default: 4117)
@@ -65,6 +71,7 @@ Options:
   --prompt-file PATH    prompt source (default: stdin)
   --file PATH           repeatable bounded attachment
   --result PATH         verified private result destination
+  --health              policy-backed fleet health probe (no prompt/result)
   -h, --help            show this help
 
 Prompt text is never accepted in argv. The wire request contains prompt text
@@ -133,6 +140,127 @@ export function normalizeOracleFleetEndpoint(value) {
     reject("endpoint_invalid");
   }
   return endpoint.href;
+}
+
+function healthEndpoint(value) {
+  const endpoint = new URL(normalizeOracleFleetEndpoint(value));
+  endpoint.pathname = "/healthz";
+  return endpoint.href;
+}
+
+function tailscaleNodes(status) {
+  if (!isPlainObject(status)) return [];
+  const peers = isPlainObject(status.Peer) ? Object.values(status.Peer) : [];
+  return [status.Self, ...peers].filter(isPlainObject);
+}
+
+function nodeNames(node) {
+  return [node.DNSName, node.HostName]
+    .filter((value) => typeof value === "string")
+    .map((value) => value.toLowerCase().replace(/\.$/, ""))
+    .filter(Boolean);
+}
+
+export function resolveTailnetAddress(hostname, options = {}) {
+  const host = String(hostname).toLowerCase().replace(/\.$/, "");
+  let status = options.status;
+  if (status === undefined) {
+    const result = (options.spawnSync ?? spawnSync)(
+      "tailscale",
+      ["status", "--json"],
+      {
+        encoding: "utf8",
+        maxBuffer: 2 * 1024 * 1024,
+        timeout: 3_000,
+      },
+    );
+    if (result.error || result.status !== 0 || typeof result.stdout !== "string") {
+      reject("tailnet_resolution_failed");
+    }
+    try {
+      status = JSON.parse(result.stdout);
+    } catch {
+      reject("tailnet_resolution_failed");
+    }
+  }
+  const nodes = tailscaleNodes(status);
+  const exactMatches = nodes.filter((candidate) => nodeNames(candidate).includes(host));
+  const shortHost = host.split(".")[0];
+  const matches = exactMatches.length > 0
+    ? exactMatches
+    : nodes.filter((candidate) => nodeNames(candidate).includes(shortHost));
+  if (matches.length !== 1) reject("tailnet_resolution_failed");
+  const node = matches[0];
+  const address = node?.TailscaleIPs?.find(
+    (candidate) => typeof candidate === "string" && isIP(candidate) !== 0,
+  );
+  if (!address) reject("tailnet_resolution_failed");
+  return address;
+}
+
+function tailnetRequest(endpointValue, init, options = {}) {
+  const endpoint = new URL(endpointValue);
+  const maximumBytes = options.maximumBytes;
+  const address = (options.resolveTailnetAddress ?? resolveTailnetAddress)(
+    endpoint.hostname,
+  );
+  const transport = endpoint.protocol === "https:" ? https : http;
+  return new Promise((resolvePromise, rejectPromise) => {
+    const request = transport.request(
+      {
+        protocol: endpoint.protocol,
+        hostname: address,
+        port: endpoint.port || undefined,
+        path: `${endpoint.pathname}${endpoint.search}`,
+        method: init.method,
+        headers: { ...init.headers, host: endpoint.host },
+        servername: endpoint.hostname,
+        signal: init.signal,
+      },
+      (response) => {
+        const chunks = [];
+        let total = 0;
+        response.on("data", (chunk) => {
+          const bytes = Buffer.from(chunk);
+          total += bytes.length;
+          if (total > maximumBytes) {
+            request.destroy();
+            rejectPromise(new OracleFleetClientError("response_size_rejected"));
+            return;
+          }
+          chunks.push(bytes);
+        });
+        response.once("end", () => {
+          const bytes = Buffer.concat(chunks, total);
+          resolvePromise({
+            ok: response.statusCode >= 200 && response.statusCode < 300,
+            status: response.statusCode,
+            headers: {
+              get(name) {
+                const value = response.headers[String(name).toLowerCase()];
+                return Array.isArray(value) ? value.join(", ") : value ?? null;
+              },
+            },
+            arrayBuffer: async () => bytes,
+          });
+        });
+      },
+    );
+    request.once("error", rejectPromise);
+    if (init.body !== undefined) request.write(init.body);
+    request.end();
+  });
+}
+
+async function performFleetRequest(endpoint, init, options, maximumBytes) {
+  if (options.fetchImpl !== undefined) {
+    if (typeof options.fetchImpl !== "function") reject("transport_unavailable");
+    return options.fetchImpl(endpoint, { ...init, redirect: "error" });
+  }
+  return tailnetRequest(endpoint, init, {
+    maximumBytes,
+    resolveTailnetAddress: options.resolveTailnetAddress,
+  });
 }
 
 function normalizeLimits(raw = {}) {
@@ -478,26 +606,31 @@ export async function writeOracleFleetResult(destination, bytes) {
 
 export async function submitOracleFleetRequest(input, options = {}) {
   const endpoint = normalizeOracleFleetEndpoint(options.endpoint);
-  const fetchImpl = options.fetchImpl ?? globalThis.fetch;
-  if (typeof fetchImpl !== "function") reject("transport_unavailable");
   const limits = normalizeLimits(options.limits);
   const prepared = await prepareOracleFleetRequest(input, {
     limits,
     nowMs: options.nowMs,
   });
   let response;
+  const maximumResponseBytes =
+    Math.ceil((limits.result_bytes * 4) / 3) + 1024 * 1024;
   try {
-    response = await fetchImpl(endpoint, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        accept: "application/json",
+    response = await performFleetRequest(
+      endpoint,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json",
+        },
+        body: prepared.body,
+        signal: options.signal,
       },
-      body: prepared.body,
-      redirect: "error",
-      signal: options.signal,
-    });
-  } catch {
+      options,
+      maximumResponseBytes,
+    );
+  } catch (error) {
+    if (error instanceof OracleFleetClientError) throw error;
     reject("transport_failed");
   }
   const responseType = response.headers?.get?.("content-type") ?? "";
@@ -506,7 +639,7 @@ export async function submitOracleFleetRequest(input, options = {}) {
   }
   const responseBytes = await readBoundedResponse(
     response,
-    Math.ceil((limits.result_bytes * 4) / 3) + 1024 * 1024,
+    maximumResponseBytes,
   );
   const decoded = decodeOracleFleetResponse(parseJson(responseBytes), { limits });
   if (!response.ok) reject("remote_rejected");
@@ -524,6 +657,73 @@ export async function submitOracleFleetRequest(input, options = {}) {
     result_name: decoded.result.name,
     result_bytes: decoded.result.byte_length,
     result_sha256: decoded.result.sha256,
+  });
+}
+
+export async function probeOracleFleetHealth(options = {}) {
+  const endpoint = healthEndpoint(options.endpoint);
+  let response;
+  try {
+    response = await performFleetRequest(
+      endpoint,
+      {
+        method: "GET",
+        headers: { accept: "application/json" },
+        signal: options.signal,
+      },
+      options,
+      64 * 1024,
+    );
+  } catch (error) {
+    if (error instanceof OracleFleetClientError) throw error;
+    reject("transport_failed");
+  }
+  const responseType = response.headers?.get?.("content-type") ?? "";
+  if (!/^application\/json(?:;\s*charset=utf-8)?$/i.test(responseType)) {
+    reject("response_invalid");
+  }
+  const raw = parseJson(await readBoundedResponse(response, 64 * 1024));
+  if (!response.ok || raw?.ok === false) {
+    const code = raw?.error?.code;
+    reject(typeof code === "string" && SAFE_CODE_PATTERN.test(code) ? code : "remote_rejected");
+  }
+  const health = exactObject(
+    raw,
+    ["schema", "ok", "service", "policy", "browser"],
+    "response_invalid",
+  );
+  const service = exactObject(health.service, ["ready"], "response_invalid");
+  const policy = exactObject(
+    health.policy,
+    ["ready", "policy_id"],
+    "response_invalid",
+  );
+  const browser = exactObject(
+    health.browser,
+    ["ready", "authenticated"],
+    "response_invalid",
+  );
+  if (
+    health.schema !== ORACLE_FLEET_HEALTH_SCHEMA ||
+    health.ok !== true ||
+    service.ready !== true ||
+    policy.ready !== true ||
+    typeof policy.policy_id !== "string" ||
+    !SAFE_ID_PATTERN.test(policy.policy_id) ||
+    typeof browser.ready !== "boolean" ||
+    typeof browser.authenticated !== "boolean"
+  ) {
+    reject("response_invalid");
+  }
+  return Object.freeze({
+    schema: health.schema,
+    ok: true,
+    service: Object.freeze({ ready: true }),
+    policy: Object.freeze({ ready: true, policy_id: policy.policy_id }),
+    browser: Object.freeze({
+      ready: browser.ready,
+      authenticated: browser.authenticated,
+    }),
   });
 }
 
@@ -561,11 +761,16 @@ export function parseClientArguments(rawArguments) {
     prompt_file: null,
     files: [],
     result: null,
+    health: false,
   };
   for (let index = 0; index < rawArguments.length; index += 1) {
     const flag = rawArguments[index];
     if (flag === "--https") {
       parsed.https = true;
+      continue;
+    }
+    if (flag === "--health") {
+      parsed.health = true;
       continue;
     }
     const value = rawArguments[index + 1];
@@ -581,7 +786,7 @@ export function parseClientArguments(rawArguments) {
   }
   if (
     (parsed.endpoint === null) === (parsed.host === null) ||
-    parsed.result === null ||
+    (parsed.health ? parsed.result !== null || parsed.prompt_file !== null || parsed.files.length > 0 : parsed.result === null) ||
     !Number.isSafeInteger(parsed.port) ||
     parsed.port < 1 ||
     parsed.port > 65_535
@@ -603,6 +808,15 @@ export async function main(rawArguments = process.argv.slice(2), injected = {}) 
       process.stdout.write(`${CLIENT_HELP}\n`);
       return 0;
     }
+    if (options.health) {
+      const health = await probeOracleFleetHealth({
+        endpoint: options.endpoint,
+        fetchImpl: injected.fetchImpl,
+        resolveTailnetAddress: injected.resolveTailnetAddress,
+      });
+      process.stdout.write(`${JSON.stringify(health)}\n`);
+      return 0;
+    }
     const prompt = options.prompt_file
       ? await readPromptFile(options.prompt_file, FLEET_LIMITS.prompt_bytes)
       : await readStdin(FLEET_LIMITS.prompt_bytes);
@@ -612,6 +826,7 @@ export async function main(rawArguments = process.argv.slice(2), injected = {}) 
         endpoint: options.endpoint,
         resultPath: options.result,
         fetchImpl: injected.fetchImpl,
+        resolveTailnetAddress: injected.resolveTailnetAddress,
       },
     );
     process.stdout.write(`${JSON.stringify({ ok: true, ...result })}\n`);

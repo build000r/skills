@@ -339,6 +339,7 @@ cmd_run_rpc() {
   local rpc_host
   rpc_host="$(resolve_rpc_host)"
   export SKILLBOX_STATE_ROOT="${SKILLBOX_STATE_ROOT:-$POLICY_ROOT/.skillbox-state}"
+  export ORACLE_CDP_PORT="$PORT"
   exec node "$RPC_SERVER" \
     --bind-host "$rpc_host" \
     --port "$RPC_PORT" \
@@ -368,11 +369,16 @@ rpc_http_ok() {
 import json, socket, sys
 port = int(sys.argv[1])
 status = json.load(sys.stdin)
-addresses = (status.get("Self") or {}).get("TailscaleIPs") or []
+self_node = status.get("Self") or {}
+addresses = self_node.get("TailscaleIPs") or []
 if not addresses:
     raise SystemExit(1)
+host = (self_node.get("DNSName") or self_node.get("HostName") or "").rstrip(".")
+if not host or any(character in host for character in "\r\n"):
+    raise SystemExit(1)
 with socket.create_connection((addresses[0], port), timeout=3) as connection:
-    connection.sendall(b"GET /healthz HTTP/1.1\r\nHost: oracle\r\nConnection: close\r\n\r\n")
+    request = f"GET /healthz HTTP/1.1\r\nHost: {host}:{port}\r\nConnection: close\r\n\r\n"
+    connection.sendall(request.encode("ascii"))
     response = b""
     while len(response) < 65536:
         chunk = connection.recv(4096)
@@ -383,7 +389,12 @@ if b" 200 " not in response.split(b"\r\n", 1)[0]:
     raise SystemExit(1)
 body = response.split(b"\r\n\r\n", 1)[1]
 value = json.loads(body)
-if value.get("ok") is not True or value.get("policy") != "required":
+if value.get("schema") != "oracle-fleet.health.v1" or value.get("ok") is not True:
+    raise SystemExit(1)
+if (value.get("service") or {}).get("ready") is not True:
+    raise SystemExit(1)
+policy = value.get("policy") or {}
+if policy.get("ready") is not True or not policy.get("policy_id"):
     raise SystemExit(1)
 ' "$RPC_PORT" >/dev/null 2>&1
 }

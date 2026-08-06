@@ -15,7 +15,9 @@ import {
   verifyTailnetBindHost,
 } from "./oracle-rpc-server.mjs";
 import {
+  probeOracleFleetHealth,
   prepareOracleFleetRequest,
+  resolveTailnetAddress,
   submitOracleFleetRequest,
 } from "./oracle-rpc-client.mjs";
 
@@ -79,6 +81,14 @@ async function postJson(endpoint, body) {
   });
 }
 
+async function getJson(endpoint) {
+  const response = await fetch(endpoint);
+  return Object.freeze({
+    status: response.status,
+    body: await response.json(),
+  });
+}
+
 function postDeclaredOversize(port) {
   return new Promise((resolvePromise, rejectPromise) => {
     const request = http.request(
@@ -130,6 +140,8 @@ test("PC-FLEET-1 persists eleven pre-browser negative controls", async (t) => {
     });
   const handler = createOracleRpcHandler({
     resolveCaller,
+    checkPolicy: async () => ({ policy_id: "fixture-policy" }),
+    checkBrowser: async () => ({ ready: true, authenticated: false }),
     authorizeCaller: async ({ caller }) => ({
       allowed: true,
       context: { caller_id: caller.node_id },
@@ -265,6 +277,8 @@ test("client writes the caller-stamped file-backed result with mode 0600", async
   let browserContacts = 0;
   const handler = createOracleRpcHandler({
     resolveCaller: async () => CALLER,
+    checkPolicy: async () => ({ policy_id: "fixture-policy" }),
+    checkBrowser: async () => ({ ready: true, authenticated: false }),
     authorizeCaller: async () => ({
       allowed: true,
       context: { caller_id: CALLER.node_id },
@@ -337,6 +351,96 @@ test("server construction fails closed without a policy authority", () => {
         }),
       }),
     (error) => error.code === "server_configuration_invalid",
+  );
+});
+
+test("health exercises policy authority and separates browser readiness", async (t) => {
+  let policyChecks = 0;
+  const handler = createOracleRpcHandler({
+    resolveCaller: async () => CALLER,
+    checkPolicy: async () => {
+      policyChecks += 1;
+      return { policy_id: "fixture-policy" };
+    },
+    checkBrowser: async () => ({ ready: false, authenticated: false }),
+    authorizeCaller: async () => ({
+      allowed: true,
+      context: { caller_id: CALLER.node_id },
+      receipt: {
+        policy_id: "fixture-policy",
+        quota_bucket: "interactive",
+        remaining: 1,
+      },
+    }),
+    releaseCaller: async () => {},
+    runOracle: async () => ({
+      run_id: "never",
+      state: "completed",
+      bytes: Buffer.from("never"),
+    }),
+  });
+  const server = http.createServer(handler);
+  t.after(() => close(server));
+  const oracleEndpoint = await listen(server);
+  const healthEndpoint = oracleEndpoint.replace("/v1/oracle", "/healthz");
+  const health = await getJson(healthEndpoint);
+  assert.equal(health.status, 200);
+  assert.equal(policyChecks, 1);
+  assert.deepEqual(health.body.service, { ready: true });
+  assert.deepEqual(health.body.policy, {
+    ready: true,
+    policy_id: "fixture-policy",
+  });
+  assert.deepEqual(health.body.browser, {
+    ready: false,
+    authenticated: false,
+  });
+
+  const probed = await probeOracleFleetHealth({
+    endpoint: "http://skillbox-portfolio-devbox:4117/v1/oracle",
+    fetchImpl: (endpoint, options) => fetch(healthEndpoint, options),
+  });
+  assert.equal(probed.policy.ready, true);
+  assert.equal(probed.browser.ready, false);
+});
+
+test("health fails closed when policy doctor fails", async (t) => {
+  const handler = createOracleRpcHandler({
+    resolveCaller: async () => CALLER,
+    checkPolicy: async () => null,
+    checkBrowser: async () => ({ ready: true, authenticated: true }),
+    authorizeCaller: async () => ({ allowed: false }),
+    releaseCaller: async () => {},
+    runOracle: async () => ({
+      run_id: "never",
+      state: "completed",
+      bytes: Buffer.from("never"),
+    }),
+  });
+  const server = http.createServer(handler);
+  t.after(() => close(server));
+  const oracleEndpoint = await listen(server);
+  const health = await getJson(
+    oracleEndpoint.replace("/v1/oracle", "/healthz"),
+  );
+  assert.equal(health.status, 503);
+  assert.equal(health.body.ok, false);
+  assert.equal(health.body.error.code, "caller_policy_unavailable");
+});
+
+test("tailnet resolver selects a named node from Tailscale status", () => {
+  const fixtureAddress = ["2001", "db8", "", "7"].join(":");
+  assert.equal(
+    resolveTailnetAddress("skillbox-portfolio-devbox.tailnet.test", {
+      status: {
+        Self: {
+          DNSName: "skillbox-portfolio-devbox.tailnet.test.",
+          HostName: "skillbox-portfolio-devbox",
+          TailscaleIPs: [fixtureAddress],
+        },
+      },
+    }),
+    fixtureAddress,
   );
 });
 

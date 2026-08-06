@@ -15,7 +15,7 @@ import {
 import http from "node:http";
 import { homedir } from "node:os";
 import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import {
   executeCli as executeOracleCli,
@@ -25,6 +25,7 @@ import {
 export const ORACLE_FLEET_REQUEST_SCHEMA = "oracle-fleet.request.v1";
 export const ORACLE_FLEET_RESPONSE_SCHEMA = "oracle-fleet.response.v1";
 export const ORACLE_FLEET_RECEIPT_SCHEMA = "oracle-fleet.receipt.v1";
+export const ORACLE_FLEET_HEALTH_SCHEMA = "oracle-fleet.health.v1";
 
 export const FLEET_LIMITS = Object.freeze({
   body_bytes: 12 * 1024 * 1024,
@@ -579,6 +580,7 @@ export function createPolicyBridgeAuthority(options = {}) {
       if (response.policy_id !== "skillbox-oracle-v1") {
         reject("caller_policy_unavailable", 503);
       }
+      return Object.freeze({ policy_id: response.policy_id });
     },
     authorizeCaller({ caller, request }) {
       const callerId = policyCallerId(caller);
@@ -609,6 +611,45 @@ export function createPolicyBridgeAuthority(options = {}) {
       runPolicyBridge(policyBridge, "release", context);
     },
   });
+}
+
+export function createBrowserReadinessProbe(options = {}) {
+  const authScript = resolve(
+    options.authScript ??
+      join(dirname(fileURLToPath(import.meta.url)), "oracle-subagent-auth.mjs"),
+  );
+  const run = options.spawnSync ?? spawnSync;
+  return async function checkBrowser() {
+    const result = run(process.execPath, [authScript, "status", "--json"], {
+      encoding: "utf8",
+      maxBuffer: 256 * 1024,
+      timeout: 10_000,
+      env: process.env,
+    });
+    if (result.error || result.status !== 0 || typeof result.stdout !== "string") {
+      return Object.freeze({ ready: false, authenticated: false });
+    }
+    let report;
+    try {
+      report = JSON.parse(result.stdout);
+    } catch {
+      return Object.freeze({ ready: false, authenticated: false });
+    }
+    const checks = isPlainObject(report?.checks) ? report.checks : {};
+    const ready = [
+      "private_permissions",
+      "receipt_fresh",
+      "single_listener",
+      "loopback_only",
+      "browser_pid",
+      "exact_target",
+      "browser_hidden",
+    ].every((name) => checks[name] === true);
+    return Object.freeze({
+      ready,
+      authenticated: checks.authenticated === true,
+    });
+  };
 }
 
 function normalizeResult(raw, limits) {
@@ -669,12 +710,16 @@ export function createOracleRpcHandler(options = {}) {
   const limits = normalizeLimits(options.limits);
   const replayGuard = options.replayGuard ?? createReplayGuard({ limits });
   const resolveCaller = options.resolveCaller;
+  const checkPolicy = options.checkPolicy;
+  const checkBrowser = options.checkBrowser;
   const authorizeCaller = options.authorizeCaller;
   const releaseCaller = options.releaseCaller;
   const runOracle = options.runOracle;
   const nowMs = options.nowMs ?? (() => Date.now());
   if (
     typeof resolveCaller !== "function" ||
+    typeof checkPolicy !== "function" ||
+    typeof checkBrowser !== "function" ||
     typeof authorizeCaller !== "function" ||
     typeof releaseCaller !== "function" ||
     typeof runOracle !== "function"
@@ -684,10 +729,36 @@ export function createOracleRpcHandler(options = {}) {
   return async function oracleRpcHandler(request, response) {
     try {
       if (request.method === "GET" && request.url === "/healthz") {
+        const policy = await checkPolicy();
+        if (
+          !isPlainObject(policy) ||
+          typeof policy.policy_id !== "string" ||
+          !SAFE_ID_PATTERN.test(policy.policy_id)
+        ) {
+          reject("caller_policy_unavailable", 503);
+        }
+        let browser = { ready: false, authenticated: false };
+        try {
+          const observed = await checkBrowser();
+          if (
+            isPlainObject(observed) &&
+            typeof observed.ready === "boolean" &&
+            typeof observed.authenticated === "boolean"
+          ) {
+            browser = observed;
+          }
+        } catch {
+          browser = { ready: false, authenticated: false };
+        }
         jsonResponse(response, 200, {
+          schema: ORACLE_FLEET_HEALTH_SCHEMA,
           ok: true,
-          ready: true,
-          policy: "required",
+          service: { ready: true },
+          policy: { ready: true, policy_id: policy.policy_id },
+          browser: {
+            ready: browser.ready,
+            authenticated: browser.authenticated,
+          },
         });
         return;
       }
@@ -907,23 +978,38 @@ export async function startOracleRpcServer(options = {}) {
     });
   let authorizeCaller = options.authorizeCaller;
   let releaseCaller = options.releaseCaller;
-  if (authorizeCaller === undefined && releaseCaller === undefined) {
+  let checkPolicy = options.checkPolicy;
+  if (
+    authorizeCaller === undefined &&
+    releaseCaller === undefined &&
+    checkPolicy === undefined
+  ) {
     const authority = createPolicyBridgeAuthority({
       policyBridge: options.policyBridge,
       mode: options.mode,
       timeoutSeconds: options.timeoutSeconds,
     });
-    authority.check();
+    checkPolicy = authority.check;
     authorizeCaller = authority.authorizeCaller;
     releaseCaller = authority.releaseCaller;
   }
-  if (typeof authorizeCaller !== "function" || typeof releaseCaller !== "function") {
+  if (
+    typeof checkPolicy !== "function" ||
+    typeof authorizeCaller !== "function" ||
+    typeof releaseCaller !== "function"
+  ) {
     reject("server_configuration_invalid", 500);
   }
+  await checkPolicy();
+  const checkBrowser =
+    options.checkBrowser ??
+    createBrowserReadinessProbe({ authScript: options.authScript });
   const handler = createOracleRpcHandler({
     limits: options.limits,
     replayGuard: options.replayGuard,
     resolveCaller,
+    checkPolicy,
+    checkBrowser,
     authorizeCaller,
     releaseCaller,
     runOracle,

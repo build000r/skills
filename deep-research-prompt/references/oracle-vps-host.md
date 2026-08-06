@@ -143,7 +143,14 @@ Darwin behavior is unchanged (still defaults to 9222 unless config/env says othe
 | Bind | `ss -tln` shows `127.0.0.1:<cdp_port>` only (no `*:<cdp_port>`) |
 | Profile | `stat -c %a ~/.oracle` → `700` |
 | Doctor | `sbp oracle --doctor` reason is **not** `cdp_unreachable` |
-| Fleet RPC | `GET http://<MagicDNS-host>:4117/healthz` reports policy required |
+| Fleet RPC | `oracle-rpc-client.mjs --health --host <MagicDNS-host>` reports `service.ready`, a live policy-doctor decision under `policy.ready`, and browser readiness separately under `browser.ready` |
+
+Fleet client probes resolve the named node from `tailscale status --json` and
+connect through its current Tailnet address while retaining the MagicDNS name
+as the HTTP authority. They do not use `/etc/hosts` short-name answers; a local
+loopback mapping therefore cannot redirect a fleet probe away from the
+tailnet-bound broker. Addresses remain runtime-only and are never emitted in
+the health response or receipts.
 
 `listener_unverifiable`, `browser_receipt_invalid`, `visibility_unverifiable`
 (Darwin-only visibility probe), or auth `NEEDS_REAUTH` / blocked account reasons
@@ -164,6 +171,13 @@ cannot reclaim it. **Stop trying.** Set `cdp_port` to a free loopback port
 - System-level systemd units
 - Running Chrome on conference1 / Mac / other fleet members for this lane
 - Killing or rebinding tailscaled's 9222 socket
+
+## Host-audit caveat
+
+Scope Oracle display audits to `oracle-xvfb.service` and its configured display
+(`:97` on this host). A separate Cypress dependency workload may own display
+`:99` and may use a different X access posture. It is not Oracle evidence: do
+not kill it or reclassify it during an Oracle host audit.
 
 ## Related
 

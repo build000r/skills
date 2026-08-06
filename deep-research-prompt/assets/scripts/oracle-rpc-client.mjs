@@ -48,6 +48,18 @@ const MEDIA_TYPES = Object.freeze({
   ".webp": "image/webp",
   ".xml": "application/xml",
 });
+const CLIENT_HELP = `usage: oracle-rpc-client (--host MAGICDNS | --endpoint URL) --result PATH [options]
+
+Options:
+  --port N              direct-tailnet port (default: 4117)
+  --https               use HTTPS with --host
+  --prompt-file PATH    prompt source (default: stdin)
+  --file PATH           repeatable bounded attachment
+  --result PATH         verified private result destination
+  -h, --help            show this help
+
+Prompt text is never accepted in argv. The wire request contains prompt text
+and inline file bytes only; local paths and credentials are never sent.`;
 
 export class OracleFleetClientError extends Error {
   constructor(code) {
@@ -480,6 +492,12 @@ async function readPromptFile(pathname, maximumBytes) {
 }
 
 export function parseClientArguments(rawArguments) {
+  if (
+    rawArguments.length === 1 &&
+    ["-h", "--help"].includes(rawArguments[0])
+  ) {
+    return Object.freeze({ help: true });
+  }
   const parsed = {
     endpoint: null,
     host: null,
@@ -526,6 +544,10 @@ export function parseClientArguments(rawArguments) {
 export async function main(rawArguments = process.argv.slice(2), injected = {}) {
   try {
     const options = parseClientArguments(rawArguments);
+    if (options.help) {
+      process.stdout.write(`${CLIENT_HELP}\n`);
+      return 0;
+    }
     const prompt = options.prompt_file
       ? await readPromptFile(options.prompt_file, FLEET_LIMITS.prompt_bytes)
       : await readStdin(FLEET_LIMITS.prompt_bytes);
@@ -545,7 +567,17 @@ export async function main(rawArguments = process.argv.slice(2), injected = {}) 
         ? error.code
         : "operation_failed";
     process.stderr.write(`oracle-rpc-client:${code}\n`);
-    return 1;
+    if (
+      code.startsWith("transport_") ||
+      code.startsWith("response_") ||
+      code.startsWith("remote_") ||
+      code === "replay_rejected" ||
+      code === "caller_policy_rejected" ||
+      code === "caller_tag_rejected"
+    ) {
+      return 2;
+    }
+    return code === "operation_failed" ? 3 : 1;
   }
 }
 

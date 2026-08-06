@@ -1360,18 +1360,28 @@ if [ "$TEST_MODE" -eq 1 ]; then
 fi
 target_json="$("${node_environment[@]}" \
   "$NODE_BIN" - "$browser_websocket" "$URL" "$pid" <<'NODE'
+// Launch-only CDP: bind browser PID, then obtain exactly one page target for
+// the requested ChatGPT URL. Reuse an existing exact-URL page when present;
+// otherwise create one. Close surplus about:blank / chatgpt.com pages so
+// repeated launches do not leak tabs (defect: 3→8 pages observed).
 const [websocketUrl, url, expectedPidRaw] = process.argv.slice(2);
 const expectedPid = Number(expectedPidRaw);
 if (!Number.isSafeInteger(expectedPid) || expectedPid <= 1) {
   throw new Error('invalid expected browser PID');
 }
 const socket = new WebSocket(websocketUrl);
-let createdTargetId = null;
 let verifiedBrowserPid = null;
+let keeperTargetId = null;
+let pageSnapshot = [];
+let surplusQueue = [];
+let nextId = 1;
+const pending = new Map();
 const allowedMethods = new Set([
   'SystemInfo.getProcessInfo',
+  'Target.getTargets',
   'Target.createTarget',
   'Target.getTargetInfo',
+  'Target.closeTarget',
 ]);
 const send = (id, method, params = undefined) => {
   if (!allowedMethods.has(method)) {
@@ -1381,6 +1391,71 @@ const send = (id, method, params = undefined) => {
   if (params !== undefined) message.params = params;
   socket.send(JSON.stringify(message));
 };
+const request = (method, params, handler) => {
+  const id = nextId;
+  nextId += 1;
+  pending.set(id, handler);
+  send(id, method, params);
+};
+const fail = (text) => {
+  clearTimeout(timer);
+  console.error(text);
+  socket.close();
+  process.exitCode = 1;
+};
+const isSurplusPage = (target) => {
+  if (!target || target.type !== 'page') return false;
+  if (target.targetId === keeperTargetId) return false;
+  const targetUrl = typeof target.url === 'string' ? target.url : '';
+  if (targetUrl === 'about:blank' || targetUrl === 'about:blank/') return true;
+  if (targetUrl.startsWith('https://chatgpt.com')) return true;
+  return false;
+};
+const emitKeeper = (target) => {
+  clearTimeout(timer);
+  console.log(JSON.stringify({
+    id: target.targetId,
+    type: target.type,
+    url: target.url,
+    title: target.title,
+    browser_pid: verifiedBrowserPid,
+  }));
+  socket.close();
+};
+const closeNextSurplus = () => {
+  if (surplusQueue.length === 0) {
+    request('Target.getTargetInfo', { targetId: keeperTargetId }, (message) => {
+      const target = message.result?.targetInfo;
+      if (
+        message.error ||
+        !target ||
+        target.targetId !== keeperTargetId ||
+        target.type !== 'page' ||
+        target.url !== url
+      ) {
+        fail(message.error?.message || 'Target.getTargetInfo did not match the keeper target');
+        return;
+      }
+      emitKeeper(target);
+    });
+    return;
+  }
+  const extraId = surplusQueue.shift();
+  request('Target.closeTarget', { targetId: extraId }, (message) => {
+    // Best-effort close: a race-closed tab must not block the keeper path.
+    if (message.error) {
+      // continue
+    }
+    closeNextSurplus();
+  });
+};
+const adoptKeeper = (targetId) => {
+  keeperTargetId = targetId;
+  surplusQueue = pageSnapshot
+    .filter((target) => isSurplusPage(target))
+    .map((target) => target.targetId);
+  closeNextSurplus();
+};
 const timer = setTimeout(() => {
   console.error('browser process binding or target creation timed out');
   socket.close();
@@ -1388,11 +1463,7 @@ const timer = setTimeout(() => {
 }, 10000);
 
 socket.addEventListener('open', () => {
-  send(1, 'SystemInfo.getProcessInfo');
-});
-socket.addEventListener('message', (event) => {
-  const message = JSON.parse(String(event.data));
-  if (message.id === 1) {
+  request('SystemInfo.getProcessInfo', undefined, (message) => {
     const browsers = message.result?.processInfo?.filter(
       (process) => process.type === 'browser',
     );
@@ -1402,49 +1473,43 @@ socket.addEventListener('message', (event) => {
       browsers.length !== 1 ||
       browsers[0].id !== expectedPid
     ) {
-      clearTimeout(timer);
-      console.error(message.error?.message || 'CDP browser PID did not match the verified listener');
-      socket.close();
-      process.exitCode = 1;
+      fail(message.error?.message || 'CDP browser PID did not match the verified listener');
       return;
     }
     verifiedBrowserPid = browsers[0].id;
-    send(2, 'Target.createTarget', {
-      url,
-      background: true,
-      newWindow: false,
+    request('Target.getTargets', undefined, (message) => {
+      if (message.error || !Array.isArray(message.result?.targetInfos)) {
+        fail(message.error?.message || 'Target.getTargets failed');
+        return;
+      }
+      pageSnapshot = message.result.targetInfos.filter(
+        (target) => target && target.type === 'page',
+      );
+      const exact = pageSnapshot.find((target) => target.url === url);
+      if (exact?.targetId) {
+        adoptKeeper(exact.targetId);
+        return;
+      }
+      request(
+        'Target.createTarget',
+        { url, background: true, newWindow: false },
+        (message) => {
+          if (message.error || !message.result?.targetId) {
+            fail(message.error?.message || 'Target.createTarget returned no targetId');
+            return;
+          }
+          adoptKeeper(message.result.targetId);
+        },
+      );
     });
-    return;
-  }
-  if (message.id === 2) {
-    if (message.error || !message.result?.targetId) {
-      clearTimeout(timer);
-      console.error(message.error?.message || 'Target.createTarget returned no targetId');
-      socket.close();
-      process.exitCode = 1;
-      return;
-    }
-    createdTargetId = message.result.targetId;
-    send(3, 'Target.getTargetInfo', { targetId: createdTargetId });
-    return;
-  }
-  if (message.id !== 3) return;
-  clearTimeout(timer);
-  const target = message.result?.targetInfo;
-  if (message.error || !target || target.targetId !== createdTargetId) {
-    console.error(message.error?.message || 'Target.getTargetInfo did not match the created target');
-    socket.close();
-    process.exitCode = 1;
-    return;
-  }
-  console.log(JSON.stringify({
-    id: target.targetId,
-    type: target.type,
-    url: target.url,
-    title: target.title,
-    browser_pid: verifiedBrowserPid,
-  }));
-  socket.close();
+  });
+});
+socket.addEventListener('message', (event) => {
+  const message = JSON.parse(String(event.data));
+  const handler = pending.get(message.id);
+  if (!handler) return;
+  pending.delete(message.id);
+  handler(message);
 });
 socket.addEventListener('error', () => {
   clearTimeout(timer);

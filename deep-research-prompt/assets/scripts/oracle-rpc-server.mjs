@@ -71,6 +71,17 @@ const FORBIDDEN_KEYS = new Set([
   "sessiontoken",
   "token",
 ]);
+const SERVER_HELP = `usage: oracle-rpc-server --bind-host MAGICDNS [options]
+
+Options:
+  --port N                         listener port (default: 4117)
+  --artifact-root DIR              private local Oracle run root
+  --mode pro|deep-research         server-owned Oracle mode
+  --required-peer-tag tag:NAME     repeatable caller allowlist tag
+  -h, --help                       show this help
+
+The listener fails closed unless MAGICDNS resolves to this node's live
+Tailscale addresses. No credential, browser, CDP, hook, or exec input exists.`;
 
 export class OracleFleetRpcError extends Error {
   constructor(code, status = 400) {
@@ -790,7 +801,13 @@ export async function startOracleRpcServer(options = {}) {
   });
 }
 
-function parseServerArguments(rawArguments) {
+export function parseServerArguments(rawArguments) {
+  if (
+    rawArguments.length === 1 &&
+    ["-h", "--help"].includes(rawArguments[0])
+  ) {
+    return Object.freeze({ help: true });
+  }
   const parsed = {
     host: null,
     port: 4117,
@@ -818,6 +835,10 @@ function parseServerArguments(rawArguments) {
 export async function main(rawArguments = process.argv.slice(2), injected = {}) {
   try {
     const options = parseServerArguments(rawArguments);
+    if (options.help) {
+      process.stdout.write(`${SERVER_HELP}\n`);
+      return 0;
+    }
     const running = await startOracleRpcServer({ ...options, ...injected });
     process.stdout.write(
       `${JSON.stringify({ ok: true, host: running.host, port: running.port })}\n`,
@@ -826,7 +847,14 @@ export async function main(rawArguments = process.argv.slice(2), injected = {}) 
   } catch (error) {
     const failure = safeError(error);
     process.stderr.write(`oracle-rpc-server:${failure.code}\n`);
-    return 1;
+    return [
+      "tailnet_bind_proof_unavailable",
+      "tailnet_bind_proof_failed",
+    ].includes(failure.code)
+      ? 2
+      : failure.code === "operation_failed"
+        ? 3
+        : 1;
   }
 }
 

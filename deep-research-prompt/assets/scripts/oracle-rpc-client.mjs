@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { createHash, randomUUID } from "node:crypto";
-import { constants as fsConstants } from "node:fs";
+import { constants as fsConstants, realpathSync } from "node:fs";
 import {
   chmod,
   open,
@@ -19,15 +19,24 @@ import {
 } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import {
-  FLEET_LIMITS,
-  ORACLE_FLEET_RECEIPT_SCHEMA,
-  ORACLE_FLEET_REQUEST_SCHEMA,
-  ORACLE_FLEET_RESPONSE_SCHEMA,
-} from "./oracle-rpc-server.mjs";
+export const ORACLE_FLEET_REQUEST_SCHEMA = "oracle-fleet.request.v1";
+export const ORACLE_FLEET_RESPONSE_SCHEMA = "oracle-fleet.response.v1";
+export const ORACLE_FLEET_RECEIPT_SCHEMA = "oracle-fleet.receipt.v1";
+export const FLEET_LIMITS = Object.freeze({
+  body_bytes: 12 * 1024 * 1024,
+  prompt_bytes: 256 * 1024,
+  file_bytes: 4 * 1024 * 1024,
+  files_bytes: 8 * 1024 * 1024,
+  file_count: 8,
+  result_bytes: 32 * 1024 * 1024,
+  replay_window_ms: 5 * 60 * 1000,
+  future_clock_skew_ms: 30 * 1000,
+  replay_entries: 10_000,
+});
 
 const MAGIC_DNS_PATTERN =
   /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?))*$/;
+const REQUEST_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{15,127}$/;
 const SAFE_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._ -]{0,127}$/;
 const MEDIA_TYPE_PATTERN =
   /^[a-z0-9][a-z0-9!#$&^_.+-]{0,63}\/[a-z0-9][a-z0-9!#$&^_.+-]{0,63}$/;
@@ -257,10 +266,22 @@ export async function prepareOracleFleetRequest(input, options = {}) {
       data_base64: file.bytes.toString("base64"),
     });
   }
+  const requestId = input.request_id ?? randomUUID();
+  const createdAt = input.created_at ?? new Date(options.nowMs?.() ?? Date.now()).toISOString();
+  const createdAtMs = Date.parse(createdAt);
+  if (
+    typeof requestId !== "string" ||
+    !REQUEST_ID_PATTERN.test(requestId) ||
+    typeof createdAt !== "string" ||
+    !Number.isFinite(createdAtMs) ||
+    new Date(createdAtMs).toISOString() !== createdAt
+  ) {
+    reject("request_invalid");
+  }
   const request = Object.freeze({
     schema: ORACLE_FLEET_REQUEST_SCHEMA,
-    request_id: input.request_id ?? randomUUID(),
-    created_at: input.created_at ?? new Date(options.nowMs?.() ?? Date.now()).toISOString(),
+    request_id: requestId,
+    created_at: createdAt,
     prompt: input.prompt,
     files: Object.freeze(files.map(Object.freeze)),
   });
@@ -316,23 +337,58 @@ function validateReceipt(raw, result) {
     ],
     "response_invalid",
   );
+  const caller = isPlainObject(receipt.caller)
+    ? exactObject(
+        receipt.caller,
+        ["node_id", "node_name", "user_login", "tags"],
+        "response_invalid",
+      )
+    : null;
+  const oracle = isPlainObject(receipt.oracle)
+    ? exactObject(receipt.oracle, ["run_id", "state"], "response_invalid")
+    : null;
+  const policy = receipt.policy === null
+    ? null
+    : exactObject(
+        receipt.policy,
+        ["policy_id", "quota_bucket", "remaining"],
+        "response_invalid",
+      );
+  const receiptResult = isPlainObject(receipt.result)
+    ? exactObject(
+        receipt.result,
+        ["name", "media_type", "bytes", "sha256"],
+        "response_invalid",
+      )
+    : null;
   if (
     receipt.schema !== ORACLE_FLEET_RECEIPT_SCHEMA ||
-    !isPlainObject(receipt.caller) ||
-    typeof receipt.caller.node_id !== "string" ||
-    typeof receipt.caller.node_name !== "string" ||
-    typeof receipt.caller.user_login !== "string" ||
-    !Array.isArray(receipt.caller.tags) ||
-    !isPlainObject(receipt.oracle) ||
-    typeof receipt.oracle.run_id !== "string" ||
-    typeof receipt.oracle.state !== "string" ||
-    !isPlainObject(receipt.result) ||
-    JSON.stringify(receipt.result) !== JSON.stringify({
-      name: result.name,
-      media_type: result.media_type,
-      bytes: result.bytes,
-      sha256: result.sha256,
-    })
+    typeof receipt.request_id !== "string" ||
+    !REQUEST_ID_PATTERN.test(receipt.request_id) ||
+    typeof receipt.accepted_at !== "string" ||
+    !Number.isFinite(Date.parse(receipt.accepted_at)) ||
+    new Date(Date.parse(receipt.accepted_at)).toISOString() !== receipt.accepted_at ||
+    typeof receipt.completed_at !== "string" ||
+    !Number.isFinite(Date.parse(receipt.completed_at)) ||
+    new Date(Date.parse(receipt.completed_at)).toISOString() !== receipt.completed_at ||
+    caller === null ||
+    typeof caller.node_id !== "string" ||
+    typeof caller.node_name !== "string" ||
+    typeof caller.user_login !== "string" ||
+    !Array.isArray(caller.tags) ||
+    oracle === null ||
+    typeof oracle.run_id !== "string" ||
+    typeof oracle.state !== "string" ||
+    (policy !== null &&
+      (typeof policy.policy_id !== "string" ||
+        typeof policy.quota_bucket !== "string" ||
+        !Number.isSafeInteger(policy.remaining) ||
+        policy.remaining < 0)) ||
+    receiptResult === null ||
+    receiptResult.name !== result.name ||
+    receiptResult.media_type !== result.media_type ||
+    receiptResult.bytes !== result.bytes ||
+    receiptResult.sha256 !== result.sha256
   ) {
     reject("response_invalid");
   }
@@ -455,8 +511,7 @@ export async function submitOracleFleetRequest(input, options = {}) {
   const decoded = decodeOracleFleetResponse(parseJson(responseBytes), { limits });
   if (!response.ok) reject("remote_rejected");
   if (
-    decoded.receipt.request_id !== prepared.request.request_id ||
-    decoded.receipt.accepted_at !== prepared.request.created_at
+    decoded.receipt.request_id !== prepared.request.request_id
   ) {
     reject("response_mismatch");
   }
@@ -581,9 +636,14 @@ export async function main(rawArguments = process.argv.slice(2), injected = {}) 
   }
 }
 
-if (
-  process.argv[1] &&
-  import.meta.url === pathToFileURL(resolve(process.argv[1])).href
-) {
+let invokedAsMain = false;
+try {
+  invokedAsMain =
+    Boolean(process.argv[1]) &&
+    import.meta.url === pathToFileURL(realpathSync(resolve(process.argv[1]))).href;
+} catch {
+  invokedAsMain = false;
+}
+if (invokedAsMain) {
   process.exitCode = await main();
 }

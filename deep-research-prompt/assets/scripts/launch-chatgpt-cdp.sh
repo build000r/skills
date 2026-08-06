@@ -6,7 +6,9 @@ umask 077
 
 TEST_MODE="${ORACLE_LAUNCHER_TEST_MODE:-0}"
 ATTESTATION_TEST_MODE="${ORACLE_LAUNCHER_TEST_ATTESTATION:-0}"
-PORT="${ORACLE_CDP_PORT:-9222}"
+# Resolved after argv parse: --port > config.json cdp_port > ORACLE_CDP_PORT > 9222.
+PORT=""
+PORT_FROM_CLI=0
 PROFILE_ROOT="${ORACLE_BROWSER_PROFILE_DIR:-$HOME/.oracle/browser-profile}"
 PROFILE_DIR="${ORACLE_PROFILE_DIRECTORY:-Default}"
 URL="${ORACLE_CHATGPT_PROJECT_URL:-https://chatgpt.com/}"
@@ -22,6 +24,52 @@ die() {
   shift
   printf 'oracle browser: %s\n' "$*" >&2
   exit "$code"
+}
+
+# Never prints config contents (may hold non-port secrets).
+resolve_cdp_port() {
+  if [ "${PORT_FROM_CLI:-0}" -eq 1 ] && [ -n "${PORT:-}" ]; then
+    printf '%s\n' "$PORT"
+    return
+  fi
+  local config_path="${ORACLE_CONFIG_PATH:-$HOME/.oracle/config.json}"
+  local from_config=""
+  if [ -f "$config_path" ] && [ -r "$config_path" ]; then
+    from_config="$(/usr/bin/python3 -I - "$config_path" <<'PY' 2>/dev/null || true
+import json
+import sys
+
+path = sys.argv[1]
+try:
+    with open(path, "r", encoding="utf-8") as handle:
+        data = json.load(handle)
+except Exception:
+    raise SystemExit(0)
+if not isinstance(data, dict):
+    raise SystemExit(0)
+raw = data.get("cdp_port", data.get("cdpPort"))
+if isinstance(raw, bool):
+    raise SystemExit(0)
+if isinstance(raw, float) and raw.is_integer():
+    raw = int(raw)
+if isinstance(raw, int) and 1 <= raw <= 65535:
+    print(raw)
+elif isinstance(raw, str) and raw.strip().isdigit():
+    value = int(raw.strip())
+    if 1 <= value <= 65535:
+        print(value)
+PY
+)"
+  fi
+  if [ -n "$from_config" ]; then
+    printf '%s\n' "$from_config"
+    return
+  fi
+  if [ -n "${ORACLE_CDP_PORT:-}" ]; then
+    printf '%s\n' "$ORACLE_CDP_PORT"
+    return
+  fi
+  printf '9222\n'
 }
 
 HOST_PLATFORM=""
@@ -160,7 +208,8 @@ usage() {
     'usage: launch-chatgpt-cdp.sh [options]' \
     '' \
     'Options:' \
-    '  --port N                    loopback DevTools port (default 9222)' \
+    '  --port N                    loopback DevTools port' \
+    '                              (--port > ~/.oracle/config.json cdp_port > ORACLE_CDP_PORT > 9222)' \
     '  --profile-root DIR          persistent dedicated Chrome user-data-dir' \
     '  --profile-directory NAME    Chrome subprofile (default Default)' \
     '  --url URL                   chatgpt.com URL for the new exact target' \
@@ -182,6 +231,7 @@ while [ "$#" -gt 0 ]; do
     --port)
       need_value "$@"
       PORT="$2"
+      PORT_FROM_CLI=1
       shift 2
       ;;
     --profile-root)
@@ -221,6 +271,7 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
+PORT="$(resolve_cdp_port)"
 case "$PORT" in
   ''|*[!0-9]*) die 2 "port must be an integer" ;;
 esac
@@ -1362,8 +1413,8 @@ target_json="$("${node_environment[@]}" \
   "$NODE_BIN" - "$browser_websocket" "$URL" "$pid" <<'NODE'
 // Launch-only CDP: bind browser PID, then obtain exactly one page target for
 // the requested ChatGPT URL. Reuse an existing exact-URL page when present;
-// otherwise create one. Close surplus about:blank / chatgpt.com pages so
-// repeated launches do not leak tabs (defect: 3→8 pages observed).
+// otherwise create one. Close only blank pages and exact-URL duplicates. A
+// conversation URL may be the persistent browser-pool target for the next run.
 const [websocketUrl, url, expectedPidRaw] = process.argv.slice(2);
 const expectedPid = Number(expectedPidRaw);
 if (!Number.isSafeInteger(expectedPid) || expectedPid <= 1) {
@@ -1408,7 +1459,7 @@ const isSurplusPage = (target) => {
   if (target.targetId === keeperTargetId) return false;
   const targetUrl = typeof target.url === 'string' ? target.url : '';
   if (targetUrl === 'about:blank' || targetUrl === 'about:blank/') return true;
-  if (targetUrl.startsWith('https://chatgpt.com')) return true;
+  if (targetUrl === url) return true;
   return false;
 };
 const emitKeeper = (target) => {

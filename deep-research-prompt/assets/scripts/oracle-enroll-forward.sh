@@ -10,7 +10,7 @@ readonly COMMAND_NAME="oracle-enroll-forward"
 readonly SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 readonly DEFAULT_HOST="skillbox-portfolio-devbox"
 readonly DEFAULT_REMOTE_SCRIPT="/srv/skillbox/repos/skills/deep-research-prompt/assets/scripts/oracle-enroll-forward.sh"
-readonly DEFAULT_DISPLAY=":99"
+readonly DEFAULT_DISPLAY=":97"
 readonly DEFAULT_LOCAL_PORT=6080
 readonly DEFAULT_WEB_PORT=6080
 readonly DEFAULT_VNC_PORT=5900
@@ -27,6 +27,7 @@ WEB_PORT="${ORACLE_ENROLL_WEB_PORT:-$DEFAULT_WEB_PORT}"
 VNC_PORT="${ORACLE_ENROLL_VNC_PORT:-$DEFAULT_VNC_PORT}"
 AUTH_MODE="enroll"
 OPEN_BROWSER=true
+PASSWORD_STDIN=false
 
 CLIENT_STATE_ROOT="${ORACLE_ENROLL_CLIENT_STATE_DIR:-$HOME/.oracle/oracle-enrollment-forward}"
 HOST_RUNTIME_ROOT="${ORACLE_SUBAGENT_RUNTIME_DIR:-$HOME/.oracle/oracle-subagent}"
@@ -34,6 +35,8 @@ HOST_STATE_ROOT="$HOST_RUNTIME_ROOT/enrollment-forward"
 CLIENT_STATE_FILE="$CLIENT_STATE_ROOT/state"
 CONTROL_SOCKET="$CLIENT_STATE_ROOT/ssh-control"
 HOST_STATE_FILE="$HOST_STATE_ROOT/state"
+HOST_VNC_PASSWORD_FILE="$HOST_STATE_ROOT/vnc-password"
+HOST_XAUTHORITY="${ORACLE_XAUTHORITY:-$HOME/.oracle/Xauthority}"
 
 fail() {
   local code="$1"
@@ -113,6 +116,10 @@ parse_options() {
         (($# >= 2)) || fail "usage"
         AUTH_MODE="$2"
         shift 2
+        ;;
+      --password-stdin)
+        PASSWORD_STDIN=true
+        shift
         ;;
       --reauth)
         AUTH_MODE="reauth"
@@ -255,20 +262,31 @@ host_status() {
     printf '{"ready":false,"reason":"not_started"}\n'
     return 1
   fi
-  local x11_pid novnc_pid auth_pid x11_marker novnc_marker auth_marker
+  local x11_pid novnc_pid auth_pid x11_marker novnc_marker auth_marker state_vnc_port state_web_port
   x11_pid="$(state_value "$HOST_STATE_FILE" X11_PID)"
   novnc_pid="$(state_value "$HOST_STATE_FILE" NOVNC_PID)"
   auth_pid="$(state_value "$HOST_STATE_FILE" AUTH_PID)"
   x11_marker="$(state_value "$HOST_STATE_FILE" X11_MARKER)"
   novnc_marker="$(state_value "$HOST_STATE_FILE" NOVNC_MARKER)"
   auth_marker="$(state_value "$HOST_STATE_FILE" AUTH_MARKER)"
+  state_vnc_port="$(state_value "$HOST_STATE_FILE" VNC_PORT)"
+  state_web_port="$(state_value "$HOST_STATE_FILE" WEB_PORT)"
   local x11_ready=false novnc_ready=false login_running=false
   process_matches "$x11_pid" "$x11_marker" && x11_ready=true
   process_matches "$novnc_pid" "$novnc_marker" && novnc_ready=true
   process_matches "$auth_pid" "$auth_marker" && login_running=true
   if [[ "$x11_ready" == true && "$novnc_ready" == true ]]; then
-    printf '{"ready":true,"loopback_only":true,"login_running":%s}\n' "$login_running"
-    return 0
+    if (
+      valid_port "$state_vnc_port" &&
+      valid_port "$state_web_port" &&
+      assert_loopback_listener "$state_vnc_port" &&
+      assert_loopback_listener "$state_web_port"
+    ) >/dev/null 2>&1; then
+      printf '{"ready":true,"loopback_only":true,"login_running":%s}\n' "$login_running"
+      return 0
+    fi
+    printf '{"ready":false,"reason":"listener_not_loopback","login_running":%s}\n' "$login_running"
+    return 1
   fi
   printf '{"ready":false,"reason":"helper_stopped","login_running":%s}\n' "$login_running"
   return 1
@@ -289,6 +307,7 @@ host_stop() {
   stop_process "$auth_pid" "$auth_marker"
   stop_process "$novnc_pid" "$novnc_marker"
   stop_process "$x11_pid" "$x11_marker"
+  [[ ! -e "$HOST_VNC_PASSWORD_FILE" ]] || unlink -- "$HOST_VNC_PASSWORD_FILE"
   unlink -- "$HOST_STATE_FILE" 2>/dev/null || true
   printf '%s: VPS helpers stopped\n' "$COMMAND_NAME"
 }
@@ -311,12 +330,27 @@ host_start() {
   [[ ! -e "$HOST_STATE_FILE" && ! -L "$HOST_STATE_FILE" ]] || unlink -- "$HOST_STATE_FILE"
   port_is_available "$VNC_PORT" || fail "vnc_port_in_use"
   port_is_available "$WEB_PORT" || fail "web_port_in_use"
+  [[ -f "$HOST_XAUTHORITY" && ! -L "$HOST_XAUTHORITY" ]] || fail "xauthority_unavailable"
+  [[ "$(stat -c '%u:%a' "$HOST_XAUTHORITY" 2>/dev/null || true)" == "$(id -u):600" ]] || fail "xauthority_invalid"
+
+  local vnc_secret=""
+  [[ "$PASSWORD_STDIN" == true ]] || fail "vnc_secret_required"
+  IFS= read -r vnc_secret || fail "vnc_secret_unavailable"
+  [[ "$vnc_secret" =~ ^[A-Za-z0-9_-]{24,128}$ ]] || fail "vnc_secret_invalid"
+  x11vnc -storepasswd "$vnc_secret" "$HOST_VNC_PASSWORD_FILE" >/dev/null 2>&1 || {
+    unset vnc_secret
+    fail "vnc_secret_create_failed"
+  }
+  unset vnc_secret
+  chmod 600 -- "$HOST_VNC_PASSWORD_FILE"
+  [[ "$(stat -c '%u:%a' "$HOST_VNC_PASSWORD_FILE" 2>/dev/null || true)" == "$(id -u):600" ]] || fail "vnc_secret_insecure"
 
   local x11_pid="" novnc_pid="" auth_pid=""
   cleanup_failed_start() {
     [[ -z "$auth_pid" ]] || stop_process "$auth_pid" "$SCRIPT_DIR/oracle-subagent-auth.mjs"
     [[ -z "$novnc_pid" ]] || stop_process "$novnc_pid" "$novnc_proxy"
     [[ -z "$x11_pid" ]] || stop_process "$x11_pid" "x11vnc"
+    [[ ! -e "$HOST_VNC_PASSWORD_FILE" ]] || unlink -- "$HOST_VNC_PASSWORD_FILE"
   }
   trap cleanup_failed_start ERR INT TERM
 
@@ -326,14 +360,11 @@ host_start() {
     -rfbport "$VNC_PORT"
     -forever
     -shared
-    -nopw
+    -rfbauth "$HOST_VNC_PASSWORD_FILE"
+    -auth "$HOST_XAUTHORITY"
     -noxdamage
     -quiet
   )
-  if [[ -n "${XAUTHORITY:-}" ]]; then
-    [[ -f "$XAUTHORITY" && ! -L "$XAUTHORITY" ]] || fail "xauthority_invalid"
-    x11_args+=( -auth "$XAUTHORITY" )
-  fi
   start_detached x11vnc "${x11_args[@]}"
   x11_pid="$STARTED_PID"
   wait_for_loopback_port "$VNC_PORT" || fail "vnc_start_failed"
@@ -376,11 +407,22 @@ client_start() {
   [[ ! -e "$CLIENT_STATE_FILE" && ! -S "$CONTROL_SOCKET" ]] || fail "already_started"
   port_is_available "$LOCAL_PORT" || fail "local_port_in_use"
 
-  "$SSH_BIN" -T "$HOST" -- "$REMOTE_SCRIPT" host-start \
+  local vnc_secret
+  vnc_secret="$(python3 -I - <<'PY'
+import secrets
+print(secrets.token_urlsafe(32))
+PY
+)" || fail "vnc_secret_create_failed"
+  [[ "$vnc_secret" =~ ^[A-Za-z0-9_-]{24,128}$ ]] || fail "vnc_secret_create_failed"
+  if ! printf '%s\n' "$vnc_secret" | "$SSH_BIN" -T "$HOST" -- "$REMOTE_SCRIPT" host-start \
     --display "$DISPLAY_VALUE" \
     --web-port "$WEB_PORT" \
     --vnc-port "$VNC_PORT" \
-    --auth-mode "$AUTH_MODE" >/dev/null
+    --auth-mode "$AUTH_MODE" \
+    --password-stdin >/dev/null; then
+    unset vnc_secret
+    fail "vps_helper_start_failed"
+  fi
 
   if ! "$SSH_BIN" \
     -M \
@@ -401,11 +443,14 @@ client_start() {
     HOST "$HOST" \
     LOCAL_PORT "$LOCAL_PORT" \
     WEB_PORT "$WEB_PORT" \
-    REMOTE_SCRIPT "$REMOTE_SCRIPT"
+    REMOTE_SCRIPT "$REMOTE_SCRIPT" \
+    VNC_PASSWORD "$vnc_secret"
+  unset vnc_secret
 
   local browser_url="http://127.0.0.1:$LOCAL_PORT/vnc.html?autoconnect=1&resize=scale"
   printf '%s: ready via %s\n' "$COMMAND_NAME" "$HOST"
   printf 'Open: %s\n' "$browser_url"
+  printf 'VNC password: stored in private state file %s\n' "$CLIENT_STATE_FILE"
   printf 'Teardown: %s teardown\n' "$0"
   if [[ "$OPEN_BROWSER" == true && "$(uname -s)" == "Darwin" ]] && command -v open >/dev/null 2>&1; then
     open "$browser_url" >/dev/null 2>&1 || true

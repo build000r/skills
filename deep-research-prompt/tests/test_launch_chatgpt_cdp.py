@@ -114,8 +114,13 @@ class _FakeCdpHandler(socketserver.BaseRequestHandler):
             + f"Sec-WebSocket-Accept: {accept}\r\n\r\n".encode("ascii")
         )
 
-        for _ in range(3):
-            message = self._read_websocket_json()
+        # getProcessInfo → getTargets → createTarget (cold) → getTargetInfo
+        # (+ optional closeTarget when surplus pages exist). Cap reads.
+        for _ in range(12):
+            try:
+                message = self._read_websocket_json()
+            except ConnectionError:
+                break
             self.server.messages.append(message)
             method = message.get("method")
             message_id = message["id"]
@@ -126,6 +131,14 @@ class _FakeCdpHandler(socketserver.BaseRequestHandler):
                         "processInfo": [
                             {"type": "browser", "id": 4242, "cpuTime": 0.1}
                         ]
+                    },
+                }
+            elif method == "Target.getTargets":
+                response = {
+                    "id": message_id,
+                    "result": {
+                        # Empty page list forces createTarget (cold-launch path).
+                        "targetInfos": list(self.server.seed_targets),
                     },
                 }
             elif method == "Target.createTarget":
@@ -145,12 +158,20 @@ class _FakeCdpHandler(socketserver.BaseRequestHandler):
                         }
                     },
                 }
+            elif method == "Target.closeTarget":
+                response = {
+                    "id": message_id,
+                    "result": {"success": True},
+                }
             else:
                 response = {
                     "id": message_id,
                     "error": {"message": f"unexpected method: {method}"},
                 }
             self._send_websocket_json(response)
+            if method == "Target.getTargetInfo":
+                # Launcher emits the keeper and closes the socket after this.
+                break
 
 
 class _FakeCdpServer(socketserver.ThreadingTCPServer):
@@ -161,6 +182,8 @@ class _FakeCdpServer(socketserver.ThreadingTCPServer):
         super().__init__(("127.0.0.1", 0), _FakeCdpHandler)
         self.target_url = target_url
         self.messages: list[dict[str, object]] = []
+        # Optional seed pages for Target.getTargets (leak / reuse tests).
+        self.seed_targets: list[dict[str, object]] = []
 
 
 class LaunchChatgptCdpTests(unittest.TestCase):
@@ -235,10 +258,11 @@ class LaunchChatgptCdpTests(unittest.TestCase):
             script="$(cat)"
             for required in \
               "SystemInfo.getProcessInfo" \
+              "Target.getTargets" \
               "Target.createTarget" \
+              "Target.closeTarget" \
               "background: true" \
               "Target.getTargetInfo" \
-              "target.targetId !== createdTargetId" \
               "allowedMethods"
             do
               [[ "$script" == *"$required"* ]] || {
@@ -520,6 +544,20 @@ class LaunchChatgptCdpTests(unittest.TestCase):
         self.assertIsNotNone(node)
         self.assertIsNotNone(curl)
         server = _FakeCdpServer("https://chatgpt.com/")
+        server.seed_targets = [
+            {
+                "targetId": "persistent-pool-target",
+                "type": "page",
+                "url": "https://chatgpt.com/c/persistent-conversation",
+                "title": "Existing conversation",
+            },
+            {
+                "targetId": "surplus-blank-target",
+                "type": "page",
+                "url": "about:blank",
+                "title": "",
+            },
+        ]
         self.port = str(server.server_address[1])
         self.state_path.touch()
         preload_marker = self.root / "node-preload-ran"
@@ -555,12 +593,14 @@ class LaunchChatgptCdpTests(unittest.TestCase):
             [message["method"] for message in server.messages],
             [
                 "SystemInfo.getProcessInfo",
+                "Target.getTargets",
                 "Target.createTarget",
+                "Target.closeTarget",
                 "Target.getTargetInfo",
             ],
         )
         self.assertEqual(
-            server.messages[1]["params"],
+            server.messages[2]["params"],
             {
                 "url": "https://chatgpt.com/",
                 "background": True,
@@ -568,8 +608,20 @@ class LaunchChatgptCdpTests(unittest.TestCase):
             },
         )
         self.assertEqual(
-            server.messages[2]["params"],
+            server.messages[3]["params"],
+            {"targetId": "surplus-blank-target"},
+        )
+        self.assertEqual(
+            server.messages[4]["params"],
             {"targetId": "real-cdp-target"},
+        )
+        self.assertNotIn(
+            {"targetId": "persistent-pool-target"},
+            [
+                message.get("params")
+                for message in server.messages
+                if message.get("method") == "Target.closeTarget"
+            ],
         )
 
     def test_test_only_attestation_executes_cold_cache_and_warm_dynamic_paths(

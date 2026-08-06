@@ -26,16 +26,21 @@
  *   have.
  *
  * ENV
- *   ORACLE_CDP_PORT               loopback CDP port (default 9222)
+ *   ORACLE_CDP_PORT               loopback CDP port (fallback after config)
+ *   ORACLE_CONFIG_PATH            oracle config JSON (default ~/.oracle/config.json)
  *   ORACLE_ASK_MODEL              default model slug/alias (default `pro`)
  *   ORACLE_ASK_TIMEOUT_SECONDS    answer deadline (default 900)
  *   ORACLE_PROFILE_DIRECTORY      Chrome subprofile for the launcher hint
  *   ORACLE_CHATGPT_PROJECT_URL    target URL for the launcher hint
  *   ORACLE_ASK_BIN_DIR            install destination (default ~/.local/bin)
+ *
+ * Config (when env is process.env / real CLI):
+ *   ~/.oracle/config.json field "cdp_port" (or "cdpPort") — e.g. 19222 on
+ *   skillbox-portfolio-devbox where 9222 is owned by tailscaled.
  */
 
 import { spawnSync } from "node:child_process";
-import { realpathSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { mkdir, readFile, symlink, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -54,6 +59,62 @@ import {
 export const DEFAULT_PORT = 9222;
 export const DEFAULT_TIMEOUT_SECONDS = 900;
 export const INSTALL_NAME = "oracle-ask";
+export const DEFAULT_CONFIG_PATH = join(homedir(), ".oracle", "config.json");
+
+/**
+ * Resolve loopback CDP port.
+ *
+ * Priority:
+ *   1. ~/.oracle/config.json `cdp_port` / `cdpPort` when config is consulted
+ *   2. ORACLE_CDP_PORT env
+ *   3. DEFAULT_PORT (9222)
+ *
+ * Host config is the pin (e.g. 19222 on skillbox-portfolio-devbox). It wins
+ * over ambient overlay env that still ships ORACLE_CDP_PORT=9222, so
+ * `sbp oracle --doctor` needs no --port. Explicit CLI `--port` still wins
+ * because parseArgs overwrites after resolve.
+ *
+ * Config is read only when `env` is `process.env` (real CLI) or
+ * `options.useConfig === true`, so pure unit tests that pass `{}` stay on
+ * DEFAULT_PORT without host config pollution.
+ */
+export function resolveCdpPort(env = process.env, options = {}) {
+  const useConfig =
+    options.useConfig ?? Object.is(env, process.env);
+  if (useConfig) {
+    const configPath =
+      options.configPath ||
+      env?.ORACLE_CONFIG_PATH ||
+      DEFAULT_CONFIG_PATH;
+    try {
+      const reader = options.readFileSyncImpl ?? readFileSync;
+      const raw = reader(configPath, "utf8");
+      const data = JSON.parse(raw);
+      if (data && typeof data === "object" && !Array.isArray(data)) {
+        const candidate = data.cdp_port ?? data.cdpPort;
+        const fromConfig = Number(candidate);
+        if (
+          Number.isFinite(fromConfig) &&
+          fromConfig >= 1 &&
+          fromConfig <= 65535
+        ) {
+          return Math.trunc(fromConfig);
+        }
+      }
+    } catch {
+      // Missing/unreadable/invalid config → fall through to env/default.
+    }
+  }
+  const rawEnv = env?.ORACLE_CDP_PORT;
+  if (rawEnv !== undefined && String(rawEnv).trim() !== "") {
+    const fromEnv = Number(rawEnv);
+    if (Number.isFinite(fromEnv) && fromEnv >= 1 && fromEnv <= 65535) {
+      return Math.trunc(fromEnv);
+    }
+    if (Number.isFinite(fromEnv)) return fromEnv;
+  }
+  return DEFAULT_PORT;
+}
 
 /**
  * Friendly names for the slugs a caller actually wants. Anything unrecognised
@@ -114,11 +175,11 @@ export const LAST_THREAD_PATH = join(
  * Positional words are the prompt. `--` ends option parsing so a prompt may
  * begin with a dash. Prompt text is never required to be quoted-as-one-arg.
  */
-export function parseArgs(argv, env = {}) {
+export function parseArgs(argv, env = {}, options = {}) {
   const out = {
     model: env.ORACLE_ASK_MODEL || DEFAULT_MODEL_ALIAS,
     timeoutSeconds: Number(env.ORACLE_ASK_TIMEOUT_SECONDS || DEFAULT_TIMEOUT_SECONDS),
-    port: Number(env.ORACLE_CDP_PORT || DEFAULT_PORT),
+    port: resolveCdpPort(env, options),
     // Answers file into this ChatGPT Project. Accepts a full project URL or a
     // bare g-p-… id. Without it the answer lands in root chat.
     project: env.ORACLE_CHATGPT_PROJECT_URL || null,
@@ -450,7 +511,8 @@ export const USAGE = `oracle-ask — ask GPT-5 Pro one question; get the answer 
 Options
   --model <slug|alias>   pro (default) | thinking | instant | research | raw slug
   --timeout <seconds>    answer deadline (default ${DEFAULT_TIMEOUT_SECONDS})
-  --port <n>             loopback CDP port (default ${DEFAULT_PORT})
+  --port <n>             loopback CDP port
+                         (~/.oracle/config.json cdp_port > ORACLE_CDP_PORT > ${DEFAULT_PORT})
   --project <url|g-p-id> file the answer into a ChatGPT Project
                          (default \$ORACLE_CHATGPT_PROJECT_URL; else root chat)
   --continue             continue the last thread (default: start a new one)
@@ -508,14 +570,31 @@ async function main(argv) {
     return EXIT.ok;
   }
 
+  // Propagate resolved port so child tools (and any helper that only reads env)
+  // agree with ~/.oracle/config.json without requiring --port on every call.
+  if (!process.env.ORACLE_CDP_PORT) {
+    process.env.ORACLE_CDP_PORT = String(args.port);
+  }
+
   if (args.doctor) {
-    const report = runAuthDoctor();
+    const report = runAuthDoctor({
+      spawn: (command, spawnArgs, options = {}) =>
+        spawnSync(command, spawnArgs, {
+          ...options,
+          env: {
+            ...process.env,
+            ...(options.env || {}),
+            ORACLE_CDP_PORT: String(args.port),
+          },
+        }),
+    });
     process.stdout.write(
       JSON.stringify(
         {
           ready: report.ok,
           reasons: report.reasons,
           checks: report.checks,
+          cdp_port: args.port,
         },
         null,
         2,

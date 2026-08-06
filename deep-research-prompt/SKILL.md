@@ -1,21 +1,38 @@
 ---
 name: deep-research-prompt
-description: Produce copy-pasteable mega-prompts for external deep research tools (ChatGPT Deep Research, Perplexity Deep Research, Claude Research), Oracle-ready prompt handoffs when the current run should execute GPT-5 Pro / Deep Research directly, and high-detail image-creation prompts for ChatGPT image creation via Oracle. Use when the user asks for "a prompt for another agent to research X", "mega prompt for deep research", "draft a research prompt", "make a prompt to paste into ChatGPT deep research", "prompt for another agent to do all the Y", "image prompt", "make an image prompt", "use this image/style/contact sheet as visual inspiration", "describe these references for an image generator", "get this off the page", "better vibes", "image to the left/right", or when another skill needs a bounded external-reality pass before a strategic decision or document update. Not for inline research the current agent can do with WebFetch/WebSearch, and not for prompts asking another agent to write code or edit files.
+description: Ask GPT-5 Pro a question directly, produce copy-pasteable mega-prompts for external deep research tools (ChatGPT Deep Research, Perplexity, Claude Research), execute Deep Research runs, and write high-detail image-creation prompts for ChatGPT image creation. Use when the user says "ask GPT-5 Pro", "ask the oracle", "what would Pro say", "a prompt for another agent to research X", "mega prompt for deep research", "draft a research prompt", "prompt for another agent to do all the Y", "image prompt", "make an image prompt", "use this image/style/contact sheet as visual inspiration", "get this off the page", "better vibes", "image to the left/right", or when another skill needs a bounded external-reality pass before a strategic decision or document update. Not for inline research the current agent can do with WebFetch/WebSearch, and not for prompts asking another agent to write code or edit files.
 depends_on:
-  - skill-issue   # optional: scripts/resolve_overlay_config.py supplies per-project ORACLE_* env from the matched overlay
+  - skill-issue   # optional: scripts/resolve_overlay_config.py supplies per-project ORACLE_* env for the DOM fallback lane only
 ---
 
 # Deep research prompt
 
-Produce a single standalone deep-research prompt and, by default, **execute it** when `oracle` is on PATH: `oracle` renders the prompt+files bundle, and the bundled **verified composer flow** (CDP) selects the Pro model and Deep research tool, proves both at the DOM level, and submits in that same verified tab. The prompt must still survive copy/paste cleanly, because paste mode is the documented fallback — but paste mode is no longer the default.
+Two jobs, one skill:
 
-**Hard rule — never ask the user to copy and paste when `oracle` is on PATH.** Run the verified composer flow. Do not hand back a code block with "paste this into ChatGPT" and stop there. The owner of this skill flagged that exact behavior as the thing to stop doing. Paste mode is only correct when (1) `oracle` is genuinely missing from PATH, (2) the user explicitly asked for `paste-only` / a Perplexity / Claude Research target, (3) the caller skill explicitly asked for paste output, or (4) the verified flow itself is blocked (no logged-in profile, CDP unreachable, `verify-ready` cannot be made to pass) and the user chooses manual fallback.
+1. **Ask the oracle a question.** One command in, the answer out. GPT-5 Pro
+   answers over HTTPS in roughly 10–30 s. This is the default for anything
+   shaped like a question. See "Ask mode" below — it is the whole procedure.
+2. **Compose a deep-research mega-prompt** for a long-running Deep Research or
+   image run, then either execute it or hand it over for pasting. The prompt
+   craft rules start at "The core contract".
 
-**Hard rule — Oracle renders; CDP submits.** For ChatGPT Deep Research browser runs, never let Oracle itself click the model picker or the send button. Observed June 2026 on Oracle v0.9.0: its model-selector click fails against the current ChatGPT UI, `--browser-model-strategy ignore` submits on Instant with Deep research off (a garbage run that looks launched), and `--pre-submit-hook` fires only after the send click. Use `oracle --render` for the bundle and `assets/scripts/chatgpt-composer.mjs` for selection, verification, paste, and send — with `verify-ready` (Pro + Deep research proven in the DOM) as the hard gate before sending. Full sequence and UI gotchas: `references/deep-research-tool-toggle.md` → "Verified composer flow".
+**Hard rule — asking is one command, not a project.** When the user wants the
+oracle's opinion, run `oracle-ask`. Do not resolve `SKILL_DIR` in a loop, do not
+`eval` an overlay config, do not launch a browser, do not render an Oracle
+bundle, and do not drive the DOM composer. Those steps exist only in the
+fallback lane, for the things Ask mode genuinely cannot do (file attachments,
+Deep Research review cards, image generation).
 
-**Fail-closed rule for tab-local ChatGPT tools.** Deep Research and Create image are composer/tab-local. If the route guard says the installed Oracle opens a fresh remote ChatGPT tab, stop before toggling or submitting. Report the prompt/spec file path and the exact blocker. Do not "try anyway", do not rely on `--chatgpt-url` as a pin, and do not silently downgrade to a normal non-Deep-Research Oracle turn.
+**Hard rule — never ask the user to copy and paste** when Ask mode or the
+fallback lane is available. Paste mode is only correct when (1) the user
+explicitly asked for `paste-only`, (2) the target is Perplexity or Claude
+Research rather than ChatGPT, (3) the caller skill explicitly asked for paste
+output, or (4) every execution lane is blocked and the user chose manual
+fallback.
 
-**Execution-effort rule.** A route-blocked result is a blocked ChatGPT tab-local submission, not a completed launch. When the user asked to "launch", "run", "generate", or otherwise expected execution, do not stop at prompt/spec preparation if another route-independent execution lane exists. After the guarded ChatGPT path blocks, make one clearly labeled fallback attempt or control probe that cannot accidentally submit to the wrong ChatGPT tab, such as an available first-party image tool, Oracle/Gemini image generation, or a repo-local render/export path. Label it as a fallback, attach/source the same assets when the lane supports files, and report the exact success or failure evidence. Do not call the original ChatGPT Image/Deep Research request "launched" unless that exact tool actually received the job.
+**Hard rule — fail loudly, never silently.** A blocked lane is a blocked run,
+not a completed one. Report the exact blocker and the file path. Never downgrade
+to a weaker model, a different tool, or paste mode without saying so.
 
 ## First Progress Marker (Required)
 
@@ -25,523 +42,449 @@ Preferred format: `Using deep-research-prompt to <goal>. First I will <next conc
 
 Do not change or omit that prefix.
 
-## When to use this
+---
 
-Invoked when the user wants a structured research task delegated to an external deep research tool. Strong trigger phrases:
-
-- "make a prompt for another agent to research ..."
-- "mega prompt for deep research"
-- "prompt for another agent to go do all the X"
-- "draft a research prompt I can paste into ChatGPT Deep Research / Perplexity / Claude Research"
-- "I want to send this to a deep research tool"
-- "/deep-research-prompt"
-- "image" / "image prompt" / "make an image prompt" / "image creator prompt" — selects Image execute mode below
-- "use this image/style/contact sheet as visual inspiration"
-- "describe these references for an image generator"
-- "get this off the page", "better vibes", "put the image to the left/right" when the request is really asking for an image-generation/spec handoff
-
-## Do not use for
-
-- Research the current agent can do inline with `WebFetch` or `WebSearch` in a handful of calls. Just do it.
-- Short lookups (fewer than ~10 facts). The overhead of a deep research prompt is not worth it.
-- Prompts for agents that will write code, edit files, or execute commands. Those belong to the `Agent` tool, not a deep research prompt.
-- Interactive back-and-forth with a research agent. Deep research tools are one-shot report generators; multi-turn dialogue is a different contract.
-
-## Three delivery modes
-
-Pick one mode from context and say which one you are producing:
-
-- **Oracle execute mode** (default when `oracle` is on PATH) — the current run writes the prompt to `/tmp/<slug>-deep-research-<date>.md`, renders the bundle with `oracle --render`, and submits via the verified composer flow (CDP): Pro + Deep research proven in the DOM before send. User does not paste anything. This is the new default; see "Oracle execute mode contract" below.
-- **Route-blocked execute attempt** (automatic safety stop when `oracle` is on PATH but the verified flow is blocked — no logged-in profile, CDP unreachable, `verify-ready` unfixable — or, for Image mode, the route guard fails) — the current run writes and sizes the prompt/spec and stops before submitting to the unsafe tab-local tool. User gets the file path and blocker, not a fake Oracle session. If execution was requested, also attempt one clearly labeled route-independent fallback/control probe when available and report that evidence separately.
-- **Paste mode** (fallback) — used only when `oracle` is not on PATH, the user explicitly asked for `paste-only`, or the target is Perplexity / Claude Research rather than ChatGPT. The user will paste the prompt into the external tool themselves.
-- **Image execute mode** (default when `oracle` is on PATH, the user asked for an image, and the route guard passes) — the prompt is an image-generation spec, not a research task spec. The skill writes it to `/tmp/<slug>-image-<date>.md`, toggles ChatGPT's Create image tool via the CDP helper, then runs Oracle headlessly against the same Chrome. Sibling of Oracle execute mode; see "Image execute mode contract" below. Falls back to Image paste mode only if Oracle is missing, the user asked for paste-only, or the route guard blocks and the user explicitly chooses manual fallback.
-
-### Oracle execute mode contract (default)
-
-This is what the skill does when `oracle` is on PATH and neither `paste-only` nor an explicit Perplexity/Claude Research target was requested:
-
-First, source the project's oracle config so the right ChatGPT account/profile, project URL, CDP port, and engine/model defaults apply to this whole flow (soft dependency on `skill-issue`; no-op when absent — see `references/deep-research-tool-toggle.md` → "Project oracle config"):
+## Ask mode (default for questions)
 
 ```bash
-RESOLVER=""
-for d in "./.claude/skills/skill-issue" "$HOME/.claude/skills/skill-issue"; do
-  [ -f "$d/scripts/resolve_overlay_config.py" ] && { RESOLVER="$d/scripts/resolve_overlay_config.py"; break; }
-done
-[ -n "$RESOLVER" ] && eval "$(python3 "$RESOLVER" --section oracle --format env)"
+ASK=$(ls -d ./.claude/skills/deep-research-prompt/assets/scripts/oracle-ask.mjs \
+             "$HOME"/.claude/skills/deep-research-prompt/assets/scripts/oracle-ask.mjs 2>/dev/null | head -1)
+node "${ASK:?deep-research-prompt is not activated here}" \
+  "Why would a p99 go bimodal while p50 stays flat?"
 ```
 
-1. Compose the standalone prompt block (same content rules as paste mode — self-announcing first line, hard constraints, completion criteria).
-2. Write it to `/tmp/<slug>-deep-research-<date>.md`.
-3. Run a sizing check: `oracle --dry-run summary --file /tmp/<slug>-deep-research-<date>.md`. If it reports oversized input, fix the prompt (usually by tightening scope or dropping attached files) and retry before the real run.
-4. Resolve the skill directory:
-   ```
-   SKILL_DIR=""
-   for d in "./.claude/skills/deep-research-prompt" "$HOME/.claude/skills/deep-research-prompt"; do
-     [ -f "$d/SKILL.md" ] && { SKILL_DIR="$d"; break; }
-   done
-   [ -n "$SKILL_DIR" ] || { echo "deep-research-prompt skill not activated" >&2; exit 1; }
-   ```
-5. Launch a dedicated CDP Chrome on a **clone** of the logged-in ChatGPT
-   profile and confirm the tab list shows the logged-in account:
-   ```
-   "$SKILL_DIR/assets/scripts/launch-chatgpt-cdp.sh"
-   ```
-   It honors `ORACLE_CDP_PORT`, `ORACLE_BROWSER_PROFILE_DIR`,
-   `ORACLE_PROFILE_DIRECTORY` (the logged-in session is often in a subprofile
-   like `Profile 1`, not `Default`), and `ORACLE_CHATGPT_PROJECT_URL`. If it
-   exits non-zero or the tab is a logged-out page, stop and report the blocker
-   — do not submit anywhere.
-6. Render the full prompt+files bundle with Oracle (**render only — Oracle
-   never submits a Deep Research run**):
-   ```
-   oracle --render --render-plain --engine browser \
-     --model "${ORACLE_DEFAULT_MODEL:-gpt-5-pro}" --slug <slug> \
-     -p "$(cat /tmp/<slug>-deep-research-<date>.md)" \
-     --file <context-files...> > /tmp/<slug>.oracle-rendered.md
-   ```
-7. Run the verified composer flow — every step prints JSON and exits non-zero
-   on failure (full sequence and ChatGPT UI gotchas in
-   `references/deep-research-tool-toggle.md` → "Verified composer flow"):
-   ```
-   C() { node "$SKILL_DIR/assets/scripts/chatgpt-composer.mjs" "$@"; }
-   C clear
-   C select-pro
-   node "$SKILL_DIR/assets/scripts/toggle-deep-research.mjs"
-   C verify-ready                              # HARD GATE: Pro + Deep research
-   C paste-file /tmp/<slug>.oracle-rendered.md
-   C verify-ready                              # paste must not reset the state
-   C send
-   C start-research                            # Deep Research review card Start
-   C verify-started                            # generation evidence required
-   C screenshot /tmp/<slug>-submitted.png
-   ```
-   If `verify-ready` fails, fix selection before sending — never send
-   unverified. If a DOM step fails twice, take a screenshot, read it, adjust.
-   A user-turn-only conversation is submission evidence, not generation
-   evidence: `verify-started` (or the watcher) must see researching UI, a stop
-   button, or an assistant turn before the run is called launched.
-8. For runs where the actual dossier is the deliverable, add the optional
-   completion-capture phase after submission:
-   ```
-   DEEP_RESEARCH_OUTPUT=/tmp/<slug>-deep-research-result.md \
-     ORACLE_CHATGPT_URL_MATCH="<unique-project-or-conversation-path>" \
-     node "$SKILL_DIR/assets/scripts/await-deep-research.mjs"
-   ```
-   This watcher connects to the same Chrome DevTools port, waits about 30
-   minutes before its first poll, then polls about every 15 minutes until the
-   final assistant/research text appears stable or about 2 hours have elapsed.
-   It writes the captured report to stdout and to `DEEP_RESEARCH_OUTPUT` when
-   set. If the caller already waited about 30 minutes before starting the
-   watcher, add `--no-initial-delay`. Treat non-zero exit as a real capture
-   failure; the helper is CDP/UI fragile and is not proof that Deep Research
-   completed unless it actually extracted the assistant output.
-9. Return to the user a short launch line: the slug, the submitted conversation URL, the `verify-ready` / `verify-started` evidence (plus the screenshot path), and — when the watcher was started — the output path and monitor command. Do **not** also print the prompt block — that is what the user explicitly said not to do.
+That is the complete procedure. The answer is on stdout; progress lines go to
+stderr; a non-zero exit means nothing was submitted and the reason is printed
+with the command that fixes it.
 
-If any of steps 3–7 fail, report the failure plainly and **do not** silently fall back to paste mode; ask the user whether to retry, patch, or fall back.
+Optional one-time convenience — after this the command is literally one word:
+
+```bash
+node "$ASK" --install     # writes a shim to ~/.local/bin/oracle-ask
+oracle-ask "your question"
+```
+
+### Projects and cheap iteration
+
+Answers land in root chat unless a Project is named. Set
+`ORACLE_CHATGPT_PROJECT_URL` (the overlay already supplies it) or pass
+`--project`, and the turn is filed into that Project so the work is trackable:
+
+```bash
+oracle-ask --project https://chatgpt.com/g/g-p-<id>/project "your question"
+```
+
+`--project` accepts a full Project URL or a bare `g-p-…` id. Verify placement
+against the Project itself, not the progress line:
+`GET /backend-api/gizmos/<g-p-id>/conversations`.
+
+**While testing, do not burn Pro usage.** `--model instant` answers the same
+question on `gpt-5-5-instant` — measured 7s versus 27s for Pro, and it does not
+consume the Pro allowance. Use `pro` only when the answer quality is the point.
+
+### What you get by default
+
+| | |
+|---|---|
+| Model | GPT-5 Pro (`gpt-5-6-pro`) |
+| Deadline | 900 s |
+| Transport | HTTPS to the ChatGPT backend; zero CSS selectors |
+| Browser role | credential + one anti-abuse token per question, over loopback CDP |
+| Output | answer text on stdout |
+
+### The flags that actually matter
+
+```bash
+node "$ASK" --prompt-file /tmp/question.md --out /tmp/answer.md   # long prompt, saved answer
+node "$ASK" --model thinking "quick sanity check"                  # pro | thinking | instant | research | raw slug
+node "$ASK" --timeout 3600 "<a genuinely hard question>"           # longer deadline
+node "$ASK" --json "..."                                           # result object incl. conversationId
+node "$ASK" --doctor                                               # readiness only; submits nothing
+```
+
+`--models` lists what the account can select. Anything unrecognised passed to
+`--model` is forwarded verbatim, so a new slug never needs a code change.
+
+### When Ask mode is not ready
+
+`--doctor` and every failure path print the remediation. The usual one is that
+no signed-in Chrome is exposing loopback CDP, and the fix is the launcher —
+which needs the enrolled subprofile and target, not its defaults:
+
+```bash
+ORACLE_PROFILE_DIRECTORY="<subprofile holding the signed-in session>" \
+ORACLE_CHATGPT_PROJECT_URL="<project or conversation URL>" \
+  assets/scripts/launch-chatgpt-cdp.sh
+```
+
+The launcher defaults to profile `Default` and root `chatgpt.com`; the enrolled
+session usually lives in a subprofile such as `Profile 1`. Set both variables.
+
+Exit codes: `0` answered · `2` usage · `3` lane not ready · `4` upstream refused
+(auth or anti-abuse) · `5` deadline · `1` other.
+
+### What Ask mode cannot do
+
+**File attachments** (the prompt is text only — inline what matters),
+**Deep Research runs** with the review card and 20–90 minute dossier (the
+`research` slug is selectable but has never been exercised on this lane), and
+**image generation**. For all three, use the DOM fallback lane below — it is
+plan B, not a downgrade.
+
+Background: `references/chatgpt-backend-api.md` (reconstructed contract, what is
+observed vs inferred vs unknown) and `references/oracle-credential-portability.md`
+(running the credential off this Mac, via `assets/scripts/oracle-credential.mjs`).
+
+---
+
+## DOM fallback lane (plan B)
+
+Use only when Ask mode is blocked or the run needs attachments, a Deep Research
+review card, or a long-running dossier. This lane drives the real ChatGPT UI
+over CDP and is correspondingly fragile — it carries ~35 CSS selectors that a
+redesign can break. **The full canonical sequence, with every UI gotcha, lives
+in `references/deep-research-tool-toggle.md` → "Verified composer flow". Follow
+it there rather than reconstructing it here.** The shape:
+
+1. Write the prompt to `/tmp/<slug>-deep-research-<date>.md` and size it:
+   `oracle --dry-run summary --file <promptfile>`.
+2. Optionally source per-project ChatGPT config (soft dependency on
+   `skill-issue`; no-op when absent):
+   `eval "$(python3 <skill-issue>/scripts/resolve_overlay_config.py --section oracle --format env)"`.
+3. Launch the dedicated CDP Chrome (`assets/scripts/launch-chatgpt-cdp.sh`) and
+   confirm the tab list shows the signed-in account.
+4. Render the bundle — **render only, Oracle never submits a Deep Research run**:
+   `oracle --render --render-plain --engine browser --model "${ORACLE_DEFAULT_MODEL:-gpt-5-pro}" ...`
+5. Drive `assets/scripts/chatgpt-composer.mjs`: `clear` → `select-pro` →
+   `toggle-deep-research.mjs` → `verify-ready` → `paste-file` → `verify-ready`
+   again → `send` → `start-research` → `verify-started` → `screenshot`.
+6. Capture the dossier with `assets/scripts/await-deep-research.mjs`.
+
+Non-negotiables for this lane:
+
+- `verify-ready` is a **hard gate**. Pro and Deep research must be proven in the
+  DOM before `send`, and again after paste. Never send unverified.
+- A user-turn-only conversation is submission evidence, not generation evidence.
+  `verify-started` (or the watcher) must see researching UI, a stop button, or an
+  assistant turn before calling the run launched.
+- **Oracle renders; CDP submits.** Observed on Oracle v0.9.0: its model-selector
+  click fails against the current UI, `--browser-model-strategy ignore` submits
+  on Instant with Deep research off (a garbage run that looks launched), and
+  `--pre-submit-hook` fires only after the send click.
+- **Fail-closed on tab-local tools.** Deep research and Create image are
+  composer/tab-local. If `assets/scripts/check-oracle-tab-local-route.mjs` says
+  the installed Oracle opens a fresh remote tab, stop before toggling or
+  submitting. Do not "try anyway"; `--chatgpt-url` is not a pin.
+
+### Stable oracle-subagent controller
+
+For long-running Deep Research work that must survive the caller, use the
+bundled controller instead of hand-driving the sequence. It owns private run
+artifacts, exact-target preflight, dedupe/reattach, a hidden worker, truthful
+status, bounded waiting, and verified result publication:
+
+```bash
+ORACLE_SUBAGENT="$SKILL_DIR/assets/scripts/oracle-subagent.mjs"
+
+node "$ORACLE_SUBAGENT" run --slug <slug> \
+  --prompt-file /tmp/<slug>-deep-research-<date>.md \
+  --file <context-file> --mode deep-research \
+  --wait started --timeout-seconds 7200 --json
+
+node "$ORACLE_SUBAGENT" status --run-id <run-id> --json
+node "$ORACLE_SUBAGENT" wait --run-id <run-id> --for completed --result /tmp/<slug>-result.md --json
+node "$ORACLE_SUBAGENT" run --reattach <run-id> --wait completed --json
+```
+
+Prompt text is never accepted on argv. `--wait none` detaches, `started`
+requires generation evidence, `completed` blocks for terminal truth.
+`--timeout-seconds` bounds the caller's wait, not the detached run: the worker
+has its own 12-hour deadline inside a 24-hour queue lease.
+
+`run --reattach` may return `resume_directive`. `execute` and `restart_worker`
+start exactly one worker; `wait` means the run is still queued; `monitor` and
+`reconcile_submission` deliberately never resend at or after the browser send
+boundary. Keep waiting on the same run ID or report the bounded timeout — never
+turn a directive into a fresh submission.
+
+The controller honors the normalized `ORACLE_CHATGPT_PROJECT_URL` from the
+active overlay, binds that exact root or Project path into its private browser
+pool, and re-proves access before every worker start. Changing the configured
+target invalidates the old pool instead of silently navigating elsewhere.
 
 ### Paste-mode fallback contract
 
-Only reached when `oracle` is missing, the user said `paste-only`, or the target is Perplexity / Claude Research. In that case the skill still produces the standalone prompt block, plus:
+Reached when the user said `paste-only`, the target is Perplexity / Claude
+Research, or every execution lane is blocked and the user chose manual fallback.
+Produce the standalone prompt block plus:
 
 - a prompt file path like `/tmp/<slug>-deep-research-<date>.md`
-- a sizing command: `oracle --dry-run summary --file <promptfile>` (still useful — flags oversized prompts before the user pastes)
-- a run command using `oracle --engine browser --browser-manual-login --model gpt-5-pro --browser-timeout 30m -p "$(cat <promptfile>)"` — kept here so the user can copy it if Oracle reappears
-- a short verification reminder: confirm the Deep Research toggle is on, capture the Oracle session ID, and verify the resulting chat actually ran on a `gpt-5-pro`-ish model slug
+- a sizing command: `oracle --dry-run summary --file <promptfile>`
+- a verification reminder: confirm the Deep Research toggle is on, capture the
+  session ID, and verify the chat actually ran on a `gpt-5-pro`-ish model slug
 
-### Image execute mode contract (default when `oracle` is on PATH and the user asked for an image)
+## Image execute mode
 
-Sibling of Oracle execute mode. Same shape, different composer tool, different Oracle timeout.
+Sibling lane for image generation. Ask mode cannot do this; the composer's
+Create image tool is tab-local, so this stays on the guarded Oracle+CDP path.
 
-**Run storage.** When the caller supplies a per-run directory (for example,
-ui-fresh-eyes routes its `oracle-image` delivery under
-`<repo>/.fresh-eyes/runs/<slug>/`), write the spec, copied source images,
-and Oracle log there instead of `/tmp` so the run is project-traceable and
-parallel runs do not collide. Honor `DEEP_RESEARCH_RUN_ROOT` when set —
-treat it as the parent for `<run-root>/spec.md`, `<run-root>/source/`,
-`<run-root>/oracle.log`, and `<run-root>/result/`. Fall back to
-`/tmp/<slug>-image-<date>.md` and `/tmp/<slug>-source/` only when no run
-root is supplied.
+**Run storage.** When the caller supplies a per-run directory (for example
+ui-fresh-eyes routing `oracle-image` under `<repo>/.fresh-eyes/runs/<slug>/`),
+write the spec, copied source images, and Oracle log there instead of `/tmp` so
+the run is project-traceable and parallel runs do not collide. Honor
+`DEEP_RESEARCH_RUN_ROOT` when set — `<run-root>/spec.md`, `<run-root>/source/`,
+`<run-root>/oracle.log`, `<run-root>/result/`. Fall back to
+`/tmp/<slug>-image-<date>.md` and `/tmp/<slug>-source/` only when no run root is
+supplied.
 
 **Shared runner.** If a caller has already staged a run directory with
-`spec.md`, `source/`, and `result/`, do not retype the Oracle command in the
-caller. Invoke the canonical helper:
+`spec.md`, `source/`, and `result/`, do not retype the Oracle command:
 
 ```bash
 assets/scripts/run-image-execute.sh --run-dir <run-root>
 ```
 
-The helper owns sizing, same-tab route guard, Create image pre-submit hook,
-source-file attachment, command logging, Oracle log path, and route-blocked
-failure reporting. Callers such as `ui-fresh-eyes` and
-`visual-inspiration-demo` own only their domain-specific prompt/spec and source
-material staging.
+The helper owns sizing, the same-tab route guard, the Create image pre-submit
+hook, source-file attachment, command logging, the Oracle log path, and
+route-blocked failure reporting. Callers such as `ui-fresh-eyes` and
+`visual-inspiration-demo` own only their spec and source material.
 
-1. Compose the standalone image-spec block using `assets/templates/image-creation.md` (self-announcing first line, layered fields, image-drift hard constraints, verification-caption requirement).
-2. If the image request depends on visual source material, materialize and attach
-   the source images. URLs, Midjourney `/styles/...` links, and `--sref` values
-   are metadata only; they are not a substitute for pasted/attached source
-   pixels. Copy local images or downloaded/cached reference images under
-   `/tmp/<slug>-source/`, list them in the spec under `# Source visual assets`,
-   and pass each file with `--file`. If the actual source images are not
-   available, stop and ask for an upload/export instead of launching with only
-   links.
-3. Write it to `/tmp/<slug>-image-<date>.md`.
-4. Run a sizing check: `oracle --dry-run summary --file /tmp/<slug>-image-<date>.md`. If oversized, tighten the spec and retry.
-5. Resolve the skill directory once. The skill may be activated globally
-   (`~/.claude/skills/deep-research-prompt`) or project-local
-   (`./.claude/skills/deep-research-prompt`, when installed via
-   `sbp skill activate ... --cwd $PWD`). The guard and toggle helpers must be invoked
-   from whichever path actually exists:
-   ```
-   SKILL_DIR=""
-   for d in "./.claude/skills/deep-research-prompt" "$HOME/.claude/skills/deep-research-prompt"; do
-     [ -f "$d/SKILL.md" ] && { SKILL_DIR="$d"; break; }
-   done
-   [ -n "$SKILL_DIR" ] || { echo "deep-research-prompt skill not activated" >&2; exit 1; }
-   ```
-   Run the route guard before opening Chrome or toggling tools:
-   ```
-   node "$SKILL_DIR/assets/scripts/check-oracle-tab-local-route.mjs"
-   ```
-   If it exits non-zero, stop and report a route-blocked Image execute attempt
-   with the spec file path and guard output. Do not submit a text-only ChatGPT
-   turn by accident.
-6. Make sure a Chrome instance is running on the DevTools port (default `127.0.0.1:9222`) using the user's logged-in ChatGPT profile, with a `chatgpt.com` tab open. If a Chrome was launched earlier in the session for Deep research, reuse it — but first ensure the Deep research toggle is **off** (Image and Deep research are mutually exclusive composer tools).
-7. Decide how Create image will be toggled based on what made the route guard pass:
-   - If Oracle exposes `--pre-submit-hook`, do **not** pre-toggle a different tab. Pass the image toggle helper as the pre-submit hook so Oracle toggles Create image inside the exact tab it opened and will submit from.
-   - If Oracle exposes an explicit target-id/reuse-tab option instead, prepare that exact tab first and toggle Create image on that tab:
-   ```
-   node "$SKILL_DIR/assets/scripts/toggle-chatgpt-image.mjs"
-   ```
-   Non-zero exit from the helper or hook means stop and surface the reason — **do not** silently fall back to paste mode. See `references/chatgpt-image-toggle.md` for exit codes and DOM-fragility notes.
-8. Invoke Oracle against the same Chrome only when the route guard has passed
-   and the command includes whatever same-tab target option or pre-submit hook
-   the guard found. On Oracle v0.9.0, `--chatgpt-url` opens a fresh dedicated
-   remote tab; that is unsafe for Image mode and must be treated as
-   route-blocked, not as a pin.
-   ```
-   oracle \
-     --engine browser \
-     --remote-chrome 127.0.0.1:9222 \
-     --browser-model-strategy ignore \
-     --browser-attachments always \
-     --pre-submit-hook "node $SKILL_DIR/assets/scripts/toggle-chatgpt-image.mjs" \
-     --browser-timeout 15m \
-     --slug <slug> \
-     --file /tmp/<slug>-source/<reference-image>.<ext> \
-     -p "$(cat /tmp/<slug>-image-<date>.md)"
-   ```
-   Use `--browser-model-strategy ignore`, **not** `current`. Image mode hides
-   the ChatGPT model selector, so `current` exits early with
-   `Unable to locate the ChatGPT model selector button` before the prompt is
-   submitted. The model is fixed to ChatGPT's image-tool model in this
-   composer mode anyway, so verifying the selector is moot. Omit `--file`
-   only when the request has no visual source material. Image mode is
-   already on from step 7, or it is turned on by the pre-submit hook immediately
-   before upload/send, so Oracle submits the spec in Image mode.
+When no run directory was staged, follow
+`references/chatgpt-image-toggle.md` → "How the skill wires this into an Oracle
+run" (and "Parallel image runs" for concurrent tabs). The shape: compose the
+spec from `assets/templates/image-creation.md` → write it to
+`/tmp/<slug>-image-<date>.md` and size it → run the route guard **before**
+opening Chrome or toggling → ensure a `chatgpt.com` tab on the DevTools port →
+toggle Create image (via `--pre-submit-hook` when Oracle supports it, otherwise
+directly on the exact target tab) → invoke Oracle with `--remote-chrome`.
 
-   The Image toggle is **tab-local** (same hazard as the Deep research
-   toggle): if Oracle navigates to a brand-new `chatgpt.com` tab to submit,
-   the new tab will not inherit the toggle from step 7. Do not rely on
-   `--chatgpt-url` as a same-tab guarantee; the route guard must pass first.
-   Set `ORACLE_CHATGPT_URL_MATCH` to a unique substring before running the
-   toggle helper only to make the helper choose the right tab. See
-   `references/chatgpt-image-toggle.md` for details and recovery.
+Non-negotiables for this lane:
 
-   **Parallel image runs.** Image generation can run concurrently across
-   multiple `chatgpt.com` tabs in the same Chrome. Open one tab per run with
-   a unique URL marker (a `?run=<slug>` query string is enough), then for
-   each run set `ORACLE_CHATGPT_URL_MATCH=<slug>` before invoking
-   `toggle-chatgpt-image.mjs`. Run the route guard before any Oracle
-   submission; do not rely on `--chatgpt-url` matching the same URL as a
-   same-tab guarantee. The helper now refuses to silently pick one of N matching
-   tabs (exit `7` when ambiguous, exit `8` when a selector was given but did
-   not match), so the routing must be explicit per run. Same env-var
-   contract as the deep-research toggle. Full parallel-runs flow lives in
-   `references/chatgpt-image-toggle.md`.
-9. Surface the session slug for reattach (`oracle session <slug>`), and tell the user where the generated image file will be saved. Do **not** print the image-spec block back into chat.
+- **Attach the pixels.** URLs, Midjourney `/styles/...` links and `--sref`
+  values are metadata only. Copy the real images under `/tmp/<slug>-source/`,
+  list them under `# Source visual assets`, and pass each with `--file`. If they
+  are unavailable, stop and ask for an upload rather than launching with links.
+- **Guard first.** Non-zero exit from `check-oracle-tab-local-route.mjs` is a
+  route-blocked attempt: report the spec path and guard output, submit nothing.
+- Deep research must be **off** if that Chrome was used for it — Create image
+  and Deep research are mutually exclusive composer tools.
+- Use `--browser-model-strategy ignore`, **not** `current`: Image mode hides the
+  model selector, so `current` exits with `Unable to locate the ChatGPT model
+  selector button` before anything is submitted.
+- Surface the session slug for reattach (`oracle session <slug>`) and where the
+  image will be saved. Do **not** print the spec block into chat.
 
-If any of steps 4–8 fail, report the failure plainly and ask the user whether to retry, patch the toggle helper, or fall back to Image paste mode.
-
-### Image paste-mode fallback contract
-
-Reached when `oracle` is missing, the user said `paste-only`, or steps 3–6 above failed and the user opted to fall back. The skill produces the standalone image-spec block plus:
-
-- a prompt file path like `/tmp/<slug>-image-<date>.md`
-- a sizing command: `oracle --dry-run summary --file <promptfile>` (still useful — flags accidental token bloat in the spec)
-- a manual instruction: open ChatGPT in a browser tab, switch the composer to Create image, and paste the block
-- a verification reminder: confirm the resulting message actually attached a generated image (not just a written description), save the image file alongside the prompt. If the run produced text only, the model fell out of image mode — re-run after re-toggling.
+**Image paste-mode fallback** (Oracle missing, `paste-only`, or the guard
+blocked and the user opted to fall back): the spec block, the spec file path,
+the sizing command, a manual "switch the composer to Create image and paste"
+instruction, and a reminder to confirm an actual image came back — if the run
+produced text only, the model fell out of image mode.
 
 ## The core contract
 
-A deep research prompt is a **one-shot research task spec that survives being pasted alongside unrelated noise**. It must:
+A deep research prompt is a **one-shot research task spec that survives being
+pasted alongside unrelated noise**. It must:
 
-1. **Stand alone** — no reliance on surrounding context, prior conversation, or hidden framing.
+1. **Stand alone** — no reliance on surrounding context or prior conversation.
 2. **Self-announce** — first line states the role and task unambiguously.
-3. **Live in one fenced code block** — so the user can copy it cleanly.
-4. **Carry a structured output format** — not "write an essay about X" but "fill this schema, one row per entity."
-5. **Explicitly constrain sources and uncertainty** — authoritative sources, no fabrication, honest flags.
+3. **Live in one fenced code block** — so it can be copied cleanly.
+4. **Carry a structured output format** — not "write an essay about X" but
+   "fill this schema, one row per entity."
+5. **Explicitly constrain sources and uncertainty** — authoritative sources, no
+   fabrication, honest flags.
 6. **Tell the agent what to report back** — concrete completion criteria.
 
-Read `references/hygiene-rules.md` for the full failure-mode history and the four hard rules that defend against it.
+Read `references/hygiene-rules.md` for the failure-mode history behind these.
 
-## Workflow
+Ask mode is exempt from the fenced-block rule — its prompt goes over the wire,
+not through a clipboard. The content rules still apply.
+
+## Do not use this skill for
+
+Research the current agent can do inline with `WebFetch` / `WebSearch` in a
+handful of calls — just do it. Short lookups when a full research prompt is the
+ask (Ask mode is fine for a single hard question; that is what it is for).
+Prompts for agents that will write code, edit files, or run commands — those
+belong to the `Agent` tool. Interactive back-and-forth — deep research tools are
+one-shot report generators.
+
+## Workflow (for composed research prompts)
 
 ### 1. Clarify the research task shape
 
-Before writing the prompt, pin down:
+Pin down the **subject**, the **entity set** (how many discrete things — 50
+states, 8 competitors, 30 papers), the **output consumer** (the user directly or
+a downstream writing step), the **depth per entity**, and the **authority level**
+(academic, legal, commercial, journalistic).
 
-- **Subject** — what is being researched?
-- **Entity set** — how many discrete things get researched? (50 states, 8 competitors, 30 papers, 1 topic)
-- **Output consumer** — who uses the research afterwards? The user directly, or a downstream writing step?
-- **Depth per entity** — shallow fact-gather or deep synthesis per entity?
-- **Authority level** — academic, legal, commercial, journalistic?
-
-Ask at most one clarifying question — only the one thing you cannot infer from the conversation. Do not gather requirements in a long cascade. Produce a first draft fast and let the user correct it in one round.
+Ask at most one clarifying question — only the thing you cannot infer. Produce a
+first draft fast and let the user correct it in one round.
 
 ### 2. Pick an output structure
 
-Map the task to a known structure from `references/output-structures.md`:
+Map the task to a structure from `references/output-structures.md`:
+N-entity structured report · cross-jurisdiction legal · academic literature map
+· competitive intelligence sweep · decision-support matrix · image creation ·
+custom.
 
-- **N-entity structured report** — same fields repeated for each of N entities, plus cross-entity synthesis. Used for states, competitors, products, regulations.
-- **Cross-jurisdiction legal research** — specialization of N-entity with statute citations and applicability scopes.
-- **Academic literature map** — paper-by-paper with methodology, findings, and citation graph.
-- **Competitive intelligence sweep** — company-by-company with pricing, positioning, and go-to-market.
-- **Decision-support research** — options-by-criteria matrix with a recommendation.
-- **Image creation prompt** — single image, layered specification (composition, lighting, style, palette, atmosphere, constraints). Use when the delivery mode is Image execute mode (or Image paste-mode fallback). Template at `assets/templates/image-creation.md`.
-- **Custom** — none of the above fits; construct from first principles using the contract above.
-
-Generic skeleton at `assets/templates/n-entity-structured.md`. Start there for almost any N-entity task. Cross-jurisdiction legal specialization at `assets/templates/cross-jurisdiction-legal.md`. Image generation specialization at `assets/templates/image-creation.md`.
+Skeletons: `assets/templates/n-entity-structured.md` (start here for almost any
+N-entity task), `assets/templates/cross-jurisdiction-legal.md`,
+`assets/templates/image-creation.md`.
 
 ### 3. Compose the prompt
 
-Fill in the chosen skeleton with task-specific content.
+**Research-style prompts** — required sections in order:
 
-**For research-style prompts (Oracle execute mode and paste-mode fallback):** required sections in order:
+1. **Role + mission** (1 sentence) — "You are a [role]. Your sole task is to
+   [action] for [subject]. You do NOT [non-goal]."
+2. **Context** (2–4 short paragraphs) — why this research exists, who consumes
+   it, what calibration looks like. Reference an existing anchor example and
+   tell the agent to match its mechanical specificity without copying its prose.
+3. **The research question** (numbered list) — the concrete fields per entity.
+4. **Output format** — exact markdown structure, shown with inline example
+   headings and bullet labels. Prose description alone produces prose drift.
+5. **Hard constraints** — the anti-hallucination stanza plus task-specific ones.
+6. **No clarifying-question directive** — "Do not ask clarifying questions
+   before starting. Begin the research and report immediately unless a hard
+   constraint makes the task impossible; if a constraint is impossible, state
+   the blocker and proceed with the closest valid scoped report."
+7. **What to report back when done** — 3–5 concrete completion criteria.
 
-1. **Role + mission** (1 sentence) — "You are a [role]. Your sole task is to [action] for [subject]. You do NOT [non-goal]."
-2. **Context** (2-4 short paragraphs) — why this research exists, who uses the output, what calibration examples look like. If an anchor example already exists in the user's project, reference it and tell the research agent to match its mechanical specificity without copying its prose.
-3. **The research question** (numbered list) — the concrete fields the research agent must answer per entity.
-4. **Output format** — exact markdown structure the research agent must produce. Show it with inline example headings and bullet labels, not just description. Prose description alone produces prose drift.
-5. **Hard constraints** — the anti-hallucination stanza plus task-specific constraints.
-6. **No clarifying-question directive** — include this exact intent in the prompt: "Do not ask clarifying questions before starting. Begin the research and report immediately unless a hard constraint makes the task impossible; if a constraint is impossible, state the blocker and proceed with the closest valid scoped report."
-7. **What to report back when done** — 3-5 concrete completion criteria.
-
-**For image creation prompts (Image execute mode and Image paste-mode fallback):** the contract is the same — self-announcing first line, single fenced code block, hard constraints, completion criteria — but the section list differs because the deliverable is an image, not a report. Required sections in order:
-
-1. **Role + mission** (1 sentence) — "You are an image generation tool. Produce one image matching the specification below. Generate the image — do not produce a written description in lieu of the image."
-2. **Subject** — concrete, visualizable, mid-action description.
-3. **Composition and framing** — shot type, camera angle, focal length character, depth of field, subject placement, layered foreground/midground/background contents.
-4. **Setting and environment.**
-5. **Lighting** — source, direction, quality, color temperature, shadow behavior, mood of light.
-6. **Style and medium** — pick one and commit (photographic with named film stock; illustration with named tradition; 3D render aesthetic; painting medium).
-7. **Color palette** — dominant, accent, harmony, saturation, contrast.
-8. **Mood and atmosphere.**
-9. **Detail and texture.**
-10. **Aspect ratio and orientation.**
-11. **Text in image** — explicit "no text" or exact text in quotes.
-12. **Source visual assets** — only when the request uses visual references; list attached/copied source images first and put URLs or Midjourney references under metadata. Do not rely on links alone.
-13. **Hard constraints** — drift items to avoid, style boundary, behavior for unspecified regions, anatomy/physics expectations.
-14. **What to return** — the image plus a 3-5 sentence verification caption naming any deviation from spec.
-
-The image template at `assets/templates/image-creation.md` already lays this out — start there.
+**Image creation prompts** — same contract, layered sections instead (subject,
+composition, lighting, style, palette, mood, texture, aspect ratio, text-in-image,
+source assets, drift constraints, verification caption). Start from
+`assets/templates/image-creation.md`, which lays all of them out.
 
 ### 4. Add the hard-constraint stanza
 
-Every deep research prompt carries a version of this block, tuned for the subject:
+Every composed research prompt carries one, tuned to the task: topic scope,
+authoritative sources with disallowed aggregators named, traceable claims, no
+invented citations, no finished prose, no clarifying questions, no padding,
+honest complexity, honest uncertainty. Image prompts use the drift-mode variant
+instead. **Both stanzas, verbatim and ready to adapt, are in
+`references/hygiene-rules.md` → "The hard-constraint stanza".**
 
-- Topic scope only. Do not drift into adjacent topics. Enumerate the adjacent topics by name.
-- Authoritative sources only. Every citation must resolve to an official domain class that you name explicitly. Enumerate disallowed aggregators by name — LexisNexis, Westlaw, Justia, FindLaw, Crunchbase, Wikipedia, law-firm marketing pages, etc., depending on the domain.
-- Every factual claim must be traceable to a cited source. If you cannot find a direct citation, say "not found" or "inferred from [X]" — do not make it up.
-- Do not invent citations, identifiers, or dates. If you cite something, the URL must actually open to that thing.
-- Do not write finished prose for the end audience. The output is facts and citations, not marketing copy or plain-language pages.
-- Do not ask clarifying questions before starting. Begin the research/report
-  immediately unless a hard constraint makes the task impossible; if so, state
-  the blocker and produce the closest valid scoped report.
-- Do not pad. If multiple entities have substantively identical findings, say so in the executive summary and let the reader decide whether all deserve downstream work.
-- Be honest about complexity — name the specific framework / transition / methodology nuance the research agent must not flatten.
-- Be honest about uncertainty. A row marked "confidence: low, needs human review" is more valuable than a confident-sounding fabrication.
+### 5. Wrap for the chosen delivery mode
 
-The exact wording changes per task; the shape stays constant.
+**Ask mode** — no wrapper. The prompt goes to `oracle-ask` and the answer comes
+back. Do not print the prompt block into chat.
 
-**For Image execute mode (and its paste-mode fallback)**, the hard-constraint stanza is reshaped — there are no citations, but image generators have their own drift modes. Use a stanza like:
+**Execute modes (Deep Research / Image)** — write the prompt to disk and run the
+lane. In chat print only: the mode line, the slug, the prompt file path, the
+lane's evidence, and the reattach command. No copy instruction, no pasted block.
 
-- Do NOT include watermarks, signatures, logos, captions, borders, or stock-photo overlays unless explicitly specified.
-- Do NOT default to: enumerate the generic drift modes for this subject by name (e.g., "smiling stock-pose models," "lens flares as a substitute for atmosphere," "extra fingers or malformed hands," "AI-uncanny symmetric faces").
-- Stay within the named style. Do not blend with [ADJACENT STYLE THAT WOULD DILUTE IT].
-- For unspecified regions, default to clean negative space or natural background extension. Do not invent additional subjects, props, or focal points.
-- Anatomy and physics must be plausible unless the named style explicitly permits stylization (and even then, name the stylization).
-- Generate the image; do not substitute a written description. If a spec element is genuinely impossible, generate the closest faithful version and name the deviation in the verification caption.
+**Paste mode / Perplexity / Claude Research** — above the fenced block write a
+short framing paragraph and an explicit copy instruction:
 
-### 5. Wrap the prompt for the chosen delivery mode
+> Copy only the contents of the code block below. Paste into [tool]. Do not
+> include any of your terminal session or surrounding Claude Code output — let
+> the prompt stand alone.
 
-**Oracle execute mode (default):**
-- Do **not** print the prompt as a fenced code block in chat. Write it to `/tmp/<slug>-deep-research-<date>.md` and run Oracle on it per the "Oracle execute mode contract" above.
-- In chat, print only: the one-line mode declaration, the slug, the prompt file path, the Oracle session slug once launched, and the `oracle session <slug>` reattach command. That's it. No copy instruction. No pasted block. The prompt's contents are for Oracle's eyes, not the user's clipboard.
+Below the block write: where to save the output, a time-budget heads-up
+(structured N-entity research takes 20–90 minutes — warn so the user does not
+panic at 15), a reusability note if the prompt is parameterized, and the one
+most-likely failure mode for this task ("confidence inflation if every row is
+high-confidence", "aggregator citations if source discipline slips", "prose
+drift if the agent ignores the schema"). Never put shell commands inside the
+prompt block — they are operator instructions, not research instructions.
 
-**Paste-mode fallback (and Perplexity / Claude Research targets):**
-
-**Above** the fenced block, write a short framing paragraph and an explicit copy instruction:
-
-> Copy only the contents of the code block below. Paste into [tool]. Do not include any of your terminal session or surrounding Claude Code output — let the prompt stand alone.
-
-**Below** the block, write:
-
-1. **Where to save the output** — a concrete file path if there is a project context.
-2. **Time budget heads-up** — structured N-entity research takes 20-90 minutes of tool runtime. Warn the user so they do not panic at 15 minutes in.
-3. **Reusability note** — if the prompt is parameterized on one variable (topic, entity class), tell the user how to rerun it for other values.
-4. **Red flag to watch for** — name the one most-likely failure mode given the task. Examples: "confidence inflation if every row is high-confidence," "aggregator citations if source discipline slips," "prose drift if the agent ignores the schema."
-
-### 5b. If the fallback path is Oracle-ready (paste mode with Oracle present), add the execution wrapper outside the block
-
-After the normal post-block notes, add:
-
-1. **Prompt file** — where the caller should save the block contents
-2. **Sizing command** — `oracle --dry-run summary --file <promptfile>`
-3. **Run command** — GPT-5 Pro browser invocation
-4. **Verification note** — Deep Research toggle, session ID capture, model-slug check
-
-Do not put shell commands inside the prompt block. They are operator instructions, not research instructions.
-
-### 5c. Image execute mode (default for image requests when Oracle is on PATH)
-
-Do **not** print the spec as a fenced code block in chat. Write it to `/tmp/<slug>-image-<date>.md` and run the Image execute mode contract above (source-image materialization when applicable → sizing check → toggle Create image via the CDP helper → invoke Oracle with `--remote-chrome` and `--file` attachments).
-
-In chat, print only: the one-line mode declaration, the slug, the spec file path, the toggle helper's status (e.g. "Create image: turned on" or the exit-code reason), the Oracle session slug once launched, and the `oracle session <slug>` reattach command. No spec block. No copy instruction.
-
-### 5d. Image paste-mode fallback (only when Oracle is missing or the user opted into paste-only)
-
-Only reached when `oracle` is missing, the user said `paste-only`, or steps 3–6 of the Image execute contract failed and the user opted to fall back. Write the spec block + paste-mode wrapper:
-
-1. **Prompt file** — `/tmp/<slug>-image-<date>.md`
-2. **Sizing command** — `oracle --dry-run summary --file <promptfile>` (still useful — flags accidental token bloat in the spec)
-3. **Manual instruction** — open ChatGPT in a browser tab, switch the composer to Create image, and paste the block contents
-4. **Verification note** — confirm an actual image was attached (not a written description), save the image file alongside the prompt, and re-run after re-toggling if the model fell out of image mode.
-
-Same rule: do not put any shell commands inside the prompt block.
+**Long-running supervision.** Deep Research can sit silently for a long time
+after a valid submission. Treat silence as normal unless there is concrete error
+evidence. If the result is not the immediate blocker, hand the waiting to a
+monitor subagent or `assets/scripts/await-deep-research.mjs` and continue. Do
+not poll before ~30 minutes, then poll ~every 15. Do not diagnose a stall before
+~2 hours just because the terminal is quiet.
 
 ## Output shape for the current agent
 
-Pick the shape based on the mode you chose:
+**Ask mode (default for questions):**
+1. One line: `Asked GPT-5 Pro (<Ns>).`
+2. The answer, or the relevant part of it.
+3. If the lane was not ready: the exact blocker, and that nothing was submitted.
 
-**Oracle execute mode (default):**
-1. One line: `Mode: Oracle execute. Slug: <slug>. Prompt file: /tmp/<slug>-deep-research-<date>.md.`
-2. Verified composer evidence: `verify-ready` result (Pro + Deep research proven before send) and `verify-started` signals after send, plus the screenshot path.
-3. The submitted conversation URL.
-4. Watcher status when started: output path and the `await-deep-research.mjs` command.
-5. One-sentence red flag / verification reminder (e.g. "if the dossier never materializes, check the conversation URL — a user-turn-only thread means the run never started").
+**Execute modes:**
+1. One line: `Mode: <Oracle|Image> execute. Slug: <slug>. Prompt file: <path>.`
+2. The lane's evidence — `verify-ready` / `verify-started` and the screenshot
+   path for Deep Research; the Create image toggle status for Image mode.
+3. The submitted conversation URL; the watcher output path when started.
+4. One-sentence red flag / verification reminder.
 
-Do not print the prompt text. Do not print a fenced block. Do not print a copy instruction.
+Do not print the prompt text, a fenced block, or a copy instruction.
 
-**Long-running Oracle supervision:** Deep Research can sit silently for a long
-time after a valid submission. Treat silence as normal unless there is concrete
-error evidence from Oracle, the browser, or the target conversation. If the
-research result is not the immediate blocker for the next local action, hand
-the waiting to a monitor subagent or background watcher and continue the
-caller/orchestration workflow. Do not start polling until roughly 30 minutes
-after launch; after that, poll sparingly, about every 15 minutes. Do not
-diagnose a stall before roughly 2 hours just because the terminal has no new
-output. Prefer the bundled watcher for this sparse polling:
-`DEEP_RESEARCH_OUTPUT=<path> node "$SKILL_DIR/assets/scripts/await-deep-research.mjs"`.
-The monitor owns only status, output-file existence/size, reattach command, and
-completion notice unless the caller explicitly gives it a repo write scope.
+**Route-blocked execute attempt:** one line naming the mode, slug, prompt/spec
+file, guard command and result, and that **no** submission was made. If the user
+expected execution, include the one clearly labeled route-independent fallback
+or control probe that was attempted, and whether it produced the artifact. Offer
+explicit next choices only. Never imply a run exists.
 
-**Route-blocked execute attempt (Oracle present but unsafe for tab-local tool):** one line naming mode, slug, prompt/spec file, guard command/result, and that no Oracle browser submission was made because the installed Oracle would open a fresh ChatGPT tab without the tool state. If the user expected execution, include the route-independent fallback/control probe that was actually attempted, the command/session/output path, and whether it produced the requested artifact. Offer only explicit next choices: manual Deep Research/Image paste, upgrade/patch Oracle for target-id or pre-submit-hook support, a supported fallback image/research lane, or normal non-Deep-Research Oracle if the user accepts that downgrade. Do not print the prompt/spec block unless the user explicitly chooses paste-mode fallback.
-
-**Paste-mode fallback / Perplexity / Claude Research:**
-1. **One or two lines of framing** — what this prompt does and what tool it is for, and why Oracle was skipped.
-2. **The copy instruction** — "Copy only the contents of the code block below..." placed immediately before the block.
-3. **The fenced code block** — the prompt itself. Starts with "You are a [role]..."
-4. **Post-block notes** — save path, time budget, reusability, red flag.
-5. **Oracle wrapper** — include prompt file, sizing command, run command, verification note so the user can switch to Oracle later.
-
-**Image execute mode (default for image requests):** same shape as Oracle execute mode, but mention the Create image toggle helper status explicitly. One line: `Mode: Image execute. Slug: <slug>. Spec file: /tmp/<slug>-image-<date>.md.` Then the toggle status (e.g. "Create image: turned on"), then the Oracle invocation that was actually run, then `Oracle session started — reattach with: oracle session <slug>`, then the one-sentence image verification reminder ("confirm an image — not text — came back; re-run after re-toggling if it didn't"). Do not print the spec block.
-
-**Image paste-mode fallback:** spec block + manual "switch composer to Create image and paste" instruction + verification reminder. Used only when Oracle is missing or the user opted into paste-only.
-
-Do not summarize the prompt content in prose after the block. The user will read the block themselves.
+**Paste mode:** framing lines → copy instruction → the fenced block → post-block
+notes (save path, time budget, reusability, red flag).
 
 ## Validation before handoff
 
-**Oracle execute mode checks:**
+**Ask mode:**
+- The question actually went through `assets/scripts/oracle-ask.mjs`; no browser
+  launch, overlay `eval`, or composer choreography was performed for it
+- The answer text is reported, not paraphrased into a claim the model did not make
+- A non-zero exit was reported as a blocked run with its remediation, never as
+  an answer and never as a silent fallback to a different model or lane
 
-- Prompt file was written to disk under `/tmp/` with an unambiguous slug
-- `oracle --dry-run summary` was run and the prompt is within the token budget
-- The dedicated CDP Chrome came from `assets/scripts/launch-chatgpt-cdp.sh`
-  (or a verified existing endpoint) and the logged-in account was confirmed
-  before any composer action
-- The bundle was produced by `oracle --render`; Oracle itself made **no**
-  browser submission for the Deep Research run
-- `verify-ready` returned ok (Pro model + Deep research) after selection AND
-  again after paste, before `send`; if it could not be made to pass, the run
-  stopped without sending
-- After `send`, the Deep Research review card was handled (`start-research`)
-  and `verify-started` (or the watcher) saw generation evidence; a
-  user-turn-only conversation was not reported as launched
-- If the final dossier is part of the requested deliverable, completion capture
-  is either delegated to `assets/scripts/await-deep-research.mjs` with an
-  output path or explicitly left as a monitor/blocker; do not call immediate
-  Oracle output the completed dossier unless the report text was actually
-  extracted
-- The chat reply contains no prompt code block, no "paste this" instruction, and no "copy the block below" phrasing
-- The submitted conversation URL and the post-send screenshot path are surfaced
-- Long-running waits were either bounded by the current task's critical path or
-  delegated to a monitor while the caller continued useful non-overlapping work
+**Execute modes:**
+- Prompt/spec file written to disk with an unambiguous slug, and sized with
+  `oracle --dry-run summary`
+- For Deep Research: the CDP Chrome came from `launch-chatgpt-cdp.sh` (or a
+  verified endpoint) with the signed-in account confirmed; the bundle came from
+  `oracle --render` and Oracle itself made no submission; `verify-ready` passed
+  after selection **and** after paste; `start-research` was handled and
+  `verify-started` saw generation evidence
+- For Image: `check-oracle-tab-local-route.mjs` ran before opening Chrome or
+  toggling; the toggle helper's exit status is stated in the reply; the Oracle
+  command included `--remote-chrome` and `--browser-model-strategy ignore`;
+  source images were attached with `--file` rather than cited as links
+- If the dossier is the deliverable, completion capture is delegated to
+  `await-deep-research.mjs` with an output path or explicitly left as a blocker
+- The reply contains no prompt block and no "paste this" instruction
 
-**Image execute mode checks:**
+**Paste mode:** all four hygiene rules hold (self-announcing first line, one
+self-contained fenced block, no terminal chrome inside it, copy instruction
+above it); the output format is shown as a concrete example structure rather
+than described; the hard-constraint stanza and completion criteria are present;
+and the post-block notes name the one most-likely failure mode.
 
-- Spec file was written to disk under `/tmp/` with an unambiguous slug
-- `oracle --dry-run summary` was run on the spec file
-- `assets/scripts/check-oracle-tab-local-route.mjs` was run before opening Chrome
-  or toggling Create image; if it failed, no browser submission was made
-- If the user asked to launch/generate and the route guard failed, at least one
-  route-independent fallback/control probe was attempted when a plausible lane
-  existed, and the closeout states whether that attempt produced an artifact
-- When the guard passed, a Chrome on the DevTools port has a `chatgpt.com` tab open
-- When the guard passed, `assets/scripts/toggle-chatgpt-image.mjs` was invoked either directly against the selected target or through Oracle's `--pre-submit-hook`, and the exit status is logged in the chat reply (e.g. "Create image: turned on" or the failure reason)
-- When Oracle was invoked, the real command includes `--remote-chrome`, `--browser-model-strategy ignore` (not `current` — Image mode hides the model selector), the slug, and the spec file
-- If visual source material was part of the request, the source images were
-  copied/downloaded/cached under `/tmp/<slug>-source/` and attached with
-  `--file`; URLs, Midjourney `/styles/...` links, and `--sref` values were
-  treated as metadata only
-- The chat reply contains no spec code block and no "paste this" instruction
-- Oracle session slug is surfaced for reattach
-- The verification reminder explicitly tells the user to confirm an image (not text) came back
+If any item fails, fix before sending. `references/anti-patterns.md` has the fixes.
 
-**Paste-mode / fallback checks (only when Oracle is not on PATH or the user asked for paste-only — applies to both research and image variants):**
+## Bundled files
 
-- First line inside the block is "You are a ..." or equivalent self-announcing role statement
-- Entire prompt is inside a single fenced code block
-- Output format is shown with a concrete example structure, not just described
-- Hard-constraint stanza is present (research stanza for research modes, image-drift stanza for image mode)
-- "What to report back when done" / "What to return" section is present with 3-5 bullets (image mode requires the verification caption that names any deviation from spec)
-- No terminal chrome, shell prompts, or Claude Code banner text inside the block
-- Copy instruction is outside the block and above it (users scan top-to-bottom)
-- Post-block notes name the one most-likely failure mode
-- For research paste-mode, an Oracle-ready wrapper is present so the user can switch to Oracle later
-- For Image paste-mode fallback, the manual "switch composer to Create image and paste" instruction is present and the verification reminder requires confirming an actual image came back
+**Ask mode**
+- `assets/scripts/oracle-ask.mjs` — **the entrypoint.** Prompt in, answer out.
+- `assets/scripts/oracle-http-client.mjs` — HTTPS transport it delegates to;
+  zero CSS selectors, model selection as a JSON field
+- `assets/scripts/oracle-credential.mjs` — portable credential lane
+  (`acquire` / `refresh` / `doctor` / `print-access-token` / `export` /
+  `import`); browserless refresh, so d3 and d3c can run this without a Mac
+- `references/chatgpt-backend-api.md` — reconstructed backend contract, with
+  every claim labeled observed / inferred / replayed / implemented / blocked
+- `references/oracle-credential-portability.md` — how the credential travels
 
-If any item fails, fix before sending. Read `references/anti-patterns.md` for the fixes.
+**Fallback lane**
+- `references/deep-research-tool-toggle.md` — **the canonical verified composer
+  flow** plus UI gotchas and project oracle config
+- `references/chatgpt-image-toggle.md` — the Create image sibling
+- `assets/scripts/oracle-subagent.mjs` — durable controller for detached Deep
+  Research runs (queue, idempotency, state, resume)
+- `assets/scripts/launch-chatgpt-cdp.sh` — dedicated CDP Chrome on a clone of
+  the signed-in profile · `chatgpt-composer.mjs` — DOM-verified composer control
+  · `check-oracle-tab-local-route.mjs` — route guard for tab-local tools
+- `assets/scripts/toggle-deep-research.mjs` · `toggle-chatgpt-image.mjs` ·
+  `await-deep-research.mjs` (dossier watcher) · `run-image-execute.sh` (shared
+  runner for staged image runs)
 
-## Templates and references
-
-- `references/hygiene-rules.md` — the four rules that defend against terminal leak, plus the failure history that justifies them
-- `references/output-structures.md` — structured output patterns (N-entity, cross-jurisdiction legal, academic literature, competitive intel, decision-support, image creation, custom) with when-to-use notes
-- `references/anti-patterns.md` — failure modes and their fixes
-- `references/deep-research-tool-toggle.md` — why the Deep research tool toggle is external to Oracle, and the CDP helper + orchestration flow the skill uses in Oracle execute mode
-- `references/chatgpt-image-toggle.md` — sibling of the Deep research toggle doc, for the Create image composer tool
-- `assets/templates/n-entity-structured.md` — generic skeleton for "research N things with same structure"
-- `assets/templates/cross-jurisdiction-legal.md` — specialization for state-by-state or country-by-country legal research
-- `assets/templates/image-creation.md` — high-detail image generation prompt for Image execute mode (and its paste-mode fallback)
-- `assets/scripts/run-image-execute.sh` — shared runner for staged Create image / Oracle run directories (`spec.md`, `source/`, `result/`)
-- `assets/scripts/launch-chatgpt-cdp.sh` — launches a dedicated CDP Chrome on a clone of the logged-in ChatGPT profile (`open -na`, subprofile-aware); the canonical browser launch for the verified composer flow
-- `assets/scripts/chatgpt-composer.mjs` — DOM-verified composer control: `select-pro`, `verify-ready` (the hard gate), `paste-file`, `send`, `start-research` (Deep Research review card), `verify-started`, `screenshot`
-- `assets/scripts/check-oracle-tab-local-route.mjs` — guard that blocks automatic Oracle submission when the installed Oracle cannot prove same-tab routing for ChatGPT tab-local tools (legacy Oracle-submits lane and Image mode)
-- `assets/scripts/toggle-deep-research.mjs` — CDP helper that clicks ChatGPT's composer Deep research toggle on a running Chrome
-- `assets/scripts/await-deep-research.mjs` — optional CDP watcher that waits on
-  a submitted Deep Research conversation and extracts the final assistant
-  report once it appears stable
-- `assets/scripts/toggle-chatgpt-image.mjs` — CDP helper that clicks ChatGPT's composer Create image toggle on a running Chrome
+**Prompt craft**
+- `references/hygiene-rules.md`, `references/output-structures.md`,
+  `references/anti-patterns.md`
+- `assets/templates/n-entity-structured.md`,
+  `assets/templates/cross-jurisdiction-legal.md`,
+  `assets/templates/image-creation.md`
 
 ## Verification / Closeout Contract
 
@@ -549,44 +492,26 @@ For skill-contract edits, rerun:
 
 ```bash
 python3 skill-issue/scripts/quick_validate.py deep-research-prompt
+node --test tests/*.test.mjs   # from the parent skills directory
 ```
 
-Before returning, confirm all of the following:
+Before returning, confirm:
 
-1. Delivery mode is explicit: `Oracle execute mode` (default for research when
-   `oracle` is on PATH), `Image execute mode` (default for image when
-   `oracle` is on PATH), `Route-blocked execute attempt`, `Paste-mode fallback`,
-   or `Image paste-mode fallback`.
-1a. If `oracle` was on PATH and neither `paste-only` nor a Perplexity / Claude
-    Research target was requested, the corresponding execute mode was used or
-    the route guard blocked it before browser submission, and **no** "copy this
-    / paste this" instruction appeared in the response unless the user chose
-    paste fallback.
-2. For paste-mode shapes only: the prompt is a single fenced code block with a
-   self-announcing first line, output schema (or layered image spec), hard
-   constraints, and completion criteria (or image verification caption
-   requirement). For execute-mode shapes, the prompt block was written to disk
-   and **not** printed back to the user.
-3. The copy instruction sits above the block and no session chrome leaked into
-   the prompt (paste shapes only; not applicable to execute shapes).
-4. If Oracle execute mode was used, the chat reply names the prompt file path,
-   the slug, the `verify-ready` / `verify-started` evidence, and the submitted
-   conversation URL — and contains no prompt block.
-4a. If the verified flow (or, for Image mode, the route guard) blocked
-    execution, the chat reply says no submission was made and names the exact
-    blocker instead of implying a run exists.
-5. If Image execute mode was used, the chat reply additionally names which
-   ChatGPT composer tool was toggled (Create image), whether it was toggled by
-   direct helper call or `--pre-submit-hook`, the helper exit status, and the
-   image verification reminder. If the toggle helper failed, the response says
-   so plainly and does not silently fall back.
-5a. If a caller supplied a staged run directory, the run went through
-    `assets/scripts/run-image-execute.sh` (or the response names the exact
-    blocker), and the run directory contains `oracle.command.sh`,
-    `oracle.dry-run.log`, and `oracle.route-guard.log` when the helper reached
-    those phases.
+1. Delivery mode is explicit: `Ask mode`, `Oracle execute mode`,
+   `Image execute mode`, `Route-blocked execute attempt`, or `Paste-mode
+   fallback`.
+2. If the user asked a question, Ask mode was used — not the fallback lane, and
+   not a paste handoff.
+3. For paste shapes only: single fenced block, self-announcing first line,
+   output schema, hard constraints, completion criteria, copy instruction above
+   the block, no session chrome inside it. For execute shapes the prompt was
+   written to disk and **not** printed back.
+4. If an execute lane was used, the reply names the prompt file, the slug, the
+   lane's evidence, and the conversation URL — and contains no prompt block.
+5. If any lane blocked, the reply says no submission was made and names the
+   exact blocker instead of implying a run exists.
 6. If the caller expected execution rather than handoff, state plainly whether
-   Oracle was actually run or only prepared.
+   the run actually happened or was only prepared.
 
 ## Related
 

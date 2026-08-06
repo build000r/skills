@@ -1,373 +1,694 @@
 #!/usr/bin/env node
-// chatgpt-composer.mjs — DOM-verified control of the ChatGPT composer over CDP.
-//
-// Why this exists: Oracle v0.9.x browser mode cannot be trusted to select the
-// Pro model or the Deep research tool. Observed June 2026: its model picker
-// fails with "Unable to locate the ChatGPT model selector button",
-// `--browser-model-strategy ignore` submits whatever the composer happens to
-// have (Instant, no Deep research), and `--pre-submit-hook` fired only after
-// the send click. This helper makes every selection a verifiable DOM step so
-// the agent proves Pro + Deep research BEFORE sending.
-//
-// Target selection (same contract as the sibling toggle/await helpers):
-//   ORACLE_CDP_HOST (default 127.0.0.1), ORACLE_CDP_PORT (default 9222),
-//   ORACLE_CHATGPT_TARGET_ID (exact CDP target id), or
-//   ORACLE_CHATGPT_URL_MATCH (substring matching exactly one chatgpt.com tab).
-//
-// Commands (each prints JSON; exits 1 when result.ok === false):
-//   state          — url/title, prompt text, model pills, deep-research flag
-//   clear          — empty the composer prompt field
-//   open-model     — open the model picker, list its items (diagnostic)
-//   select-pro     — open the model picker and click the Pro row
-//   verify-ready   — ok only when model pill says Pro AND Deep research is on
-//   paste-file <p> — paste a file's contents into the composer
-//   paste-text <t> — paste a literal string
-//   send           — click the send button
-//   start-research — click the Deep Research review card's Start button;
-//                    ok with alreadyStarted=true when research already runs
-//   verify-started — ok when generation evidence is visible (researching UI,
-//                    stop button, or progress card)
-//   screenshot [p] — capture the page (default /tmp/chatgpt-composer.png)
-import { readFileSync, writeFileSync } from 'node:fs';
-import { argv, env, exit, stderr, stdout } from 'node:process';
 
-const HOST = env.ORACLE_CDP_HOST || '127.0.0.1';
-const PORT = env.ORACLE_CDP_PORT || '9222';
-const TARGET_ID = env.ORACLE_CHATGPT_TARGET_ID || '';
-const URL_MATCH = env.ORACLE_CHATGPT_URL_MATCH || env.DEEP_RESEARCH_CHATGPT_URL_MATCH || '';
+import { constants as fsConstants } from "node:fs";
+import { open, realpath } from "node:fs/promises";
+import { isAbsolute, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 
-const command = argv[2] || 'state';
-const arg = argv[3] || '';
+const TARGET_ID_PATTERN = /^[A-Fa-f0-9]{16,128}$/;
+const PRO_MODEL_PATTERN = /^gpt-[a-z0-9]+(?:[.-][a-z0-9]+)*-pro$/;
+const ACTIONS = new Set([
+  "inspect",
+  "clear",
+  "select-pro",
+  "replace-content",
+  "send",
+]);
+const ADAPTER_ONLY_ACTIONS = new Set(["replace-content", "send"]);
+const MAX_PRIVATE_INPUT_BYTES = 32 * 1024 * 1024;
+const CDP_TIMEOUT_MS = 20_000;
 
-function usage() {
-  stderr.write('chatgpt-composer.mjs <state|clear|open-model|select-pro|verify-ready|paste-file|paste-text|send|start-research|verify-started|screenshot> [arg]\n');
-}
-
-async function fetchTargets() {
-  const res = await fetch(`http://${HOST}:${PORT}/json`);
-  if (!res.ok) throw new Error(`CDP /json returned ${res.status}`);
-  return res.json();
-}
-
-function selectTarget(targets) {
-  const tabs = targets.filter((t) => t.type === 'page' && /chatgpt\.com/.test(t.url || ''));
-  if (TARGET_ID) {
-    const tab = tabs.find((t) => t.id === TARGET_ID);
-    if (!tab) throw new Error(`No ChatGPT tab matched ORACLE_CHATGPT_TARGET_ID=${TARGET_ID}`);
-    return tab;
+export class ChatGptComposerError extends Error {
+  constructor(code) {
+    super("chatgpt composer: rejected");
+    this.name = "ChatGptComposerError";
+    this.code = code;
   }
-  const candidates = URL_MATCH ? tabs.filter((t) => (t.url || '').includes(URL_MATCH)) : tabs;
-  if (candidates.length !== 1) {
-    throw new Error(`Expected exactly one ChatGPT tab, found ${candidates.length}: ${candidates.map((t) => `${t.id} ${t.url}`).join(' | ')}`);
-  }
-  return candidates[0];
 }
 
-async function cdpCall(ws, method, params = {}) {
-  const id = ++cdpCall.id;
-  return new Promise((resolve, reject) => {
-    const onMessage = (event) => {
-      const msg = JSON.parse(event.data);
-      if (msg.id !== id) return;
-      ws.removeEventListener('message', onMessage);
-      if (msg.error) reject(new Error(JSON.stringify(msg.error)));
-      else resolve(msg.result);
+function reject(code) {
+  throw new ChatGptComposerError(code);
+}
+
+function isPlainObject(value) {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    Object.getPrototypeOf(value) === Object.prototype
+  );
+}
+
+function exactObject(value, required, optional, code) {
+  if (!isPlainObject(value)) reject(code);
+  const allowed = new Set([...required, ...optional]);
+  if (
+    required.some((key) => !Object.hasOwn(value, key)) ||
+    Object.keys(value).some((key) => !allowed.has(key))
+  ) {
+    reject(code);
+  }
+  return value;
+}
+
+function normalizedAbsolutePath(value, code) {
+  if (
+    typeof value !== "string" ||
+    !isAbsolute(value) ||
+    value.includes("\0") ||
+    value.includes("\n") ||
+    resolve(value) !== value
+  ) {
+    reject(code);
+  }
+  return value;
+}
+
+export function normalizeLoopbackCdpEndpoint(value) {
+  if (typeof value !== "string") reject("endpoint_invalid");
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    reject("endpoint_invalid");
+  }
+  const port = Number.parseInt(parsed.port, 10);
+  if (
+    parsed.protocol !== "http:" ||
+    parsed.hostname !== "127.0.0.1" ||
+    !Number.isSafeInteger(port) ||
+    port < 1 ||
+    port > 65_535 ||
+    parsed.username ||
+    parsed.password ||
+    (parsed.pathname !== "/" && parsed.pathname !== "") ||
+    parsed.search ||
+    parsed.hash
+  ) {
+    reject("endpoint_invalid");
+  }
+  return `http://127.0.0.1:${port}`;
+}
+
+export function normalizeExactChatGptUrl(value) {
+  if (typeof value !== "string") reject("target_url_invalid");
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    reject("target_url_invalid");
+  }
+  if (
+    parsed.protocol !== "https:" ||
+    parsed.hostname !== "chatgpt.com" ||
+    parsed.origin !== "https://chatgpt.com" ||
+    parsed.port ||
+    parsed.username ||
+    parsed.password ||
+    parsed.search ||
+    parsed.hash
+  ) {
+    reject("target_url_invalid");
+  }
+  return parsed.href;
+}
+
+export function normalizeExactTarget(value) {
+  exactObject(
+    value,
+    ["target_id", "target_url"],
+    [],
+    "target_invalid",
+  );
+  if (
+    typeof value.target_id !== "string" ||
+    !TARGET_ID_PATTERN.test(value.target_id)
+  ) {
+    reject("target_invalid");
+  }
+  return Object.freeze({
+    target_id: value.target_id,
+    target_url: normalizeExactChatGptUrl(value.target_url),
+  });
+}
+
+function validateWebSocketUrl(value, endpoint, targetId) {
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    reject("target_transport_invalid");
+  }
+  const base = new URL(endpoint);
+  if (
+    parsed.protocol !== "ws:" ||
+    parsed.hostname !== "127.0.0.1" ||
+    parsed.port !== base.port ||
+    parsed.username ||
+    parsed.password ||
+    parsed.search ||
+    parsed.hash ||
+    parsed.pathname !== `/devtools/page/${targetId}`
+  ) {
+    reject("target_transport_invalid");
+  }
+  return parsed.href;
+}
+
+function normalizeTargetRecord(rawTarget, endpoint) {
+  if (!isPlainObject(rawTarget)) reject("target_transport_invalid");
+  if (
+    rawTarget.type !== "page" ||
+    typeof rawTarget.id !== "string" ||
+    !TARGET_ID_PATTERN.test(rawTarget.id)
+  ) {
+    reject("target_transport_invalid");
+  }
+  return Object.freeze({
+    id: rawTarget.id,
+    type: "page",
+    url: normalizeExactChatGptUrl(rawTarget.url),
+    webSocketDebuggerUrl: validateWebSocketUrl(
+      rawTarget.webSocketDebuggerUrl,
+      endpoint,
+      rawTarget.id,
+    ),
+  });
+}
+
+async function resolveWebSocketConstructor(WebSocketImpl) {
+  if (WebSocketImpl) return WebSocketImpl;
+  if (globalThis.WebSocket) return globalThis.WebSocket;
+  return (await import("ws")).default;
+}
+
+async function cdpRequest(
+  webSocketUrl,
+  method,
+  params,
+  { WebSocketImpl, timeoutMs = CDP_TIMEOUT_MS } = {},
+) {
+  const WebSocketConstructor =
+    await resolveWebSocketConstructor(WebSocketImpl);
+  const socket = new WebSocketConstructor(webSocketUrl);
+  const identifier = 1;
+  return new Promise((resolvePromise, rejectPromise) => {
+    let settled = false;
+    const finish = (action, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try {
+        socket.close();
+      } catch {}
+      action(value);
     };
-    ws.addEventListener('message', onMessage);
-    ws.send(JSON.stringify({ id, method, params }));
+    const timer = setTimeout(
+      () => finish(rejectPromise, new ChatGptComposerError("cdp_timeout")),
+      timeoutMs,
+    );
+    const onOpen = () => {
+      socket.send(JSON.stringify({ id: identifier, method, params }));
+    };
+    const onMessage = (raw) => {
+      const bytes = raw?.data ?? raw;
+      let message;
+      try {
+        message = JSON.parse(
+          typeof bytes === "string" ? bytes : Buffer.from(bytes).toString(),
+        );
+      } catch {
+        finish(
+          rejectPromise,
+          new ChatGptComposerError("cdp_response_invalid"),
+        );
+        return;
+      }
+      if (message.id !== identifier) return;
+      if (message.error) {
+        finish(rejectPromise, new ChatGptComposerError("cdp_call_failed"));
+      } else {
+        finish(resolvePromise, message.result);
+      }
+    };
+    const onError = () =>
+      finish(rejectPromise, new ChatGptComposerError("cdp_failed"));
+    if (typeof socket.addEventListener === "function") {
+      socket.addEventListener("open", onOpen, { once: true });
+      socket.addEventListener("message", onMessage);
+      socket.addEventListener("error", onError, { once: true });
+    } else {
+      socket.once("open", onOpen);
+      socket.on("message", onMessage);
+      socket.once("error", onError);
+    }
   });
 }
-cdpCall.id = 0;
 
-async function evalInPage(ws, cmd, payload = null) {
-  const expression = `(${pageScript})(${JSON.stringify(cmd)}, ${JSON.stringify(payload)})`;
-  const result = await cdpCall(ws, 'Runtime.evaluate', {
-    expression,
-    awaitPromise: true,
-    returnByValue: true,
-  });
-  return result.result.value;
-}
+export function createLoopbackCdpTransport(
+  endpoint,
+  {
+    fetchImpl = globalThis.fetch,
+    WebSocketImpl = null,
+    timeoutMs = CDP_TIMEOUT_MS,
+  } = {},
+) {
+  endpoint = normalizeLoopbackCdpEndpoint(endpoint);
+  if (typeof fetchImpl !== "function") reject("transport_invalid");
+  let targetsById = new Map();
 
-function pageScript(command, payload) {
-  const normalize = (s) => (s || '').toLowerCase().replace(/[^a-z0-9.+]+/g, ' ').trim();
-  const textOf = (el) => (el?.innerText || el?.textContent || el?.value || '').replace(/\s+/g, ' ').trim();
-  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-  const visible = (el) => {
-    const rect = el.getBoundingClientRect();
-    return rect.width > 1 && rect.height > 1;
-  };
-  const byArea = (a, b) => {
-    const ar = a.getBoundingClientRect();
-    const br = b.getBoundingClientRect();
-    return (ar.width * ar.height) - (br.width * br.height);
-  };
-
-  const click = (el) => {
-    if (!el) return false;
-    el.scrollIntoView({ block: 'center', inline: 'center' });
-    const rect = el.getBoundingClientRect();
-    const x = rect.left + rect.width / 2;
-    const y = rect.top + rect.height / 2;
-    for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) {
-      el.dispatchEvent(new PointerEvent(type, {
-        bubbles: true,
-        cancelable: true,
-        clientX: x,
-        clientY: y,
-        button: 0,
-      }));
-    }
-    return true;
-  };
-
-  const promptNode = () => document.querySelector('#prompt-textarea[contenteditable="true"], [contenteditable="true"][role="textbox"]');
-  const composer = () => document.querySelector('form') || document.querySelector('[data-testid*="composer"]') || document.body;
-  const buttons = () => Array.from(document.querySelectorAll('button,[role="button"],a,[aria-label]'));
-  const menus = () => Array.from(document.querySelectorAll('[role="menu"], [data-radix-menu-content], [data-testid*="menu"], [cmdk-list], [role="listbox"]'));
-  // The model menu is the one listing Instant / Thinking / Pro / Configure.
-  // Filtering on all four avoids the account menu (which also says "Pro")
-  // and sidebar entries like "Projects".
-  const modelMenus = () => menus().filter((m) => {
-    const label = normalize(textOf(m));
-    return label.includes('instant') && label.includes('thinking') && label.includes('pro') && label.includes('configure');
-  });
-
-  const modelPills = () => {
-    const comp = composer();
-    return buttons()
-      .filter((el) => comp.contains(el))
-      .map((el) => ({
-        text: textOf(el),
-        aria: el.getAttribute('aria-label') || '',
-        testid: el.getAttribute('data-testid') || '',
-        id: el.id || '',
-      }))
-      .filter((b) => /instant|thinking|pro|gpt|model|auto|5[.\s]*[0-9]/i.test(`${b.text} ${b.aria} ${b.testid}`));
-  };
-
-  const deepResearchOn = () => {
-    for (const el of buttons()) {
-      const label = normalize(`${textOf(el)} ${el.getAttribute('aria-label') || ''} ${el.getAttribute('data-testid') || ''}`);
-      if (label.includes('deep research')) return true;
-    }
-    return normalize(document.body.innerText || '').includes('deep research');
-  };
-
-  const generationSignals = () => {
-    const body = document.body.innerText || '';
-    const signals = [];
-    if (/researching|using direct search|browsing the web|stop generating|sources? found/i.test(body)) signals.push('active-research-text');
-    if (document.querySelector('button[aria-label*="Stop" i], [data-testid="stop-button"]')) signals.push('stop-button');
-    if (/get a detailed report/i.test(body) && /update/i.test(body)) signals.push('research-card');
-    return signals;
-  };
-
-  const state = () => ({
-    url: location.href,
-    title: document.title,
-    promptText: textOf(promptNode()),
-    modelPills: modelPills(),
-    deepResearchOn: deepResearchOn(),
-    bodyTail: (document.body.innerText || '').slice(-2000),
-    menus: menus().map((m) => textOf(m)).filter(Boolean).slice(0, 20),
-  });
-
-  const clearPrompt = async () => {
-    const node = promptNode();
-    if (!node) return { ok: false, reason: 'prompt-not-found', state: state() };
-    node.focus();
-    document.execCommand('selectAll', false, null);
-    document.execCommand('delete', false, null);
-    node.textContent = '';
-    node.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'deleteContentBackward', data: null }));
-    await sleep(150);
-    return { ok: textOf(node) === '', state: state() };
-  };
-
-  const openModelMenu = async () => {
-    // Close any stray open menu first (an open account menu makes "Pro"
-    // matching ambiguous).
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
-    await sleep(150);
-    const comp = composer();
-    let candidates = buttons().filter((el) => comp.contains(el)).filter((el) => {
-      const label = normalize(`${textOf(el)} ${el.getAttribute('aria-label') || ''} ${el.getAttribute('data-testid') || ''}`);
-      if (!label) return false;
-      if (label.includes('instant') || label.includes('thinking') || label === 'pro') return true;
-      if (label.includes('model') && !label.includes('profile')) return true;
-      return false;
-    });
-    candidates = candidates.filter((el) => !normalize(el.getAttribute('aria-label') || '').includes('profile'));
-    const target = candidates[0];
-    if (!target) return { ok: false, reason: 'model-button-not-found', state: state() };
-    click(target);
-    await sleep(700);
-    const roots = modelMenus();
-    const itemRoots = roots.length ? roots : menus();
-    const items = itemRoots.flatMap((root) => Array.from(root.querySelectorAll('[role="menuitem"], [role="option"], [cmdk-item], button, [role="button"], li, a, *'))).map((el) => ({
-      text: textOf(el),
-      aria: el.getAttribute('aria-label') || '',
-      role: el.getAttribute('role') || '',
-      testid: el.getAttribute('data-testid') || '',
-    })).filter((x) => /instant|thinking|pro|gpt|5[.\s]*[0-9]|model/i.test(`${x.text} ${x.aria} ${x.testid}`));
-    return { ok: true, clicked: textOf(target) || target.getAttribute('aria-label') || target.id, items, state: state() };
-  };
-
-  const selectPro = async () => {
-    const opened = await openModelMenu();
-    if (!opened.ok) return opened;
-    await sleep(300);
-    const menuRoots = modelMenus();
-    const searchRoots = menuRoots.length ? menuRoots : [document.body];
-    // Click the smallest visible element whose exact text is "Pro" — that is
-    // the row label. The row's trailing sliders icon opens the effort submenu
-    // (Standard / Extended) instead of switching the model, and the account
-    // menu has its own "Pro" badge; both are excluded by exact-text + area.
-    const textCandidates = searchRoots.flatMap((root) => Array.from(root.querySelectorAll('*')))
-      .filter((el) => visible(el) && /^pro$/i.test(textOf(el).trim()))
-      .sort(byArea);
-    let candidates = textCandidates;
-    if (candidates.length === 0) {
-      candidates = searchRoots.flatMap((root) =>
-        Array.from(root.querySelectorAll('[role="menuitem"], [role="option"], [cmdk-item], button, [role="button"], li, a')),
-      ).filter((el) => {
-        const rawText = textOf(el);
-        const testid = el.getAttribute('data-testid') || '';
-        const aria = el.getAttribute('aria-label') || '';
-        const isModelSwitcherPro = /model-switcher/i.test(testid) && /pro/i.test(testid);
-        const isVisiblePro = /^pro$/i.test(rawText.trim()) || /\bpro\b/i.test(aria);
-        if (!isModelSwitcherPro && !isVisiblePro) return false;
-        if (/\b(profile|account|upgrade|project|projects)\b/i.test(`${rawText} ${aria} ${testid}`)) return false;
-        return true;
+  async function listTargets() {
+    let response;
+    try {
+      response = await fetchImpl(`${endpoint}/json`, {
+        method: "GET",
+        redirect: "error",
+        cache: "no-store",
       });
+    } catch {
+      reject("target_list_failed");
     }
-    const preferred = candidates.find((el) => /^pro$/i.test(textOf(el).trim())) ||
-      candidates.find((el) => /model-switcher/i.test(el.getAttribute('data-testid') || '')) ||
-      candidates[0];
-    if (!preferred) return { ok: false, reason: 'pro-option-not-found', opened, state: state() };
-    const selected = textOf(preferred) || preferred.getAttribute('aria-label') || preferred.getAttribute('data-testid') || '';
-    click(preferred);
-    await sleep(900);
-    return { ok: true, selected, state: state() };
-  };
-
-  const pasteText = async (text) => {
-    const node = promptNode();
-    if (!node) return { ok: false, reason: 'prompt-not-found', state: state() };
-    node.focus();
-    document.execCommand('selectAll', false, null);
-    document.execCommand('delete', false, null);
-    const data = new DataTransfer();
-    data.setData('text/plain', text);
-    node.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: data }));
-    if (!textOf(node)) {
-      node.textContent = text;
-      node.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text.slice(0, 1) }));
+    if (!response?.ok) reject("target_list_failed");
+    let payload;
+    try {
+      payload = await response.json();
+    } catch {
+      reject("target_list_invalid");
     }
-    await sleep(500);
-    const pastedLength = textOf(node).length;
-    // ChatGPT may fold a long paste into a "Pasted text" attachment chip, in
-    // which case the visible prompt text is shorter than the input; require
-    // either substantial visible text or the attachment chip.
-    const hasAttachmentChip = /pasted text/i.test(document.body.innerText || '');
-    return { ok: pastedLength > 0 || hasAttachmentChip, promptLength: pastedLength, attachmentChip: hasAttachmentChip, state: state() };
-  };
+    if (!Array.isArray(payload)) reject("target_list_invalid");
+    const targets = payload
+      .filter((target) => {
+        if (
+          !isPlainObject(target) ||
+          target.type !== "page" ||
+          typeof target.url !== "string"
+        ) {
+          return false;
+        }
+        try {
+          normalizeExactChatGptUrl(target.url);
+          return true;
+        } catch {
+          return false;
+        }
+      })
+      .map((target) => normalizeTargetRecord(target, endpoint));
+    targetsById = new Map(targets.map((target) => [target.id, target]));
+    if (targetsById.size !== targets.length) reject("target_list_invalid");
+    return targets;
+  }
 
-  const sendPrompt = async () => {
-    const btn = document.querySelector('[data-testid="send-button"], #composer-submit-button, button[aria-label*="Send prompt" i]');
-    if (!btn) return { ok: false, reason: 'send-button-not-found', state: state() };
-    click(btn);
-    await sleep(1200);
-    return { ok: true, state: state() };
-  };
+  async function targetForCall(targetId) {
+    if (!targetsById.has(targetId)) await listTargets();
+    const target = targetsById.get(targetId);
+    if (!target) reject("target_missing");
+    return target;
+  }
 
-  const startResearch = async () => {
-    // Deep Research inserts a review card (title + plan bullets +
-    // Edit/Cancel/Start). The Start button shows a countdown and auto-starts
-    // when it expires. Match VISIBLE TEXT only: the mic button's aria-label is
-    // "Start dictation" and must never match. Smallest area = the label node.
-    const signals = generationSignals();
-    if (signals.length) return { ok: true, alreadyStarted: true, signals, state: state() };
-    const candidates = Array.from(document.querySelectorAll('*')).filter((el) => {
-      const label = textOf(el);
-      return /^start\b/i.test(label) && !/dictation/i.test(label) && visible(el);
-    }).sort(byArea);
-    const btn = candidates[0];
-    if (!btn) {
-      const after = generationSignals();
-      if (after.length) return { ok: true, alreadyStarted: true, signals: after, state: state() };
-      return { ok: false, reason: 'start-button-not-found', state: state() };
-    }
-    const clicked = textOf(btn) || btn.getAttribute('aria-label') || '';
-    click(btn);
-    await sleep(1500);
-    return { ok: true, clicked, signals: generationSignals(), state: state() };
-  };
-
-  const verifyReady = () => {
-    const st = state();
-    const modelText = st.modelPills.map((p) => `${p.text} ${p.aria}`).join(' ');
-    return {
-      ok: /pro/i.test(modelText) && st.deepResearchOn,
-      modelText,
-      deepResearchOn: st.deepResearchOn,
-      state: st,
-    };
-  };
-
-  const verifyStarted = () => {
-    const signals = generationSignals();
-    return { ok: signals.length > 0, signals, state: state() };
-  };
-
-  if (command === 'state') return state();
-  if (command === 'clear') return clearPrompt();
-  if (command === 'open-model') return openModelMenu();
-  if (command === 'select-pro') return selectPro();
-  if (command === 'paste-text') return pasteText(payload || '');
-  if (command === 'send') return sendPrompt();
-  if (command === 'start-research') return startResearch();
-  if (command === 'verify-ready') return verifyReady();
-  if (command === 'verify-started') return verifyStarted();
-  return { ok: false, reason: `unknown-command-${command}`, state: state() };
+  return Object.freeze({
+    endpoint,
+    listTargets,
+    async evaluate(targetId, expression) {
+      if (typeof expression !== "string" || expression.length === 0) {
+        reject("expression_invalid");
+      }
+      const target = await targetForCall(targetId);
+      const response = await cdpRequest(
+        target.webSocketDebuggerUrl,
+        "Runtime.evaluate",
+        {
+          expression,
+          awaitPromise: true,
+          returnByValue: true,
+        },
+        { WebSocketImpl, timeoutMs },
+      );
+      if (!isPlainObject(response?.result)) reject("cdp_response_invalid");
+      if (response.exceptionDetails) reject("page_action_failed");
+      return response.result.value;
+    },
+    async invoke(targetId, functionDeclaration, arguments_) {
+      if (
+        typeof functionDeclaration !== "string" ||
+        functionDeclaration.length === 0 ||
+        !Array.isArray(arguments_)
+      ) {
+        reject("page_action_invalid");
+      }
+      const target = await targetForCall(targetId);
+      const globalResult = await cdpRequest(
+        target.webSocketDebuggerUrl,
+        "Runtime.evaluate",
+        {
+          expression: "globalThis",
+          returnByValue: false,
+        },
+        { WebSocketImpl, timeoutMs },
+      );
+      const objectId = globalResult?.result?.objectId;
+      if (typeof objectId !== "string") reject("cdp_response_invalid");
+      try {
+        const response = await cdpRequest(
+          target.webSocketDebuggerUrl,
+          "Runtime.callFunctionOn",
+          {
+            objectId,
+            functionDeclaration,
+            arguments: arguments_.map((value) => ({ value })),
+            awaitPromise: true,
+            returnByValue: true,
+          },
+          { WebSocketImpl, timeoutMs },
+        );
+        if (!isPlainObject(response?.result)) reject("cdp_response_invalid");
+        if (response.exceptionDetails) reject("page_action_failed");
+        return response.result.value;
+      } finally {
+        await cdpRequest(
+          target.webSocketDebuggerUrl,
+          "Runtime.releaseObject",
+          { objectId },
+          { WebSocketImpl, timeoutMs },
+        ).catch(() => {});
+      }
+    },
+  });
 }
 
-async function main() {
-  if (argv.includes('--help')) {
-    usage();
-    exit(0);
+export async function bindExactChatGptTarget(transport, rawTarget) {
+  const target = normalizeExactTarget(rawTarget);
+  if (
+    !transport ||
+    typeof transport.listTargets !== "function" ||
+    typeof transport.evaluate !== "function" ||
+    typeof transport.invoke !== "function"
+  ) {
+    reject("transport_invalid");
   }
-  const targets = await fetchTargets();
-  const target = selectTarget(targets);
-  const ws = new WebSocket(target.webSocketDebuggerUrl);
-  await new Promise((resolve) => ws.addEventListener('open', resolve, { once: true }));
-  await cdpCall(ws, 'Runtime.enable');
+  let targets;
+  try {
+    targets = await transport.listTargets();
+  } catch (error) {
+    if (error instanceof ChatGptComposerError) throw error;
+    reject("target_list_failed");
+  }
+  if (!Array.isArray(targets)) reject("target_list_invalid");
+  const matches = targets.filter(
+    (candidate) =>
+      candidate?.type === "page" &&
+      candidate.id === target.target_id &&
+      candidate.url === target.target_url,
+  );
+  if (matches.length !== 1) reject("target_mismatch");
+  return target;
+}
 
-  if (command === 'screenshot') {
-    await cdpCall(ws, 'Page.enable');
-    const result = await cdpCall(ws, 'Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
-    const out = arg || '/tmp/chatgpt-composer.png';
-    writeFileSync(out, Buffer.from(result.data, 'base64'));
-    stdout.write(`${out}\n`);
-    ws.close();
-    return;
+export async function composerPageAction(action, payload) {
+  if (
+    typeof payload?.expected_target_url !== "string" ||
+    location.href !== payload.expected_target_url
+  ) {
+    return { ok: false, code: "target_url_mismatch" };
+  }
+  const visible = (element) => {
+    if (!element) return false;
+    const rectangle = element.getBoundingClientRect();
+    const style = getComputedStyle(element);
+    return (
+      rectangle.width > 1 &&
+      rectangle.height > 1 &&
+      style.display !== "none" &&
+      style.visibility !== "hidden"
+    );
+  };
+  const enabled = (element) =>
+    !element.disabled && element.getAttribute("aria-disabled") !== "true";
+  const sleep = (milliseconds) =>
+    new Promise((resolvePromise) =>
+      setTimeout(resolvePromise, milliseconds),
+    );
+  const uniqueVisible = (root, selector) => {
+    const candidates = Array.from(root.querySelectorAll(selector)).filter(
+      visible,
+    );
+    return candidates.length === 1 ? candidates[0] : null;
+  };
+  const promptFields = Array.from(
+    document.querySelectorAll(
+      "#prompt-textarea[contenteditable='true'],[contenteditable='true'][role='textbox']",
+    ),
+  ).filter(visible);
+  if (promptFields.length !== 1) {
+    return { ok: false, code: "composer_ambiguous" };
+  }
+  const promptField = promptFields[0];
+  const composer =
+    promptField.closest("[data-testid='composer']") ||
+    promptField.closest("form");
+  if (!composer || !visible(composer)) {
+    return { ok: false, code: "composer_ambiguous" };
+  }
+  const summary = () => ({
+    ok: true,
+    target_url: location.href,
+    prompt_field_count: promptFields.length,
+    prompt_length: String(
+      promptField.innerText || promptField.textContent || "",
+    ).length,
+  });
+  const click = (element) => {
+    element.scrollIntoView({ block: "center", inline: "center" });
+    element.click();
+  };
+
+  if (action === "inspect") return summary();
+
+  if (action === "clear" || action === "replace-content") {
+    const content =
+      action === "replace-content" && typeof payload?.content === "string"
+        ? payload.content
+        : "";
+    if (action === "replace-content" && content.length === 0) {
+      return { ok: false, code: "content_invalid" };
+    }
+    promptField.focus();
+    document.execCommand("selectAll", false, null);
+    document.execCommand("delete", false, null);
+    if (content) {
+      const inserted = document.execCommand("insertText", false, content);
+      if (!inserted) promptField.textContent = content;
+    } else {
+      promptField.textContent = "";
+    }
+    promptField.dispatchEvent(
+      new InputEvent("input", {
+        bubbles: true,
+        inputType: content ? "insertText" : "deleteContentBackward",
+        data: content ? content.slice(0, 1) : null,
+      }),
+    );
+    await sleep(100);
+    const result = summary();
+    result.ok =
+      action === "clear"
+        ? result.prompt_length === 0
+        : result.prompt_length > 0;
+    if (!result.ok) result.code = "content_write_failed";
+    return result;
   }
 
+  if (action === "select-pro") {
+    const model = payload?.model;
+    if (
+      typeof model !== "string" ||
+      !/^gpt-[a-z0-9]+(?:[.-][a-z0-9]+)*-pro$/.test(model)
+    ) {
+      return { ok: false, code: "model_invalid" };
+    }
+    const control = uniqueVisible(
+      composer,
+      "[data-testid='model-switcher-dropdown-button'],[data-testid='model-switcher']",
+    );
+    if (!control || !enabled(control)) {
+      return { ok: false, code: "model_control_ambiguous" };
+    }
+    click(control);
+    await sleep(150);
+    const menuRoots = Array.from(
+      document.querySelectorAll(
+        "[role='menu'],[role='listbox'],[data-radix-menu-content]",
+      ),
+    ).filter(visible);
+    const candidates = menuRoots.flatMap((root) =>
+      Array.from(
+        root.querySelectorAll(
+          "[role='menuitem'][data-model-id],[role='option'][data-model-id],[data-testid][data-model-id]",
+        ),
+      ).filter(
+        (element) =>
+          visible(element) &&
+          enabled(element) &&
+          element.getAttribute("data-model-id") === model,
+      ),
+    );
+    if (candidates.length !== 1) {
+      return { ok: false, code: "model_option_ambiguous" };
+    }
+    click(candidates[0]);
+    await sleep(150);
+    return { ...summary(), selected_model: model };
+  }
+
+  if (action === "send") {
+    const button = uniqueVisible(
+      composer,
+      "[data-testid='send-button'],#composer-submit-button",
+    );
+    if (!button || !enabled(button)) {
+      return { ok: false, code: "send_control_ambiguous" };
+    }
+    click(button);
+    return { ok: true, sent: true };
+  }
+
+  return { ok: false, code: "action_invalid" };
+}
+
+export function composerPageActionDeclaration() {
+  return composerPageAction.toString();
+}
+
+export async function runComposerAction(
+  transport,
+  rawTarget,
+  action,
+  payload = null,
+) {
+  const target = await bindExactChatGptTarget(transport, rawTarget);
+  if (!ACTIONS.has(action)) reject("action_invalid");
+  if (
+    action === "select-pro" &&
+    (!isPlainObject(payload) ||
+      typeof payload.model !== "string" ||
+      !PRO_MODEL_PATTERN.test(payload.model))
+  ) {
+    reject("model_invalid");
+  }
+  if (
+    action === "replace-content" &&
+    (!isPlainObject(payload) ||
+      typeof payload.content !== "string" ||
+      payload.content.length === 0)
+  ) {
+    reject("content_invalid");
+  }
   let result;
-  if (command === 'paste-file') {
-    if (!arg) throw new Error('paste-file requires a path');
-    result = await evalInPage(ws, 'paste-text', readFileSync(arg, 'utf8'));
-  } else {
-    result = await evalInPage(ws, command, arg || null);
+  try {
+    const pagePayload = isPlainObject(payload)
+      ? { ...payload, expected_target_url: target.target_url }
+      : { expected_target_url: target.target_url };
+    result = await transport.invoke(
+      target.target_id,
+      composerPageActionDeclaration(),
+      [action, pagePayload],
+    );
+  } catch (error) {
+    if (error instanceof ChatGptComposerError) throw error;
+    reject("page_action_failed");
   }
-  stdout.write(`${JSON.stringify(result, null, 2)}\n`);
-  ws.close();
-  if (result?.ok === false) exit(1);
+  if (!isPlainObject(result) || result.ok !== true) {
+    reject(
+      typeof result?.code === "string"
+        ? `page_${result.code}`
+        : "page_action_failed",
+    );
+  }
+  return Object.freeze(structuredClone(result));
 }
 
-main().catch((err) => {
-  stderr.write(`${err.stack || err.message}\n`);
-  exit(1);
-});
+async function readPrivateText(pathname) {
+  pathname = normalizedAbsolutePath(pathname, "private_file_invalid");
+  const flags =
+    fsConstants.O_RDONLY |
+    (fsConstants.O_NOFOLLOW ?? 0) |
+    (fsConstants.O_CLOEXEC ?? 0);
+  let handle;
+  try {
+    handle = await open(pathname, flags);
+    const metadata = await handle.stat();
+    if (
+      !metadata.isFile() ||
+      metadata.nlink !== 1 ||
+      (metadata.mode & 0o077) !== 0 ||
+      metadata.size < 1 ||
+      metadata.size > MAX_PRIVATE_INPUT_BYTES ||
+      (typeof process.getuid === "function" &&
+        metadata.uid !== process.getuid()) ||
+      (await realpath(pathname)) !== pathname
+    ) {
+      reject("private_file_invalid");
+    }
+    return await handle.readFile("utf8");
+  } catch (error) {
+    if (error instanceof ChatGptComposerError) throw error;
+    reject("private_file_invalid");
+  } finally {
+    await handle?.close().catch(() => {});
+  }
+}
+
+async function readControl(pathname) {
+  let value;
+  try {
+    value = JSON.parse(await readPrivateText(pathname));
+  } catch (error) {
+    if (error instanceof ChatGptComposerError) throw error;
+    reject("control_invalid");
+  }
+  return exactObject(
+    value,
+    ["endpoint", "target_id", "target_url", "action"],
+    ["model", "request_file"],
+    "control_invalid",
+  );
+}
+
+export async function main(rawArguments = process.argv.slice(2)) {
+  if (
+    rawArguments.length !== 2 ||
+    rawArguments[0] !== "--control-file"
+  ) {
+    reject("arguments_invalid");
+  }
+  const control = await readControl(rawArguments[1]);
+  if (ADAPTER_ONLY_ACTIONS.has(control.action)) {
+    reject("adapter_required");
+  }
+  const transport = createLoopbackCdpTransport(control.endpoint);
+  let payload = null;
+  if (control.action === "select-pro") {
+    payload = { model: control.model };
+  }
+  const result = await runComposerAction(
+    transport,
+    {
+      target_id: control.target_id,
+      target_url: control.target_url,
+    },
+    control.action,
+    payload,
+  );
+  process.stdout.write(`${JSON.stringify(result)}\n`);
+}
+
+const invokedPath = process.argv[1]
+  ? pathToFileURL(resolve(process.argv[1])).href
+  : "";
+if (invokedPath === import.meta.url) {
+  main().catch((error) => {
+    const code =
+      error instanceof ChatGptComposerError ? error.code : "unexpected_failure";
+    process.stderr.write(`chatgpt-composer:${code}\n`);
+    process.exitCode = 1;
+  });
+}

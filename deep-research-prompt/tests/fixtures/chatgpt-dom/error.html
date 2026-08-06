@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head><title>ChatGPT fixture: run error</title></head>
+  <body>
+    <main data-session="authenticated">
+      <section data-testid="conversation">
+        <article
+          data-message-author-role="assistant"
+          data-message-id="assistant-baseline"
+          data-turn-position="1"
+          data-run-state="completed"
+        >Historical answer.</article>
+        <article
+          data-message-author-role="user"
+          data-message-id="user-current"
+          data-turn-position="2"
+        >[request redacted]</article>
+        <section data-testid="run-error" data-run-state="failed">
+          Synthetic failure
+        </section>
+      </section>
+      <form data-testid="composer">
+        <div id="prompt-textarea" contenteditable="true" role="textbox"></div>
+        <button
+          type="button"
+          data-testid="model-switcher"
+          data-model-id="gpt-5-pro"
+          aria-label="Model selector, Pro"
+        >Pro</button>
+        <button
+          type="button"
+          data-testid="composer-tool-chip"
+          data-tool="deep-research"
+          aria-pressed="true"
+        >Deep research</button>
+      </form>
+    </main>
+    <script type="application/json" id="fixture-contract">
+      {"schema":"oracle-subagent.dom-fixture.v1","case":"error","expected":{"session":"authenticated","challenge":false,"model_id":"gpt-5-pro","tool":"deep-research","run_state":"failed","assistant_after_user":false,"result_nonempty":false}}
+    </script>
+  </body>
+</html>

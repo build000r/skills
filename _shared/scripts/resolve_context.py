@@ -274,6 +274,12 @@ def _resolve_from_local_overlays(
     top = [c for c in candidates if c[0] == best_len]
     best_priority = max(c[1] for c in top)
     top = [c for c in top if c[1] == best_priority]
+    top = list(
+        {
+            (candidate[1], candidate[2].resolve()): candidate
+            for candidate in top
+        }.values()
+    )
 
     if len(top) > 1:
         matches = ", ".join(str(c[2]) for c in top)

@@ -69,17 +69,77 @@ artifact. Cross-skill conventions (naming, labels, lifecycle, attribution env
 vars, commit policy) live in
 [`_shared/references/beads-contract.md`](../_shared/references/beads-contract.md).
 
-Bootstrap on entry (idempotent):
+### No-ragrets handoff intake (binding)
+
+Consume an accepted `no-ragrets` Beads graph in place. Never remint, flatten,
+or reinterpret it as a new divide-and-conquer epic.
+
+Before rendering or dispatching, run the owning intake contract against the
+scoped graph and the same scope's raw Beads-ready result:
 
 ```bash
-python3 ~/.claude/skills/_shared/scripts/br_helpers.py ensure
-export BR_AGENT_NAME=divide-and-conquer BR_HARNESS=claude-code BR_MODEL="$CLAUDE_MODEL"
+python3 divide-and-conquer/scripts/plan_intake.py \
+  --plan {root-slug} \
+  --issues-file <(br list --label "plan:{root-slug}" --json) \
+  --ready-file <(br ready --label "plan:{root-slug}" --json)
 ```
 
+The consumer recognizes and validates all canonical planning metadata:
+
+- exactly one `plan:{root-slug}` and one canonical `plan-role:*` label per node
+- exactly one root with one
+  `plan-state:{draft|synthesized|handoff-ready}` label
+- exactly one non-empty `planning_parent:`, `supports:`, `local_criteria:`,
+  and `produces:` notes scalar per node
+- a complete, in-scope, acyclic `planning_parent` hierarchy with root parent
+  `none`
+
+The receipt separates `candidate_frontier` from `admitted_frontier`.
+`candidate_frontier` may show what Beads considers ready, but
+`admitted_frontier` stays empty until the root is
+`plan-state:handoff-ready` and every canonical field passes. Missing
+observations remain `null` in the receipt and fail closed; do not infer or fill
+them from a worker prompt or rendered view.
+
+`plan-role:root` and `plan-role:branch` nodes must remain epics and are always
+excluded, even if raw `br ready` includes them. Only dependency-ready
+`plan-role:execution-leaf`, `plan-role:integration`, and `plan-role:review`
+nodes may enter the admitted frontier. Deferred grouping epics remain
+non-dispatchable; do not un-defer them or retire them through a generic
+`br epic close-eligible` pass.
+
+Treat exit `0` as executable intake. Exit `2` is an intentional closed gate:
+preserve the graph and return the receipt's exact `defects` and `gate_reasons`
+to the Codex planning authority. Record the receipt with the run evidence,
+including root/state, role counts, recognized metadata count, excluded
+grouping IDs, raw ready IDs, candidate frontier, and admitted frontier.
+
+Bootstrap on entry (idempotent). Set `DAC_SKILL_ROOT` to the directory
+containing the `divide-and-conquer/SKILL.md` that the runtime loaded. Use that
+resolved invocation path as the authority; never guess an agent-specific
+`~/.claude` or `~/.codex` install root. The adjacent `_shared` tree is part of
+the same installed skill surface in source checkouts, global symlink installs,
+and Skillbox materializations.
+
+```bash
+export DAC_SKILL_ROOT="<resolved directory containing the loaded divide-and-conquer/SKILL.md>"
+DAC_SHARED_ROOT="$(realpath "$DAC_SKILL_ROOT/../_shared")"
+test -f "$DAC_SHARED_ROOT/scripts/br_helpers.py"
+python3 "$DAC_SHARED_ROOT/scripts/br_helpers.py" ensure
+export BR_AGENT_NAME="${BR_AGENT_NAME:-divide-and-conquer}"
+export BR_HARNESS="${BR_HARNESS:-agent}"
+export BR_MODEL="${BR_MODEL:-${CLAUDE_MODEL:-unknown}}"
+```
+
+Keep `DAC_SKILL_ROOT` and `DAC_SHARED_ROOT` for every command below. If the
+adjacent `_shared` tree is absent, stop with the resolved skill path instead of
+falling back to another agent's home directory or a second skill copy.
+
 Use the helper rather than raw `br` calls so attribution and JSON envelopes are
-consistent across panes. The helper exposes: `ensure`, `status`, `ready`,
-`scheduler`, `mint-node`, `update-node`, `hydrate-node`, `render-node-brief`,
-`claim`, `block`, `done`, `render-workgraph`, `flush`.
+consistent across panes. The helper exposes: `ensure`, `status`, `ready`
+(including `ready --plan {slug} --require-handoff-ready`), `scheduler`,
+`mint-node`, `mint-subgoal`, `update-node`, `hydrate-node`,
+`render-node-brief`, `claim`, `block`, `done`, `render-workgraph`, `flush`.
 
 After minting the graph, immediately run `br ready --json` or the helper
 equivalent and verify that intended first-wave child nodes are actually ready.
@@ -142,6 +202,85 @@ impactful architecture/code decisions, integration review, commit acceptance,
 and final say must run on Codex `gpt-5.6-sol`; if SOL is unavailable, use Codex
 `gpt-5.6-terra` at `ultra`. Require a final fresh-eyes reviewer pass before
 completion.
+
+## Accepted No-Ragrets Plan Intake
+
+`no-ragrets` owns recursive executive planning; this skill owns execution. When
+the slice arrives as an accepted planning graph, **intake runs before minting**.
+Do not remint, flatten, or re-decompose an accepted plan — consume the existing
+epic and children as they are. The canonical label/scalar vocabulary lives in
+[`_shared/references/beads-contract.md`](../_shared/references/beads-contract.md)
+under "Accepted Plan Vocabulary"; this section is the enforcement contract.
+
+Trigger intake whenever any issue in scope carries a `plan:{slug}` label, or the
+handoff packet names an epic ID, a `plan-state:*` value, or `SC-*`/`PC-*`
+criteria. Run it before Step 4's mint/load decision:
+
+```bash
+python3 "$DAC_SHARED_ROOT/scripts/br_helpers.py" \
+  ready --plan "${PLAN_SLUG}" --require-handoff-ready > "$run_dir/PLAN_ADMISSION.json"
+echo "$?"   # 0 = admissible, 2 = rejected. Capture it directly; never via a pipe.
+```
+
+The gate is fail-closed and enforces all of the following:
+
+1. **Exactly one accepted root.** The plan must have exactly one `plan:{slug}`
+   issue labeled `plan-role:root` and `plan-state:handoff-ready`. Zero roots,
+   several roots, or a `draft`/`synthesized` root rejects the whole plan.
+2. **Reuse the epic.** Intake is a read path. It never creates, closes,
+   relabels, or reparents plan nodes. `EPIC_ID.txt` points at the accepted root.
+3. **Only executable roles dispatch.** `plan-role:execution-leaf`,
+   `plan-role:integration`, and `plan-role:review` may enter a wave.
+   `plan-role:root` and `plan-role:branch` are grouping nodes and must never be
+   dispatched even when `br ready` returns them; a ready grouping node is a
+   graph defect to repair, not work to hand a worker. Missing, duplicated, or
+   unknown `plan-role:*` labels reject the node.
+4. **Readiness still comes from `br`.** The frontier is `br ready` output;
+   the helper only narrows it. Role matching is OR-semantics filtering done in
+   helper code, because multi-label `br ready` AND behavior is not proven across
+   versions.
+5. **Hydrate every admitted node.** An accepted plan is written before any swarm
+   exists, so each admitted node must be given a real invocation `run_dir` and a
+   concrete `expected_assignee`, plus `repo_path`, `branch`, `concern:*`,
+   `done_when`, `validate`, `global_constraints`, model route, and review/final
+   authority. Template stand-ins (`<absolute-run-dir>`, `TBD`, `none`,
+   `worker-id`, `${VAR}`, relative paths) are rejected, not dispatched. Repair
+   in place with `br_helpers.py update-node`; never patch the gap into a prompt
+   or `EXECUTION_CONTEXT.md`.
+6. **Historical evidence is not work.** `plan-role:historical-evidence` and
+   `plan-evidence:historical-only` nodes are excluded from dispatch *and* from
+   criterion coverage. A criterion supported only by historical evidence stays
+   in `coverage.uncovered`; never report it as covered.
+7. **Write scopes are compared across the admitted frontier.** Declared `writes`
+   are checked pairwise for exact, directory-containment, and glob overlap.
+   Ready siblings cannot already be ordered by `br`, so any collision is unsafe
+   concurrency: the helper defers the later node and emits the
+   `br dep add {later} {earlier}` edge that serializes them. Materialize that
+   ordering (`--materialize-serialization`, or run the edge yourself) or leave
+   the node out of the wave. Never dispatch an overlapping pair concurrently.
+
+Every failure is a machine-readable `{id, reason, detail, repair}` entry with a
+stable `reason` identifier. Apply the `repair`, re-run the gate, and record the
+graph change in the run directory. Do not hand-wave past a rejection, and do not
+fall back to reminting the plan because intake failed.
+
+If the gate cannot pass because the plan itself is wrong (uncovered criteria,
+contradictory roles, unresolved decisions hidden in a leaf), that is a
+`no-ragrets` planning repair. Report it back with the admission JSON instead of
+silently re-planning inside an execution run.
+
+Record intake in the dispatch contract:
+
+```text
+Plan intake:
+- plan: plan:<slug>
+- root: <accepted root id> (plan-state:handoff-ready)
+- admitted: <n> (execution-leaf/integration/review)
+- deferred for write overlap: <n> with materialized ordering edges
+- excluded historical-evidence: <n>
+- rejected: <n> (reasons + applied repairs)
+- result: pass | repaired-and-passed | blocked
+```
 
 ## Model Routing Is Mandatory
 
@@ -214,7 +353,9 @@ Route every ready node before spawning workers:
 
 - [[skill-issue]]
 - `no-ragrets` for the Edge-Capture Contract before broad work, reusable workflow
-  changes, or worker-wave execution
+  changes, or worker-wave execution, and as the upstream producer of accepted
+  planning graphs consumed through
+  [Accepted No-Ragrets Plan Intake](#accepted-no-ragrets-plan-intake)
 - `ntm` for command reference, session inspection, and swarm debugging
 - `vibing-with-ntm` for swarm orchestration patterns, pane hygiene, and
   transport-layer recovery when the problem is NTM rather than the workgraph
@@ -238,7 +379,7 @@ updates only.
 Resolve client context with the shared helper first:
 
 ```bash
-python3 ~/.claude/skills/_shared/scripts/resolve_context.py "$PWD" --format json
+python3 "$DAC_SHARED_ROOT/scripts/resolve_context.py" "$PWD" --format json
 ```
 
 Then resolve the invocation artifact root using this order:
@@ -631,13 +772,33 @@ When subgoals are relevant, mint or tighten the controller issues before leaf
 dispatch. The controller is the durable boundary; NTM session names and
 `SUBGOAL_RESULT.md` artifacts are derived views/evidence.
 
-### 4. Load or Synthesize the Beads Epic
+### 4. Intake an Accepted Plan, or Load/Synthesize the Beads Epic
+
+Check for an accepted `no-ragrets` graph **first**. If any issue in scope
+carries a `plan:{slug}` label, or the handoff packet names an epic ID,
+`plan-state`, or `SC-*`/`PC-*` criteria, run the intake gate before any minting
+decision:
+
+```bash
+python3 "$DAC_SHARED_ROOT/scripts/br_helpers.py" \
+  ready --plan "${PLAN_SLUG}" --require-handoff-ready > "$run_dir/PLAN_ADMISSION.json"
+admission_exit=$?
+```
+
+- Exit `0`: the `admitted` array is wave 1. Write the accepted root id to
+  `EPIC_ID.txt`, honor `serialization_edges`, and skip minting entirely.
+- Exit `2`: apply each rejection's `repair` in place, re-run the gate, and only
+  then dispatch. Never remint or flatten the plan to route around a rejection.
+
+See [Accepted No-Ragrets Plan Intake](#accepted-no-ragrets-plan-intake) for the
+full contract. The rest of this step applies only to generic slices with no
+accepted plan.
 
 Before inventing a split, check whether the slice already has a `br` epic with
 open children:
 
 ```bash
-frontier_json="$(python3 ~/.claude/skills/_shared/scripts/br_helpers.py ready --label slice:{slug})"
+frontier_json="$(python3 "$DAC_SHARED_ROOT/scripts/br_helpers.py" ready --label slice:{slug})"
 ```
 
 If the epic exists and the ready frontier is non-empty:
@@ -706,8 +867,8 @@ ready node is not launchable until `br show {id} --json` or
 Use Beads-first helper commands:
 
 ```bash
-python3 ~/.claude/skills/_shared/scripts/br_helpers.py hydrate-node <issue-id>
-python3 ~/.claude/skills/_shared/scripts/br_helpers.py render-node-brief <issue-id>
+python3 "$DAC_SHARED_ROOT/scripts/br_helpers.py" hydrate-node <issue-id>
+python3 "$DAC_SHARED_ROOT/scripts/br_helpers.py" render-node-brief <issue-id>
 ```
 
 If `hydrate-node` reports missing dispatch fields, update the issue first with
@@ -720,9 +881,9 @@ debugging, but workers must receive a Beads-rendered node brief.
 For each ready frontier wave, launch an NTM swarm sized to that wave.
 
 ```bash
-frontier_json="$(python3 ~/.claude/skills/_shared/scripts/br_helpers.py ready --label slice:${SLICE_SLUG})"
+frontier_json="$(python3 "$DAC_SHARED_ROOT/scripts/br_helpers.py" ready --label slice:${SLICE_SLUG})"
 # Optional: ranked by br's evidence-aware scheduler instead of plain priority
-# frontier_json="$(python3 ~/.claude/skills/_shared/scripts/br_helpers.py scheduler)"
+# frontier_json="$(python3 "$DAC_SHARED_ROOT/scripts/br_helpers.py" scheduler)"
 
 ntm spawn "$WAVE_PROJECT" \
   --grok=1 \
@@ -1039,8 +1200,8 @@ Once the wave has produced results, or the timeout is reached:
      proof child before blocking the smallest affected node
    - Needs rework: `br reopen {id}` — the issue returns to the ready frontier
 7. Re-render the view:
-   `python3 ~/.claude/skills/_shared/scripts/br_helpers.py render-workgraph --epic $(cat <absolute-run-dir>/EPIC_ID.txt) --out <absolute-run-dir>/WORKGRAPH.md`
-8. Re-query the frontier: `python3 ~/.claude/skills/_shared/scripts/br_helpers.py ready --label slice:{slug}`
+   `python3 "$DAC_SHARED_ROOT/scripts/br_helpers.py" render-workgraph --epic $(cat <absolute-run-dir>/EPIC_ID.txt) --out <absolute-run-dir>/WORKGRAPH.md`
+8. Re-query the frontier: `python3 "$DAC_SHARED_ROOT/scripts/br_helpers.py" ready --label slice:{slug}`
 9. Launch the next ready wave
 
 Do not mark a node done based only on a worker's self-report.
@@ -1093,7 +1254,7 @@ Reviewer prompt:
   reviews report no blocker or material shortfall.
 - Run `br epic close-eligible --json` to retire the slice's epic if every child
   is closed; surface any leftover open child as the blocker
-- Run `python3 ~/.claude/skills/_shared/scripts/br_helpers.py flush` so
+- Run `python3 "$DAC_SHARED_ROOT/scripts/br_helpers.py" flush` so
   `.beads/issues.jsonl` reflects current state
 - Commit if there are clean, scoped changes to save (include `.beads/issues.jsonl`,
   exclude `.beads/*.db*`). Prefer Grok 4.5 for the mechanical
@@ -1133,6 +1294,24 @@ When the final review result is available:
   `DAC_FINAL_RESULT.md` files. Existing legacy files may be read as historical
   evidence, but new waves use the overlay-backed invocation root.
 - Ready frontier comes from `br_helpers.py ready` or `scheduler`; do not pre-dispatch blocked nodes
+- An accepted `no-ragrets` plan is consumed, never reminted or flattened. Intake
+  runs before minting via `ready --plan {slug} --require-handoff-ready`, requires
+  exactly one `plan-role:root` at `plan-state:handoff-ready`, and fails closed
+- Only `plan-role:execution-leaf`, `plan-role:integration`, and
+  `plan-role:review` may dispatch. `plan-role:root`, `plan-role:branch`, and
+  missing/duplicate/unknown roles never enter a wave, however ready they look
+- `plan-role:historical-evidence` and `plan-evidence:historical-only` nodes never
+  dispatch and never count toward criterion coverage
+- Every admitted plan node gets a real invocation `run_dir` and a concrete
+  `expected_assignee` at admission time; placeholders are repaired in the Bead,
+  not in the prompt
+- Write-scope overlap across the admitted frontier must be serialized with a
+  materialized `br dep add` edge before dispatch; overlapping nodes never run
+  concurrently
+- Admission rejections are machine-readable `{id, reason, detail, repair}`
+  records; apply the repair and re-run the gate rather than working around it
+- Capture the gate's exit code directly (`cmd > log 2>&1; echo $?`); piping to
+  `tail`/`head` reports the pipe's status and reads as a false green
 - Subgoal frontiers require both `slice:{root}` and `subgoal:{slug}` filters;
   prove multi-label `br ready` AND semantics or use helper-side AND filtering
   before launch

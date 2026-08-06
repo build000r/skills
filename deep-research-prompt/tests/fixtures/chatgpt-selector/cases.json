@@ -1,0 +1,502 @@
+{
+  "schema": "oracle-subagent.selector-cases.v1",
+  "target_id": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+  "target_url": "https://chatgpt.com/",
+  "model": "gpt-5-5-pro",
+  "now": "2026-07-28T07:20:05.000Z",
+  "observed_at": "2026-07-28T07:20:00.000Z",
+  "probe_cases": [
+    {
+      "case": "probe-ready-standard-pro",
+      "mode": "pro",
+      "dom": {
+        "model": {
+          "text": "Pro",
+          "aria": "Model selector Pro",
+          "data_model_id": "gpt-5-5-pro"
+        },
+        "tools": [],
+        "distractors": []
+      },
+      "expected": {
+        "ok": true,
+        "observation": {
+          "model_selection": "pro",
+          "model_machine_id": "gpt-5-5-pro",
+          "active_tool_count": 0,
+          "active_tools_enabled": true,
+          "tool_selection": "none"
+        }
+      }
+    },
+    {
+      "case": "probe-ready-deep-research",
+      "mode": "deep-research",
+      "dom": {
+        "model": {
+          "text": "Pro",
+          "aria": "Model Pro"
+        },
+        "tools": [
+          {
+            "text": "Deep Research",
+            "aria": "Deep Research",
+            "data_tool": "deep-research",
+            "aria_pressed": "true",
+            "data_state": "active"
+          }
+        ],
+        "distractors": []
+      },
+      "expected": {
+        "ok": true,
+        "observation": {
+          "model_selection": "pro",
+          "active_tool_count": 1,
+          "active_tools_enabled": true,
+          "tool_selection": "deep-research"
+        }
+      }
+    },
+    {
+      "case": "probe-model-conflict-instant-vs-pro",
+      "mode": "pro",
+      "dom": {
+        "model": {
+          "text": "Instant",
+          "aria": "Model Pro"
+        },
+        "tools": [],
+        "distractors": []
+      },
+      "expected": {
+        "ok": false,
+        "code": "model_not_pro",
+        "observation": {
+          "model_selection": "ambiguous"
+        }
+      }
+    },
+    {
+      "case": "probe-model-conflict-pro-vs-instant",
+      "mode": "pro",
+      "dom": {
+        "model": {
+          "text": "Pro",
+          "aria": "Model selector Instant"
+        },
+        "tools": [],
+        "distractors": []
+      },
+      "expected": {
+        "ok": false,
+        "code": "model_not_pro",
+        "observation": {
+          "model_selection": "ambiguous"
+        }
+      }
+    },
+    {
+      "case": "probe-model-machine-id-conflict",
+      "mode": "pro",
+      "dom": {
+        "model": {
+          "text": "Pro",
+          "aria": "Model selector Pro",
+          "data_model_id": "gpt-5-5-instant"
+        },
+        "tools": [],
+        "distractors": []
+      },
+      "expected": {
+        "ok": false,
+        "code": "model_not_pro",
+        "observation": {
+          "model_selection": "ambiguous",
+          "model_machine_id": "gpt-5-5-instant"
+        }
+      }
+    },
+    {
+      "case": "probe-machine-pro-id-mismatch",
+      "mode": "pro",
+      "dom": {
+        "model": {
+          "text": "Pro",
+          "aria": "Model selector Pro",
+          "data_model_id": "gpt-5-4-pro"
+        },
+        "tools": [],
+        "distractors": []
+      },
+      "expected": {
+        "ok": false,
+        "code": "model_machine_mismatch",
+        "observation": {
+          "model_selection": "pro",
+          "model_machine_id": "gpt-5-4-pro"
+        }
+      }
+    },
+    {
+      "case": "probe-tool-state-conflict-inactive-vs-active",
+      "mode": "deep-research",
+      "dom": {
+        "model": {
+          "text": "Pro",
+          "aria": "Model selector Pro"
+        },
+        "tools": [
+          {
+            "text": "Deep Research",
+            "aria": "Deep Research",
+            "data_tool": "deep-research",
+            "aria_pressed": "false",
+            "data_state": "active"
+          }
+        ],
+        "distractors": []
+      },
+      "expected": {
+        "ok": false,
+        "code": "tool_not_exact",
+        "observation": {
+          "active_tool_count": 0,
+          "active_tools_enabled": false,
+          "tool_selection": "ambiguous"
+        }
+      }
+    },
+    {
+      "case": "probe-tool-state-conflict-active-vs-inactive",
+      "mode": "deep-research",
+      "dom": {
+        "model": {
+          "text": "Pro",
+          "aria": "Model selector Pro"
+        },
+        "tools": [
+          {
+            "text": "Deep Research",
+            "aria": "Deep Research",
+            "data_tool": "deep-research",
+            "aria_pressed": "true",
+            "data_state": "inactive"
+          }
+        ],
+        "distractors": []
+      },
+      "expected": {
+        "ok": false,
+        "code": "tool_not_exact",
+        "observation": {
+          "active_tool_count": 0,
+          "active_tools_enabled": false,
+          "tool_selection": "ambiguous"
+        }
+      }
+    },
+    {
+      "case": "probe-tool-state-unsupported-aria",
+      "mode": "deep-research",
+      "dom": {
+        "model": {
+          "text": "Pro",
+          "aria": "Model selector Pro"
+        },
+        "tools": [
+          {
+            "text": "Deep Research",
+            "aria": "Deep Research",
+            "data_tool": "deep-research",
+            "aria_pressed": "mixed",
+            "data_state": "active"
+          }
+        ],
+        "distractors": []
+      },
+      "expected": {
+        "ok": false,
+        "code": "tool_not_exact",
+        "observation": {
+          "active_tool_count": 0,
+          "active_tools_enabled": false,
+          "tool_selection": "ambiguous"
+        }
+      }
+    },
+    {
+      "case": "probe-tool-state-unsupported-data",
+      "mode": "deep-research",
+      "dom": {
+        "model": {
+          "text": "Pro",
+          "aria": "Model selector Pro"
+        },
+        "tools": [
+          {
+            "text": "Deep Research",
+            "aria": "Deep Research",
+            "data_tool": "deep-research",
+            "aria_pressed": "true",
+            "data_state": "pending"
+          }
+        ],
+        "distractors": []
+      },
+      "expected": {
+        "ok": false,
+        "code": "tool_not_exact",
+        "observation": {
+          "active_tool_count": 0,
+          "active_tools_enabled": false,
+          "tool_selection": "ambiguous"
+        }
+      }
+    },
+    {
+      "case": "probe-tool-identity-image-vs-deep-research",
+      "mode": "deep-research",
+      "dom": {
+        "model": {
+          "text": "Pro",
+          "aria": "Model selector Pro"
+        },
+        "tools": [
+          {
+            "text": "Deep Research",
+            "aria": "Deep Research",
+            "data_tool": "image",
+            "aria_pressed": "true",
+            "data_state": "active"
+          }
+        ],
+        "distractors": []
+      },
+      "expected": {
+        "ok": false,
+        "code": "tool_not_exact",
+        "observation": {
+          "active_tool_count": 1,
+          "active_tools_enabled": true,
+          "tool_selection": "ambiguous"
+        }
+      }
+    },
+    {
+      "case": "probe-tool-identity-deep-research-vs-image",
+      "mode": "deep-research",
+      "dom": {
+        "model": {
+          "text": "Pro",
+          "aria": "Model selector Pro"
+        },
+        "tools": [
+          {
+            "text": "Image",
+            "aria": "Image",
+            "data_tool": "deep-research",
+            "aria_pressed": "true",
+            "data_state": "active"
+          }
+        ],
+        "distractors": []
+      },
+      "expected": {
+        "ok": false,
+        "code": "tool_not_exact",
+        "observation": {
+          "active_tool_count": 1,
+          "active_tools_enabled": true,
+          "tool_selection": "ambiguous"
+        }
+      }
+    },
+    {
+      "case": "probe-inactive-deep-research",
+      "mode": "deep-research",
+      "dom": {
+        "model": {
+          "text": "Pro",
+          "aria": "Model selector Pro"
+        },
+        "tools": [
+          {
+            "text": "Deep Research",
+            "aria": "Deep Research",
+            "data_tool": "deep-research",
+            "aria_pressed": "false",
+            "data_state": "inactive"
+          }
+        ],
+        "distractors": []
+      },
+      "expected": {
+        "ok": false,
+        "code": "tool_not_exact",
+        "observation": {
+          "active_tool_count": 0,
+          "active_tools_enabled": true,
+          "tool_selection": "none"
+        }
+      }
+    },
+    {
+      "case": "probe-account-help-history-distractors-ignored",
+      "mode": "pro",
+      "dom": {
+        "model": {
+          "text": "Pro",
+          "aria": "Model selector Pro"
+        },
+        "tools": [],
+        "distractors": [
+          "account badge Pro",
+          "help text Deep Research",
+          "historical message Pro"
+        ]
+      },
+      "expected": {
+        "ok": true,
+        "observation": {
+          "model_selection": "pro",
+          "active_tool_count": 0,
+          "active_tools_enabled": true,
+          "tool_selection": "none"
+        }
+      }
+    }
+  ],
+  "cases": [
+    {
+      "case": "ready-standard-pro",
+      "mode": "pro",
+      "mutate": {},
+      "expected": { "ok": true }
+    },
+    {
+      "case": "ready-deep-research",
+      "mode": "deep-research",
+      "mutate": {
+        "active_tool_count": 1,
+        "tool_selection": "deep-research"
+      },
+      "expected": { "ok": true }
+    },
+    {
+      "case": "account-badge-pro-is-not-composer-proof",
+      "mode": "pro",
+      "distractors": ["account_badge:Pro"],
+      "mutate": { "model_selection": "instant" },
+      "expected": { "ok": false, "code": "model_not_pro" }
+    },
+    {
+      "case": "help-copy-deep-research-is-not-active-tool",
+      "mode": "deep-research",
+      "distractors": ["help_copy:Deep Research"],
+      "mutate": {},
+      "expected": { "ok": false, "code": "tool_not_exact" }
+    },
+    {
+      "case": "stale-history-pro-is-not-current-model",
+      "mode": "pro",
+      "distractors": ["historical_message:Pro"],
+      "mutate": { "model_selection": "instant" },
+      "expected": { "ok": false, "code": "model_not_pro" }
+    },
+    {
+      "case": "instant-is-not-pro",
+      "mode": "pro",
+      "mutate": { "model_selection": "instant" },
+      "expected": { "ok": false, "code": "model_not_pro" }
+    },
+    {
+      "case": "inactive-deep-research-chip",
+      "mode": "deep-research",
+      "distractors": ["inactive_composer_chip:Deep Research"],
+      "mutate": {
+        "active_tool_count": 0,
+        "tool_selection": "none"
+      },
+      "expected": { "ok": false, "code": "tool_not_exact" }
+    },
+    {
+      "case": "two-composers",
+      "mode": "pro",
+      "mutate": {
+        "composer_count": 2,
+        "prompt_field_count": 2
+      },
+      "expected": { "ok": false, "code": "composer_ambiguous" }
+    },
+    {
+      "case": "two-model-controls",
+      "mode": "pro",
+      "mutate": { "model_control_count": 2 },
+      "expected": { "ok": false, "code": "model_not_pro" }
+    },
+    {
+      "case": "disabled-model-control",
+      "mode": "pro",
+      "mutate": { "model_control_enabled": false },
+      "expected": { "ok": false, "code": "model_not_pro" }
+    },
+    {
+      "case": "disabled-active-deep-research-chip",
+      "mode": "deep-research",
+      "mutate": {
+        "active_tool_count": 1,
+        "active_tools_enabled": false,
+        "tool_selection": "deep-research"
+      },
+      "expected": { "ok": false, "code": "tool_not_exact" }
+    },
+    {
+      "case": "two-canonical-pro-models",
+      "mode": "pro",
+      "mutate": {
+        "catalog_pro_model_ids": ["gpt-5-4-pro", "gpt-5-5-pro"]
+      },
+      "expected": { "ok": false, "code": "model_catalog_ambiguous" }
+    },
+    {
+      "case": "missing-canonical-pro-model",
+      "mode": "pro",
+      "mutate": { "catalog_pro_model_ids": [] },
+      "expected": { "ok": false, "code": "model_catalog_ambiguous" }
+    },
+    {
+      "case": "wrong-target-id",
+      "mode": "pro",
+      "mutate": {
+        "target_id": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+      },
+      "expected": { "ok": false, "code": "target_mismatch" }
+    },
+    {
+      "case": "wrong-target-url",
+      "mode": "pro",
+      "mutate": {
+        "target_url": "https://chatgpt.com/g/wrong-project"
+      },
+      "expected": { "ok": false, "code": "target_mismatch" }
+    },
+    {
+      "case": "stale-observation",
+      "mode": "pro",
+      "mutate": {
+        "observed_at": "2026-07-28T07:19:00.000Z"
+      },
+      "expected": { "ok": false, "code": "observation_stale" }
+    },
+    {
+      "case": "unexpected-active-tool-in-standard-pro",
+      "mode": "pro",
+      "mutate": {
+        "active_tool_count": 1,
+        "tool_selection": "deep-research"
+      },
+      "expected": { "ok": false, "code": "tool_not_exact" }
+    }
+  ]
+}

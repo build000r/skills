@@ -116,7 +116,20 @@ When routing to a research workflow:
 1. **Frame the question** in one sentence the caller would defend in a duel
 2. **List the internal evidence already considered** (repo files, wiki concepts, prior duels) so the Pro run doesn't restate what we already know
 3. **Specify the decision the answer feeds** (which README section, which plan field, which VISION claim) — Pro runs without a downstream commit slot tend to drift
-4. Hand off to the selected route. For `deep-research-prompt`, execute mode (oracle on PATH) is preferred over paste mode. Browser-mode Deep Research must go through that skill's **verified composer flow** (oracle renders the bundle; CDP selects and proves Pro + Deep research, then submits) — never a raw `oracle --engine browser` submission, which has shipped runs on the wrong model with Deep research off
+4. Hand off to the selected route. For `deep-research-prompt`, execute mode is
+   preferred over paste mode. For a plain question, use its one-command
+   `assets/scripts/oracle-ask.mjs` lane (name a Project with `--project`, and
+   use `--model instant` while iterating so Pro usage is not spent on tests).
+   For Deep Research and other browser-composer work, use the stable
+   `assets/scripts/oracle-subagent.mjs run` command, then retain the returned
+   run ID for `status`, `wait`, or `run --reattach`. Treat
+   `--timeout-seconds` as an observer wait bound, and preserve any returned
+   `resume_directive`; `monitor` or `reconcile_submission` must never become a
+   duplicate send. Browser-mode Deep Research
+   must go through that controller's verified composer flow (Oracle renders
+   the bundle; CDP selects and proves Pro + Deep research, then submits) —
+   never a raw `oracle --engine browser` submission, which has shipped runs on
+   the wrong model with Deep research off.
 5. On return, capture the result to the appropriate destination:
    - Wiki context → file as `_sources/oracle/<topic>-<date>.md` and trigger `/wiki ingest`
    - Plan/VISION context → quote the load-bearing claims inline with citations and link the full transcript

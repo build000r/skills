@@ -6,6 +6,13 @@ in `br`; this file describes what *content* each node carries and how to mint
 it. Cross-skill conventions live in
 [`_shared/references/beads-contract.md`](../../_shared/references/beads-contract.md).
 
+Do **not** use this file when an accepted `no-ragrets` graph already exists
+(anything carrying a `plan:{slug}` label). That graph is consumed, not
+synthesized: run the intake gate in SKILL.md under "Accepted No-Ragrets Plan
+Intake" (`br_helpers.py ready --plan {slug} --require-handoff-ready`) and repair
+rejections in place. Reminting or flattening an accepted plan loses the root
+success contract and its criterion traceability.
+
 ## Run Directory
 
 Still required for generated views and evidence attachments (`EPIC_ID.txt`,
@@ -22,7 +29,7 @@ mkdir -p "$run_dir"
 views, not authoritative contracts. Regenerate `WORKGRAPH.md` any time:
 
 ```bash
-python3 ~/.claude/skills/_shared/scripts/br_helpers.py render-workgraph \
+python3 "$DAC_SHARED_ROOT/scripts/br_helpers.py" render-workgraph \
   --epic "$EPIC_ID" --out "$run_dir/WORKGRAPH.md"
 ```
 
@@ -46,7 +53,7 @@ EPIC=$(br create "{slice}: {one-line value}" --slug epic-{slice} \
   --type epic --priority 1 --json | jq -r .id)
 echo "$EPIC" > "$run_dir/EPIC_ID.txt"
 
-python3 ~/.claude/skills/_shared/scripts/br_helpers.py mint-node \
+python3 "$DAC_SHARED_ROOT/scripts/br_helpers.py" mint-node \
   wg-001-{kebab-title} '{Title}' \
   --epic "$EPIC" \
   --concern backend-api \
@@ -127,13 +134,13 @@ root slice epic
     leaf issues: slice:{root},subgoal:billing,subgoal-role:leaf
 ```
 
-Until helper commands exist for this exact shape, mint the controller as a
-normal `br` issue using the shared field mapping in
-`_shared/references/beads-contract.md`. The future helper surface should be:
+Mint the controller with `mint-subgoal`, which writes the controller labels,
+notes scalars, and design blocks from the shared field mapping in
+`_shared/references/beads-contract.md`:
 
 ```bash
-python3 ~/.claude/skills/_shared/scripts/br_helpers.py mint-subgoal \
-  auth-hardening 'Subgoal: auth hardening' \
+python3 "$DAC_SHARED_ROOT/scripts/br_helpers.py" mint-subgoal \
+  auth 'Subgoal: auth hardening' \
   --slice "$SLICE_SLUG" \
   --writes 'backend/auth/**' \
   --shared-file 'backend/migrations/**' \
@@ -145,10 +152,18 @@ python3 ~/.claude/skills/_shared/scripts/br_helpers.py mint-subgoal \
   --status-artifact "$run_dir/subgoals/auth/SUBGOAL_RESULT.md"
 ```
 
+The positional slug is the `subgoal:{slug}` value; the issue is created as
+`subgoal-{slug}`. `--frontier-filter` defaults to
+`slice:{slice},subgoal:{slug}`, and `--isolation` defaults to `checkout`. A
+controller is a delegation boundary, not an executable leaf: it carries
+`--writes` (the subgoal's outer bound), `--shared-file` (root-owned, never
+child-owned), `--stop-rule`, and `--escalation`, and it is not hydrated or
+dispatched as a worker node. Leaves below it are ordinary `mint-node` calls.
+
 Subgoal leaf nodes are normal execution nodes plus the subgoal labels:
 
 ```bash
-python3 ~/.claude/skills/_shared/scripts/br_helpers.py mint-node \
+python3 "$DAC_SHARED_ROOT/scripts/br_helpers.py" mint-node \
   wg-001-auth-session 'Harden auth session handling' \
   --epic "$EPIC" --concern auth --repo current-repo \
   --writes 'backend/auth/**' \
@@ -197,8 +212,8 @@ handshake and `--close --suggest-next` lifecycle — lives directly in the paren
 SKILL.md under "Node Worker Prompt Contract." Render it from Beads:
 
 ```bash
-python3 ~/.claude/skills/_shared/scripts/br_helpers.py hydrate-node <issue-id>
-python3 ~/.claude/skills/_shared/scripts/br_helpers.py render-node-brief <issue-id>
+python3 "$DAC_SHARED_ROOT/scripts/br_helpers.py" hydrate-node <issue-id>
+python3 "$DAC_SHARED_ROOT/scripts/br_helpers.py" render-node-brief <issue-id>
 ```
 
 Do not duplicate the template here, and do not repair missing worker context by

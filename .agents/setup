@@ -1,0 +1,115 @@
+#!/usr/bin/env bash
+# AO-005 hardened Amp Orb setup for build000r/skills.
+# Idempotent; bounded validation: Python compileall for skill scripts/tests plus SKILL.md census.
+# Typed exits: setup=10 dependency=20 capacity=30 auth=40 validation=50.
+set -Eeuo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT"
+
+AGENT_STATE_DIR="${AGENT_STATE_DIR:-$ROOT/.agents/state}"
+AGENT_LOG_DIR="${AGENT_LOG_DIR:-$ROOT/.agents/logs}"
+AGENT_CACHE_DIR="${AGENT_CACHE_DIR:-$ROOT/.agents/cache}"
+STATUS_FILE="$AGENT_STATE_DIR/setup-status.json"
+LOG_FILE="$AGENT_LOG_DIR/setup.log"
+MIN_FREE_GB="${ORB_SETUP_MIN_FREE_GB:-8}"
+START_EPOCH="$(date +%s)"
+FAILURE_CLASS="setup"
+FAILURE_REASON="unexpected setup failure"
+TAILNET_STATUS="not-attempted"
+REPAIR_STARTED=false
+VALIDATION="Python compileall for skill scripts/tests plus SKILL.md census."
+
+mkdir -p "$AGENT_STATE_DIR" "$AGENT_LOG_DIR" "$AGENT_CACHE_DIR"
+touch "$LOG_FILE"
+exec > >(tee -a "$LOG_FILE") 2> >(tee -a "$LOG_FILE" >&2)
+
+log() { printf 'opensource-skills-orb-setup: %s\n' "$*"; }
+
+json_quote() {
+  python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$1" 2>/dev/null \
+    || printf '"%s"' "$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+}
+
+disk_json() {
+  df -Pk / | awk 'NR==2 {printf "{\"filesystem\":\"%s\",\"size_kb\":%s,\"used_kb\":%s,\"available_kb\":%s,\"capacity\":\"%s\",\"mount\":\"%s\"}", $1, $2, $3, $4, $5, $6}'
+}
+
+disk_available_gb() {
+  df -Pk / | awk 'NR==2 {printf "%d", $4 / 1024 / 1024}'
+}
+
+emit_status() {
+  local exit_code="$1" end_epoch duration status payload
+  end_epoch="$(date +%s)"
+  duration="$((end_epoch - START_EPOCH))"
+  status="ok"
+  [[ "$exit_code" -eq 0 ]] || status="error"
+  payload="$(printf '{"schema_version":1,"repo":%s,"script":"setup","status":%s,"failure_class":%s,"reason":%s,"exit_code":%s,"duration_seconds":%s,"disk":%s,"tailnet":%s,"repair_started":%s,"validation":%s,"log_file":%s,"timestamp":%s}\n' \
+    "$(json_quote "build000r/skills")" "$(json_quote "$status")" \
+    "$(json_quote "$FAILURE_CLASS")" "$(json_quote "$FAILURE_REASON")" \
+    "$exit_code" "$duration" "$(disk_json)" "$(json_quote "$TAILNET_STATUS")" \
+    "$REPAIR_STARTED" "$(json_quote "$VALIDATION")" "$(json_quote "$LOG_FILE")" \
+    "$(json_quote "$(date -u +%Y-%m-%dT%H:%M:%SZ)")")"
+  printf '%s' "$payload" > "$STATUS_FILE"
+  printf 'AGENT_SETUP_RESULT_JSON %s' "$payload" >&2
+}
+
+on_exit() {
+  local exit_code="$1"
+  if [[ "$exit_code" -eq 0 ]]; then
+    FAILURE_CLASS="none"
+    FAILURE_REASON="setup ok"
+  fi
+  emit_status "$exit_code"
+}
+trap 'on_exit $?' EXIT
+
+fail() {
+  FAILURE_CLASS="$1"
+  FAILURE_REASON="$2"
+  log "FAIL[$FAILURE_CLASS]: $FAILURE_REASON"
+  exit "$3"
+}
+
+need_cmd() {
+  command -v "$1" >/dev/null 2>&1 || fail dependency "missing required command: $1" 20
+}
+
+log "start: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+FREE_GB="$(disk_available_gb)"
+if [[ "$FREE_GB" -lt "$MIN_FREE_GB" ]]; then
+  fail capacity "need at least ${MIN_FREE_GB}GB free on fixed Orb disk; found ${FREE_GB}GB" 30
+fi
+
+# TAILSCALE_AUTHKEY is currently absent from Amp user secrets. Keep that a
+# visible, typed, non-fatal condition; never wait for interactive auth.
+if [[ -z "${TAILSCALE_AUTHKEY:-}" ]]; then
+  TAILNET_STATUS="skipped-no-authkey"
+  log "tailnet: TAILSCALE_AUTHKEY absent; typed non-fatal skip"
+elif [[ -x scripts/orb/join-tailnet.sh ]]; then
+  need_cmd timeout
+  log "tailnet: joining via scripts/orb/join-tailnet.sh"
+  if timeout 120 scripts/orb/join-tailnet.sh; then
+    TAILNET_STATUS="joined"
+  else
+    fail auth "tailnet join failed with TAILSCALE_AUTHKEY present" 40
+  fi
+else
+  TAILNET_STATUS="skipped-no-join-script"
+  log "tailnet: authkey present but no join script; typed non-fatal skip"
+fi
+
+need_cmd python3
+need_cmd git
+[[ -f AGENTS.md ]] || fail setup "repo shape unexpected: AGENTS.md missing" 10
+log "compileall: tracked Python surface (-x '/(node_modules|\.git|__pycache__|venv|\.venv|target)/' .)"
+PYTHONPYCACHEPREFIX="$AGENT_CACHE_DIR/pycache" python3 -m compileall -q -x '/(node_modules|\.git|__pycache__|venv|\.venv|target)/' . \
+  || fail validation "Python compileall failed: -x '/(node_modules|\.git|__pycache__|venv|\.venv|target)/' ." 50
+SKILL_COUNT="$(find . -maxdepth 2 -name SKILL.md | wc -l | tr -d " ")"
+[[ "$SKILL_COUNT" -gt 0 ]] || fail validation "no SKILL.md files found" 50
+log "skill census: ${SKILL_COUNT} SKILL.md files"
+
+log "disk after: $(df -h / | tail -1)"
+log "setup ok"

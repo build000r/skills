@@ -1,0 +1,42 @@
+{
+  "plan": "fixture-plan",
+  "issues_payload": {
+    "issues": [
+      {
+        "id": "fixture-root",
+        "issue_type": "epic",
+        "labels": ["plan:fixture-plan", "plan-role:root", "plan-state:handoff-ready"],
+        "notes": "planning_parent: none\nsupports: SC-1\nlocal_criteria: PC-root-1\nproduces: Accepted plan hierarchy."
+      },
+      {
+        "id": "fixture-branch",
+        "issue_type": "epic",
+        "labels": ["plan:fixture-plan", "plan-role:branch"],
+        "notes": "planning_parent: fixture-root\nsupports: SC-1\nlocal_criteria: PC-branch-1\nproduces: Branch outcome."
+      },
+      {
+        "id": "fixture-leaf",
+        "issue_type": "task",
+        "labels": ["plan:fixture-plan", "plan-role:execution-leaf"],
+        "notes": "planning_parent: fixture-branch\nsupports: SC-1, PC-branch-1\nlocal_criteria: none\nproduces: Executable artifact."
+      },
+      {
+        "id": "fixture-integration",
+        "issue_type": "task",
+        "labels": ["plan:fixture-plan", "plan-role:integration"],
+        "notes": "planning_parent: fixture-branch\nsupports: SC-1, PC-branch-1\nlocal_criteria: none\nproduces: Integration receipt."
+      },
+      {
+        "id": "fixture-review",
+        "issue_type": "task",
+        "labels": ["plan:fixture-plan", "plan-role:review"],
+        "notes": "planning_parent: fixture-branch\nsupports: SC-1, PC-branch-1\nlocal_criteria: none\nproduces: Review receipt."
+      }
+    ]
+  },
+  "ready_payload": [
+    {"id": "fixture-leaf"},
+    {"id": "fixture-integration"},
+    {"id": "fixture-review"}
+  ]
+}

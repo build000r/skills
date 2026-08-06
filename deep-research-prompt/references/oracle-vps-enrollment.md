@@ -10,7 +10,7 @@ identity, Pro capability, Project access, or doctor readiness.
 
 ## Prerequisites
 
-- Node `.1.7` has started the VPS Xvfb browser host on display `:99` and kept
+- Node `.1.7` has started the VPS Xvfb browser host on display `:97` and kept
   CDP loopback-only.
 - `skillbox-portfolio-devbox` resolves through MagicDNS and the operator Mac can
   run `ssh skillbox-portfolio-devbox true` without a public-IP target.
@@ -32,7 +32,7 @@ deep-research-prompt/assets/scripts/oracle-enroll-forward.sh start
 That one command performs four bounded actions:
 
 1. SSHes to `skillbox-portfolio-devbox` over its MagicDNS name.
-2. Starts loopback-only `x11vnc` and noVNC against Xvfb display `:99`.
+2. Starts loopback-only `x11vnc` and noVNC against Xvfb display `:97` (script default `DEFAULT_DISPLAY=":97"`; `:99` is an unrelated cypress-deps Xvfb running `-ac`).
 3. Starts `oracle-subagent-auth.mjs login --enroll-current-account --json` on
    the VPS. The command owns the deliberate reveal and later re-hide.
 4. Creates an SSH control master with local port `6080` forwarded to the VPS
@@ -110,7 +110,7 @@ storage, tokens, policy fingerprints, browser target data, or backend payloads.
 
 | Stable failure | Action |
 | --- | --- |
-| `xvfb_display_missing` | Finish node `.1.7`; verify its user service created display `:99`. |
+| `xvfb_display_missing` | Finish node `.1.7`; verify its user service created display `:97`. |
 | `missing_dependency` / `novnc_missing` | Install the named VPS display dependency through the host provisioning lane; do not download an ad hoc binary in this flow. |
 | `listener_not_loopback` | Stop. Remove the broad listener before retrying. |
 | `login_command_failed` | Run the secret-free VPS auth doctor; repair receipt/profile/host readiness before another reveal. |

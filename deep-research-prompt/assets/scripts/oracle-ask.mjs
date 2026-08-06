@@ -26,16 +26,21 @@
  *   have.
  *
  * ENV
- *   ORACLE_CDP_PORT               loopback CDP port (default 9222)
+ *   ORACLE_CDP_PORT               loopback CDP port (fallback after config)
+ *   ORACLE_CONFIG_PATH            oracle config JSON (default ~/.oracle/config.json)
  *   ORACLE_ASK_MODEL              default model slug/alias (default `pro`)
  *   ORACLE_ASK_TIMEOUT_SECONDS    answer deadline (default 900)
  *   ORACLE_PROFILE_DIRECTORY      Chrome subprofile for the launcher hint
  *   ORACLE_CHATGPT_PROJECT_URL    target URL for the launcher hint
  *   ORACLE_ASK_BIN_DIR            install destination (default ~/.local/bin)
+ *
+ * Config (when env is process.env / real CLI):
+ *   ~/.oracle/config.json field "cdp_port" (or "cdpPort") — e.g. 19222 on
+ *   skillbox-portfolio-devbox where 9222 is owned by tailscaled.
  */
 
 import { spawnSync } from "node:child_process";
-import { realpathSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { mkdir, readFile, symlink, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -50,10 +55,70 @@ import {
   harvestCredentials,
   listModels,
 } from "./oracle-http-client.mjs";
+import {
+  healAuthSession,
+  remediationForAuthReport,
+} from "./oracle-session-heal.mjs";
 
 export const DEFAULT_PORT = 9222;
 export const DEFAULT_TIMEOUT_SECONDS = 900;
 export const INSTALL_NAME = "oracle-ask";
+export const DEFAULT_CONFIG_PATH = join(homedir(), ".oracle", "config.json");
+
+/**
+ * Resolve loopback CDP port.
+ *
+ * Priority:
+ *   1. ~/.oracle/config.json `cdp_port` / `cdpPort` when config is consulted
+ *   2. ORACLE_CDP_PORT env
+ *   3. DEFAULT_PORT (9222)
+ *
+ * Host config is the pin (e.g. 19222 on skillbox-portfolio-devbox). It wins
+ * over ambient overlay env that still ships ORACLE_CDP_PORT=9222, so
+ * `sbp oracle --doctor` needs no --port. Explicit CLI `--port` still wins
+ * because parseArgs overwrites after resolve.
+ *
+ * Config is read only when `env` is `process.env` (real CLI) or
+ * `options.useConfig === true`, so pure unit tests that pass `{}` stay on
+ * DEFAULT_PORT without host config pollution.
+ */
+export function resolveCdpPort(env = process.env, options = {}) {
+  const useConfig =
+    options.useConfig ?? Object.is(env, process.env);
+  if (useConfig) {
+    const configPath =
+      options.configPath ||
+      env?.ORACLE_CONFIG_PATH ||
+      DEFAULT_CONFIG_PATH;
+    try {
+      const reader = options.readFileSyncImpl ?? readFileSync;
+      const raw = reader(configPath, "utf8");
+      const data = JSON.parse(raw);
+      if (data && typeof data === "object" && !Array.isArray(data)) {
+        const candidate = data.cdp_port ?? data.cdpPort;
+        const fromConfig = Number(candidate);
+        if (
+          Number.isFinite(fromConfig) &&
+          fromConfig >= 1 &&
+          fromConfig <= 65535
+        ) {
+          return Math.trunc(fromConfig);
+        }
+      }
+    } catch {
+      // Missing/unreadable/invalid config → fall through to env/default.
+    }
+  }
+  const rawEnv = env?.ORACLE_CDP_PORT;
+  if (rawEnv !== undefined && String(rawEnv).trim() !== "") {
+    const fromEnv = Number(rawEnv);
+    if (Number.isFinite(fromEnv) && fromEnv >= 1 && fromEnv <= 65535) {
+      return Math.trunc(fromEnv);
+    }
+    if (Number.isFinite(fromEnv)) return fromEnv;
+  }
+  return DEFAULT_PORT;
+}
 
 /**
  * Friendly names for the slugs a caller actually wants. Anything unrecognised
@@ -114,11 +179,11 @@ export const LAST_THREAD_PATH = join(
  * Positional words are the prompt. `--` ends option parsing so a prompt may
  * begin with a dash. Prompt text is never required to be quoted-as-one-arg.
  */
-export function parseArgs(argv, env = {}) {
+export function parseArgs(argv, env = {}, options = {}) {
   const out = {
     model: env.ORACLE_ASK_MODEL || DEFAULT_MODEL_ALIAS,
     timeoutSeconds: Number(env.ORACLE_ASK_TIMEOUT_SECONDS || DEFAULT_TIMEOUT_SECONDS),
-    port: Number(env.ORACLE_CDP_PORT || DEFAULT_PORT),
+    port: resolveCdpPort(env, options),
     // Answers file into this ChatGPT Project. Accepts a full project URL or a
     // bare g-p-… id. Without it the answer lands in root chat.
     project: env.ORACLE_CHATGPT_PROJECT_URL || null,
@@ -174,6 +239,9 @@ export function parseArgs(argv, env = {}) {
         break;
       case "--doctor":
         out.doctor = true;
+        break;
+      case "--no-heal":
+        out.noHeal = true;
         break;
       case "--install":
         out.install = true;
@@ -309,10 +377,13 @@ export function diagnose(code, { env = process.env, launchHint = LAUNCH_HINT } =
       return {
         exit: EXIT.notReady,
         summary: "the dedicated ChatGPT browser failed the hardened auth doctor",
+        // Generic fallback; the --doctor path prints reason-specific text via
+        // remediationForAuthReport and auto-heals when possible.
         action:
-          "Run the explicit login flow, then re-run --doctor:\n" +
-          "    node oracle-subagent-auth.mjs login --json\n" +
-          "For first enrollment only, add --enroll-current-account.\n",
+          "Re-run the same doctor command — it auto-heals portable-credential\n" +
+          "restore + auth-policy enrollment when those are the only blockers:\n" +
+          `    ${(env.ORACLE_ASK_INVOKED_AS || "sbp oracle")} --doctor\n` +
+          "If still blocked after heal, see the reason-specific next steps above.\n",
       };
     case "stream_error":
     case "conversation_post_failed":
@@ -450,7 +521,8 @@ export const USAGE = `oracle-ask — ask GPT-5 Pro one question; get the answer 
 Options
   --model <slug|alias>   pro (default) | thinking | instant | research | raw slug
   --timeout <seconds>    answer deadline (default ${DEFAULT_TIMEOUT_SECONDS})
-  --port <n>             loopback CDP port (default ${DEFAULT_PORT})
+  --port <n>             loopback CDP port
+                         (~/.oracle/config.json cdp_port > ORACLE_CDP_PORT > ${DEFAULT_PORT})
   --project <url|g-p-id> file the answer into a ChatGPT Project
                          (default \$ORACLE_CHATGPT_PROJECT_URL; else root chat)
   --continue             continue the last thread (default: start a new one)
@@ -460,7 +532,8 @@ Options
   --out <path>           also write the answer text to a file
   --json                 emit the full result object instead of bare text
   --quiet                suppress progress lines on stderr
-  --doctor               check readiness only; submit nothing
+  --doctor               check readiness; auto-heals session restore + enrollment
+  --doctor --no-heal     readiness only; never mutates (no cookie inject / enroll)
   --models               list the model slugs this account can select
   --install              write a PATH shim so the command is just \`oracle-ask\`
 
@@ -508,23 +581,80 @@ async function main(argv) {
     return EXIT.ok;
   }
 
+  // Propagate resolved port so child tools (and any helper that only reads env)
+  // agree with ~/.oracle/config.json without requiring --port on every call.
+  if (!process.env.ORACLE_CDP_PORT) {
+    process.env.ORACLE_CDP_PORT = String(args.port);
+  }
+
   if (args.doctor) {
-    const report = runAuthDoctor();
-    process.stdout.write(
-      JSON.stringify(
-        {
-          ready: report.ok,
-          reasons: report.reasons,
-          checks: report.checks,
+    const doctorSpawn = (command, spawnArgs, options = {}) =>
+      spawnSync(command, spawnArgs, {
+        ...options,
+        env: {
+          ...process.env,
+          ...(options.env || {}),
+          ORACLE_CDP_PORT: String(args.port),
         },
-        null,
-        2,
-      ) +
-        "\n",
+      });
+    let report = runAuthDoctor({ spawn: doctorSpawn });
+    let heal = null;
+    // Default: when blocked, try safe auto-heal once (portable credential
+    // restore + auth-policy enroll). --no-heal keeps check-only mode.
+    if (!report.ok && !args.noHeal) {
+      if (!args.quiet) {
+        process.stderr.write(
+          "oracle-ask: doctor blocked; attempting safe auto-heal " +
+            "(portable credential → browser session, then enroll if needed)\n",
+        );
+      }
+      heal = await healAuthSession({
+        port: args.port,
+        quiet: Boolean(args.quiet),
+      });
+      if (heal?.healed) {
+        report = runAuthDoctor({ spawn: doctorSpawn });
+      } else if (heal?.report) {
+        report = {
+          ok: heal.report.ok === true,
+          reasons: Array.isArray(heal.report.reasons) ? heal.report.reasons : [],
+          checks:
+            heal.report.checks && typeof heal.report.checks === "object"
+              ? heal.report.checks
+              : {},
+        };
+      }
+    }
+    const payload = {
+      ready: report.ok,
+      reasons: report.reasons,
+      checks: report.checks,
+      cdp_port: args.port,
+    };
+    if (heal) {
+      payload.heal = {
+        attempted: true,
+        healed: Boolean(heal.healed),
+        steps: heal.steps || [],
+        blocker: heal.blocker
+          ? { code: heal.blocker.code, detail: heal.blocker.detail || null }
+          : null,
+      };
+    }
+    if (!report.ok) {
+      payload.next = remediationForAuthReport(report, {
+        invokedAs: process.env.ORACLE_ASK_INVOKED_AS || "sbp oracle",
+      }).split("\n");
+    }
+    process.stdout.write(`${JSON.stringify(payload, null, 2)}\n`);
+    if (report.ok) return EXIT.ok;
+    const invoked = process.env.ORACLE_ASK_INVOKED_AS || "sbp oracle";
+    process.stderr.write(
+      `\noracle-ask: the dedicated ChatGPT browser failed the hardened auth doctor [auth_doctor_blocked]\n\n` +
+        `${remediationForAuthReport(report, { invokedAs: invoked })}\n\n` +
+        `Nothing was submitted for this attempt.\n`,
     );
-    return report.ok
-      ? EXIT.ok
-      : reportFailure("auth_doctor_blocked");
+    return EXIT.notReady;
   }
 
   if (args.models) {

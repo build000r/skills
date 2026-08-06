@@ -107,9 +107,19 @@ node "$ASK" --doctor                                               # readiness o
 
 ### When Ask mode is not ready
 
-`--doctor` and every failure path print the remediation. The usual one is that
-no signed-in Chrome is exposing loopback CDP, and the fix is the launcher —
-which needs the enrolled subprofile and target, not its defaults:
+**One command:** `sbp oracle --doctor` (or `oracle-ask --doctor`).
+
+Doctor is no longer check-only. When blocked it **auto-heals** the safe repairs:
+
+1. Refresh the CDP browser receipt (launcher / `oracle-xvfb-host ensure` on Linux)
+2. Restore the ChatGPT session from the portable credential store into Chrome
+3. Enroll `auth-policy.json` when the live session is already Pro-authenticated
+
+JSON includes `heal.steps` and, if still blocked, a reason-specific `next` list.
+Use `--doctor --no-heal` for a pure readiness probe with no mutations.
+
+If CDP is completely down on a Mac without a receipt, still launch once with the
+enrolled subprofile (defaults are wrong for most enrollments):
 
 ```bash
 ORACLE_PROFILE_DIRECTORY="<subprofile holding the signed-in session>" \
@@ -117,8 +127,12 @@ ORACLE_CHATGPT_PROJECT_URL="<project or conversation URL>" \
   assets/scripts/launch-chatgpt-cdp.sh
 ```
 
-The launcher defaults to profile `Default` and root `chatgpt.com`; the enrolled
-session usually lives in a subprofile such as `Profile 1`. Set both variables.
+Then re-run `--doctor`. Portable credential transport (Mac → d3) remains:
+
+```bash
+node assets/scripts/oracle-credential.mjs export \
+  | ssh d3 'node …/oracle-credential.mjs import'
+```
 
 Exit codes: `0` answered · `2` usage · `3` lane not ready · `4` upstream refused
 (auth or anti-abuse) · `5` deadline · `1` other.

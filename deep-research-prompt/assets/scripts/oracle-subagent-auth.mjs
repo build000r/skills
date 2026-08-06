@@ -5,7 +5,15 @@
 
 import { createHash, randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { constants as fsConstants } from "node:fs";
+import {
+  accessSync,
+  constants as fsConstants,
+  readdirSync,
+  readFileSync,
+  readlinkSync,
+  realpathSync,
+  statSync,
+} from "node:fs";
 import {
   link,
   lstat,
@@ -691,10 +699,9 @@ export function parseListenerRecords(encoded) {
   return records;
 }
 
-function inspectListener(receipt) {
-  if (process.platform !== "darwin") gateError("listener_unverifiable");
+function inspectListenerFromLsof(receipt, lsofPath) {
   const result = spawnSync(
-    "/usr/sbin/lsof",
+    lsofPath,
     [
       "-nP",
       `-iTCP:${receipt.port}`,
@@ -729,7 +736,109 @@ function inspectListener(receipt) {
   };
 }
 
+function inspectListenerLinux(receipt) {
+  // Prefer lsof when present (same -F records as Darwin). Fall back to /proc
+  // so the VPS host still works if lsof is missing from PATH.
+  for (const lsofPath of ["/usr/bin/lsof", "/usr/sbin/lsof"]) {
+    try {
+      return inspectListenerFromLsof(receipt, lsofPath);
+    } catch (error) {
+      if (!(error instanceof AuthGateError)) throw error;
+    }
+  }
+  let exe;
+  try {
+    exe = realpathSync(`/proc/${receipt.pid}/exe`);
+  } catch {
+    gateError("listener_unverifiable");
+  }
+  if (!exe || typeof exe !== "string") gateError("listener_unverifiable");
+  let cmdline = "";
+  try {
+    cmdline = readFileSync(`/proc/${receipt.pid}/cmdline`, "utf8");
+  } catch {
+    gateError("listener_unverifiable");
+  }
+  const argv = cmdline.includes("\0")
+    ? cmdline.split("\0").filter(Boolean)
+    : cmdline.trim().split(/\s+/).filter(Boolean);
+  const joined = argv.join(" ");
+  const hasPort =
+    argv.some((part) => part === `--remote-debugging-port=${receipt.port}`) ||
+    joined.includes(`--remote-debugging-port=${receipt.port}`);
+  const hasLoopback =
+    argv.some((part) => part === "--remote-debugging-address=127.0.0.1") ||
+    joined.includes("--remote-debugging-address=127.0.0.1");
+  if (!hasPort || !hasLoopback) gateError("listener_unverifiable");
+  // Confirm the TCP listen slot is loopback-only via /proc/net/tcp.
+  let loopbackOnly = false;
+  let singleMatch = false;
+  let pidOwnsListener = false;
+  try {
+    const table = readFileSync("/proc/net/tcp", "utf8");
+    const portHex = Number(receipt.port).toString(16).toUpperCase().padStart(4, "0");
+    const matches = [];
+    for (const line of table.split("\n").slice(1)) {
+      const parts = line.trim().split(/\s+/);
+      if (parts.length < 10) continue;
+      const local = parts[1];
+      const state = parts[3];
+      if (state !== "0A") continue; // TCP_LISTEN
+      const [addrHex, port] = local.split(":");
+      if (port !== portHex) continue;
+      matches.push({ addrHex, inode: parts[9] });
+    }
+    singleMatch = matches.length === 1;
+    // 0100007F = 127.0.0.1 little-endian
+    loopbackOnly = singleMatch && matches[0].addrHex === "0100007F";
+    const ownedSocketInodes = new Set();
+    for (const fd of readdirSync(`/proc/${receipt.pid}/fd`)) {
+      let target;
+      try {
+        target = readlinkSync(`/proc/${receipt.pid}/fd/${fd}`);
+      } catch {
+        continue;
+      }
+      const match = /^socket:\[([0-9]+)\]$/.exec(target);
+      if (match) ownedSocketInodes.add(match[1]);
+    }
+    pidOwnsListener =
+      singleMatch &&
+      ownedSocketInodes.has(matches[0].inode) &&
+      statSync(`/proc/${receipt.pid}`).uid === process.getuid();
+  } catch {
+    gateError("listener_unverifiable");
+  }
+  return {
+    single_listener: singleMatch && pidOwnsListener,
+    loopback_only: loopbackOnly,
+  };
+}
+
+function PathExistsProc(pid) {
+  try {
+    accessSync(`/proc/${pid}`, fsConstants.F_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function inspectListener(receipt) {
+  if (process.platform === "linux") {
+    return inspectListenerLinux(receipt);
+  }
+  if (process.platform !== "darwin") gateError("listener_unverifiable");
+  return inspectListenerFromLsof(receipt, "/usr/sbin/lsof");
+}
+
 function inspectVisibility(pid) {
+  if (process.platform === "linux") {
+    // Hidden-headful under Xvfb: no operator-visible display. Contract is
+    // "process still alive" — true headless is forbidden at launch time.
+    if (!PathExistsProc(pid)) gateError("visibility_unverifiable");
+    return true;
+  }
   if (process.platform !== "darwin") gateError("visibility_unverifiable");
   const script = [
     "on run argv",
@@ -1537,6 +1646,38 @@ async function setInteractiveVisibility(context, visible) {
         height: 900,
       },
     });
+  } else if (process.platform === "linux") {
+    // Re-hide under Xvfb by parking the window offscreen; no operator display.
+    try {
+      const window = await cdpCall(
+        browserWebSocket,
+        "Browser.getWindowForTarget",
+        { targetId: receipt.target_id },
+      );
+      if (Number.isSafeInteger(window?.windowId)) {
+        await cdpCall(browserWebSocket, "Browser.setWindowBounds", {
+          windowId: window.windowId,
+          bounds: {
+            windowState: "normal",
+            left: -32000,
+            top: -32000,
+            width: 1280,
+            height: 900,
+          },
+        });
+      }
+    } catch {
+      // Best-effort; hidden-headful under Xvfb is already non-operator-visible.
+    }
+  }
+  // Linux Xvfb has no AppKit/System Events process visibility. Doctor already
+  // treats "process alive under Xvfb" as hidden; login/enroll must not require
+  // osascript or the VPS host can never enroll from a restored session.
+  if (process.platform === "linux") {
+    return;
+  }
+  if (process.platform !== "darwin") {
+    gateError("visibility_unverifiable");
   }
   const script = visible
     ? [
@@ -1756,9 +1897,14 @@ export async function main(rawArguments = process.argv.slice(2)) {
   }
 }
 
-if (
-  process.argv[1] &&
-  import.meta.url === pathToFileURL(resolve(process.argv[1])).href
-) {
+let invokedAsMain = false;
+try {
+  invokedAsMain =
+    Boolean(process.argv[1]) &&
+    import.meta.url === pathToFileURL(realpathSync(resolve(process.argv[1]))).href;
+} catch {
+  invokedAsMain = false;
+}
+if (invokedAsMain) {
   process.exitCode = await main();
 }

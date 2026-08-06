@@ -114,12 +114,26 @@ to the Codex planning authority. Record the receipt with the run evidence,
 including root/state, role counts, recognized metadata count, excluded
 grouping IDs, raw ready IDs, candidate frontier, and admitted frontier.
 
-Bootstrap on entry (idempotent):
+Bootstrap on entry (idempotent). Set `DAC_SKILL_ROOT` to the directory
+containing the `divide-and-conquer/SKILL.md` that the runtime loaded. Use that
+resolved invocation path as the authority; never guess an agent-specific
+`~/.claude` or `~/.codex` install root. The adjacent `_shared` tree is part of
+the same installed skill surface in source checkouts, global symlink installs,
+and Skillbox materializations.
 
 ```bash
-python3 ~/.claude/skills/_shared/scripts/br_helpers.py ensure
-export BR_AGENT_NAME=divide-and-conquer BR_HARNESS=claude-code BR_MODEL="$CLAUDE_MODEL"
+export DAC_SKILL_ROOT="<resolved directory containing the loaded divide-and-conquer/SKILL.md>"
+DAC_SHARED_ROOT="$(realpath "$DAC_SKILL_ROOT/../_shared")"
+test -f "$DAC_SHARED_ROOT/scripts/br_helpers.py"
+python3 "$DAC_SHARED_ROOT/scripts/br_helpers.py" ensure
+export BR_AGENT_NAME="${BR_AGENT_NAME:-divide-and-conquer}"
+export BR_HARNESS="${BR_HARNESS:-agent}"
+export BR_MODEL="${BR_MODEL:-${CLAUDE_MODEL:-unknown}}"
 ```
+
+Keep `DAC_SKILL_ROOT` and `DAC_SHARED_ROOT` for every command below. If the
+adjacent `_shared` tree is absent, stop with the resolved skill path instead of
+falling back to another agent's home directory or a second skill copy.
 
 Use the helper rather than raw `br` calls so attribution and JSON envelopes are
 consistent across panes. The helper exposes: `ensure`, `status`, `ready`
@@ -203,7 +217,7 @@ handoff packet names an epic ID, a `plan-state:*` value, or `SC-*`/`PC-*`
 criteria. Run it before Step 4's mint/load decision:
 
 ```bash
-python3 ~/.claude/skills/_shared/scripts/br_helpers.py \
+python3 "$DAC_SHARED_ROOT/scripts/br_helpers.py" \
   ready --plan "${PLAN_SLUG}" --require-handoff-ready > "$run_dir/PLAN_ADMISSION.json"
 echo "$?"   # 0 = admissible, 2 = rejected. Capture it directly; never via a pipe.
 ```
@@ -365,7 +379,7 @@ updates only.
 Resolve client context with the shared helper first:
 
 ```bash
-python3 ~/.claude/skills/_shared/scripts/resolve_context.py "$PWD" --format json
+python3 "$DAC_SHARED_ROOT/scripts/resolve_context.py" "$PWD" --format json
 ```
 
 Then resolve the invocation artifact root using this order:
@@ -675,7 +689,7 @@ carries a `plan:{slug}` label, or the handoff packet names an epic ID,
 decision:
 
 ```bash
-python3 ~/.claude/skills/_shared/scripts/br_helpers.py \
+python3 "$DAC_SHARED_ROOT/scripts/br_helpers.py" \
   ready --plan "${PLAN_SLUG}" --require-handoff-ready > "$run_dir/PLAN_ADMISSION.json"
 admission_exit=$?
 ```
@@ -693,7 +707,7 @@ Before inventing a split, check whether the slice already has a `br` epic with
 open children:
 
 ```bash
-frontier_json="$(python3 ~/.claude/skills/_shared/scripts/br_helpers.py ready --label slice:{slug})"
+frontier_json="$(python3 "$DAC_SHARED_ROOT/scripts/br_helpers.py" ready --label slice:{slug})"
 ```
 
 If the epic exists and the ready frontier is non-empty:
@@ -762,8 +776,8 @@ ready node is not launchable until `br show {id} --json` or
 Use Beads-first helper commands:
 
 ```bash
-python3 ~/.claude/skills/_shared/scripts/br_helpers.py hydrate-node <issue-id>
-python3 ~/.claude/skills/_shared/scripts/br_helpers.py render-node-brief <issue-id>
+python3 "$DAC_SHARED_ROOT/scripts/br_helpers.py" hydrate-node <issue-id>
+python3 "$DAC_SHARED_ROOT/scripts/br_helpers.py" render-node-brief <issue-id>
 ```
 
 If `hydrate-node` reports missing dispatch fields, update the issue first with
@@ -776,9 +790,9 @@ debugging, but workers must receive a Beads-rendered node brief.
 For each ready frontier wave, launch an NTM swarm sized to that wave.
 
 ```bash
-frontier_json="$(python3 ~/.claude/skills/_shared/scripts/br_helpers.py ready --label slice:${SLICE_SLUG})"
+frontier_json="$(python3 "$DAC_SHARED_ROOT/scripts/br_helpers.py" ready --label slice:${SLICE_SLUG})"
 # Optional: ranked by br's evidence-aware scheduler instead of plain priority
-# frontier_json="$(python3 ~/.claude/skills/_shared/scripts/br_helpers.py scheduler)"
+# frontier_json="$(python3 "$DAC_SHARED_ROOT/scripts/br_helpers.py" scheduler)"
 
 ntm spawn "$WAVE_PROJECT" \
   --grok=1 \
@@ -1095,8 +1109,8 @@ Once the wave has produced results, or the timeout is reached:
      proof child before blocking the smallest affected node
    - Needs rework: `br reopen {id}` — the issue returns to the ready frontier
 7. Re-render the view:
-   `python3 ~/.claude/skills/_shared/scripts/br_helpers.py render-workgraph --epic $(cat <absolute-run-dir>/EPIC_ID.txt) --out <absolute-run-dir>/WORKGRAPH.md`
-8. Re-query the frontier: `python3 ~/.claude/skills/_shared/scripts/br_helpers.py ready --label slice:{slug}`
+   `python3 "$DAC_SHARED_ROOT/scripts/br_helpers.py" render-workgraph --epic $(cat <absolute-run-dir>/EPIC_ID.txt) --out <absolute-run-dir>/WORKGRAPH.md`
+8. Re-query the frontier: `python3 "$DAC_SHARED_ROOT/scripts/br_helpers.py" ready --label slice:{slug}`
 9. Launch the next ready wave
 
 Do not mark a node done based only on a worker's self-report.
@@ -1149,7 +1163,7 @@ Reviewer prompt:
   reviews report no blocker or material shortfall.
 - Run `br epic close-eligible --json` to retire the slice's epic if every child
   is closed; surface any leftover open child as the blocker
-- Run `python3 ~/.claude/skills/_shared/scripts/br_helpers.py flush` so
+- Run `python3 "$DAC_SHARED_ROOT/scripts/br_helpers.py" flush` so
   `.beads/issues.jsonl` reflects current state
 - Commit if there are clean, scoped changes to save (include `.beads/issues.jsonl`,
   exclude `.beads/*.db*`). Prefer Grok 4.5 for the mechanical

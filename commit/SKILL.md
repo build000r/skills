@@ -26,8 +26,8 @@ Using commit: surveying dirty state, deciding commit scope, and batching intenti
 1. Survey dirty state
 2. Choose commit mode
 3. Classify every dirty path
-4. Update ignore files and scrub privacy risks
-5. Batch and commit
+4. Prepare ignore, privacy, staging, and commit mutations
+5. Run each logical batch inside one held writer session
 6. Verify no unexplained leftovers
 
 ## Step 1: Survey dirty state
@@ -113,10 +113,13 @@ Common drive-by signatures to catch:
 - Large binaries or vendored content with unclear licensing
 - Ongoing conflict resolution or half-applied refactors
 
-## Step 4: Update ignore files and scrub privacy risks
+## Step 4: Prepare ignore and privacy mutations
 
 If untracked local-only artifacts are present and the repo does not already ignore them,
-update `.gitignore` or the repo-appropriate ignore file **before** staging the rest.
+plan an update to `.gitignore` or the repo-appropriate ignore file **before** staging the rest.
+Do not apply that worktree mutation until Step 5 has acquired and checked the writer
+session. Prepare replacement content or a small mutation helper outside the protected
+worktree so it can run inside the same fenced transaction as staging and committing.
 
 Rules:
 
@@ -150,7 +153,63 @@ collection, or another open-source repo inside the local `opensource/` workspace
 - If adding `.gitignore` rules, keep them generic and publishable.
 - If a new file includes internal names, customer data, proprietary URLs, or machine-local paths, scrub or exclude it.
 
-## Step 5: Batch and commit
+## Step 5: Acquire a writer session, then batch and commit
+
+Before any ignore-file, index, worktree, or commit mutation, run the whole logical
+batch through `scripts/run_writer_fences.py`. Read
+[`references/writer-session-v1.md`](references/writer-session-v1.md) before using a
+configured provider or required-provider mode.
+
+The runner discovers provider-neutral writer-session commands, calls `begin` and
+`check`, executes no mutation unless every provider allows, and calls `end` in
+`finally`. Providers and protected commands are invoked as argv arrays without a
+shell. A configured provider that blocks, times out, returns `indeterminate`, or
+violates the response schema fails closed before the mutation plan runs.
+
+Before ambient discovery, the runner reads an optional checked-in
+`.commit-writer-session.json` at the canonical repository root. Its providers
+are additive and cannot be displaced by CLI, environment, or `PATH` discovery.
+A policy committed at `HEAD` is the durable managed marker and required-policy
+floor. Its current index and worktree policy must both exist, agree byte for
+byte, and remain strict. Staged or unstaged deletion, weakening, an unstaged
+replacement, or an ambiguous index fails before mutation. A deliberate staged
+strict policy/provider-pin upgrade remains committable when index and worktree
+agree. A new strict worktree policy protects its own first landing even before
+it reaches `HEAD`; only a repository with no policy on any plane remains
+portable. Malformed content, an unsafe repo-relative expansion, a missing
+provider, an incomplete/incorrectly ordered declared local-module bundle, or
+entry/module source digest drift also fails closed. Named authority/config data
+must be declared as pinned resources and passed only through
+`{resource:NAME}` placeholders, which become read-only unlinked fd pseudopaths
+at invocation. Every declared local module
+executes from the same unlinked read-only snapshot mechanism as the entry; the
+entire managed repo tree is excluded from import search, and sealed code gets
+synthetic non-live source identity. Do not pass an
+environment selector unless the private provider contract explicitly requires
+one; providers should prefer canonical repository identity when sufficient.
+
+No-provider portable mode remains the default. Use `--require-provider` or set
+`COMMIT_WRITER_SESSION_REQUIRE_PROVIDER=1` only when the current repository or
+operator contract explicitly requires provider authority. Never silently fall back
+to portable mode when a configured provider fails.
+
+Keep all mutations that need one continuous hold in one invocation. For example:
+
+```bash
+python3 <commit-skill-dir>/scripts/run_writer_fences.py \
+  --repo <repo> \
+  --step-json '["git","add","<file1>","<file2>"]' \
+  --step-json '["git","commit","-m","feat(scope): add change"]'
+```
+
+When `.gitignore` or another worktree file must change, make a helper outside the
+repo and pass its argv as the first `--step-json`, followed by `git add` and
+`git commit`. Do not edit the protected worktree with a separate tool call between
+`begin` and `end`; the runner owns the complete lifecycle.
+
+Inspect the runner's final JSON receipt. If preflight is not `allow`, confirm
+`mutation_started` is false and stop. If release is not confirmed, stop and report
+the receipt; the mutation may already have run, so do not retry it blindly.
 
 Group staged files by **logical unit**, not by extension and not by directory alone.
 Use as few commits as preserve meaning. Usually `1-4` commits is right. Do not create a pile of micro-commits.
@@ -162,7 +221,8 @@ Good batch shapes:
 - repo hygiene such as `.gitignore`, formatting, or generated-noise cleanup
 - one independent subsystem per commit when the dirty tree clearly spans multiple unrelated changes
 
-For each batch:
+For each batch, express the staging and commit operations as `--step-json` argv arrays
+in one writer-fence invocation. The underlying protected operations remain:
 
 ```bash
 git -C <repo> add <file1> <file2> ...

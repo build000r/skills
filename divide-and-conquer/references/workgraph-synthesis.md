@@ -29,7 +29,7 @@ mkdir -p "$run_dir"
 views, not authoritative contracts. Regenerate `WORKGRAPH.md` any time:
 
 ```bash
-python3 ~/.claude/skills/_shared/scripts/br_helpers.py render-workgraph \
+python3 "$DAC_SHARED_ROOT/scripts/br_helpers.py" render-workgraph \
   --epic "$EPIC_ID" --out "$run_dir/WORKGRAPH.md"
 ```
 
@@ -53,7 +53,7 @@ EPIC=$(br create "{slice}: {one-line value}" --slug epic-{slice} \
   --type epic --priority 1 --json | jq -r .id)
 echo "$EPIC" > "$run_dir/EPIC_ID.txt"
 
-python3 ~/.claude/skills/_shared/scripts/br_helpers.py mint-node \
+python3 "$DAC_SHARED_ROOT/scripts/br_helpers.py" mint-node \
   wg-001-{kebab-title} '{Title}' \
   --epic "$EPIC" \
   --concern backend-api \
@@ -139,7 +139,7 @@ notes scalars, and design blocks from the shared field mapping in
 `_shared/references/beads-contract.md`:
 
 ```bash
-python3 ~/.claude/skills/_shared/scripts/br_helpers.py mint-subgoal \
+python3 "$DAC_SHARED_ROOT/scripts/br_helpers.py" mint-subgoal \
   auth 'Subgoal: auth hardening' \
   --slice "$SLICE_SLUG" \
   --writes 'backend/auth/**' \
@@ -163,7 +163,7 @@ dispatched as a worker node. Leaves below it are ordinary `mint-node` calls.
 Subgoal leaf nodes are normal execution nodes plus the subgoal labels:
 
 ```bash
-python3 ~/.claude/skills/_shared/scripts/br_helpers.py mint-node \
+python3 "$DAC_SHARED_ROOT/scripts/br_helpers.py" mint-node \
   wg-001-auth-session 'Harden auth session handling' \
   --epic "$EPIC" --concern auth --repo current-repo \
   --writes 'backend/auth/**' \
@@ -212,8 +212,8 @@ handshake and `--close --suggest-next` lifecycle — lives directly in the paren
 SKILL.md under "Node Worker Prompt Contract." Render it from Beads:
 
 ```bash
-python3 ~/.claude/skills/_shared/scripts/br_helpers.py hydrate-node <issue-id>
-python3 ~/.claude/skills/_shared/scripts/br_helpers.py render-node-brief <issue-id>
+python3 "$DAC_SHARED_ROOT/scripts/br_helpers.py" hydrate-node <issue-id>
+python3 "$DAC_SHARED_ROOT/scripts/br_helpers.py" render-node-brief <issue-id>
 ```
 
 Do not duplicate the template here, and do not repair missing worker context by

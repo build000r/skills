@@ -61,6 +61,15 @@ session-frequency × approximate matched tokens, and emits ranked JSON with
 `--terms "signal one, signal two"`; override the backend with `--cass-command`
 or `LUBE_CASS_COMMAND` (used by tests to mock the backend).
 
+The miner enforces a process-level kill per search (`--timeout-seconds` + 15s
+grace) and opens a circuit breaker after 2 consecutive process timeouts,
+skipping remaining searches and emitting partial JSON. Exit 2 means every
+search errored with zero sessions found — treat that as backend-down, check
+`sbp cass status`, and fall back to grepping local transcripts under
+`~/.claude/projects/*/*.jsonl` directly. Progress streams on stderr
+(`[lube-miner] N/M searching: <pattern>`), so a backgrounded run shows
+liveness.
+
 ## Skillbox Log Review
 
 When the friction source is an orchestration or Skillbox runtime issue, inspect

@@ -81,15 +81,23 @@ FRICTION_PATTERNS: list[dict[str, object]] = [
 ]
 
 
-def run(command: list[str], cwd: Path) -> tuple[int, str]:
-    proc = subprocess.run(
-        command,
-        cwd=str(cwd),
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        check=False,
-    )
+def run(
+    command: list[str],
+    cwd: Path,
+    timeout_seconds: int | None = None,
+) -> tuple[int, str]:
+    try:
+        proc = subprocess.run(
+            command,
+            cwd=str(cwd),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            check=False,
+            timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired:
+        return 124, f"process timed out after {timeout_seconds}s: {' '.join(command[:4])}"
     return proc.returncode, proc.stdout
 
 
@@ -238,7 +246,9 @@ def cass_search(
         "--timeout-seconds",
         str(timeout_seconds),
     ]
-    code, output = run(argv, Path.cwd())
+    # Backend honors --timeout-seconds only when healthy; a hung front door
+    # (remote host, rebuild lock) needs a process-level kill as well.
+    code, output = run(argv, Path.cwd(), timeout_seconds=timeout_seconds + 15)
     if code != 0:
         return {"error": f"exit {code}: {_short(output)}"}
     try:
@@ -350,11 +360,38 @@ def parse_terms(value: str) -> list[str]:
 def run_frequency_mode(args: argparse.Namespace) -> int:
     patterns = frequency_patterns(parse_terms(args.terms))
     rows: list[dict[str, object]] = []
-    for pattern in patterns:
-        searches = [
-            cass_search(term, args.per_term_limit, args.timeout_seconds, args.cass_command)
-            for term in pattern["terms"]
-        ]
+    consecutive_process_timeouts = 0
+    backend_circuit_open = False
+    for index, pattern in enumerate(patterns, start=1):
+        print(
+            f"[lube-miner] {index}/{len(patterns)} searching: {pattern['pattern']}",
+            file=sys.stderr,
+            flush=True,
+        )
+        searches: list[dict[str, object]] = []
+        for term in pattern["terms"]:
+            if backend_circuit_open:
+                searches.append(
+                    {"error": "skipped: backend circuit open after repeated process timeouts"}
+                )
+                continue
+            result = cass_search(
+                term, args.per_term_limit, args.timeout_seconds, args.cass_command
+            )
+            if "process timed out" in str(result.get("error") or ""):
+                consecutive_process_timeouts += 1
+                if consecutive_process_timeouts >= 2:
+                    backend_circuit_open = True
+                    print(
+                        "[lube-miner] backend unresponsive after "
+                        f"{consecutive_process_timeouts} consecutive process timeouts; "
+                        "skipping remaining searches (partial results below)",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+            else:
+                consecutive_process_timeouts = 0
+            searches.append(result)
         rows.append(aggregate_pattern(pattern, searches))
     rows.sort(key=lambda row: (-int(row["score"]), -int(row["total_matches"])))
     report = {

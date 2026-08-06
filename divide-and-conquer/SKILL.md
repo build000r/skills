@@ -497,6 +497,97 @@ Use the leading `=` for exact tmux target matching. After dispatch, verify pane
 output or a robot inspection shows the node brief landed in the intended
 checkout before counting the node as in flight.
 
+### Consuming a `no-ragrets` planned graph
+
+When the epic was authored by `no-ragrets`' Recursive Executive Planning Contract, it
+carries canonical planning metadata. **Recognise it; do not re-mint or flatten it.**
+
+```text
+labels: plan:{root-slug}, plan-role:{root|branch|execution-leaf|integration|review}
+root-only label: plan-state:{draft|synthesized|handoff-ready}
+notes scalars: planning_parent, supports, local_criteria, produces
+root notes: synthesis_receipt, plan_score, hard_gate_result
+```
+
+Rules for this skill when those labels are present:
+
+- `plan-state:handoff-ready` on the root means the graph already passed its own hard
+  gates and fresh-eyes review. Consume the existing epic and child graph as-is. Do
+  **not** ask a planning agent to re-derive the split.
+- Only `plan-role:execution-leaf`, `integration`, and `review` nodes are
+  dispatchable. `plan-role:root` and `plan-role:branch` are grouping nodes — never
+  send them to a worker, even if a frontier query surfaces them.
+- Verify that before dispatch: `br ready` must return only dispatchable roles. If a
+  grouping node appears in the frontier, the parent-child edges are modelled as
+  blocking dependencies — fix that before spawning, do not dispatch around it.
+- You may repair a concrete hydration or readiness defect (a missing `writes:`, an
+  unhydrated leaf). You may **not** change the root contract, success criteria, or
+  cross-branch topology — those belong to the planning authority.
+- Record any graph change you make, so the root's `synthesis_receipt` stays honest.
+
+If you are consuming a graph whose labels you cannot interpret, say so and drive the
+frontier directly rather than reinterpreting the plan.
+
+### Claim Before Spawn — panes self-dispatch
+
+`ntm spawn` prepares a "recovery context" that can feed the surrounding graph to
+freshly-launched panes. Those panes may **select their own work and begin editing
+before the lead runs a single claim handshake**. Observed 2026-07-27 on the
+`payrun-deeplink` epic: within three minutes of spawn, two panes had self-selected a
+`plan-role:branch` grouping node that was *not* in the ready frontier and had
+modified six files with no claim, no write-scope enforcement, and no validation gate.
+
+The lead-owned claim handshake is therefore not sufficient on its own, because it
+runs *after* spawn. Ordering matters:
+
+1. Resolve the ready frontier and decide the wave assignment **first**.
+2. Claim every intended node for its named worker **before** `ntm spawn`, so a
+   self-selecting pane finds no unclaimed work.
+3. Spawn, then dispatch briefs to the already-claimed nodes.
+4. Immediately after spawn, inspect every pane. If a pane is already working on
+   something you did not dispatch, `C-c` it, diff the working tree, and decide
+   keep-or-revert explicitly before continuing. Do not assume self-started work is
+   off-target — but do not assume it is on-target either; verify it like any other
+   node before retaining it.
+
+This ordering is also the reason a graph carrying non-dispatchable grouping nodes
+must never be handed to an intake that cannot read `plan-role:*`. If the consumer
+does not recognise those labels, drive the frontier directly with `br ready` and
+claim-before-spawn; do not rely on the intake to respect the topology.
+
+### Grok panes need single-line briefs
+
+`ntm send` delivers a multi-line prompt to the Grok TUI **line by line**, so a
+heredoc node brief is submitted as dozens of separate messages with the tail
+stranded unsent in the compose buffer. Codex panes handle the multi-line form
+correctly; Grok panes do not.
+
+For Grok panes, write the brief to a file in the run directory and send a
+single-line pointer:
+
+```bash
+ntm send "$WAVE_PROJECT" --pane="$N" "Read <absolute-run-dir>/BRIEF-<node>.md and execute exactly that node brief."
+```
+
+`ntm send` may also leave the text in the compose box without submitting it. After
+sending, if the pane shows your text at a `❯` prompt rather than working output,
+submit it explicitly:
+
+```bash
+tmux send-keys -t "=${WAVE_PROJECT}:1.${N}" Enter
+```
+
+### Declare test files in `writes`
+
+A node whose acceptance criteria require tests but whose `writes:` lists only
+production files will block — correctly, since expanding scope silently is worse.
+Observed six times in a single epic. When authoring or hydrating nodes, **list the
+node's own test file in `writes` by default**.
+
+When repairing a `writes:` field mid-run, verify the repair by re-reading the field,
+not by trusting the patch's exit code. A naive substring check can match the target
+path inside the worker's own blocker text and silently no-op.
+
 ## Process
 
 ### 1. Analyze the Task

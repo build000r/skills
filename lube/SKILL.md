@@ -30,7 +30,16 @@ Use the current session as evidence, then convert each friction into the smalles
    - Add or improve a script when the same shell/API sequence is likely to recur.
    - Add a checklist, test, or repo doc when the prevention belongs next to the code.
 4. Execute safe local fixes immediately. Ask only for secrets, paid external actions, destructive changes, or ambiguous policy decisions.
-5. Close with what changed, what still needs human input, and how the change prevents adjacent failures.
+5. Before closeout, run at least one concrete verification command for every
+   material fix. Use the owning workflow's validator for a skill change; the
+   narrowest relevant test, syntax check, or smoke command for code; and the
+   product's doctor or recalibration command plus a read-only state check for
+   configuration, links, or runtime changes. Include the exact command and
+   pass/fail result under `Action taken`.
+6. Close with what changed, what still needs human input, and how the change
+   prevents adjacent failures. If verification cannot run because it needs a
+   secret, external gate, paid action, or unavailable tool, do not call the fix
+   verified; put the blocker and the command that remains under `Remaining ask`.
 
 ## Evidence Miner
 

@@ -32,7 +32,7 @@ def infer_task_type(user_request: str | None) -> str:
 def infer_invocation_mode(invocation: dict[str, Any]) -> str:
     """Infer how the invocation was detected."""
     matched_on = set(invocation.get("matched_on", []))
-    if "assistant_ack" in matched_on:
+    if {"assistant_ack", "session_skill_context"} & matched_on:
         return "explicit-ack"
     if "skill_path" in matched_on:
         return "path-inferred"
@@ -85,14 +85,15 @@ def enrich_invocation(invocation: dict[str, Any]) -> dict[str, Any]:
     enriched["task_type"] = infer_task_type(invocation.get("user_request"))
     enriched["invocation_mode"] = infer_invocation_mode(invocation)
     enriched["flags"] = {
-        "has_ack": "assistant_ack" in matched_on,
+        "has_ack": bool({"assistant_ack", "session_skill_context"} & matched_on),
         "has_validation": bool(validation_commands),
         "has_checkpoint": bool(checkpoint_messages),
         "has_risk_gate_gap": bool(risk_gating_messages),
         "has_user_correction": has_correction,
         "task_complete": task_complete,
         "has_invocation_miss": not matched_on and bool(invocation.get("user_request")),
-        "has_trigger_mismatch": "user_trigger" in matched_on and "assistant_ack" not in matched_on,
+        "has_trigger_mismatch": "user_trigger" in matched_on
+        and not ({"assistant_ack", "session_skill_context"} & matched_on),
         "has_output_rejected": has_correction and not task_complete,
         "has_output_corrected": has_correction and task_complete,
         "has_wrong_skill_invoked": slash_in_correction,

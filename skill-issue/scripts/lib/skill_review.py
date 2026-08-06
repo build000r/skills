@@ -1,5 +1,5 @@
 """
-Helpers for reviewing skill usage across Claude Code and Codex session logs.
+Helpers for reviewing skill usage across Claude Code, Codex, and Grok session logs.
 """
 
 from __future__ import annotations
@@ -12,6 +12,7 @@ from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote
 
 try:
     from lib.skill_facts import build_skill_fact_bundle
@@ -40,6 +41,7 @@ REVIEW_HISTORY_FILE = Path.home() / ".claude" / "skill-review-history.jsonl"
 MARKERS_DIR = Path.home() / ".claude" / "skill-markers"
 CLAUDE_PROJECTS_DIR = Path.home() / ".claude" / "projects"
 CODEX_SESSIONS_DIR = Path.home() / ".codex" / "sessions"
+GROK_SESSIONS_DIR = Path.home() / ".grok" / "sessions"
 
 INSTRUCTION_END_MARKERS = (
     "</environment_context>",
@@ -64,6 +66,7 @@ VALIDATION_PATTERNS = [
         r"\buv run pytest\b",
         r"\bmake (test|check)\b",
         r"\bscripts/check\.sh\b",
+        r"\bscripts/test-[A-Za-z0-9_.-]+\.sh\b",
     )
 ]
 
@@ -119,7 +122,7 @@ COMMAND_STEM_EXCLUDE = {"python", "python3", "bash", "sh", "zsh", "env"}
 
 
 def parse_date(date_str: str | None) -> datetime:
-    """Parse date strings like today/week/month or YYYY-MM-DD."""
+    """Parse relative dates, YYYY-MM-DD, or an ISO-8601 timestamp."""
     now = datetime.now(timezone.utc)
     today = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
@@ -131,7 +134,13 @@ def parse_date(date_str: str | None) -> datetime:
         return today - timedelta(days=7)
     if date_str == "month":
         return today - timedelta(days=30)
-    return datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    try:
+        parsed = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+    except ValueError:
+        parsed = datetime.strptime(date_str, "%Y-%m-%d")
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def load_marker(skill: str) -> dict[str, Any] | None:
@@ -497,12 +506,210 @@ def extract_claude_tool_uses(entry: dict[str, Any]) -> list[dict[str, Any]]:
     return tool_uses
 
 
+def extract_grok_text(entry: dict[str, Any], role: str) -> str | None:
+    """Extract meaningful user/assistant text from a Grok chat-history line."""
+    if entry.get("type") != role:
+        return None
+    if role == "user" and entry.get("synthetic_reason"):
+        return None
+
+    content = entry.get("content")
+    if isinstance(content, str):
+        text = content.strip()
+    elif isinstance(content, list):
+        text = "\n".join(
+            block.get("text", "")
+            for block in content
+            if isinstance(block, dict) and block.get("type") == "text"
+        ).strip()
+    else:
+        return None
+
+    if role == "user" and text.startswith(("<user_info>", "<system-reminder>")):
+        return None
+    return text or None
+
+
+def extract_grok_tool_uses(entry: dict[str, Any]) -> list[dict[str, Any]]:
+    """Extract Grok assistant tool calls in the normalized review shape."""
+    if entry.get("type") != "assistant":
+        return []
+
+    tool_uses = []
+    for call in entry.get("tool_calls") or []:
+        if not isinstance(call, dict):
+            continue
+        arguments = call.get("arguments")
+        if isinstance(arguments, str):
+            try:
+                arguments = json.loads(arguments)
+            except json.JSONDecodeError:
+                pass
+        command = None
+        if isinstance(arguments, dict):
+            command = arguments.get("command") or arguments.get("cmd")
+        tool_uses.append(
+            {
+                "name": call.get("name"),
+                "arguments": arguments,
+                "command": command,
+            }
+        )
+    return tool_uses
+
+
+def grok_turn_completed(events_path: Path) -> bool:
+    """Return whether Grok recorded a completed turn, ignoring corrupt event lines."""
+    try:
+        events_handle = open(events_path, "r", encoding="utf-8")
+    except (FileNotFoundError, OSError):
+        return False
+
+    with events_handle:
+        for line in events_handle:
+            if not line.strip():
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if event.get("type") == "turn_ended":
+                return True
+    return False
+
+
+def grok_turn_records(events_path: Path) -> list[dict[str, Any]]:
+    """Return completed Grok turn spans, ignoring malformed or unmatched events."""
+    try:
+        events_handle = open(events_path, "r", encoding="utf-8")
+    except (FileNotFoundError, OSError):
+        return []
+
+    records: list[dict[str, Any]] = []
+    current: dict[str, Any] | None = None
+    with events_handle:
+        for line in events_handle:
+            if not line.strip():
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if event.get("type") == "turn_started":
+                current = event
+                continue
+            if event.get("type") != "turn_ended" or current is None:
+                continue
+            started_at = parse_timestamp(current.get("ts"), None)
+            if started_at is None:
+                current = None
+                continue
+            outcome = event.get("outcome")
+            records.append(
+                {
+                    "turn_number": current.get("turn_number"),
+                    "started_at": started_at,
+                    "completed": outcome in {None, "completed"},
+                    "outcome": outcome,
+                }
+            )
+            current = None
+    return records
+
+
+def collect_grok_turn_data(path: Path, mtime: datetime) -> list[dict[str, Any]]:
+    """Collect event-backed logical Grok turns from one chat-history file.
+
+    Grok chat lines do not carry timestamps. Its events file does, and both files
+    preserve turn order. When compaction leaves fewer user slices than event
+    spans, tail alignment keeps the surviving latest turns honest without
+    inventing timestamps for discarded history.
+    """
+    records = grok_turn_records(path.with_name("events.jsonl"))
+    if not records:
+        return []
+
+    try:
+        summary = json.loads(path.with_name("summary.json").read_text(encoding="utf-8"))
+    except (FileNotFoundError, OSError, json.JSONDecodeError):
+        summary = {}
+    info = summary.get("info") if isinstance(summary.get("info"), dict) else {}
+    project = info.get("cwd") or summary.get("git_root_dir") or infer_project_from_path("grok", path)
+    base_session_id = info.get("id") or transcript_session_id("grok", path)
+
+    slices: list[dict[str, Any]] = []
+    current: dict[str, Any] | None = None
+    try:
+        chat_handle = open(path, "r", encoding="utf-8")
+    except (FileNotFoundError, OSError):
+        return []
+
+    with chat_handle:
+        for line in chat_handle:
+            if not line.strip():
+                continue
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            user_text = extract_grok_text(entry, "user")
+            if user_text:
+                normalized_user = normalize_user_message(user_text)
+                if not normalized_user:
+                    continue
+                if current is not None:
+                    slices.append(current)
+                current = {
+                    "user_messages": [normalized_user],
+                    "assistant_messages": [],
+                    "function_calls": [],
+                }
+                continue
+            if current is None:
+                continue
+            assistant_text = extract_grok_text(entry, "assistant")
+            if assistant_text:
+                current["assistant_messages"].append(assistant_text)
+            current["function_calls"].extend(extract_grok_tool_uses(entry))
+    if current is not None:
+        slices.append(current)
+
+    pair_count = min(len(slices), len(records))
+    if pair_count == 0:
+        return []
+    paired_slices = slices[-pair_count:]
+    paired_records = records[-pair_count:]
+    turns: list[dict[str, Any]] = []
+    for turn_slice, record in zip(paired_slices, paired_records):
+        turn_number = record.get("turn_number")
+        turn_suffix = str(turn_number) if turn_number is not None else str(len(turns))
+        turns.append(
+            {
+                "provider": "grok",
+                "file": str(path),
+                "session_id": f"{base_session_id}:turn:{turn_suffix}",
+                "parent_session_id": base_session_id,
+                "turn_number": turn_number,
+                "project": project,
+                "timestamp": record["started_at"],
+                "user_messages": turn_slice["user_messages"],
+                "assistant_messages": turn_slice["assistant_messages"],
+                "function_calls": turn_slice["function_calls"],
+                "task_complete": record["completed"],
+                "turn_outcome": record.get("outcome"),
+                "read_error": None,
+            }
+        )
+    return turns
+
+
 def list_session_files(source: str, since: datetime, until: datetime) -> list[tuple[str, Path, datetime]]:
-    """List Claude/Codex session files in descending modified-time order."""
+    """List Claude/Codex/Grok session files in descending modified-time order."""
     items: list[tuple[str, Path, datetime]] = []
 
     include_codex = source in {"codex", "both", "all"}
     include_claude = source in {"claude", "both", "all"}
+    include_grok = source in {"grok", "all"}
 
     if include_codex and CODEX_SESSIONS_DIR.exists():
         for path in CODEX_SESSIONS_DIR.rglob("rollout-*.jsonl"):
@@ -526,6 +733,16 @@ def list_session_files(source: str, since: datetime, until: datetime) -> list[tu
             if since <= mtime <= until:
                 items.append(("claude", path, mtime))
 
+    if include_grok and GROK_SESSIONS_DIR.exists():
+        for path in GROK_SESSIONS_DIR.rglob("chat_history.jsonl"):
+            try:
+                stat = path.stat()
+            except (FileNotFoundError, OSError):
+                continue
+            mtime = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc)
+            if since <= mtime <= until:
+                items.append(("grok", path, mtime))
+
     items.sort(key=lambda item: item[2], reverse=True)
     return items
 
@@ -547,6 +764,20 @@ def collect_session_data(provider: str, path: Path, mtime: datetime) -> dict[str
 
     seen_user = set()
     seen_assistant = set()
+
+    if provider == "grok":
+        summary_path = path.with_name("summary.json")
+        try:
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+        except (FileNotFoundError, OSError, json.JSONDecodeError):
+            summary = {}
+        info = summary.get("info") if isinstance(summary.get("info"), dict) else {}
+        project = info.get("cwd") or summary.get("git_root_dir") or project
+        summary_session_id = info.get("id")
+        if isinstance(summary_session_id, str) and summary_session_id.strip():
+            session_id = summary_session_id.strip()
+        timestamp = parse_timestamp(summary.get("created_at"), timestamp)
+        task_complete = grok_turn_completed(path.with_name("events.jsonl"))
 
     try:
         handle = open(path, "r", encoding="utf-8")
@@ -601,7 +832,7 @@ def collect_session_data(provider: str, path: Path, mtime: datetime) -> dict[str
                 if entry.get("type") == "event_msg" and entry.get("payload", {}).get("type") == "task_complete":
                     task_complete = True
 
-            else:
+            elif provider == "claude":
                 text = extract_claude_user_text(entry)
                 if text:
                     cleaned = normalize_user_message(text)
@@ -615,6 +846,21 @@ def collect_session_data(provider: str, path: Path, mtime: datetime) -> dict[str
                         assistant_messages.append(text)
 
                 function_calls.extend(extract_claude_tool_uses(entry))
+
+            else:
+                text = extract_grok_text(entry, "user")
+                if text:
+                    cleaned = normalize_user_message(text)
+                    if cleaned and cleaned not in seen_user:
+                        seen_user.add(cleaned)
+                        user_messages.append(cleaned)
+
+                text = extract_grok_text(entry, "assistant")
+                if text and text not in seen_assistant:
+                    seen_assistant.add(text)
+                    assistant_messages.append(text)
+
+                function_calls.extend(extract_grok_tool_uses(entry))
 
     return {
         "provider": provider,
@@ -630,8 +876,12 @@ def collect_session_data(provider: str, path: Path, mtime: datetime) -> dict[str
     }
 
 
-def parse_session(provider: str, path: Path, mtime: datetime, skill: str) -> dict[str, Any]:
-    """Parse a Claude/Codex transcript into a skill-invocation summary."""
+def parse_normalized_session(
+    session: dict[str, Any],
+    skill: str,
+    extra_validation_patterns: list[re.Pattern[str]] | None = None,
+) -> dict[str, Any]:
+    """Parse normalized transcript data into one skill-invocation summary."""
     validation_commands: list[str] = []
     checkpoint_messages: list[str] = []
     correction_messages: list[str] = []
@@ -641,7 +891,7 @@ def parse_session(provider: str, path: Path, mtime: datetime, skill: str) -> dic
     touched_paths: list[str] = []
     matched_on: set[str] = set()
     seen_paths = set()
-    session = collect_session_data(provider, path, mtime)
+    provider = session["provider"]
     user_messages = session["user_messages"]
     assistant_messages = session["assistant_messages"]
     function_calls = session["function_calls"]
@@ -668,7 +918,7 @@ def parse_session(provider: str, path: Path, mtime: datetime, skill: str) -> dic
 
         command_text = normalize_command_text(call.get("command"))
         if command_text:
-            for pattern in VALIDATION_PATTERNS:
+            for pattern in [*VALIDATION_PATTERNS, *(extra_validation_patterns or [])]:
                 if pattern.search(command_text):
                     validation_commands.append(truncate(command_text))
                     break
@@ -690,7 +940,7 @@ def parse_session(provider: str, path: Path, mtime: datetime, skill: str) -> dic
     if "user_trigger" in matched_on:
         match_score += 1
 
-    return {
+    result = {
         "provider": provider,
         "file": session["file"],
         "session_id": session["session_id"],
@@ -714,12 +964,33 @@ def parse_session(provider: str, path: Path, mtime: datetime, skill: str) -> dic
         "command_stems": dict(command_stems),
         "task_complete": task_complete,
     }
+    for field in ("parent_session_id", "turn_number", "turn_outcome"):
+        if field in session:
+            result[field] = session[field]
+    return result
+
+
+def parse_session(
+    provider: str,
+    path: Path,
+    mtime: datetime,
+    skill: str,
+    extra_validation_patterns: list[re.Pattern[str]] | None = None,
+) -> dict[str, Any]:
+    """Parse a Claude/Codex/Grok transcript into a skill-invocation summary."""
+    return parse_normalized_session(
+        collect_session_data(provider, path, mtime),
+        skill,
+        extra_validation_patterns=extra_validation_patterns,
+    )
 
 
 def infer_project_from_path(provider: str, path: Path) -> str:
     """Infer a project label from a transcript path when metadata is absent."""
     if provider == "claude":
         return path.parent.name.replace("-", "/")[1:] if path.parent.name.startswith("-") else path.parent.name
+    if provider == "grok":
+        return unquote(path.parent.parent.name)
     return "unknown"
 
 
@@ -775,8 +1046,9 @@ def scan_skill_invocations(
     since: datetime | None = None,
     until: datetime | None = None,
     limit: int = 50,
+    validation_patterns: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Scan Claude/Codex logs for past invocations of a skill."""
+    """Scan Claude/Codex/Grok logs for past invocations of a skill."""
     since = since or parse_date("month")
     until = until or datetime.now(timezone.utc)
 
@@ -786,21 +1058,67 @@ def scan_skill_invocations(
     stems = Counter()
     tools = Counter()
     provider_tools: dict[str, Counter[str]] = defaultdict(Counter)
+    extra_validation_patterns = [re.compile(pattern, re.IGNORECASE) for pattern in (validation_patterns or [])]
 
     for provider, path, mtime in list_session_files(source, since, until):
         sessions_scanned += 1
-        parsed = parse_session(provider, path, mtime, skill)
-        if parsed["match_score"] < 2:
-            continue
-        invocations.append(parsed)
-        providers[provider] += 1
-        stems.update(parsed["command_stems"])
-        tools.update(parsed["tool_counts"])
-        provider_tools[provider].update(parsed["tool_counts"])
-        if len(invocations) >= limit:
-            break
+        parsed_items: list[dict[str, Any]] = []
+        if provider == "grok":
+            turn_data = collect_grok_turn_data(path, mtime)
+            if turn_data:
+                context_active = False
+                for turn in turn_data:
+                    inherited_context = context_active
+                    parsed_turn = parse_normalized_session(
+                        turn,
+                        skill,
+                        extra_validation_patterns=extra_validation_patterns,
+                    )
+                    if parsed_turn["match_score"] >= 2:
+                        context_active = True
+                    if inherited_context and "assistant_ack" not in parsed_turn["matched_on"]:
+                        parsed_turn["matched_on"] = sorted(
+                            set(parsed_turn["matched_on"]) | {"session_skill_context"}
+                        )
+                    if parsed_turn["match_score"] < 2 and context_active:
+                        parsed_turn["matched_on"] = sorted(
+                            set(parsed_turn["matched_on"]) | {"session_skill_context"}
+                        )
+                        parsed_turn["match_score"] = 2
+                    parsed_items.append(parsed_turn)
+        if not parsed_items:
+            parsed_items = [
+                parse_session(
+                    provider,
+                    path,
+                    mtime,
+                    skill,
+                    extra_validation_patterns=extra_validation_patterns,
+                )
+            ]
+
+        for parsed in parsed_items:
+            parsed_timestamp = parse_timestamp(parsed.get("timestamp"), mtime)
+            if provider == "grok" and (parsed_timestamp < since or parsed_timestamp > until):
+                continue
+            if parsed["match_score"] < 2:
+                continue
+            invocations.append(parsed)
+            providers[provider] += 1
+            stems.update(parsed["command_stems"])
+            tools.update(parsed["tool_counts"])
+            provider_tools[provider].update(parsed["tool_counts"])
 
     invocations.sort(key=lambda item: item["timestamp"], reverse=True)
+    invocations = invocations[:limit]
+    providers = Counter(item["provider"] for item in invocations)
+    stems = Counter()
+    tools = Counter()
+    provider_tools = defaultdict(Counter)
+    for item in invocations:
+        stems.update(item["command_stems"])
+        tools.update(item["tool_counts"])
+        provider_tools[item["provider"]].update(item["tool_counts"])
     last_invoked_at = invocations[0]["timestamp"] if invocations else None
     total = len(invocations)
 
@@ -812,7 +1130,9 @@ def scan_skill_invocations(
     summary = {
         "providers": {provider: providers[provider] for provider in sorted(providers)},
         "metrics": {
-            "ack_rate": rate(lambda item: "assistant_ack" in item["matched_on"]),
+            "ack_rate": rate(
+                lambda item: bool({"assistant_ack", "session_skill_context"} & set(item["matched_on"]))
+            ),
             "validation_rate": rate(lambda item: bool(item["validation_commands"])),
             "checkpoint_rate": rate(lambda item: bool(item["checkpoint_messages"])),
             "risk_gating_rate": rate(lambda item: bool(item["risk_gating_messages"])),

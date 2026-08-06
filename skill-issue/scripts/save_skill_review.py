@@ -6,7 +6,8 @@ Usage:
   review_skill_usage.py --skill skill-issue > /tmp/skill-review.json
   save_skill_review.py --input /tmp/skill-review.json
 
-Appends a compact record to ~/.claude/skill-review-history.jsonl
+Appends a compact record to ~/.claude/skill-review-history.jsonl, or replaces
+the latest matching skill/source record when explicitly requested.
 """
 
 from __future__ import annotations
@@ -31,6 +32,11 @@ def load_input(path: str) -> dict:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Save a skill review report to history")
     parser.add_argument("--input", required=True, help="Path to review JSON, or - for stdin")
+    parser.add_argument(
+        "--replace-latest",
+        action="store_true",
+        help="Replace the latest history row for the same skill/source instead of appending",
+    )
     args = parser.parse_args()
 
     report = load_input(args.input)
@@ -53,8 +59,25 @@ def main() -> None:
     }
 
     REVIEW_HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with open(REVIEW_HISTORY_FILE, "a") as handle:
-        handle.write(json.dumps(record) + "\n")
+    serialized = json.dumps(record) + "\n"
+    if args.replace_latest and REVIEW_HISTORY_FILE.exists():
+        lines = REVIEW_HISTORY_FILE.read_text(encoding="utf-8").splitlines(keepends=True)
+        replaced = False
+        for index in range(len(lines) - 1, -1, -1):
+            try:
+                existing = json.loads(lines[index])
+            except json.JSONDecodeError:
+                continue
+            if existing.get("skill") == record["skill"] and existing.get("source") == record["source"]:
+                lines[index] = serialized
+                replaced = True
+                break
+        if not replaced:
+            lines.append(serialized)
+        REVIEW_HISTORY_FILE.write_text("".join(lines), encoding="utf-8")
+    else:
+        with open(REVIEW_HISTORY_FILE, "a", encoding="utf-8") as handle:
+            handle.write(serialized)
 
     print(json.dumps({"status": "saved", "record": record}, indent=2))
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Review how a skill has actually been used in Claude/Codex transcripts.
+Review how a skill has actually been used in Claude/Codex/Grok transcripts.
 
 Usage:
   review_skill_usage.py --skill skill-issue [--source both] [--limit 50]
@@ -43,25 +43,31 @@ def resolve_since(skill: str, since_arg: str | None) -> tuple[datetime, str]:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Review skill usage from Claude/Codex logs")
+    parser = argparse.ArgumentParser(description="Review skill usage from Claude/Codex/Grok logs")
     parser.add_argument("--skill", required=True, help="Skill name to review")
     parser.add_argument(
         "--source",
-        choices=("claude", "codex", "both", "all"),
+        choices=("claude", "codex", "grok", "both", "all"),
         default="both",
         help="Which transcript source(s) to scan",
     )
     parser.add_argument(
         "--since",
         default=None,
-        help="Start date (marker|YYYY-MM-DD|today|yesterday|week|month). Defaults to the last review marker for this skill, or month on first run.",
+        help="Start date/time (marker|ISO-8601|YYYY-MM-DD|today|yesterday|week|month). Defaults to the last review marker for this skill, or month on first run.",
     )
     parser.add_argument(
         "--until",
         default=None,
-        help="End date (YYYY-MM-DD), defaults to now",
+        help="End date/time (ISO-8601 or YYYY-MM-DD), defaults to now",
     )
     parser.add_argument("--limit", type=int, default=50, help="Max invocations to return")
+    parser.add_argument(
+        "--validation-pattern",
+        action="append",
+        default=[],
+        help="Additional case-insensitive regex that marks a command as validation (repeatable)",
+    )
     parser.add_argument(
         "--no-marker",
         action="store_true",
@@ -78,6 +84,7 @@ def main() -> None:
         since=since,
         until=until,
         limit=args.limit,
+        validation_patterns=args.validation_pattern,
     )
     report["since_source"] = since_source
     report["evidence_packets"] = generate_evidence_report(report)

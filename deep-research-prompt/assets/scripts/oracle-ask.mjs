@@ -55,6 +55,10 @@ import {
   harvestCredentials,
   listModels,
 } from "./oracle-http-client.mjs";
+import {
+  healAuthSession,
+  remediationForAuthReport,
+} from "./oracle-session-heal.mjs";
 
 export const DEFAULT_PORT = 9222;
 export const DEFAULT_TIMEOUT_SECONDS = 900;
@@ -236,6 +240,9 @@ export function parseArgs(argv, env = {}, options = {}) {
       case "--doctor":
         out.doctor = true;
         break;
+      case "--no-heal":
+        out.noHeal = true;
+        break;
       case "--install":
         out.install = true;
         break;
@@ -370,10 +377,13 @@ export function diagnose(code, { env = process.env, launchHint = LAUNCH_HINT } =
       return {
         exit: EXIT.notReady,
         summary: "the dedicated ChatGPT browser failed the hardened auth doctor",
+        // Generic fallback; the --doctor path prints reason-specific text via
+        // remediationForAuthReport and auto-heals when possible.
         action:
-          "Run the explicit login flow, then re-run --doctor:\n" +
-          "    node oracle-subagent-auth.mjs login --json\n" +
-          "For first enrollment only, add --enroll-current-account.\n",
+          "Re-run the same doctor command — it auto-heals portable-credential\n" +
+          "restore + auth-policy enrollment when those are the only blockers:\n" +
+          `    ${(env.ORACLE_ASK_INVOKED_AS || "sbp oracle")} --doctor\n` +
+          "If still blocked after heal, see the reason-specific next steps above.\n",
       };
     case "stream_error":
     case "conversation_post_failed":
@@ -522,7 +532,8 @@ Options
   --out <path>           also write the answer text to a file
   --json                 emit the full result object instead of bare text
   --quiet                suppress progress lines on stderr
-  --doctor               check readiness only; submit nothing
+  --doctor               check readiness; auto-heals session restore + enrollment
+  --doctor --no-heal     readiness only; never mutates (no cookie inject / enroll)
   --models               list the model slugs this account can select
   --install              write a PATH shim so the command is just \`oracle-ask\`
 
@@ -577,33 +588,73 @@ async function main(argv) {
   }
 
   if (args.doctor) {
-    const report = runAuthDoctor({
-      spawn: (command, spawnArgs, options = {}) =>
-        spawnSync(command, spawnArgs, {
-          ...options,
-          env: {
-            ...process.env,
-            ...(options.env || {}),
-            ORACLE_CDP_PORT: String(args.port),
-          },
-        }),
-    });
-    process.stdout.write(
-      JSON.stringify(
-        {
-          ready: report.ok,
-          reasons: report.reasons,
-          checks: report.checks,
-          cdp_port: args.port,
+    const doctorSpawn = (command, spawnArgs, options = {}) =>
+      spawnSync(command, spawnArgs, {
+        ...options,
+        env: {
+          ...process.env,
+          ...(options.env || {}),
+          ORACLE_CDP_PORT: String(args.port),
         },
-        null,
-        2,
-      ) +
-        "\n",
+      });
+    let report = runAuthDoctor({ spawn: doctorSpawn });
+    let heal = null;
+    // Default: when blocked, try safe auto-heal once (portable credential
+    // restore + auth-policy enroll). --no-heal keeps check-only mode.
+    if (!report.ok && !args.noHeal) {
+      if (!args.quiet) {
+        process.stderr.write(
+          "oracle-ask: doctor blocked; attempting safe auto-heal " +
+            "(portable credential → browser session, then enroll if needed)\n",
+        );
+      }
+      heal = await healAuthSession({
+        port: args.port,
+        quiet: Boolean(args.quiet),
+      });
+      if (heal?.healed) {
+        report = runAuthDoctor({ spawn: doctorSpawn });
+      } else if (heal?.report) {
+        report = {
+          ok: heal.report.ok === true,
+          reasons: Array.isArray(heal.report.reasons) ? heal.report.reasons : [],
+          checks:
+            heal.report.checks && typeof heal.report.checks === "object"
+              ? heal.report.checks
+              : {},
+        };
+      }
+    }
+    const payload = {
+      ready: report.ok,
+      reasons: report.reasons,
+      checks: report.checks,
+      cdp_port: args.port,
+    };
+    if (heal) {
+      payload.heal = {
+        attempted: true,
+        healed: Boolean(heal.healed),
+        steps: heal.steps || [],
+        blocker: heal.blocker
+          ? { code: heal.blocker.code, detail: heal.blocker.detail || null }
+          : null,
+      };
+    }
+    if (!report.ok) {
+      payload.next = remediationForAuthReport(report, {
+        invokedAs: process.env.ORACLE_ASK_INVOKED_AS || "sbp oracle",
+      }).split("\n");
+    }
+    process.stdout.write(`${JSON.stringify(payload, null, 2)}\n`);
+    if (report.ok) return EXIT.ok;
+    const invoked = process.env.ORACLE_ASK_INVOKED_AS || "sbp oracle";
+    process.stderr.write(
+      `\noracle-ask: the dedicated ChatGPT browser failed the hardened auth doctor [auth_doctor_blocked]\n\n` +
+        `${remediationForAuthReport(report, { invokedAs: invoked })}\n\n` +
+        `Nothing was submitted for this attempt.\n`,
     );
-    return report.ok
-      ? EXIT.ok
-      : reportFailure("auth_doctor_blocked");
+    return EXIT.notReady;
   }
 
   if (args.models) {

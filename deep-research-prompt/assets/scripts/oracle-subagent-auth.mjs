@@ -1646,6 +1646,38 @@ async function setInteractiveVisibility(context, visible) {
         height: 900,
       },
     });
+  } else if (process.platform === "linux") {
+    // Re-hide under Xvfb by parking the window offscreen; no operator display.
+    try {
+      const window = await cdpCall(
+        browserWebSocket,
+        "Browser.getWindowForTarget",
+        { targetId: receipt.target_id },
+      );
+      if (Number.isSafeInteger(window?.windowId)) {
+        await cdpCall(browserWebSocket, "Browser.setWindowBounds", {
+          windowId: window.windowId,
+          bounds: {
+            windowState: "normal",
+            left: -32000,
+            top: -32000,
+            width: 1280,
+            height: 900,
+          },
+        });
+      }
+    } catch {
+      // Best-effort; hidden-headful under Xvfb is already non-operator-visible.
+    }
+  }
+  // Linux Xvfb has no AppKit/System Events process visibility. Doctor already
+  // treats "process alive under Xvfb" as hidden; login/enroll must not require
+  // osascript or the VPS host can never enroll from a restored session.
+  if (process.platform === "linux") {
+    return;
+  }
+  if (process.platform !== "darwin") {
+    gateError("visibility_unverifiable");
   }
   const script = visible
     ? [

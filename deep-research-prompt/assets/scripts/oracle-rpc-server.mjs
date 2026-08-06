@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 
 import { createHash } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import { lookup as dnsLookup } from "node:dns/promises";
-import { constants as fsConstants } from "node:fs";
+import { constants as fsConstants, realpathSync } from "node:fs";
 import {
   chmod,
   lstat,
@@ -14,7 +15,7 @@ import {
 import http from "node:http";
 import { homedir } from "node:os";
 import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import {
   executeCli as executeOracleCli,
@@ -24,6 +25,7 @@ import {
 export const ORACLE_FLEET_REQUEST_SCHEMA = "oracle-fleet.request.v1";
 export const ORACLE_FLEET_RESPONSE_SCHEMA = "oracle-fleet.response.v1";
 export const ORACLE_FLEET_RECEIPT_SCHEMA = "oracle-fleet.receipt.v1";
+export const ORACLE_FLEET_HEALTH_SCHEMA = "oracle-fleet.health.v1";
 
 export const FLEET_LIMITS = Object.freeze({
   body_bytes: 12 * 1024 * 1024,
@@ -46,6 +48,7 @@ const TAG_PATTERN = /^tag:[a-z][a-z0-9-]{0,62}$/;
 const SAFE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:+@-]{0,255}$/;
 const MAGIC_DNS_PATTERN =
   /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?))*$/;
+const POLICY_CALLER_PATTERN = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 const FORBIDDEN_KEYS = new Set([
   "authorization",
   "browserconfig",
@@ -77,6 +80,7 @@ Options:
   --port N                         listener port (default: 4117)
   --artifact-root DIR              private local Oracle run root
   --mode pro|deep-research         server-owned Oracle mode
+  --policy-bridge PATH             Skillbox policy authority entrypoint
   --required-peer-tag tag:NAME     repeatable caller allowlist tag
   -h, --help                       show this help
 
@@ -120,6 +124,22 @@ function normalizedKey(value) {
   return value.toLowerCase().replaceAll(/[-_]/g, "");
 }
 
+function isForbiddenKey(value) {
+  const key = normalizedKey(value);
+  return (
+    FORBIDDEN_KEYS.has(key) ||
+    key.includes("browserconfig") ||
+    key.includes("browserprofile") ||
+    key.startsWith("cdp") ||
+    key.includes("cookie") ||
+    key.startsWith("environment") ||
+    key.startsWith("exec") ||
+    key.startsWith("hook") ||
+    key.endsWith("path") ||
+    key.endsWith("token")
+  );
+}
+
 function rejectForbiddenKeys(value) {
   if (Array.isArray(value)) {
     for (const item of value) rejectForbiddenKeys(item);
@@ -127,7 +147,7 @@ function rejectForbiddenKeys(value) {
   }
   if (!isPlainObject(value)) return;
   for (const [key, child] of Object.entries(value)) {
-    if (FORBIDDEN_KEYS.has(normalizedKey(key))) reject("forbidden_field");
+    if (isForbiddenKey(key)) reject("forbidden_field");
     rejectForbiddenKeys(child);
   }
 }
@@ -442,27 +462,37 @@ export async function verifyTailnetBindHost(host, options = {}) {
   const lookup = options.lookup ?? dnsLookup;
   if (typeof lookup !== "function") reject("tailnet_bind_proof_unavailable", 500);
   let status;
-  let addresses;
+  let addresses = [];
   try {
-    [status, addresses] = await Promise.all([
-      callLocalApi("/localapi/v0/status"),
-      lookup(host, { all: true, verbatim: true }),
-    ]);
+    status = await callLocalApi("/localapi/v0/status");
   } catch {
     reject("tailnet_bind_proof_unavailable", 500);
   }
+  try {
+    addresses = await lookup(host, { all: true, verbatim: true });
+  } catch {
+    addresses = [];
+  }
   const selfAddresses = new Set(status?.Self?.TailscaleIPs ?? []);
+  const selfDnsName = String(status?.Self?.DNSName ?? "")
+    .replace(/\.$/, "")
+    .toLowerCase();
   const resolvedAddresses = Array.isArray(addresses)
     ? addresses.map((entry) => entry?.address)
     : [];
-  if (
-    selfAddresses.size < 1 ||
-    resolvedAddresses.length < 1 ||
-    resolvedAddresses.some((address) => !selfAddresses.has(address))
-  ) {
+  if (selfAddresses.size < 1) {
     reject("tailnet_bind_proof_failed", 500);
   }
-  return host;
+  if (
+    resolvedAddresses.length > 0 &&
+    resolvedAddresses.every((address) => selfAddresses.has(address))
+  ) {
+    return options.returnBindAddress ? resolvedAddresses[0] : host;
+  }
+  if (selfDnsName === host) {
+    return options.returnBindAddress ? [...selfAddresses][0] : host;
+  }
+  reject("tailnet_bind_proof_failed", 500);
 }
 
 function publicRequestMetadata(request) {
@@ -475,27 +505,151 @@ function publicRequestMetadata(request) {
 }
 
 function normalizePolicyResult(raw) {
-  if (raw === undefined || raw === null) {
-    return Object.freeze({ context: null, receipt: null });
-  }
   if (!isPlainObject(raw)) reject("caller_policy_rejected", 403);
   if (raw.allowed === false) reject("caller_policy_rejected", 429);
-  const receipt = raw.receipt ?? null;
-  if (receipt !== null) {
-    exactObject(receipt, ["policy_id", "quota_bucket", "remaining"], "caller_policy_invalid");
-    if (
-      !SAFE_ID_PATTERN.test(receipt.policy_id) ||
-      !SAFE_ID_PATTERN.test(receipt.quota_bucket) ||
-      !Number.isSafeInteger(receipt.remaining) ||
-      receipt.remaining < 0
-    ) {
-      reject("caller_policy_invalid", 500);
-    }
+  const receipt = raw.receipt;
+  exactObject(receipt, ["policy_id", "quota_bucket", "remaining"], "caller_policy_invalid");
+  if (
+    !SAFE_ID_PATTERN.test(receipt.policy_id) ||
+    !SAFE_ID_PATTERN.test(receipt.quota_bucket) ||
+    !Number.isSafeInteger(receipt.remaining) ||
+    receipt.remaining < 0
+  ) {
+    reject("caller_policy_invalid", 500);
   }
   return Object.freeze({
-    context: raw.context ?? null,
-    receipt: receipt === null ? null : Object.freeze({ ...receipt }),
+    context: raw.context,
+    receipt: Object.freeze({ ...receipt }),
   });
+}
+
+function policyCallerId(caller) {
+  const value = String(caller?.node_name ?? "")
+    .replace(/\.$/, "")
+    .split(".")[0]
+    .toLowerCase();
+  if (!POLICY_CALLER_PATTERN.test(value)) reject("caller_policy_rejected", 403);
+  return value;
+}
+
+function runPolicyBridge(policyBridge, action, payload = null) {
+  if (typeof policyBridge !== "string" || !isAbsolute(policyBridge)) {
+    reject("caller_policy_unavailable", 500);
+  }
+  const result = spawnSync(
+    "python3",
+    [policyBridge, "oracle-policy-bridge", action],
+    {
+      input: payload === null ? undefined : `${JSON.stringify(payload)}\n`,
+      encoding: "utf8",
+      maxBuffer: 256 * 1024,
+      timeout: 10_000,
+      env: process.env,
+    },
+  );
+  if (result.error || typeof result.stdout !== "string") {
+    reject("caller_policy_unavailable", 503);
+  }
+  let response;
+  try {
+    response = JSON.parse(result.stdout);
+  } catch {
+    reject("caller_policy_unavailable", 503);
+  }
+  if (!isPlainObject(response) || response.ok !== true) {
+    if (
+      action === "reserve" &&
+      typeof response?.error?.code === "string" &&
+      SAFE_ID_PATTERN.test(response.error.code)
+    ) {
+      reject("caller_policy_rejected", 429);
+    }
+    reject("caller_policy_unavailable", 503);
+  }
+  if (result.status !== 0) reject("caller_policy_unavailable", 503);
+  return response;
+}
+
+export function createPolicyBridgeAuthority(options = {}) {
+  const policyBridge = options.policyBridge;
+  const mode = options.mode === "deep-research" ? "deep-research" : "standard";
+  const timeoutSeconds = options.timeoutSeconds ?? 7_200;
+  return Object.freeze({
+    check() {
+      const response = runPolicyBridge(policyBridge, "doctor");
+      if (response.policy_id !== "skillbox-oracle-v1") {
+        reject("caller_policy_unavailable", 503);
+      }
+      return Object.freeze({ policy_id: response.policy_id });
+    },
+    authorizeCaller({ caller, request }) {
+      const callerId = policyCallerId(caller);
+      const response = runPolicyBridge(policyBridge, "reserve", {
+        caller_id: callerId,
+        request: {
+          schema: "skillbox.oracle-request-facts.v1",
+          mode,
+          prompt_bytes: request.prompt_bytes,
+          file_count: request.file_count,
+          attachment_bytes: request.files_bytes,
+          timeout_seconds: timeoutSeconds,
+        },
+      });
+      return {
+        allowed: true,
+        context: response.reservation,
+        receipt: response.receipt,
+      };
+    },
+    releaseCaller(context) {
+      if (!isPlainObject(context)) reject("caller_policy_invalid", 500);
+      exactObject(
+        context,
+        ["caller_id", "reservation_id"],
+        "caller_policy_invalid",
+      );
+      runPolicyBridge(policyBridge, "release", context);
+    },
+  });
+}
+
+export function createBrowserReadinessProbe(options = {}) {
+  const authScript = resolve(
+    options.authScript ??
+      join(dirname(fileURLToPath(import.meta.url)), "oracle-subagent-auth.mjs"),
+  );
+  const run = options.spawnSync ?? spawnSync;
+  return async function checkBrowser() {
+    const result = run(process.execPath, [authScript, "status", "--json"], {
+      encoding: "utf8",
+      maxBuffer: 256 * 1024,
+      timeout: 10_000,
+      env: process.env,
+    });
+    if (result.error || result.status !== 0 || typeof result.stdout !== "string") {
+      return Object.freeze({ ready: false, authenticated: false });
+    }
+    let report;
+    try {
+      report = JSON.parse(result.stdout);
+    } catch {
+      return Object.freeze({ ready: false, authenticated: false });
+    }
+    const checks = isPlainObject(report?.checks) ? report.checks : {};
+    const ready = [
+      "private_permissions",
+      "receipt_fresh",
+      "single_listener",
+      "loopback_only",
+      "browser_pid",
+      "exact_target",
+      "browser_hidden",
+    ].every((name) => checks[name] === true);
+    return Object.freeze({
+      ready,
+      authenticated: checks.authenticated === true,
+    });
+  };
 }
 
 function normalizeResult(raw, limits) {
@@ -556,23 +710,67 @@ export function createOracleRpcHandler(options = {}) {
   const limits = normalizeLimits(options.limits);
   const replayGuard = options.replayGuard ?? createReplayGuard({ limits });
   const resolveCaller = options.resolveCaller;
-  const authorizeCaller = options.authorizeCaller ?? (async () => null);
+  const checkPolicy = options.checkPolicy;
+  const checkBrowser = options.checkBrowser;
+  const authorizeCaller = options.authorizeCaller;
+  const releaseCaller = options.releaseCaller;
   const runOracle = options.runOracle;
   const nowMs = options.nowMs ?? (() => Date.now());
-  if (typeof resolveCaller !== "function" || typeof runOracle !== "function") {
+  if (
+    typeof resolveCaller !== "function" ||
+    typeof checkPolicy !== "function" ||
+    typeof checkBrowser !== "function" ||
+    typeof authorizeCaller !== "function" ||
+    typeof releaseCaller !== "function" ||
+    typeof runOracle !== "function"
+  ) {
     reject("server_configuration_invalid", 500);
   }
   return async function oracleRpcHandler(request, response) {
     try {
+      if (request.method === "GET" && request.url === "/healthz") {
+        const policy = await checkPolicy();
+        if (
+          !isPlainObject(policy) ||
+          typeof policy.policy_id !== "string" ||
+          !SAFE_ID_PATTERN.test(policy.policy_id)
+        ) {
+          reject("caller_policy_unavailable", 503);
+        }
+        let browser = { ready: false, authenticated: false };
+        try {
+          const observed = await checkBrowser();
+          if (
+            isPlainObject(observed) &&
+            typeof observed.ready === "boolean" &&
+            typeof observed.authenticated === "boolean"
+          ) {
+            browser = observed;
+          }
+        } catch {
+          browser = { ready: false, authenticated: false };
+        }
+        jsonResponse(response, 200, {
+          schema: ORACLE_FLEET_HEALTH_SCHEMA,
+          ok: true,
+          service: { ready: true },
+          policy: { ready: true, policy_id: policy.policy_id },
+          browser: {
+            ready: browser.ready,
+            authenticated: browser.authenticated,
+          },
+        });
+        return;
+      }
       if (request.method !== "POST" || request.url !== "/v1/oracle") {
         reject("route_not_found", 404);
       }
+      const caller = await resolveCaller(request.socket);
       const raw = await readBoundedJsonBody(request, { limits });
       const fleetRequest = validateOracleFleetRequest(raw, {
         limits,
         nowMs: nowMs(),
       });
-      const caller = await resolveCaller(request.socket);
       replayGuard.claim(
         caller.node_id,
         fleetRequest.request_id,
@@ -584,6 +782,7 @@ export function createOracleRpcHandler(options = {}) {
           request: publicRequestMetadata(fleetRequest),
         }),
       );
+      const acceptedAt = new Date(nowMs()).toISOString();
       let oracleResult;
       try {
         oracleResult = normalizeResult(
@@ -603,12 +802,14 @@ export function createOracleRpcHandler(options = {}) {
       } catch (error) {
         if (error instanceof OracleFleetRpcError) throw error;
         reject("oracle_failed", 502);
+      } finally {
+        await releaseCaller(policy.context);
       }
       const completedAt = new Date(nowMs()).toISOString();
       const receipt = Object.freeze({
         schema: ORACLE_FLEET_RECEIPT_SCHEMA,
         request_id: fleetRequest.request_id,
-        accepted_at: fleetRequest.created_at,
+        accepted_at: acceptedAt,
         completed_at: completedAt,
         caller,
         policy: policy.receipt,
@@ -682,7 +883,7 @@ export function createLocalOracleRunner(options = {}) {
   const artifactRoot = resolve(
     options.artifactRoot ?? join(homedir(), ".oracle", "oracle-subagent", "runs"),
   );
-  const mode = options.mode ?? "deep-research";
+  const mode = options.mode ?? "pro";
   const timeoutSeconds = options.timeoutSeconds ?? 7_200;
   const limits = normalizeLimits(options.limits);
   const executeCli = options.executeCli ?? executeOracleCli;
@@ -749,11 +950,16 @@ export function createLocalOracleRunner(options = {}) {
 export async function startOracleRpcServer(options = {}) {
   const host = validateTailnetBindHost(options.host);
   const port = options.port ?? 4117;
-  if (!Number.isSafeInteger(port) || port < 0 || port > 65_535) {
+  if (!Number.isSafeInteger(port) || port < 1 || port > 65_535) {
     reject("server_configuration_invalid", 500);
   }
   const verifyBind = options.verifyBind ?? verifyTailnetBindHost;
-  await verifyBind(host, options.bindProof ?? {});
+  const provenBind = await verifyBind(host, {
+    ...(options.bindProof ?? {}),
+    returnBindAddress: true,
+  });
+  const bindAddress =
+    typeof provenBind === "string" && provenBind !== host ? provenBind : host;
   const localApi = options.localApiJson ?? createTailscaleLocalApi(options.localApi ?? {});
   const resolveCaller =
     options.resolveCaller ??
@@ -770,11 +976,42 @@ export async function startOracleRpcServer(options = {}) {
       timeoutSeconds: options.timeoutSeconds,
       limits: options.limits,
     });
+  let authorizeCaller = options.authorizeCaller;
+  let releaseCaller = options.releaseCaller;
+  let checkPolicy = options.checkPolicy;
+  if (
+    authorizeCaller === undefined &&
+    releaseCaller === undefined &&
+    checkPolicy === undefined
+  ) {
+    const authority = createPolicyBridgeAuthority({
+      policyBridge: options.policyBridge,
+      mode: options.mode,
+      timeoutSeconds: options.timeoutSeconds,
+    });
+    checkPolicy = authority.check;
+    authorizeCaller = authority.authorizeCaller;
+    releaseCaller = authority.releaseCaller;
+  }
+  if (
+    typeof checkPolicy !== "function" ||
+    typeof authorizeCaller !== "function" ||
+    typeof releaseCaller !== "function"
+  ) {
+    reject("server_configuration_invalid", 500);
+  }
+  await checkPolicy();
+  const checkBrowser =
+    options.checkBrowser ??
+    createBrowserReadinessProbe({ authScript: options.authScript });
   const handler = createOracleRpcHandler({
     limits: options.limits,
     replayGuard: options.replayGuard,
     resolveCaller,
-    authorizeCaller: options.authorizeCaller,
+    checkPolicy,
+    checkBrowser,
+    authorizeCaller,
+    releaseCaller,
     runOracle,
     nowMs: options.nowMs,
   });
@@ -784,7 +1021,7 @@ export async function startOracleRpcServer(options = {}) {
   server.requestTimeout = (options.timeoutSeconds ?? 7_200) * 1_000;
   await new Promise((resolvePromise, rejectPromise) => {
     server.once("error", rejectPromise);
-    server.listen(port, host, () => {
+    server.listen(port, bindAddress, () => {
       server.off("error", rejectPromise);
       resolvePromise();
     });
@@ -812,7 +1049,8 @@ export function parseServerArguments(rawArguments) {
     host: null,
     port: 4117,
     artifactRoot: join(homedir(), ".oracle", "oracle-subagent", "runs"),
-    mode: "deep-research",
+    mode: "pro",
+    policyBridge: null,
     requiredPeerTags: [],
   };
   for (let index = 0; index < rawArguments.length; index += 1) {
@@ -823,11 +1061,13 @@ export function parseServerArguments(rawArguments) {
     if (flag === "--bind-host") parsed.host = validateTailnetBindHost(value);
     else if (flag === "--port") parsed.port = Number(value);
     else if (flag === "--artifact-root") parsed.artifactRoot = resolve(value);
+    else if (flag === "--policy-bridge" && isAbsolute(value)) parsed.policyBridge = value;
     else if (flag === "--mode" && ["pro", "deep-research"].includes(value)) parsed.mode = value;
     else if (flag === "--required-peer-tag" && TAG_PATTERN.test(value)) parsed.requiredPeerTags.push(value);
     else reject("arguments_invalid");
   }
   if (parsed.host === null) reject("arguments_invalid");
+  if (parsed.policyBridge === null) reject("arguments_invalid");
   if (parsed.requiredPeerTags.length === 0) parsed.requiredPeerTags.push("tag:oracle-client");
   return Object.freeze(parsed);
 }
@@ -858,9 +1098,14 @@ export async function main(rawArguments = process.argv.slice(2), injected = {}) 
   }
 }
 
-if (
-  process.argv[1] &&
-  import.meta.url === pathToFileURL(resolve(process.argv[1])).href
-) {
+let invokedAsMain = false;
+try {
+  invokedAsMain =
+    Boolean(process.argv[1]) &&
+    import.meta.url === pathToFileURL(realpathSync(resolve(process.argv[1]))).href;
+} catch {
+  invokedAsMain = false;
+}
+if (invokedAsMain) {
   process.exitCode = await main();
 }

@@ -2,7 +2,7 @@
 
 import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { constants as fsConstants } from "node:fs";
+import { constants as fsConstants, realpathSync } from "node:fs";
 import {
   chmod,
   mkdir,
@@ -2373,9 +2373,14 @@ export async function main(
   }
 }
 
-if (
-  process.argv[1] &&
-  import.meta.url === pathToFileURL(resolve(process.argv[1])).href
-) {
+let invokedAsMain = false;
+try {
+  invokedAsMain =
+    Boolean(process.argv[1]) &&
+    import.meta.url === pathToFileURL(realpathSync(resolve(process.argv[1]))).href;
+} catch {
+  invokedAsMain = false;
+}
+if (invokedAsMain) {
   process.exitCode = await main();
 }

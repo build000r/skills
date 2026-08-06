@@ -38,7 +38,9 @@ def _predicate_matches(family_id: str, invocation: dict[str, Any]) -> bool:
     flags = invocation.get("flags", {})
     matched_on = set(invocation.get("matched_on", []))
     if family_id == "observability-gap":
-        return "skill_path" in matched_on and "assistant_ack" not in matched_on
+        return "skill_path" in matched_on and not (
+            {"assistant_ack", "session_skill_context"} & matched_on
+        )
     if family_id == "verification-gap":
         return not flags.get("has_validation")
     if family_id == "checkpoint-defaults":

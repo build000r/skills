@@ -35,6 +35,191 @@ class SkillReviewSignalTests(unittest.TestCase):
 
         os.utime(path, (timestamp, timestamp))
 
+    def test_parse_date_accepts_iso_timestamp(self) -> None:
+        parsed = MODULE.parse_date("2026-07-22T18:02:00Z")
+        self.assertEqual(parsed, datetime(2026, 7, 22, 18, 2, tzinfo=timezone.utc))
+
+    def test_scan_skill_invocations_ingests_grok_chat_history(self) -> None:
+        now = datetime.now(timezone.utc).replace(microsecond=0)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            grok_dir = root / "grok"
+            session_dir = grok_dir / "%2Ftmp%2Fdemo" / "grok-session-1"
+            chat_path = session_dir / "chat_history.jsonl"
+            entries = [
+                {"type": "user", "content": [{"type": "text", "text": "<user_info>ignore me</user_info>"}]},
+                {
+                    "type": "user",
+                    "content": [{"type": "text", "text": "<user_query>Use colleen-mail-loop in operator mode.</user_query>"}],
+                },
+                {
+                    "type": "assistant",
+                    "content": "Using colleen-mail-loop in operator mode. Running validation.",
+                    "tool_calls": [
+                        {
+                            "name": "run_terminal_command",
+                            "arguments": {"command": "bash scripts/test-colleen-mail-facilitator.sh"},
+                        }
+                    ],
+                },
+                {"type": "assistant", "content": "Terminal receipt: healthy-idle."},
+            ]
+            self.write_jsonl(chat_path, entries, mtime=now)
+            (session_dir / "summary.json").write_text(
+                json.dumps(
+                    {
+                        "info": {"id": "grok-session-1", "cwd": "/tmp/demo"},
+                        "created_at": now.isoformat(),
+                    }
+                ),
+                encoding="utf-8",
+            )
+            self.write_jsonl(
+                session_dir / "events.jsonl",
+                [{"ts": now.isoformat(), "type": "turn_ended"}],
+                mtime=now,
+            )
+            with (session_dir / "events.jsonl").open("a", encoding="utf-8") as events_handle:
+                events_handle.write("{malformed-event\n")
+
+            original_grok = MODULE.GROK_SESSIONS_DIR
+            MODULE.GROK_SESSIONS_DIR = grok_dir
+            try:
+                report = MODULE.scan_skill_invocations(
+                    skill="colleen-mail-loop",
+                    source="grok",
+                    since=now - timedelta(days=1),
+                    until=now + timedelta(days=1),
+                    limit=10,
+                )
+            finally:
+                MODULE.GROK_SESSIONS_DIR = original_grok
+
+        self.assertEqual(report["invocations_found"], 1)
+        self.assertEqual(report["summary"]["providers"], {"grok": 1})
+        self.assertEqual(report["summary"]["metrics"]["validation_rate"], 1.0)
+        invocation = report["invocations"][0]
+        self.assertEqual(invocation["session_id"], "grok-session-1")
+        self.assertEqual(invocation["project"], "/tmp/demo")
+        self.assertTrue(invocation["task_complete"])
+        self.assertIn("run_terminal_command", invocation["tool_counts"])
+        self.assertIn("bash scripts/test-colleen-mail-facilitator.sh", invocation["validation_commands"])
+
+    def test_grok_turn_completed_skips_malformed_event_lines(self) -> None:
+        now = datetime.now(timezone.utc).replace(microsecond=0)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            events_path = Path(tmpdir) / "events.jsonl"
+            events_path.write_text(
+                "{malformed-event\n"
+                + json.dumps({"ts": now.isoformat(), "type": "turn_ended"})
+                + "\n",
+                encoding="utf-8",
+            )
+
+            self.assertTrue(MODULE.grok_turn_completed(events_path))
+
+    def test_scan_skill_invocations_splits_timestamped_recurring_grok_turns(self) -> None:
+        base = datetime(2026, 7, 22, 18, 0, tzinfo=timezone.utc)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            grok_dir = root / "grok"
+            session_dir = grok_dir / "%2Ftmp%2Fdemo" / "grok-session-recurring"
+            chat_path = session_dir / "chat_history.jsonl"
+            recurring_prompt = "Run the hourly facilitator and leave a terminal receipt."
+            entries = [
+                {"type": "user", "content": "Use colleen-mail-loop in operator mode."},
+                {
+                    "type": "assistant",
+                    "content": "Using colleen-mail-loop in operator mode.",
+                    "tool_calls": [
+                        {
+                            "name": "run_terminal_command",
+                            "arguments": {"command": "scripts/colleen-mail-facilitator.sh"},
+                        }
+                    ],
+                },
+                {"type": "assistant", "content": "Terminal receipt one."},
+                {"type": "user", "content": recurring_prompt},
+                {
+                    "type": "assistant",
+                    "content": "Terminal receipt two.",
+                    "tool_calls": [
+                        {
+                            "name": "run_terminal_command",
+                            "arguments": {"command": "scripts/colleen-mail-facilitator.sh"},
+                        }
+                    ],
+                },
+                {"type": "user", "content": recurring_prompt},
+                {
+                    "type": "assistant",
+                    "content": "Terminal receipt three.",
+                    "tool_calls": [
+                        {
+                            "name": "run_terminal_command",
+                            "arguments": {"command": "scripts/colleen-mail-facilitator.sh"},
+                        }
+                    ],
+                },
+            ]
+            self.write_jsonl(chat_path, entries, mtime=base + timedelta(hours=3))
+            (session_dir / "summary.json").write_text(
+                json.dumps({"info": {"id": "grok-session-recurring", "cwd": "/tmp/demo"}}),
+                encoding="utf-8",
+            )
+            event_entries = []
+            for turn_number in range(3):
+                started = base + timedelta(hours=turn_number)
+                event_entries.extend(
+                    [
+                        {
+                            "ts": started.isoformat(),
+                            "type": "turn_started",
+                            "turn_number": turn_number,
+                        },
+                        {
+                            "ts": (started + timedelta(minutes=1)).isoformat(),
+                            "type": "turn_ended",
+                            "outcome": "completed",
+                        },
+                    ]
+                )
+            event_entries.insert(2, {"malformed": "harmless"})
+            self.write_jsonl(session_dir / "events.jsonl", event_entries, mtime=base + timedelta(hours=3))
+
+            original_grok = MODULE.GROK_SESSIONS_DIR
+            MODULE.GROK_SESSIONS_DIR = grok_dir
+            try:
+                report = MODULE.scan_skill_invocations(
+                    skill="colleen-mail-loop",
+                    source="grok",
+                    since=base + timedelta(minutes=30),
+                    until=base + timedelta(hours=3),
+                    limit=10,
+                    validation_patterns=[r"colleen-mail-facilitator\.sh"],
+                )
+            finally:
+                MODULE.GROK_SESSIONS_DIR = original_grok
+
+        self.assertEqual(report["invocations_found"], 2)
+        self.assertEqual(report["summary"]["metrics"]["completion_rate"], 1.0)
+        self.assertEqual(report["summary"]["metrics"]["validation_rate"], 1.0)
+        self.assertEqual(report["summary"]["metrics"]["ack_rate"], 1.0)
+        self.assertEqual(
+            {item["turn_number"] for item in report["invocations"]},
+            {1, 2},
+        )
+        self.assertTrue(
+            all("session_skill_context" in item["matched_on"] for item in report["invocations"])
+        )
+        self.assertEqual(
+            {item["session_id"] for item in report["invocations"]},
+            {"grok-session-recurring:turn:1", "grok-session-recurring:turn:2"},
+        )
+
     def test_scan_skill_invocations_tracks_risk_gating_cues(self) -> None:
         now = datetime.now(timezone.utc).replace(microsecond=0)
 

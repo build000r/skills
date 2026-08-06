@@ -32,7 +32,7 @@ def main() -> None:
     parser.add_argument("--input", help="Existing review JSON path, or - for stdin")
     parser.add_argument(
         "--source",
-        choices=("claude", "codex", "both", "all"),
+        choices=("claude", "codex", "grok", "both", "all"),
         default="both",
         help="Which transcript source(s) to scan",
     )

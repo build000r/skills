@@ -158,6 +158,51 @@ async function fsyncDirectory(path) {
   }
 }
 
+/**
+ * Allow only root-owned intermediate symlinks (macOS /tmp -> /private/tmp).
+ * Leaf must already be a real directory; user-owned redirect still fails closed.
+ */
+async function assertNoHostileSymlinkTraversal(absolutePath, label) {
+  const resolved = await realpath(absolutePath);
+  if (resolved === absolutePath) return;
+
+  // Without uid checks we cannot distinguish system vs hostile intermediates.
+  if (typeof process.getuid !== "function") {
+    fail(`${label} traverses a symlink`);
+  }
+
+  const prefixes = [];
+  let current = absolutePath;
+  while (current !== dirname(current)) {
+    prefixes.unshift(current);
+    current = dirname(current);
+  }
+
+  let sawSystemSymlink = false;
+  for (const prefix of prefixes) {
+    let metadata;
+    try {
+      metadata = await lstat(prefix);
+    } catch (error) {
+      if (error?.code === "ENOENT") continue;
+      throw error;
+    }
+    if (!metadata.isSymbolicLink()) continue;
+    // Leaf symlink is already rejected by the caller; any remaining symlink
+    // component must be root-owned (system path), never a user redirect.
+    if (prefix === absolutePath || metadata.uid !== 0) {
+      fail(`${label} traverses a symlink`);
+    }
+    sawSystemSymlink = true;
+  }
+
+  // realpath differed with no intermediate system symlink: fail closed
+  // (case alias / other non-canonical form).
+  if (!sawSystemSymlink) {
+    fail(`${label} traverses a symlink`);
+  }
+}
+
 async function assertPrivateDirectory(path, label) {
   const metadata = await lstat(path);
   if (!metadata.isDirectory() || metadata.isSymbolicLink()) {
@@ -172,9 +217,7 @@ async function assertPrivateDirectory(path, label) {
   ) {
     fail(`${label} is not owned by the current user`);
   }
-  if ((await realpath(path)) !== path) {
-    fail(`${label} traverses a symlink`);
-  }
+  await assertNoHostileSymlinkTraversal(path, label);
   return metadata;
 }
 

@@ -24,25 +24,73 @@ die() {
   exit "$code"
 }
 
+HOST_PLATFORM=""
+CHROME_BIN="${ORACLE_CHROME_BIN:-}"
 case "$TEST_MODE" in
   0)
-    CHROME_APP="Google Chrome"
-    CURL_BIN="/usr/bin/curl"
-    ID_BIN="/usr/bin/id"
-    LSOF_BIN="/usr/sbin/lsof"
-    NODE_BIN="/opt/homebrew/bin/node"
-    OPEN_BIN="/usr/bin/open"
-    OSASCRIPT_BIN="/usr/bin/osascript"
-    APP_RESOLVER_BIN="$OSASCRIPT_BIN"
-    PROCESS_INSPECTOR_BIN=""
-    PYTHON_BIN="/usr/bin/python3"
-    SLEEP_BIN="/bin/sleep"
-    STAT_BIN="/usr/bin/stat"
     UNAME_BIN="/usr/bin/uname"
-    CODESIGN_BIN="/usr/bin/codesign"
-    SPCTL_BIN="/usr/sbin/spctl"
+    HOST_OS="$("$UNAME_BIN" -s 2>/dev/null || true)"
+    case "$HOST_OS" in
+      Darwin)
+        HOST_PLATFORM="darwin"
+        CHROME_APP="Google Chrome"
+        CURL_BIN="/usr/bin/curl"
+        ID_BIN="/usr/bin/id"
+        LSOF_BIN="/usr/sbin/lsof"
+        NODE_BIN="/opt/homebrew/bin/node"
+        OPEN_BIN="/usr/bin/open"
+        OSASCRIPT_BIN="/usr/bin/osascript"
+        APP_RESOLVER_BIN="$OSASCRIPT_BIN"
+        PROCESS_INSPECTOR_BIN=""
+        PYTHON_BIN="/usr/bin/python3"
+        SLEEP_BIN="/bin/sleep"
+        STAT_BIN="/usr/bin/stat"
+        CODESIGN_BIN="/usr/bin/codesign"
+        SPCTL_BIN="/usr/sbin/spctl"
+        ;;
+      Linux)
+        # skillbox-portfolio-devbox: Xvfb hidden-headful, no Gatekeeper/codesign.
+        HOST_PLATFORM="linux"
+        CHROME_APP="Chrome"
+        CURL_BIN="/usr/bin/curl"
+        ID_BIN="/usr/bin/id"
+        LSOF_BIN="/usr/bin/lsof"
+        if [ -x /usr/bin/node ]; then
+          NODE_BIN="/usr/bin/node"
+        else
+          NODE_BIN="$(command -v node 2>/dev/null || true)"
+        fi
+        OPEN_BIN=""
+        OSASCRIPT_BIN=""
+        APP_RESOLVER_BIN=""
+        PROCESS_INSPECTOR_BIN=""
+        PYTHON_BIN="/usr/bin/python3"
+        SLEEP_BIN="/bin/sleep"
+        STAT_BIN="/usr/bin/stat"
+        CODESIGN_BIN=""
+        SPCTL_BIN=""
+        if [ -z "$CHROME_BIN" ]; then
+          for candidate in \
+            "$HOME/.local/bin/chrome-wrapper.sh" \
+            /usr/bin/google-chrome-stable \
+            /usr/bin/google-chrome \
+            /usr/bin/chromium-browser \
+            /usr/bin/chromium
+          do
+            if [ -n "$candidate" ] && [ -x "$candidate" ]; then
+              CHROME_BIN="$candidate"
+              break
+            fi
+          done
+        fi
+        ;;
+      *)
+        die 2 "unsupported host OS for production launcher: ${HOST_OS:-unknown}"
+        ;;
+    esac
     ;;
   1)
+    HOST_PLATFORM="darwin"
     CHROME_APP="${CHROME_APP:-Google Chrome}"
     CURL_BIN="${ORACLE_CURL_BIN:-curl}"
     ID_BIN="${ORACLE_ID_BIN:-id}"
@@ -69,16 +117,43 @@ case "$ATTESTATION_TEST_MODE" in
     ;;
   *) die 2 "ORACLE_LAUNCHER_TEST_ATTESTATION must be 0 or 1" ;;
 esac
-if [ "$TEST_MODE" -eq 0 ] || [ "$ATTESTATION_TEST_MODE" -eq 1 ]; then
+# Darwin Gatekeeper/codesign attestation is macOS-only. Linux production uses
+# binary-path + /proc identity attestation (same receipt booleans the doctor
+# requires) because there is no Gatekeeper on skillbox-portfolio-devbox.
+if [ "$HOST_PLATFORM" = "linux" ] && [ "$TEST_MODE" -eq 0 ]; then
+  ATTESTATION_ENABLED=0
+  LINUX_ATTESTATION=1
+elif [ "$TEST_MODE" -eq 0 ] || [ "$ATTESTATION_TEST_MODE" -eq 1 ]; then
   ATTESTATION_ENABLED=1
+  LINUX_ATTESTATION=0
 else
   ATTESTATION_ENABLED=0
+  LINUX_ATTESTATION=0
 fi
 if [ "$TEST_MODE" -eq 1 ]; then
   ATTESTATION_SCHEMA="oracle-subagent.browser-attestation-test.v1"
 else
   ATTESTATION_SCHEMA="oracle-subagent.browser-attestation.v1"
 fi
+
+# Portable owner/mode: GNU stat uses -c; BSD/macOS stat uses -f. Prefer the
+# dialect the selected STAT_BIN actually supports so test-mode fakes and Linux
+# production both work.
+stat_owner() {
+  if "$STAT_BIN" -c '%u' "$1" >/dev/null 2>&1; then
+    "$STAT_BIN" -c '%u' "$1"
+  else
+    "$STAT_BIN" -f '%u' "$1"
+  fi
+}
+
+stat_mode_octal() {
+  if "$STAT_BIN" -c '%a' "$1" >/dev/null 2>&1; then
+    "$STAT_BIN" -c '%a' "$1"
+  else
+    "$STAT_BIN" -f '%Lp' "$1"
+  fi
+}
 
 usage() {
   printf '%s\n' \
@@ -167,7 +242,17 @@ case "$PROFILE_ROOT" in
   "~/"*) PROFILE_ROOT="$HOME/${PROFILE_ROOT#\~/}" ;;
 esac
 
-for tool in "$CURL_BIN" "$ID_BIN" "$LSOF_BIN" "$NODE_BIN" "$OPEN_BIN" "$OSASCRIPT_BIN" "$APP_RESOLVER_BIN" "$PYTHON_BIN" "$SLEEP_BIN" "$STAT_BIN" "$UNAME_BIN"; do
+required_tools=("$CURL_BIN" "$ID_BIN" "$LSOF_BIN" "$NODE_BIN" "$PYTHON_BIN" "$SLEEP_BIN" "$STAT_BIN" "$UNAME_BIN")
+if [ "$HOST_PLATFORM" = "darwin" ]; then
+  required_tools+=("$OPEN_BIN" "$OSASCRIPT_BIN" "$APP_RESOLVER_BIN")
+fi
+if [ "$HOST_PLATFORM" = "linux" ]; then
+  [ -n "$CHROME_BIN" ] ||
+    die 2 "Linux Chrome binary not found; set ORACLE_CHROME_BIN to a hidden-headful Chrome executable"
+  [ -x "$CHROME_BIN" ] || die 2 "ORACLE_CHROME_BIN is not executable: $CHROME_BIN"
+fi
+for tool in "${required_tools[@]}"; do
+  [ -n "$tool" ] || die 2 "required command path is empty"
   command -v "$tool" >/dev/null 2>&1 || die 2 "required command not found: $tool"
 done
 if [ "$ATTESTATION_ENABLED" -eq 1 ]; then
@@ -268,9 +353,40 @@ print(app)
 PY
 }
 
-CHROME_APP_PATH="$(resolve_chrome_app_path)" ||
-  die 2 "could not resolve the exact Chrome application"
-EXPECTED_CHROME_EXECUTABLE="$("$PYTHON_BIN" -I - "$CHROME_APP_PATH" <<'PY'
+if [ "$HOST_PLATFORM" = "linux" ]; then
+  CHROME_APP_PATH="$CHROME_BIN"
+  # Shell wrappers (e.g. chrome-wrapper.sh) exec the real ELF; ownership checks
+  # compare /proc/<pid>/exe, so resolve to the binary that will actually run.
+  EXPECTED_CHROME_EXECUTABLE="$("$PYTHON_BIN" -I - "$CHROME_BIN" <<'PY'
+import os
+import re
+from pathlib import Path
+import sys
+
+raw = Path(sys.argv[1]).expanduser().resolve(strict=True)
+if not raw.is_file() or not os.access(raw, os.X_OK):
+    raise SystemExit("Chrome binary is missing or not executable")
+text = raw.read_text(encoding="utf-8", errors="replace")
+if text.startswith("#!"):
+    match = re.search(
+        r"(?m)(?:exec\s+)?(/[^\s'\"]+/chrome(?:-linux64)?/chrome)\b",
+        text,
+    )
+    if match:
+        candidate = Path(match.group(1)).expanduser().resolve(strict=True)
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            print(candidate)
+            raise SystemExit(0)
+print(raw)
+PY
+)" || die 2 "could not resolve the exact Linux Chrome executable"
+  # Launch through the wrapper when provided so LD_LIBRARY_PATH / --no-sandbox
+  # and other host-local shims stay intact.
+  LINUX_CHROME_LAUNCHER="$CHROME_BIN"
+else
+  CHROME_APP_PATH="$(resolve_chrome_app_path)" ||
+    die 2 "could not resolve the exact Chrome application"
+  EXPECTED_CHROME_EXECUTABLE="$("$PYTHON_BIN" -I - "$CHROME_APP_PATH" <<'PY'
 import os
 from pathlib import Path
 import sys
@@ -282,7 +398,8 @@ if not executable.is_file() or not os.access(executable, os.X_OK):
 print(executable)
 PY
 )" ||
-  die 2 "could not resolve the exact Chrome executable"
+    die 2 "could not resolve the exact Chrome executable"
+fi
 
 EXPECTED_CHROME_CDHASH=""
 if [ "$ATTESTATION_ENABLED" -eq 1 ]; then
@@ -362,8 +479,8 @@ secure_directory() {
   local path="$1"
   local label="$2"
   local owner mode permission
-  owner="$("$STAT_BIN" -f '%u' "$path" 2>/dev/null)" || die 2 "cannot inspect $label owner: $path"
-  mode="$("$STAT_BIN" -f '%Lp' "$path" 2>/dev/null)" || die 2 "cannot inspect $label permissions: $path"
+  owner="$(stat_owner "$path" 2>/dev/null)" || die 2 "cannot inspect $label owner: $path"
+  mode="$(stat_mode_octal "$path" 2>/dev/null)" || die 2 "cannot inspect $label permissions: $path"
   [ "$owner" = "$("$ID_BIN" -u)" ] || die 2 "$label must be owned by the current user: $path"
   case "$mode" in
     ''|*[!0-7]*) die 2 "unexpected $label permission mode: $mode" ;;
@@ -384,9 +501,9 @@ if [ ! -e "$RUNTIME_ROOT" ]; then
     die 2 "runtime directory must have an existing parent"
   [ -d "$runtime_parent" ] || die 2 "runtime parent not found: $runtime_parent"
   [ ! -L "$runtime_parent" ] || die 2 "runtime parent must not be a symlink: $runtime_parent"
-  parent_owner="$("$STAT_BIN" -f '%u' "$runtime_parent" 2>/dev/null)" ||
+  parent_owner="$(stat_owner "$runtime_parent" 2>/dev/null)" ||
     die 2 "cannot inspect runtime parent owner"
-  parent_mode="$("$STAT_BIN" -f '%Lp' "$runtime_parent" 2>/dev/null)" ||
+  parent_mode="$(stat_mode_octal "$runtime_parent" 2>/dev/null)" ||
     die 2 "cannot inspect runtime parent permissions"
   [ "$parent_owner" = "$("$ID_BIN" -u)" ] ||
     die 2 "runtime parent must be owned by the current user"
@@ -425,6 +542,9 @@ release_lock() {
 
 rehide_browser_best_effort() {
   local exact_pid="$1"
+  if [ "$HOST_PLATFORM" = "linux" ]; then
+    return 0
+  fi
   "$OSASCRIPT_BIN" - "$exact_pid" >/dev/null 2>&1 <<'APPLESCRIPT' || true
 on run argv
   set chromePid to (item 1 of argv) as integer
@@ -698,6 +818,39 @@ inspect_process() {
     "$PROCESS_INSPECTOR_BIN" "$pid"
     return
   fi
+  if [ "$HOST_PLATFORM" = "linux" ]; then
+    "$PYTHON_BIN" -I - "$pid" <<'PY'
+import json
+import os
+import shlex
+import sys
+
+pid = int(sys.argv[1])
+exe_link = f"/proc/{pid}/exe"
+cmdline_path = f"/proc/{pid}/cmdline"
+try:
+    executable = os.path.realpath(exe_link)
+except OSError as exc:
+    raise SystemExit(f"cannot resolve /proc/{pid}/exe: {exc}") from exc
+try:
+    with open(cmdline_path, "rb") as handle:
+        raw = handle.read()
+except OSError as exc:
+    raise SystemExit(f"cannot read /proc/{pid}/cmdline: {exc}") from exc
+parts = [os.fsdecode(part) for part in raw.split(b"\0") if part]
+if not parts:
+    raise SystemExit("process argv is empty")
+# Chrome for Testing on Linux often collapses cmdline to one space-joined
+# string. Re-split so ownership checks see individual flags.
+if len(parts) == 1 and " --" in parts[0]:
+    try:
+        parts = shlex.split(parts[0])
+    except ValueError:
+        pass
+print(json.dumps({"executable": executable, "argv": parts}, separators=(",", ":")))
+PY
+    return
+  fi
   "$PYTHON_BIN" -I - "$pid" <<'PY'
 import ctypes
 import ctypes.util
@@ -777,6 +930,7 @@ verify_owned_listener() {
     "$EXPECTED_CHROME_EXECUTABLE" "$PORT" "$PROFILE_ROOT" "$PROFILE_DIR" <<'PY' ||
 import json
 import os
+import shlex
 import sys
 
 process_json, expected_executable, port, profile_root, profile_directory = sys.argv[1:]
@@ -787,8 +941,15 @@ if not isinstance(executable, str) or not executable.startswith("/"):
     raise SystemExit("process executable is not an absolute path")
 if not isinstance(argv, list) or not all(isinstance(value, str) for value in argv):
     raise SystemExit("process argv is invalid")
-if os.path.realpath(executable) != expected_executable:
+if os.path.realpath(executable) != os.path.realpath(expected_executable):
     raise SystemExit("listener executable is not the requested Chrome app")
+# Some Linux Chrome builds collapse /proc/<pid>/cmdline into a single
+# space-joined string. Re-split so flag checks stay exact.
+if len(argv) == 1 and " --" in argv[0]:
+    try:
+        argv = shlex.split(argv[0])
+    except ValueError as exc:
+        raise SystemExit(f"process argv could not be re-split: {exc}") from exc
 required = {
     "--remote-debugging-address": "127.0.0.1",
     "--remote-debugging-port": port,
@@ -877,9 +1038,9 @@ attestation_cache_matches() {
     die 5 "browser attestation cache must not be a symlink"
   [ -f "$ATTESTATION_PATH" ] ||
     die 5 "browser attestation cache is not a regular file"
-  owner="$("$STAT_BIN" -f '%u' "$ATTESTATION_PATH" 2>/dev/null)" ||
+  owner="$(stat_owner "$ATTESTATION_PATH" 2>/dev/null)" ||
     die 5 "cannot inspect browser attestation cache owner"
-  mode="$("$STAT_BIN" -f '%Lp' "$ATTESTATION_PATH" 2>/dev/null)" ||
+  mode="$(stat_mode_octal "$ATTESTATION_PATH" 2>/dev/null)" ||
     die 5 "cannot inspect browser attestation cache permissions"
   [ "$owner" = "$("$ID_BIN" -u)" ] ||
     die 5 "browser attestation cache is not owned by the current user"
@@ -958,10 +1119,75 @@ except BaseException:
 PY
 }
 
+ensure_linux_binary_attestation() {
+  local pid="$1"
+  local linux_cdhash process_json
+  # Linux has no Gatekeeper. Prove the loopback listener is the expected Chrome
+  # binary via /proc, then stamp the same receipt booleans the doctor requires.
+  process_json="$(inspect_process "$pid" 2>/dev/null)" ||
+    die 5 "cannot inspect Linux Chrome process $pid for attestation"
+  "$PYTHON_BIN" -I - "$process_json" "$EXPECTED_CHROME_EXECUTABLE" "$PORT" \
+    "$PROFILE_ROOT" "$PROFILE_DIR" <<'PY' ||
+import json
+import os
+import shlex
+import sys
+
+process_json, expected_executable, port, profile_root, profile_directory = sys.argv[1:]
+process = json.loads(process_json)
+executable = process.get("executable")
+argv = process.get("argv")
+if not isinstance(executable, str) or not executable.startswith("/"):
+    raise SystemExit("process executable is not an absolute path")
+if os.path.realpath(executable) != os.path.realpath(expected_executable):
+    raise SystemExit("listener executable is not the requested Chrome binary")
+if not isinstance(argv, list) or not all(isinstance(value, str) for value in argv):
+    raise SystemExit("process argv is invalid")
+if len(argv) == 1 and " --" in argv[0]:
+    try:
+        argv = shlex.split(argv[0])
+    except ValueError as exc:
+        raise SystemExit(f"process argv could not be re-split: {exc}") from exc
+required = {
+    "--remote-debugging-address": "127.0.0.1",
+    "--remote-debugging-port": port,
+    "--user-data-dir": profile_root,
+    "--profile-directory": profile_directory,
+}
+for option, expected_value in required.items():
+    matches = [value for value in argv if value.startswith(option + "=")]
+    if matches != [f"{option}={expected_value}"]:
+        raise SystemExit(f"listener has invalid or duplicate {option}")
+PY
+  {
+    die 5 "Linux Chrome process failed binary attestation"
+  }
+  linux_cdhash="$("$PYTHON_BIN" -I - "$EXPECTED_CHROME_EXECUTABLE" <<'PY'
+import hashlib
+import sys
+
+path = sys.argv[1]
+digest = hashlib.sha256()
+with open(path, "rb") as handle:
+    for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+        digest.update(chunk)
+print(digest.hexdigest()[:40])
+PY
+)" || die 5 "could not hash Linux Chrome binary for attestation"
+  write_attestation_cache "$pid" "$linux_cdhash" ||
+    die 5 "could not persist the Linux browser attestation"
+  GATEKEEPER_ASSESSED=1
+  DYNAMIC_CODE_VERIFIED=1
+}
+
 ensure_production_attestation() {
   local pid="$1"
   local gatekeeper_already_assessed="$2"
   local dynamic_cdhash
+  if [ "${LINUX_ATTESTATION:-0}" -eq 1 ]; then
+    ensure_linux_binary_attestation "$pid"
+    return
+  fi
   dynamic_cdhash="$(verify_dynamic_chrome_identity "$pid")" ||
     die 5 "running Chrome process identity could not be proven"
   if [ "$gatekeeper_already_assessed" -eq 0 ] &&
@@ -980,6 +1206,20 @@ ensure_production_attestation() {
 hide_browser() {
   local pid="$1"
   local observed process_visible process_frontmost windows_offscreen window_count
+  if [ "$HOST_PLATFORM" = "linux" ]; then
+    # Xvfb has no operator-visible display. Contract: process alive, DISPLAY set
+    # to a virtual server, windows requested off-screen at launch.
+    [ -d "/proc/$pid" ] || die 3 "dedicated Chrome process $pid is not running"
+    case "${DISPLAY:-}" in
+      :[0-9]|:[0-9][0-9]|:[0-9][0-9][0-9]) ;;
+      *)
+        die 3 "Linux hidden-headful requires DISPLAY to an Xvfb server (got '${DISPLAY:-empty}')"
+        ;;
+    esac
+    WINDOW_COUNT=0
+    WINDOWS_OFFSCREEN=true
+    return 0
+  fi
   observed="$("$OSASCRIPT_BIN" - "$pid" 2>/dev/null <<'APPLESCRIPT'
 on run argv
   set chromePid to (item 1 of argv) as integer
@@ -1025,22 +1265,45 @@ if cdp_ready; then
 elif [ -n "$(listener_pids)" ]; then
   die 5 "port $PORT is occupied by a non-responsive or foreign listener"
 else
-  [ "$("$UNAME_BIN" -s)" = "Darwin" ] || die 3 "hidden-headful supervisor currently requires macOS"
-  if [ "$ATTESTATION_ENABLED" -eq 1 ]; then
-    assess_chrome_bundle
-    gatekeeper_assessed_now=1
+  if [ "$HOST_PLATFORM" = "linux" ]; then
+    case "${DISPLAY:-}" in
+      :[0-9]|:[0-9][0-9]|:[0-9][0-9][0-9]) ;;
+      *)
+        die 3 "Linux hidden-headful launch requires DISPLAY (start oracle-xvfb-host / Xvfb first)"
+        ;;
+    esac
+    # True headless is Cloudflare-blocked. Hidden-headful under Xvfb only.
+    nohup "$LINUX_CHROME_LAUNCHER" \
+      --remote-debugging-address=127.0.0.1 \
+      --remote-debugging-port="$PORT" \
+      --user-data-dir="$PROFILE_ROOT" \
+      --profile-directory="$PROFILE_DIR" \
+      --no-first-run \
+      --no-default-browser-check \
+      --disable-background-mode \
+      --disable-dev-shm-usage \
+      --window-position=-32000,-32000 \
+      --window-size=1280,900 \
+      about:blank >/dev/null 2>&1 &
+  elif [ "$HOST_PLATFORM" = "darwin" ]; then
+    if [ "$ATTESTATION_ENABLED" -eq 1 ]; then
+      assess_chrome_bundle
+      gatekeeper_assessed_now=1
+    fi
+    "$OPEN_BIN" -n -g -a "$CHROME_APP_PATH" --args \
+      --remote-debugging-address=127.0.0.1 \
+      --remote-debugging-port="$PORT" \
+      --user-data-dir="$PROFILE_ROOT" \
+      --profile-directory="$PROFILE_DIR" \
+      --no-first-run \
+      --no-default-browser-check \
+      --disable-background-mode \
+      --window-position=-32000,-32000 \
+      --window-size=1280,900 \
+      about:blank >/dev/null
+  else
+    die 3 "hidden-headful supervisor unsupported on this host platform"
   fi
-  "$OPEN_BIN" -n -g -a "$CHROME_APP_PATH" --args \
-    --remote-debugging-address=127.0.0.1 \
-    --remote-debugging-port="$PORT" \
-    --user-data-dir="$PROFILE_ROOT" \
-    --profile-directory="$PROFILE_DIR" \
-    --no-first-run \
-    --no-default-browser-check \
-    --disable-background-mode \
-    --window-position=-32000,-32000 \
-    --window-size=1280,900 \
-    about:blank >/dev/null
 
   waited=0
   until cdp_ready; do
@@ -1055,7 +1318,7 @@ else
 fi
 
 verify_current_listener "$pid"
-if [ "$ATTESTATION_ENABLED" -eq 1 ]; then
+if [ "$ATTESTATION_ENABLED" -eq 1 ] || [ "${LINUX_ATTESTATION:-0}" -eq 1 ]; then
   ensure_production_attestation "$pid" "$gatekeeper_assessed_now"
 fi
 hide_browser "$pid"

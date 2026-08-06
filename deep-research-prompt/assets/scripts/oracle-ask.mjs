@@ -34,6 +34,7 @@
  *   ORACLE_ASK_BIN_DIR            install destination (default ~/.local/bin)
  */
 
+import { spawnSync } from "node:child_process";
 import { realpathSync } from "node:fs";
 import { mkdir, readFile, symlink, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -72,6 +73,7 @@ export const DEFAULT_MODEL_ALIAS = "pro";
 
 /** Slugs whose behaviour on this lane has never been exercised live. */
 export const UNPROVEN_SLUGS = Object.freeze(["research"]);
+const AUTH_REPORT_SCHEMA = "oracle-subagent.auth-report.v1";
 
 export function resolveModel(value) {
   const raw = (value ?? "").trim();
@@ -303,6 +305,15 @@ export function diagnose(code, { env = process.env, launchHint = LAUNCH_HINT } =
           "The turn may still be running in the conversation. Re-run with a longer\n" +
           "deadline, e.g. --timeout 3600, or read the conversation directly.\n",
       };
+    case "auth_doctor_blocked":
+      return {
+        exit: EXIT.notReady,
+        summary: "the dedicated ChatGPT browser failed the hardened auth doctor",
+        action:
+          "Run the explicit login flow, then re-run --doctor:\n" +
+          "    node oracle-subagent-auth.mjs login --json\n" +
+          "For first enrollment only, add --enroll-current-account.\n",
+      };
     case "stream_error":
     case "conversation_post_failed":
     case "conversation_read_failed":
@@ -350,6 +361,59 @@ export async function checkReady({ port = DEFAULT_PORT, connect = connectCdp, ha
   } finally {
     cdp?.close?.();
   }
+}
+
+export function runAuthDoctor({
+  spawn = spawnSync,
+  scriptPath = join(
+    dirname(fileURLToPath(import.meta.url)),
+    "oracle-subagent-auth.mjs",
+  ),
+} = {}) {
+  const result = spawn(process.execPath, [scriptPath, "doctor", "--json"], {
+    encoding: "utf8",
+    env: process.env,
+  });
+  let report;
+  try {
+    report = JSON.parse(result.stdout);
+  } catch {
+    report = null;
+  }
+  const reasonsValid =
+    Array.isArray(report?.reasons) &&
+    report.reasons.every(
+      (reason) => typeof reason === "string" && /^[a-z][a-z0-9_]*$/.test(reason),
+    );
+  const checksValid =
+    report?.checks !== null &&
+    typeof report?.checks === "object" &&
+    !Array.isArray(report.checks) &&
+    Object.entries(report.checks).every(
+      ([name, value]) =>
+        /^[a-z][a-z0-9_]*$/.test(name) && typeof value === "boolean",
+    );
+  const valid =
+    report?.schema === AUTH_REPORT_SCHEMA &&
+    report?.command === "doctor" &&
+    typeof report?.ok === "boolean" &&
+    new Set(["ready", "blocked"]).has(report?.state) &&
+    reasonsValid &&
+    checksValid &&
+    ((report.ok && result.status === 0 && report.reasons.length === 0) ||
+      (!report.ok && result.status === 1 && report.reasons.length > 0));
+  if (!valid) {
+    return {
+      ok: false,
+      reasons: ["auth_doctor_invalid"],
+      checks: {},
+    };
+  }
+  return {
+    ok: report.ok,
+    reasons: [...report.reasons],
+    checks: { ...report.checks },
+  };
 }
 
 /* ------------------------------------------------------------------ *
@@ -445,16 +509,22 @@ async function main(argv) {
   }
 
   if (args.doctor) {
-    const status = await checkReady({ port: args.port });
-    if (!status.ready) {
-      process.stdout.write(JSON.stringify({ ready: false, code: status.code, detail: status.detail }, null, 2) + "\n");
-      return reportFailure(status.code, status.detail);
-    }
+    const report = runAuthDoctor();
     process.stdout.write(
-      JSON.stringify({ ready: true, plan_type: status.planType, port: status.port, target: status.target }, null, 2) +
+      JSON.stringify(
+        {
+          ready: report.ok,
+          reasons: report.reasons,
+          checks: report.checks,
+        },
+        null,
+        2,
+      ) +
         "\n",
     );
-    return EXIT.ok;
+    return report.ok
+      ? EXIT.ok
+      : reportFailure("auth_doctor_blocked");
   }
 
   if (args.models) {

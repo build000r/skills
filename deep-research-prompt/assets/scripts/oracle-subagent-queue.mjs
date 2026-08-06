@@ -186,6 +186,40 @@ function validatePrivateFileMetadata(metadata, code) {
   }
 }
 
+/**
+ * Allow only root-owned intermediate symlinks (macOS /tmp -> /private/tmp).
+ * Leaf symlink and user-owned intermediate redirects still fail closed.
+ */
+async function assertNoHostileSymlinkTraversal(absolutePath, code) {
+  const resolved = await realpath(absolutePath);
+  if (resolved === absolutePath) return;
+
+  if (typeof process.getuid !== "function") reject(code);
+
+  const prefixes = [];
+  let current = absolutePath;
+  while (current !== dirname(current)) {
+    prefixes.unshift(current);
+    current = dirname(current);
+  }
+
+  let sawSystemSymlink = false;
+  for (const prefix of prefixes) {
+    let metadata;
+    try {
+      metadata = await lstat(prefix);
+    } catch (error) {
+      if (error?.code === "ENOENT") continue;
+      throw error;
+    }
+    if (!metadata.isSymbolicLink()) continue;
+    if (prefix === absolutePath || metadata.uid !== 0) reject(code);
+    sawSystemSymlink = true;
+  }
+
+  if (!sawSystemSymlink) reject(code);
+}
+
 async function privateDirectoryIdentity(path, code) {
   try {
     const [metadata, precise] = await Promise.all([
@@ -193,7 +227,7 @@ async function privateDirectoryIdentity(path, code) {
       lstat(path, { bigint: true }),
     ]);
     validatePrivateDirectoryMetadata(metadata, code);
-    if ((await realpath(path)) !== path) reject(code);
+    await assertNoHostileSymlinkTraversal(path, code);
     return Object.freeze({
       dev: precise.dev.toString(),
       ino: precise.ino.toString(),
@@ -211,7 +245,7 @@ async function privateFileIdentity(path, code, { ctime = false } = {}) {
       lstat(path, { bigint: true }),
     ]);
     validatePrivateFileMetadata(metadata, code);
-    if ((await realpath(path)) !== path) reject(code);
+    await assertNoHostileSymlinkTraversal(path, code);
     return Object.freeze({
       dev: precise.dev.toString(),
       ino: precise.ino.toString(),
@@ -283,7 +317,7 @@ async function openedNamedIdentity(path, handle, code, { ctime = false } = {}) {
     ]);
     validatePrivateFileMetadata(opened, code);
     validatePrivateFileMetadata(named, code);
-    if ((await realpath(path)) !== path) reject(code);
+    await assertNoHostileSymlinkTraversal(path, code);
     const openedIdentity = {
       dev: openedPrecise.dev.toString(),
       ino: openedPrecise.ino.toString(),

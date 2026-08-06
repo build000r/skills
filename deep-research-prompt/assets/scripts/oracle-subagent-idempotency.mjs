@@ -229,12 +229,46 @@ function validatePrivateMetadata(
   return metadata;
 }
 
+/**
+ * Allow only root-owned intermediate symlinks (macOS /tmp -> /private/tmp).
+ * Leaf symlink and user-owned intermediate redirects still fail closed.
+ */
+async function assertNoHostileSymlinkTraversal(absolutePath, code) {
+  const resolved = await realpath(absolutePath);
+  if (resolved === absolutePath) return;
+
+  if (typeof process.getuid !== "function") reject(code);
+
+  const prefixes = [];
+  let current = absolutePath;
+  while (current !== dirname(current)) {
+    prefixes.unshift(current);
+    current = dirname(current);
+  }
+
+  let sawSystemSymlink = false;
+  for (const prefix of prefixes) {
+    let metadata;
+    try {
+      metadata = await lstat(prefix);
+    } catch (error) {
+      if (error?.code === "ENOENT") continue;
+      throw error;
+    }
+    if (!metadata.isSymbolicLink()) continue;
+    if (prefix === absolutePath || metadata.uid !== 0) reject(code);
+    sawSystemSymlink = true;
+  }
+
+  if (!sawSystemSymlink) reject(code);
+}
+
 async function privateDirectory(path, code) {
   try {
     const metadata = validatePrivateMetadata(await lstat(path), code, {
       directory: true,
     });
-    if ((await realpath(path)) !== path) reject(code);
+    await assertNoHostileSymlinkTraversal(path, code);
     return metadata;
   } catch (error) {
     if (error instanceof OracleSubagentIdempotencyError) throw error;
@@ -265,13 +299,10 @@ async function assertOpenedNamedIdentity(path, handle, code) {
     const named = validatePrivateMetadata(await lstat(path), code, {
       singleLink: true,
     });
-    if (
-      opened.dev !== named.dev ||
-      opened.ino !== named.ino ||
-      (await realpath(path)) !== path
-    ) {
+    if (opened.dev !== named.dev || opened.ino !== named.ino) {
       reject(code);
     }
+    await assertNoHostileSymlinkTraversal(path, code);
   } catch (error) {
     if (error instanceof OracleSubagentIdempotencyError) throw error;
     reject(code);
@@ -1115,9 +1146,10 @@ async function ensureEmptyPrivateFile(path, code) {
     const metadata = validatePrivateMetadata(await lstat(path), code, {
       singleLink: true,
     });
-    if (metadata.size !== 0 || (await realpath(path)) !== path) {
+    if (metadata.size !== 0) {
       reject(code);
     }
+    await assertNoHostileSymlinkTraversal(path, code);
     await fsyncDirectory(dirname(path));
     return created;
   } catch (error) {
@@ -1602,7 +1634,7 @@ async function namedPrivateFileIdentity(path, code) {
       lstat(path, { bigint: true }),
     ]);
     validatePrivateMetadata(metadata, code, { singleLink: true });
-    if ((await realpath(path)) !== path) reject(code);
+    await assertNoHostileSymlinkTraversal(path, code);
     return Object.freeze({
       dev: precise.dev.toString(),
       ino: precise.ino.toString(),

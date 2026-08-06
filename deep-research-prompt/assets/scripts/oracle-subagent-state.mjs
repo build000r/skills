@@ -1086,10 +1086,50 @@ export function validateReceipt(rawReceipt) {
   return structuredClone(receipt);
 }
 
-async function assertCanonicalExistingPath(path, label) {
-  if ((await realpath(path)) !== path) {
+/**
+ * Allow only root-owned intermediate symlinks (macOS /tmp -> /private/tmp).
+ * Leaf/user-owned redirects and unresolved case-hostile aliases still fail.
+ */
+async function assertNoHostileSymlinkTraversal(absolutePath, label) {
+  const resolved = await realpath(absolutePath);
+  if (resolved === absolutePath) return;
+
+  if (typeof process.getuid !== "function") {
     fail(`${label} traverses a symlink or case alias`);
   }
+
+  const prefixes = [];
+  let current = absolutePath;
+  while (current !== dirname(current)) {
+    prefixes.unshift(current);
+    current = dirname(current);
+  }
+
+  let sawSystemSymlink = false;
+  for (const prefix of prefixes) {
+    let metadata;
+    try {
+      metadata = await lstat(prefix);
+    } catch (error) {
+      if (error?.code === "ENOENT") continue;
+      throw error;
+    }
+    if (!metadata.isSymbolicLink()) continue;
+    if (prefix === absolutePath || metadata.uid !== 0) {
+      fail(`${label} traverses a symlink or case alias`);
+    }
+    sawSystemSymlink = true;
+  }
+
+  // realpath differed with no intermediate system symlink: case alias / other
+  // non-canonical form. Keep fail-closed except the macOS /tmp allowance.
+  if (!sawSystemSymlink) {
+    fail(`${label} traverses a symlink or case alias`);
+  }
+}
+
+async function assertCanonicalExistingPath(path, label) {
+  await assertNoHostileSymlinkTraversal(path, label);
 }
 
 function validatePrivateRegularMetadata(

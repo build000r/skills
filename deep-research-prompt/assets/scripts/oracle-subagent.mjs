@@ -71,11 +71,13 @@ const AUTH_POLICY_PATH = join(
   "auth-policy.json",
 );
 const DEFAULT_TIMEOUT_SECONDS = 7_200;
-// A fresh launcher invocation mints a new blank target. The auth doctor cannot
-// classify account, plan, or composer until that tab hydrates, so its first
-// observation is not evidence of a blocked session.
-const BROWSER_SETTLE_DEADLINE_MS = 15_000;
-const BROWSER_SETTLE_POLL_MS = 500;
+// A fresh launcher invocation mints a brand-new blank target. The auth doctor
+// cannot classify account, plan, or composer until that tab hydrates, so its
+// first observation is not evidence of a blocked session. launchVerifiedBrowser
+// polls the doctor to readiness on this bounded deadline (not a fixed sleep).
+// Measured settle window on 2026-07-28 baseline: t+0s blocked, t+1s ok.
+export const BROWSER_SETTLE_DEADLINE_MS = 15_000;
+export const BROWSER_SETTLE_POLL_MS = 500;
 const MAX_TIMEOUT_SECONDS = 24 * 60 * 60;
 const WORKER_DEADLINE_SECONDS = 12 * 60 * 60;
 const QUEUE_LEASE_SECONDS = 24 * 60 * 60;
@@ -110,6 +112,10 @@ const RESUME_DIRECTIVES = new Set([
 ]);
 const SENSITIVE_PATTERN =
   /(?:authorization|bearer|cookie|password|prompt|secret|session[_-]?token|token|https?:\/\/)/i;
+const CREDENTIAL_SHAPE_PATTERN =
+  /(?:sk-(?:proj-)?[A-Za-z0-9_-]{12,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|xox[baprs]-[A-Za-z0-9-]{12,}|xapp-[A-Za-z0-9-]{12,}|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,})/i;
+const MAX_CHILD_STDERR_BYTES = 64 * 1024;
+const MAX_CHILD_STDERR_TAIL = 512;
 const MEDIA_TYPES = Object.freeze({
   ".csv": "text/csv",
   ".gif": "image/gif",
@@ -160,15 +166,52 @@ Machine JSON is one quiet line on stdout.
 --timeout-seconds bounds this caller's wait, not detached execution.`;
 
 export class OracleSubagentCliError extends Error {
-  constructor(code) {
+  constructor(code, diagnostics = null) {
     super("oracle-subagent cli: rejected");
     this.name = "OracleSubagentCliError";
     this.code = code;
+    if (diagnostics && typeof diagnostics === "object") {
+      if (
+        typeof diagnostics.cause_code === "string" &&
+        SAFE_CODE_PATTERN.test(diagnostics.cause_code) &&
+        !SENSITIVE_PATTERN.test(diagnostics.cause_code)
+      ) {
+        this.cause_code = diagnostics.cause_code;
+      }
+      if (
+        Number.isSafeInteger(diagnostics.exit_code) &&
+        diagnostics.exit_code >= 0 &&
+        diagnostics.exit_code <= 255
+      ) {
+        this.exit_code = diagnostics.exit_code;
+      }
+      if (
+        Number.isSafeInteger(diagnostics.stderr_bytes) &&
+        diagnostics.stderr_bytes >= 0
+      ) {
+        this.stderr_bytes = diagnostics.stderr_bytes;
+      }
+      if (
+        typeof diagnostics.stderr_digest === "string" &&
+        SHA256_PATTERN.test(diagnostics.stderr_digest)
+      ) {
+        this.stderr_digest = diagnostics.stderr_digest;
+      }
+      if (
+        typeof diagnostics.stderr_tail === "string" &&
+        diagnostics.stderr_tail.length > 0 &&
+        diagnostics.stderr_tail.length <= MAX_CHILD_STDERR_TAIL &&
+        !SENSITIVE_PATTERN.test(diagnostics.stderr_tail) &&
+        !CREDENTIAL_SHAPE_PATTERN.test(diagnostics.stderr_tail)
+      ) {
+        this.stderr_tail = diagnostics.stderr_tail;
+      }
+    }
   }
 }
 
-function reject(code) {
-  throw new OracleSubagentCliError(code);
+function reject(code, diagnostics = null) {
+  throw new OracleSubagentCliError(code, diagnostics);
 }
 
 function isPlainObject(value) {
@@ -861,34 +904,154 @@ async function readWorkerControl(pathname) {
   }
 }
 
-async function childJson(command, arguments_) {
+function childStderrDiagnostics(stderrText) {
+  const bytes = Buffer.byteLength(stderrText, "utf8");
+  const diagnostics = {
+    stderr_bytes: bytes,
+  };
+  if (bytes > 0) {
+    diagnostics.stderr_digest = createHash("sha256")
+      .update(stderrText, "utf8")
+      .digest("hex");
+    const collapsed = stderrText.replace(/\s+/g, " ").trim();
+    const tail = collapsed.slice(-MAX_CHILD_STDERR_TAIL);
+    if (
+      tail.length > 0 &&
+      !SENSITIVE_PATTERN.test(tail) &&
+      !CREDENTIAL_SHAPE_PATTERN.test(tail)
+    ) {
+      diagnostics.stderr_tail = tail;
+    }
+  }
+  return diagnostics;
+}
+
+function rejectChild(code, { exitCode = null, stderrText = "" } = {}) {
+  const diagnostics = childStderrDiagnostics(stderrText);
+  if (exitCode !== null) diagnostics.exit_code = exitCode;
+  return new OracleSubagentCliError(code, diagnostics);
+}
+
+async function childJson(command, arguments_, options = {}) {
+  const allowNonZero = options.allowNonZero === true;
   return new Promise((resolvePromise, rejectPromise) => {
     const child = spawn(command, arguments_, {
       env: process.env,
       stdio: ["ignore", "pipe", "pipe"],
     });
     let stdout = "";
+    let stderrText = "";
     let stderrBytes = 0;
+    let stderrOverflow = false;
     child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
     child.stdout.on("data", (chunk) => {
       if (stdout.length < 1024 * 1024) stdout += chunk;
     });
     child.stderr.on("data", (chunk) => {
-      stderrBytes += chunk.length;
+      stderrBytes += Buffer.byteLength(chunk, "utf8");
+      if (stderrBytes > MAX_CHILD_STDERR_BYTES) {
+        stderrOverflow = true;
+        return;
+      }
+      if (stderrText.length < MAX_CHILD_STDERR_BYTES) {
+        stderrText += chunk;
+      }
     });
-    child.once("error", () => rejectPromise(new Error("child_failed")));
+    child.once("error", () => {
+      rejectPromise(
+        rejectChild("child_spawn_failed", { stderrText }),
+      );
+    });
     child.once("exit", (code) => {
-      if (code !== 0 || stderrBytes > 64 * 1024) {
-        rejectPromise(new Error("child_failed"));
+      if (stderrOverflow || stderrBytes > MAX_CHILD_STDERR_BYTES) {
+        rejectPromise(
+          rejectChild("child_stderr_overflow", {
+            exitCode: code ?? 1,
+            stderrText: stderrText.slice(0, MAX_CHILD_STDERR_TAIL),
+          }),
+        );
+        return;
+      }
+      // Auth doctor exits 1 when blocked (ok:false). During the hydration settle
+      // window that structured report must be kept so the poll can retry instead
+      // of treating every non-ready observation as a process failure.
+      if (code !== 0 && !allowNonZero) {
+        rejectPromise(
+          rejectChild("child_failed", {
+            exitCode: code ?? 1,
+            stderrText,
+          }),
+        );
         return;
       }
       try {
         resolvePromise(JSON.parse(stdout));
       } catch {
-        rejectPromise(new Error("child_invalid"));
+        rejectPromise(
+          rejectChild("child_invalid", {
+            exitCode: code ?? 0,
+            stderrText,
+          }),
+        );
       }
     });
   });
+}
+
+export function isAuthDoctorReady(report) {
+  return report?.ok === true && report.state === "ready";
+}
+
+/**
+ * Bounded readiness poll between launcher and auth doctor.
+ * Replaces fixed-sleep settle: keeps retrying until doctor reports ready or
+ * the deadline elapses. First blocked observations (composer_missing,
+ * wrong_account while the tab is still hydrating) are not terminal.
+ *
+ * @returns {{ authReport: object|null, attempts: number, ready: boolean }}
+ */
+export async function waitForBrowserAuthReady(injected = {}) {
+  const dependencies = {
+    runDoctor: null,
+    sleep: (milliseconds) =>
+      new Promise((resolvePromise) =>
+        setTimeout(resolvePromise, milliseconds),
+      ),
+    nowMs: () => Date.now(),
+    deadlineMs: BROWSER_SETTLE_DEADLINE_MS,
+    pollMs: BROWSER_SETTLE_POLL_MS,
+    ...injected,
+  };
+  if (typeof dependencies.runDoctor !== "function") {
+    reject("browser_preflight_failed");
+  }
+  if (
+    !Number.isSafeInteger(dependencies.deadlineMs) ||
+    dependencies.deadlineMs < 1 ||
+    !Number.isSafeInteger(dependencies.pollMs) ||
+    dependencies.pollMs < 1
+  ) {
+    reject("browser_preflight_failed");
+  }
+  const deadline = dependencies.nowMs() + dependencies.deadlineMs;
+  let authReport = null;
+  let attempts = 0;
+  for (;;) {
+    attempts += 1;
+    try {
+      authReport = await dependencies.runDoctor();
+    } catch {
+      authReport = null;
+    }
+    if (isAuthDoctorReady(authReport)) {
+      return Object.freeze({ authReport, attempts, ready: true });
+    }
+    if (dependencies.nowMs() >= deadline) {
+      return Object.freeze({ authReport, attempts, ready: false });
+    }
+    await dependencies.sleep(dependencies.pollMs);
+  }
 }
 
 function browserPoolPath(artifactRoot) {
@@ -1192,7 +1355,7 @@ function validateBrowserPreflight(
   return browser;
 }
 
-async function launchVerifiedBrowser() {
+async function launchVerifiedBrowser(injected = {}) {
   const launcher = join(
     SKILL_ROOT,
     "assets",
@@ -1205,38 +1368,43 @@ async function launchVerifiedBrowser() {
     "scripts",
     "oracle-subagent-auth.mjs",
   );
+  const dependencies = {
+    launch: () => childJson(launcher, ["--json"]),
+    runDoctor: () =>
+      childJson(
+        process.execPath,
+        [auth, "doctor", "--json"],
+        { allowNonZero: true },
+      ),
+    waitForAuth: waitForBrowserAuthReady,
+    ...injected,
+  };
   let browser;
   try {
-    browser = await childJson(launcher, ["--json"]);
-  } catch {
-    reject("browser_preflight_failed");
-  }
-  const sleep = (milliseconds) =>
-    new Promise((resolvePromise) =>
-      setTimeout(resolvePromise, milliseconds),
-    );
-  const deadline = Date.now() + BROWSER_SETTLE_DEADLINE_MS;
-  let authReport = null;
-  for (;;) {
-    try {
-      authReport = await childJson(process.execPath, [
-        auth,
-        "doctor",
-        "--json",
-      ]);
-    } catch {
-      authReport = null;
+    browser = await dependencies.launch();
+  } catch (error) {
+    if (error instanceof OracleSubagentCliError) {
+      reject("browser_preflight_failed", {
+        cause_code: error.code,
+        exit_code: error.exit_code,
+        stderr_bytes: error.stderr_bytes,
+        stderr_digest: error.stderr_digest,
+        stderr_tail: error.stderr_tail,
+      });
     }
-    if (authReport?.ok === true && authReport.state === "ready") break;
-    if (Date.now() >= deadline) break;
-    await sleep(BROWSER_SETTLE_POLL_MS);
-  }
-  if (!authReport) {
     reject("browser_preflight_failed");
+  }
+  const settle = await dependencies.waitForAuth({
+    runDoctor: dependencies.runDoctor,
+  });
+  if (!settle.authReport) {
+    reject("browser_preflight_failed", {
+      cause_code: "auth_settle_timeout",
+    });
   }
   return validateBrowserPreflight(
     browser,
-    authReport,
+    settle.authReport,
     configuredTargetUrl(),
   );
 }
@@ -2101,11 +2269,61 @@ function emitResult(result, json) {
 
 function safeErrorCode(error) {
   const value = error?.code;
-  return typeof value === "string" &&
+  if (
+    typeof value === "string" &&
     SAFE_CODE_PATTERN.test(value) &&
     !SENSITIVE_PATTERN.test(value)
-    ? value
-    : "operation_failed";
+  ) {
+    return value;
+  }
+  // Legacy plain Error messages from child helpers (pre-typed) still map.
+  const message = error?.message;
+  if (message === "child_failed") return "child_failed";
+  if (message === "child_invalid") return "child_invalid";
+  if (message === "child_spawn_failed") return "child_spawn_failed";
+  if (message === "child_stderr_overflow") return "child_stderr_overflow";
+  return "operation_failed";
+}
+
+function safeErrorDiagnostics(error) {
+  const diagnostics = {};
+  if (
+    typeof error?.cause_code === "string" &&
+    SAFE_CODE_PATTERN.test(error.cause_code) &&
+    !SENSITIVE_PATTERN.test(error.cause_code)
+  ) {
+    diagnostics.cause_code = error.cause_code;
+  }
+  if (
+    Number.isSafeInteger(error?.exit_code) &&
+    error.exit_code >= 0 &&
+    error.exit_code <= 255
+  ) {
+    diagnostics.exit_code = error.exit_code;
+  }
+  if (
+    Number.isSafeInteger(error?.stderr_bytes) &&
+    error.stderr_bytes >= 0
+  ) {
+    diagnostics.stderr_bytes = error.stderr_bytes;
+  }
+  if (
+    typeof error?.stderr_digest === "string" &&
+    SHA256_PATTERN.test(error.stderr_digest)
+  ) {
+    diagnostics.stderr_digest = error.stderr_digest;
+  }
+  if (
+    typeof error?.stderr_tail === "string" &&
+    error.stderr_tail.length > 0 &&
+    error.stderr_tail.length <= MAX_CHILD_STDERR_TAIL &&
+    !SENSITIVE_PATTERN.test(error.stderr_tail) &&
+    !CREDENTIAL_SHAPE_PATTERN.test(error.stderr_tail)
+  ) {
+    diagnostics.stderr_tail = error.stderr_tail;
+  }
+  // Never emit message/stack: may contain paths that include secrets.
+  return diagnostics;
 }
 
 export async function main(
@@ -2130,6 +2348,7 @@ export async function main(
     return options.command === "status" || result.ok !== false ? 0 : 1;
   } catch (error) {
     const code = safeErrorCode(error);
+    const diagnostics = safeErrorDiagnostics(error);
     const json = options?.json ?? rawArguments.includes("--json");
     if (json) {
       process.stdout.write(
@@ -2138,10 +2357,17 @@ export async function main(
           command: options?.command ?? "unknown",
           ok: false,
           error_code: code,
+          ...diagnostics,
         })}\n`,
       );
     } else {
-      process.stderr.write(`oracle-subagent:${code}\n`);
+      const detail =
+        diagnostics.cause_code != null
+          ? `:${diagnostics.cause_code}`
+          : diagnostics.exit_code != null
+            ? `:exit_${diagnostics.exit_code}`
+            : "";
+      process.stderr.write(`oracle-subagent:${code}${detail}\n`);
     }
     return 1;
   }

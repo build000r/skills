@@ -172,6 +172,64 @@ export COMMIT_WRITER_SESSION_REQUIRE_PROVIDER=1
 Required-provider mode fails before mutation when discovery is empty. Accepted
 boolean environment values are `1/0`, `true/false`, and `yes/no`.
 
+It also fails before mutation when discovery yields **only unpinned providers**.
+Ambient entries carry no pinned source and no digest, so `_verify_provider_source`
+has nothing to check and the executable that runs is whatever the ambient
+configuration names; treating that as satisfying a fail-closed requirement is the
+opposite of what the flag promises. Such a run exits `EXIT_PROVIDER_REQUIRED` with
+outcome `provider_required_but_unpinned` and an `unpinned_providers` list, without
+invoking any of them. Because repository providers are additive, an ambient provider
+alongside a pinned one only adds veto power and is still accepted. Override with:
+
+```bash
+--allow-unpinned-provider
+```
+
+## Policy Home
+
+By default the protected repository declares its own fence, so a repository can only
+be fenced by an authority it already carries — leaving un-onboarded repositories with
+a choice between planting a policy file in each one or mutating them unfenced.
+
+```bash
+--policy-home /path/to/trusted-repo
+```
+
+or:
+
+```bash
+export COMMIT_WRITER_SESSION_POLICY_HOME=/path/to/trusted-repo
+```
+
+The policy document, its pinned provider sources, and the sealed entry's import
+sandbox root all come from the policy home; `{repo}` in policy argv expands to the
+policy home. The protected repository stays `--repo`, and that is the root sent in
+the request `repository` block, so the provider still leases the repository actually
+being mutated. The policy home must pass the same strict checks as an in-repo policy
+(HEAD binding, index/worktree agreement, digest pins); a home with no strict policy
+fails closed. When the protected repository declares its own policy, `--policy-home`
+is **rejected** rather than silently ignored — its own policy is authoritative. A
+policy home that resolves to the protected repository itself is a no-op.
+
+## Acquisition Sealing
+
+Pinned sources are read and digest-verified exactly once, before the first `begin`,
+and the verified bytes are held for the life of the transaction. Every `begin`,
+`check`, and `end` seals fresh read-only unlinked fds from those held bytes, after
+re-asserting the acquisition digest.
+
+The runner previously re-read each pinned source from disk on every call, including
+the `end` call in its release `finally` block. A protected step that legitimately
+rewrote a pinned source therefore poisoned its own release: the mutation landed,
+`end` failed with `provider ... source digest does not match repository policy`, the
+receipt became `release_failed_after_preflight`, and the durable session was left
+held until released by hand. Holding at acquisition removes that path — the process
+executes exactly what it verified, and later on-disk churn cannot strand a session.
+
+Drift that exists *before* the run is unaffected and still fails closed at preflight,
+with `mutation_started` false and nothing acquired. Acquisition digests are reported
+per provider in the receipt under `provider_acquisitions`.
+
 ## Request Schema
 
 The runner writes one compact JSON object to provider stdin. A provider reads

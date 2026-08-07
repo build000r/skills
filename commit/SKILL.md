@@ -193,6 +193,27 @@ No-provider portable mode remains the default. Use `--require-provider` or set
 operator contract explicitly requires provider authority. Never silently fall back
 to portable mode when a configured provider fails.
 
+Required-provider mode needs at least one **pinned** provider, not merely one
+provider. An ambient `--provider`/`--provider-json`/`COMMIT_WRITER_SESSION_PROVIDERS`
+entry carries no pinned source, so nothing attests that the executable invoked is
+the authority the operator believes in; a required run satisfied by nothing but
+such entries exits `provider_required_but_unpinned` without invoking them. Extra
+ambient providers alongside a pinned one stay additive — they can only add a veto —
+and are still accepted. `--allow-unpinned-provider` is the explicit opt-in for
+accepting an unattested executable as the sole authority.
+
+Pinned sources are read and verified **once, at acquisition**, and the held bytes
+are what every later call executes. A protected step may therefore rewrite a pinned
+source — landing a new provider revision, or pulling one — without poisoning its own
+release. Sources that have already drifted when the run starts still refuse at
+preflight, before anything is acquired.
+
+`--policy-home DIR` (or `COMMIT_WRITER_SESSION_POLICY_HOME`) reads the writer-session
+policy from a trusted repository while `--repo` stays the mutation target, so one
+attested authority can fence repositories that declare no policy of their own. It
+never downgrades: a protected repository that declares its own policy keeps it, and
+the override is refused rather than ignored.
+
 Keep all mutations that need one continuous hold in one invocation. For example:
 
 ```bash

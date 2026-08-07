@@ -23,6 +23,7 @@ SCHEMA = "commit-writer-session/v1"
 DEFAULT_PROVIDER = "commit-writer-session-provider"
 PROVIDERS_ENV = "COMMIT_WRITER_SESSION_PROVIDERS"
 REQUIRED_ENV = "COMMIT_WRITER_SESSION_REQUIRE_PROVIDER"
+POLICY_HOME_ENV = "COMMIT_WRITER_SESSION_POLICY_HOME"
 POLICY_FILE = ".commit-writer-session.json"
 POLICY_SCHEMA = "commit-writer-session-policy/v1"
 VERDICT_WEIGHT = {"allow": 0, "indeterminate": 1, "blocked": 2}
@@ -133,12 +134,36 @@ class Provider:
     repository_root: Path | None = None
 
 
+@dataclass(frozen=True)
+class HeldSource:
+    """Provider bytes verified once, at acquisition, and never re-read from disk."""
+
+    label: str
+    name: str
+    sha256: str
+    content: bytes
+
+
+@dataclass(frozen=True)
+class HeldProviderSources:
+    entry: HeldSource
+    modules: tuple[HeldSource, ...] = ()
+    resources: tuple[HeldSource, ...] = ()
+
+    def digests(self) -> dict[str, str]:
+        return {
+            held.label: held.sha256
+            for held in (self.entry, *self.modules, *self.resources)
+        }
+
+
 @dataclass
 class ProviderState:
     provider: Provider
     request_id: str
     begin: dict[str, Any] | None = None
     session: dict[str, str] | None = None
+    held: HeldProviderSources | None = None
 
 
 def _provider_from_argv(value: Any, *, source: str, position: int) -> Provider:
@@ -695,11 +720,73 @@ def _seal_verified_source(content: bytes, *, label: str) -> int:
                 pass
 
 
+def hold_provider_sources(provider: Provider) -> HeldProviderSources | None:
+    """Read and verify every pinned source exactly once, at acquisition.
+
+    The runner used to re-read these files on every provider call, including the
+    ``end`` call in its release path. A protected step that legitimately rewrote a
+    pinned source (``git pull``, or a commit that lands a new provider revision)
+    therefore poisoned its own release: the mutation landed, ``end`` failed with a
+    digest mismatch, and the durable lease was left ``held``. Holding the verified
+    bytes for the life of the transaction means the process executes exactly what
+    it verified at acquisition, and on-disk churn afterwards can no longer strand a
+    lease. The bytes are bounded by MAX_PROVIDER_SOURCE_BYTES per source.
+    """
+
+    if provider.source_path is None:
+        return None
+    assert provider.source_sha256 is not None
+    entry = HeldSource(
+        label="entry",
+        name="",
+        sha256=provider.source_sha256,
+        content=_read_verified_source(
+            provider.source_path, provider.source_sha256, label="entry"
+        ),
+    )
+    modules = tuple(
+        HeldSource(
+            label=f"module {module.name}",
+            name=module.name,
+            sha256=module.source_sha256,
+            content=_read_verified_source(
+                module.source_path, module.source_sha256, label=f"module {module.name}"
+            ),
+        )
+        for module in provider.modules
+    )
+    resources = tuple(
+        HeldSource(
+            label=f"resource {resource.name}",
+            name=resource.name,
+            sha256=resource.source_sha256,
+            content=_read_verified_source(
+                resource.source_path,
+                resource.source_sha256,
+                label=f"resource {resource.name}",
+            ),
+        )
+        for resource in provider.resources
+    )
+    return HeldProviderSources(entry=entry, modules=modules, resources=resources)
+
+
+def _seal_held_source(held: HeldSource) -> int:
+    """Re-assert the acquisition digest immediately before sealing it into an fd."""
+
+    if hashlib.sha256(held.content).hexdigest() != held.sha256:
+        raise ConfigurationError(
+            f"provider {held.label} held source no longer matches its acquisition digest"
+        )
+    return _seal_verified_source(held.content, label=held.label)
+
+
 def _invoke(
     provider: Provider,
     request: Mapping[str, Any],
     *,
     timeout: float,
+    held: HeldProviderSources | None,
 ) -> tuple[dict[str, Any] | None, str | None, str | None]:
     """Return decoded response, failure kind, and detail."""
 
@@ -712,33 +799,20 @@ def _invoke(
         pass_fds: tuple[int, ...] = ()
         if provider.source_path is not None:
             assert provider.source_sha256 is not None and provider.repository_root is not None
-            entry_content = _read_verified_source(
-                provider.source_path, provider.source_sha256, label="entry"
-            )
-            entry_fd = _seal_verified_source(entry_content, label="entry")
+            if held is None:
+                raise ConfigurationError(
+                    "pinned provider sources were never acquired for this transaction"
+                )
+            entry_fd = _seal_held_source(held.entry)
             snapshot_reader_fds.append(entry_fd)
             module_argv: list[str] = []
-            for module in provider.modules:
-                module_content = _read_verified_source(
-                    module.source_path,
-                    module.source_sha256,
-                    label=f"module {module.name}",
-                )
-                module_fd = _seal_verified_source(
-                    module_content, label=f"module {module.name}"
-                )
+            for module in held.modules:
+                module_fd = _seal_held_source(module)
                 snapshot_reader_fds.append(module_fd)
                 module_argv.extend([module.name, str(module_fd)])
             resource_fds: dict[str, int] = {}
-            for resource in provider.resources:
-                resource_content = _read_verified_source(
-                    resource.source_path,
-                    resource.source_sha256,
-                    label=f"resource {resource.name}",
-                )
-                resource_fd = _seal_verified_source(
-                    resource_content, label=f"resource {resource.name}"
-                )
+            for resource in held.resources:
+                resource_fd = _seal_held_source(resource)
                 snapshot_reader_fds.append(resource_fd)
                 resource_fds[resource.name] = resource_fd
             program_argv: list[str] = []
@@ -854,7 +928,9 @@ def _call(
         session=state.session,
         step_count=step_count,
     )
-    raw, failure, detail = _invoke(state.provider, request, timeout=timeout)
+    raw, failure, detail = _invoke(
+        state.provider, request, timeout=timeout, held=state.held
+    )
     candidate = _candidate_session(raw) if operation == "begin" else None
     if candidate is not None:
         state.session = candidate
@@ -962,6 +1038,22 @@ def run_transaction(
     }
     exit_code = EXIT_INDETERMINATE
 
+    # Acquire before the first begin: a source that is already unreadable or
+    # already drifted must refuse at preflight, with nothing acquired and nothing
+    # stranded. ConfigurationError here propagates to main() as
+    # configuration_error with mutation_started false.
+    acquisitions: list[dict[str, Any]] = []
+    for state in states:
+        state.held = hold_provider_sources(state.provider)
+        acquisitions.append(
+            {
+                "provider": state.provider.label,
+                "pinned": state.held is not None,
+                "digests": state.held.digests() if state.held is not None else {},
+            }
+        )
+    receipt["provider_acquisitions"] = acquisitions
+
     try:
         begin_records: list[dict[str, Any]] = []
         for state in states:
@@ -1043,6 +1135,40 @@ def run_transaction(
     return receipt, exit_code
 
 
+def _resolve_policy(
+    repo_root: Path, policy_home_arg: str | None
+) -> tuple[list[Provider], bool, Path | None]:
+    """Choose which repository's writer-session policy governs this transaction.
+
+    Without --policy-home the protected repository declares its own fence, which
+    means a repository can only be fenced by an authority it already carries. That
+    leaves every un-onboarded repository unfenceable: the honest options were to
+    plant a policy file in each one or to mutate it with no fence at all.
+    --policy-home supplies a trusted repository's pinned policy while the protected
+    repository stays the mutation target, so one attested authority can fence many
+    repositories. It never downgrades: a protected repository that declares its own
+    policy keeps it, and the override is refused rather than silently ignored.
+    """
+
+    own_providers, own_required = discover_repository_policy(repo_root)
+    if policy_home_arg is None:
+        return own_providers, own_required, None
+    home_root = Path(str(repository_identity(Path(policy_home_arg).resolve())["root"]))
+    if home_root == repo_root:
+        return own_providers, own_required, None
+    if own_providers or own_required:
+        raise ConfigurationError(
+            "--policy-home is rejected: the protected repository declares its own "
+            "writer-session policy, which is authoritative"
+        )
+    home_providers, home_required = discover_repository_policy(home_root)
+    if not home_providers or not home_required:
+        raise ConfigurationError(
+            f"--policy-home {home_root} declares no strict writer-session policy"
+        )
+    return home_providers, home_required, home_root
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Run argv-only mutation steps under commit-writer-session/v1 providers."
@@ -1065,7 +1191,24 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--require-provider",
         action="store_true",
-        help="fail closed when discovery yields no providers",
+        help="fail closed when discovery yields no providers, or any provider is unpinned",
+    )
+    parser.add_argument(
+        "--allow-unpinned-provider",
+        action="store_true",
+        help=(
+            "permit ambient (unpinned) providers under required-provider mode; "
+            "an unpinned provider is an arbitrary executable, not an attested authority"
+        ),
+    )
+    parser.add_argument(
+        "--policy-home",
+        default=os.environ.get(POLICY_HOME_ENV),
+        metavar="DIR",
+        help=(
+            "read the writer-session policy from this trusted repository instead of "
+            "the protected one; rejected when the protected repository declares its own"
+        ),
     )
     parser.add_argument(
         "--timeout",
@@ -1093,7 +1236,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         steps = parse_steps(args.step_json, args.command)
         repository = repository_identity(Path(args.repo).resolve())
         repo_root = Path(str(repository["root"]))
-        policy_providers, policy_required = discover_repository_policy(repo_root)
+        policy_providers, policy_required, policy_home = _resolve_policy(
+            repo_root, args.policy_home
+        )
         ambient_providers = discover_providers(
             executables=args.provider,
             json_commands=args.provider_json,
@@ -1110,6 +1255,32 @@ def main(argv: Sequence[str] | None = None) -> int:
             }
             print(json.dumps(receipt, sort_keys=True))
             return EXIT_PROVIDER_REQUIRED
+        # Presence was never the promise required-provider mode makes. An ambient
+        # provider carries no pinned source, so nothing attests that the executable
+        # invoked is the authority the operator believes in. Extra ambient providers
+        # are additive veto power and cannot weaken a pinned one, so the hole is
+        # narrower than "any provider is unpinned": it is a required-provider run
+        # satisfied by nothing but unattested executables.
+        if required and not args.allow_unpinned_provider:
+            unpinned = [
+                provider.label for provider in providers if provider.source_path is None
+            ]
+            if unpinned and len(unpinned) == len(providers):
+                receipt = {
+                    "schema": SCHEMA,
+                    "outcome": "provider_required_but_unpinned",
+                    "preflight_verdict": "indeterminate",
+                    "mutation_started": False,
+                    "provider_count": len(providers),
+                    "unpinned_providers": unpinned,
+                    "message": (
+                        "required-provider mode needs at least one pinned provider; declare "
+                        "one in a repository policy (or --policy-home), or pass "
+                        "--allow-unpinned-provider to accept an unattested executable"
+                    ),
+                }
+                print(json.dumps(receipt, sort_keys=True))
+                return EXIT_PROVIDER_REQUIRED
         receipt, exit_code = run_transaction(
             repository=repository,
             providers=providers,
@@ -1117,6 +1288,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             timeout=args.timeout,
         )
         receipt["repository_policy"] = policy_required
+        if policy_home is not None:
+            receipt["policy_home"] = str(policy_home)
         print(json.dumps(receipt, sort_keys=True))
         return exit_code
     except ConfigurationError as exc:

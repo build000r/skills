@@ -33,7 +33,16 @@ mode = sys.argv[1] if len(sys.argv) > 1 else os.environ.get("FAKE_PROVIDER_MODE"
 log_path = Path(sys.argv[2] if len(sys.argv) > 2 else os.environ["FAKE_PROVIDER_LOG"])
 request = json.load(sys.stdin)
 with log_path.open("a", encoding="utf-8") as handle:
-    handle.write(json.dumps({"mode": mode, "operation": request["operation"]}) + "\n")
+    handle.write(
+        json.dumps(
+            {
+                "mode": mode,
+                "operation": request["operation"],
+                "root": request["repository"]["root"],
+            }
+        )
+        + "\n"
+    )
 
 operation = request["operation"]
 response = {
@@ -119,6 +128,18 @@ class WriterFenceTests(unittest.TestCase):
     def _provider(self, mode: str, log: Path) -> list[str]:
         return [sys.executable, str(self.provider_script), mode, str(log)]
 
+    def _init_repo(self, path: Path) -> Path:
+        path.mkdir(parents=True, exist_ok=True)
+        for args in (
+            ("init", "-q"),
+            ("config", "user.email", "test@example.invalid"),
+            ("config", "user.name", "Writer Fence Test"),
+        ):
+            subprocess.run(
+                ["git", "-C", str(path), *args], check=True, capture_output=True, shell=False
+            )
+        return path
+
     def _write_policy(
         self,
         mode: str,
@@ -127,10 +148,12 @@ class WriterFenceTests(unittest.TestCase):
         modules: list[dict[str, str]] | None = None,
         resources: list[dict[str, str]] | None = None,
         resource_args: list[str] | None = None,
+        repo: Path | None = None,
     ) -> tuple[Path, Path]:
-        source = self.repo / "policy_provider.py"
+        repo = repo if repo is not None else self.repo
+        source = repo / "policy_provider.py"
         source.write_bytes(self.provider_script.read_bytes())
-        policy = self.repo / writer_fences.POLICY_FILE
+        policy = repo / writer_fences.POLICY_FILE
         policy.write_text(
             json.dumps(
                 {
@@ -166,9 +189,11 @@ class WriterFenceTests(unittest.TestCase):
         marker_name: str = "marker.txt",
         cwd: Path | None = None,
         extra_env: dict[str, str] | None = None,
+        extra_args: list[str] | None = None,
+        steps: list[list[str]] | None = None,
     ) -> tuple[subprocess.CompletedProcess[str], dict[str, object], Path]:
         marker = self.repo / marker_name
-        step = [
+        default_step = [
             sys.executable,
             "-c",
             "from pathlib import Path; Path(r'%s').write_text('mutated', encoding='utf-8')"
@@ -181,11 +206,13 @@ class WriterFenceTests(unittest.TestCase):
             str(self.repo),
             "--timeout",
             str(timeout),
-            "--step-json",
-            json.dumps(step),
         ]
+        for step in steps if steps is not None else [default_step]:
+            command.extend(["--step-json", json.dumps(step)])
         if require_provider:
             command.append("--require-provider")
+        if extra_args:
+            command.extend(extra_args)
         env = os.environ.copy()
         env["PYTHONDONTWRITEBYTECODE"] = "1"
         env.pop(writer_fences.REQUIRED_ENV, None)
@@ -528,13 +555,14 @@ class WriterFenceTests(unittest.TestCase):
                 self.assertEqual(path.stat().st_ino, original_inodes[path])
             return real_run(*args, **kwargs)
 
+        held = writer_fences.hold_provider_sources(provider)
         with mock.patch.object(
             writer_fences.subprocess,
             "run",
             side_effect=rewrite_at_subprocess_boundary,
         ):
             response, failure, detail = writer_fences._invoke(
-                provider, request, timeout=2
+                provider, request, timeout=2, held=held
             )
         self.assertIsNone(failure, detail)
         self.assertIsNotNone(response)
@@ -568,7 +596,7 @@ class WriterFenceTests(unittest.TestCase):
         }
         with mock.patch.object(writer_fences.subprocess, "run") as invoked:
             response, failure, detail = writer_fences._invoke(
-                provider, request, timeout=2
+                provider, request, timeout=2, held=None
             )
         invoked.assert_not_called()
         self.assertIsNone(response)
@@ -746,6 +774,140 @@ class WriterFenceTests(unittest.TestCase):
                 completed, receipt, marker = self._run(providers=[])
                 self.assertEqual(completed.returncode, writer_fences.EXIT_USAGE)
                 self.assert_fenced_without_change(completed, receipt, marker, baseline)
+
+    def test_step_rewriting_a_pinned_source_still_releases_its_session(self) -> None:
+        """The release path must not re-read what a protected step legitimately rewrote.
+
+        Landing a new provider revision, or pulling one, rewrites a pinned source
+        mid-transaction. Re-reading it at ``end`` made the runner poison its own
+        release: the mutation landed, release failed, and the durable lease stayed
+        held until someone released it by hand.
+        """
+
+        log = self.root / "rewrite-during-steps.log"
+        _, source = self._write_policy("allow", log)
+        pinned_digest = hashlib.sha256(source.read_bytes()).hexdigest()
+        rewrite = [
+            sys.executable,
+            "-c",
+            "from pathlib import Path; Path(r'%s').write_text('# rewritten\\n', encoding='utf-8')"
+            % source,
+        ]
+        completed, receipt, _ = self._run(providers=[], steps=[rewrite])
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(receipt["outcome"], "completed")
+        self.assertEqual(receipt["release_verdict"], "allow")
+        self.assertEqual(self._operations(log), ["begin", "check", "end"])
+        # The step really did invalidate the pin on disk.
+        self.assertEqual(source.read_text(encoding="utf-8"), "# rewritten\n")
+        self.assertNotEqual(hashlib.sha256(source.read_bytes()).hexdigest(), pinned_digest)
+        # And every call executed the bytes verified at acquisition.
+        acquisitions = receipt["provider_acquisitions"]
+        assert isinstance(acquisitions, list)
+        self.assertEqual(acquisitions[0]["digests"]["entry"], pinned_digest)
+
+    def test_pinned_source_drift_before_the_run_refuses_at_preflight(self) -> None:
+        """The other poison path: already-drifted sources must strand nothing."""
+
+        log = self.root / "drift-before.log"
+        _, source = self._write_policy("allow", log)
+        source.write_text("# drifted before any fence\n", encoding="utf-8")
+        baseline = self._fingerprint()
+        completed, receipt, marker = self._run(providers=[])
+
+        self.assertEqual(completed.returncode, writer_fences.EXIT_USAGE)
+        self.assertEqual(receipt["outcome"], "configuration_error")
+        self.assertIs(receipt["mutation_started"], False)
+        self.assertIn("digest does not match repository policy", str(receipt["message"]))
+        self.assertFalse(log.exists(), "no provider call may happen, so nothing is acquired")
+        self.assert_fenced_without_change(completed, receipt, marker, baseline)
+
+    def test_required_provider_rejects_an_entirely_unpinned_provider_set(self) -> None:
+        log = self.root / "unpinned.log"
+        baseline = self._fingerprint()
+        completed, receipt, marker = self._run(
+            providers=[self._provider("allow", log)], require_provider=True
+        )
+        self.assertEqual(completed.returncode, writer_fences.EXIT_PROVIDER_REQUIRED)
+        self.assertEqual(receipt["outcome"], "provider_required_but_unpinned")
+        self.assertEqual(
+            receipt["unpinned_providers"], [f"{Path(sys.executable).name}#0"]
+        )
+        self.assertFalse(log.exists(), "the unattested executable must never be invoked")
+        self.assert_fenced_without_change(completed, receipt, marker, baseline)
+
+    def test_unpinned_provider_runs_only_behind_the_explicit_opt_in(self) -> None:
+        log = self.root / "unpinned-opt-in.log"
+        completed, receipt, marker = self._run(
+            providers=[self._provider("allow", log)],
+            require_provider=True,
+            extra_args=["--allow-unpinned-provider"],
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertTrue(marker.exists())
+        self.assertEqual(receipt["outcome"], "completed")
+
+    def test_ambient_provider_stays_additive_alongside_a_pinned_one(self) -> None:
+        """An extra unattested veto cannot weaken a pinned authority, so it is allowed."""
+
+        policy_log = self.root / "additive-policy.log"
+        ambient_log = self.root / "additive-ambient.log"
+        self._write_policy("allow", policy_log)
+        completed, receipt, marker = self._run(
+            providers=[self._provider("allow", ambient_log)]
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertTrue(marker.exists())
+        self.assertEqual(receipt["provider_count"], 2)
+        self.assertEqual(self._operations(policy_log), ["begin", "check", "end"])
+        self.assertEqual(self._operations(ambient_log), ["begin", "check", "end"])
+
+    def test_policy_home_fences_a_repository_that_declares_no_policy(self) -> None:
+        log = self.root / "policy-home.log"
+        home = self._init_repo(self.root / "trusted-home")
+        self._write_policy("allow", log, repo=home)
+        completed, receipt, marker = self._run(
+            providers=[], extra_args=["--policy-home", str(home)]
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertTrue(marker.exists())
+        self.assertIs(receipt["repository_policy"], True)
+        self.assertEqual(receipt["policy_home"], str(home.resolve()))
+        # The mutation target stays the protected repository, not the policy home.
+        roots = {json.loads(line)["root"] for line in log.read_text().splitlines()}
+        self.assertEqual(roots, {str(self.repo.resolve())})
+
+    def test_policy_home_is_refused_when_the_protected_repository_declares_its_own(
+        self,
+    ) -> None:
+        own_log = self.root / "own-policy.log"
+        home_log = self.root / "home-policy.log"
+        self._write_policy("allow", own_log)
+        home = self._init_repo(self.root / "other-home")
+        self._write_policy("allow", home_log, repo=home)
+        baseline = self._fingerprint()
+        completed, receipt, marker = self._run(
+            providers=[], extra_args=["--policy-home", str(home)]
+        )
+
+        self.assertEqual(completed.returncode, writer_fences.EXIT_USAGE)
+        self.assertEqual(receipt["outcome"], "configuration_error")
+        self.assertIn("--policy-home is rejected", str(receipt["message"]))
+        self.assertFalse(own_log.exists())
+        self.assertFalse(home_log.exists())
+        self.assert_fenced_without_change(completed, receipt, marker, baseline)
+
+    def test_policy_home_without_a_strict_policy_fails_closed(self) -> None:
+        home = self._init_repo(self.root / "empty-home")
+        baseline = self._fingerprint()
+        completed, receipt, marker = self._run(
+            providers=[], extra_args=["--policy-home", str(home)]
+        )
+        self.assertEqual(completed.returncode, writer_fences.EXIT_USAGE)
+        self.assertIn("declares no strict writer-session policy", str(receipt["message"]))
+        self.assert_fenced_without_change(completed, receipt, marker, baseline)
 
     def test_required_provider_fails_closed_without_mutation(self) -> None:
         baseline = self._fingerprint()

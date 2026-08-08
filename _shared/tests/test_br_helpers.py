@@ -349,7 +349,8 @@ class BrHelpersTests(unittest.TestCase):
         self.assertIn('- ["br","close","skills-exec-001"]', brief)
         self.assertIn("Do not call `br close` or `br update` directly", brief)
         self.assertIn("Pass validation only through the rendered apply step JSON", brief)
-        self.assertIn("invoke the transaction driver in apply mode", brief)
+        self.assertIn("Invoke the transaction driver in apply mode", brief)
+        self.assertNotIn("`--close-only`", brief)
         self.assertNotIn("Run your validate commands before declaring success", brief)
         self.assertNotIn("On done: `br close", brief)
 
@@ -399,7 +400,7 @@ class BrHelpersTests(unittest.TestCase):
             brief = MODULE.render_node_brief("skills-exec-001")
 
         self.assertIn("Protected completion contract:", brief)
-        self.assertIn("invoke the transaction driver with `--close-only`", brief)
+        self.assertIn("Invoke the transaction driver with `--close-only`", brief)
         self.assertNotIn("On done: `br close", brief)
         self.assertNotIn("Run your validate commands before declaring success", brief)
 

@@ -1132,9 +1132,16 @@ def render_node_brief(issue_id: str) -> str:
     completion_rules = (
         [
             "- Do not call `br close` or `br update` directly; follow the protected completion contract above through its transaction driver",
-            "- Pass validation only through the rendered apply step JSON to the transaction driver; never execute apply step JSON or close step JSON directly",
-            "- For apply nodes, invoke the transaction driver in apply mode with the rendered repo, patch, policy home, apply receipt/log, close receipt/log, declared write targets, current base OID, and every rendered step JSON",
-            "- For evidence/review nodes without apply step JSON, invoke the transaction driver with `--close-only` and the rendered close step/receipt/log",
+            *(
+                [
+                    "- Pass validation only through the rendered apply step JSON to the transaction driver; never execute apply step JSON or close step JSON directly",
+                    "- Invoke the transaction driver in apply mode with the rendered repo, patch, policy home, apply receipt/log, close receipt/log, declared write targets, current base OID, and every rendered step JSON",
+                ]
+                if contract.get("apply_step_json")
+                else [
+                    "- Invoke the transaction driver with `--close-only` and the rendered close step/receipt/log; never execute close step JSON directly",
+                ]
+            ),
             "- On any apply, validation, receipt, release, recovery, or close failure: stop without retrying mutation or closing the node and report the exact artifact",
         ]
         if protected_completion

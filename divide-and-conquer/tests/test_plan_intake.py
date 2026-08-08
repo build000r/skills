@@ -139,6 +139,36 @@ class CanonicalPlanIntakeTests(unittest.TestCase):
         hierarchy = {item["id"]: item for item in receipt["planning_hierarchy"]}
         self.assertIsNone(hierarchy["fixture-leaf"]["produces"])
 
+    def test_historical_evidence_is_canonical_but_never_dispatches(self) -> None:
+        fixture = load_fixture("valid_handoff.json")
+        historical = {
+            "id": "fixture-history",
+            "issue_type": "task",
+            "labels": [
+                "plan:fixture-plan",
+                "plan-role:historical-evidence",
+                "plan-evidence:historical-only",
+            ],
+            "notes": "\n".join([
+                "planning_parent: fixture-root",
+                "supports: SC-1",
+                "local_criteria: none",
+                "produces: committed prerequisite evidence",
+            ]),
+        }
+        fixture["issues_payload"]["issues"].append(historical)
+        fixture["ready_payload"].append({"id": "fixture-history"})
+
+        receipt = MODULE.intake_plan(
+            fixture["issues_payload"], fixture["ready_payload"], fixture["plan"]
+        )
+
+        self.assertTrue(receipt["dispatchable"], receipt["defects"])
+        self.assertEqual(receipt["defects"], [])
+        self.assertEqual(receipt["excluded_historical_ids"], ["fixture-history"])
+        self.assertEqual(receipt["excluded_ready_historical_ids"], ["fixture-history"])
+        self.assertNotIn("fixture-history", [row["id"] for row in receipt["admitted_frontier"]])
+
 
 if __name__ == "__main__":
     unittest.main()

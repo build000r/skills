@@ -230,6 +230,50 @@ Drift that exists *before* the run is unaffected and still fails closed at prefl
 with `mutation_started` false and nothing acquired. Acquisition digests are reported
 per provider in the receipt under `provider_acquisitions`.
 
+## Runner Capabilities and Recovery
+
+Call the read-only capability surface before remotely invoking a runner whose
+version may lag the coordinating machine:
+
+```bash
+python3 run_writer_fences.py --capabilities
+```
+
+The JSON must use `commit-writer-session-runner-capabilities/v1` and include
+`acquisition-sealing-v1` before a mutation plan may rewrite its own policy,
+provider, modules, or resources. Require it inside same invocation:
+
+```bash
+python3 run_writer_fences.py --require-capability acquisition-sealing-v1 ...
+```
+
+Requiring this capability also rejects every unpinned/ambient provider before
+`begin`; all participating provider bytes must be held for the full lifecycle.
+
+`receipt-bound-single-pinned-recovery-v1` means runner can recover an uncertain
+or failed release through one exact pinned provider and original failure receipt.
+Missing, malformed, or absent capabilities fail closed before `begin`; file
+presence and `--help` output do not prove required lifecycle behavior.
+
+After `release_failed_after_preflight`, do not retry mutation or delete provider
+state by hand. Re-run only provider `end` using stable request id from receipt:
+
+```bash
+python3 run_writer_fences.py \
+  --repo /path/to/protected-repo \
+  --recover-receipt /path/to/release-failure-receipt.json
+```
+
+Recovery accepts no mutation steps, requires exactly one pinned policy provider,
+binds canonical repo + provider + request id from receipt, rejects ambient providers,
+sends `end` with original request id plus null session, and performs no Git mutation.
+Success requires provider-confirmed idempotent release. Use `--policy-home` only
+when protected repo has no policy. Provider identity binds static argv plus entry,
+module, and resource paths while allowing their content digests to upgrade. Reconcile
+passes `--require-capability receipt-bound-single-pinned-recovery-v1` inside every
+mutation invocation; this enforces one pinned provider and no ambient providers
+before `begin`.
+
 ## Request Schema
 
 The runner writes one compact JSON object to provider stdin. A provider reads

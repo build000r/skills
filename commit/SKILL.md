@@ -208,6 +208,17 @@ source — landing a new provider revision, or pulling one — without poisoning
 release. Sources that have already drifted when the run starts still refuse at
 preflight, before anything is acquired.
 
+Before remotely using a runner that may be stale, require machine-readable
+capabilities with `scripts/run_writer_fences.py --capabilities`. A self-updating
+transaction passes `--require-capability acquisition-sealing-v1` in same runner
+invocation; this rejects unpinned/ambient providers before `begin`. Recovery
+after `release_failed_after_preflight` requires
+`receipt-bound-single-pinned-recovery-v1`; run `--recover-receipt PATH` with
+same repo/policy selection. Reconcile must use one pinned provider, no ambient
+providers by requiring that capability inside the mutation invocation. Never
+retry mutation or hand-edit provider state. See
+`references/writer-session-v1.md`.
+
 `--policy-home DIR` (or `COMMIT_WRITER_SESSION_POLICY_HOME`) reads the writer-session
 policy from a trusted repository while `--repo` stays the mutation target, so one
 attested authority can fence repositories that declare no policy of their own. It

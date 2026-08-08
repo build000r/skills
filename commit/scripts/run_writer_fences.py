@@ -20,6 +20,13 @@ import uuid
 
 
 SCHEMA = "commit-writer-session/v1"
+CAPABILITIES_SCHEMA = "commit-writer-session-runner-capabilities/v1"
+RUNNER_CAPABILITIES = (
+    "acquisition-sealing-v1",
+    "policy-home-v1",
+    "receipt-bound-single-pinned-recovery-v1",
+)
+SAFE_REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9._:-]{1,256}$")
 DEFAULT_PROVIDER = "commit-writer-session-provider"
 PROVIDERS_ENV = "COMMIT_WRITER_SESSION_PROVIDERS"
 REQUIRED_ENV = "COMMIT_WRITER_SESSION_REQUIRE_PROVIDER"
@@ -164,6 +171,25 @@ class ProviderState:
     begin: dict[str, Any] | None = None
     session: dict[str, str] | None = None
     held: HeldProviderSources | None = None
+
+
+def provider_identity_sha256(provider: Provider) -> str:
+    """Stable provider topology identity; source contents may upgrade."""
+
+    payload = {
+        "argv": list(provider.argv),
+        "entry": str(provider.source_path) if provider.source_path is not None else None,
+        "modules": [
+            {"name": module.name, "source": str(module.source_path)}
+            for module in provider.modules
+        ],
+        "resources": [
+            {"name": resource.name, "source": str(resource.source_path)}
+            for resource in provider.resources
+        ],
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def _provider_from_argv(value: Any, *, source: str, position: int) -> Provider:
@@ -1048,6 +1074,8 @@ def run_transaction(
         acquisitions.append(
             {
                 "provider": state.provider.label,
+                "request_id": state.request_id,
+                "provider_identity_sha256": provider_identity_sha256(state.provider),
                 "pinned": state.held is not None,
                 "digests": state.held.digests() if state.held is not None else {},
             }
@@ -1169,11 +1197,131 @@ def _resolve_policy(
     return home_providers, home_required, home_root
 
 
+def _load_recovery_receipt(
+    path: Path,
+    *,
+    repository: Mapping[str, str | None],
+    provider: Provider,
+) -> str:
+    try:
+        metadata = path.lstat()
+        if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode):
+            raise ConfigurationError("recovery receipt must be a regular non-symlink file")
+        if metadata.st_size > MAX_PROVIDER_REQUEST_BYTES:
+            raise ConfigurationError("recovery receipt is oversized")
+        receipt = json.loads(path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise ConfigurationError(f"recovery receipt is unavailable: {exc}") from exc
+    except json.JSONDecodeError as exc:
+        raise ConfigurationError(f"recovery receipt is invalid JSON: {exc.msg}") from exc
+    if (
+        not isinstance(receipt, dict)
+        or receipt.get("schema") != SCHEMA
+        or receipt.get("outcome") != "release_failed_after_preflight"
+        or receipt.get("release_verdict") == "allow"
+        or receipt.get("provider_count") != 1
+    ):
+        raise ConfigurationError(
+            "recovery receipt must be a one-provider release_failed_after_preflight receipt"
+        )
+    original = receipt.get("repository")
+    if not isinstance(original, dict):
+        raise ConfigurationError("recovery receipt repository identity is missing")
+    for field in ("root", "git_dir", "git_common_dir"):
+        if original.get(field) != repository.get(field):
+            raise ConfigurationError(
+                f"recovery receipt repository {field} does not match current repository"
+            )
+    acquisitions = receipt.get("provider_acquisitions")
+    if not isinstance(acquisitions, list) or len(acquisitions) != 1:
+        raise ConfigurationError("recovery receipt must contain one provider acquisition")
+    acquisition = acquisitions[0]
+    if (
+        not isinstance(acquisition, dict)
+        or acquisition.get("provider") != provider.label
+        or acquisition.get("provider_identity_sha256")
+        != provider_identity_sha256(provider)
+        or acquisition.get("pinned") is not True
+    ):
+        raise ConfigurationError(
+            "recovery receipt provider identity does not match pinned policy"
+        )
+    request_id = acquisition.get("request_id")
+    if request_id is None:
+        transaction_id = receipt.get("transaction_id")
+        request_id = f"{transaction_id}:0" if isinstance(transaction_id, str) else None
+    if not isinstance(request_id, str) or SAFE_REQUEST_ID_RE.fullmatch(request_id) is None:
+        raise ConfigurationError("recovery receipt request id is missing or unsafe")
+    return request_id
+
+
+def recover_transaction(
+    *,
+    repository: Mapping[str, str | None],
+    provider: Provider,
+    request_id: str,
+    timeout: float,
+) -> tuple[dict[str, Any], int]:
+    """Idempotently ask one pinned provider to end a stranded request."""
+
+    if SAFE_REQUEST_ID_RE.fullmatch(request_id) is None:
+        raise ConfigurationError(
+            "--recover-request-id must be 1-256 safe request-id characters"
+        )
+    state = ProviderState(provider=provider, request_id=request_id)
+    state.held = hold_provider_sources(provider)
+    assert state.held is not None
+    result = _call(
+        state,
+        operation="end",
+        repository=repository,
+        step_count=1,
+        timeout=timeout,
+    )
+    verdict = str(result["verdict"])
+    receipt = {
+        "schema": SCHEMA,
+        "outcome": "recovered" if verdict == "allow" else "recovery_failed",
+        "request_id": request_id,
+        "repository": dict(repository),
+        "mutation_started": False,
+        "provider_count": 1,
+        "provider_acquisitions": [
+            {
+                "provider": provider.label,
+                "provider_identity_sha256": provider_identity_sha256(provider),
+                "pinned": True,
+                "digests": state.held.digests(),
+            }
+        ],
+        "recovery_result": result,
+        "release_verdict": verdict,
+    }
+    return receipt, 0 if verdict == "allow" else EXIT_RELEASE_FAILED
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Run argv-only mutation steps under commit-writer-session/v1 providers."
     )
     parser.add_argument("--repo", default=".", help="Git repository to protect")
+    parser.add_argument(
+        "--capabilities",
+        action="store_true",
+        help="print machine-readable runner capabilities and exit without touching a repo",
+    )
+    parser.add_argument(
+        "--recover-receipt",
+        metavar="PATH",
+        help="idempotently end one stranded request bound to its failure receipt",
+    )
+    parser.add_argument(
+        "--require-capability",
+        action="append",
+        default=[],
+        metavar="CAPABILITY",
+        help="fail before repo/provider access unless this runner provides the capability",
+    )
     parser.add_argument(
         "--provider",
         action="append",
@@ -1230,10 +1378,29 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.capabilities:
+        if args.recover_receipt or args.require_capability or args.step_json or args.command:
+            parser.error("--capabilities cannot be combined with recovery or mutation steps")
+        print(
+            json.dumps(
+                {"schema": CAPABILITIES_SCHEMA, "capabilities": list(RUNNER_CAPABILITIES)},
+                sort_keys=True,
+            )
+        )
+        return 0
     try:
+        missing_capabilities = sorted(set(args.require_capability) - set(RUNNER_CAPABILITIES))
+        if missing_capabilities:
+            raise ConfigurationError(
+                "runner lacks required capabilities: " + ", ".join(missing_capabilities)
+            )
         if args.timeout <= 0:
             raise ConfigurationError("--timeout must be greater than zero")
-        steps = parse_steps(args.step_json, args.command)
+        if args.recover_receipt and (args.step_json or args.command):
+            raise ConfigurationError(
+                "--recover-receipt cannot be combined with mutation steps"
+            )
+        steps = [] if args.recover_receipt else parse_steps(args.step_json, args.command)
         repository = repository_identity(Path(args.repo).resolve())
         repo_root = Path(str(repository["root"]))
         policy_providers, policy_required, policy_home = _resolve_policy(
@@ -1245,6 +1412,44 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         providers = [*policy_providers, *ambient_providers]
         required = policy_required or args.require_provider or _env_requires_provider(os.environ)
+        if "acquisition-sealing-v1" in args.require_capability:
+            unsealed = [provider.label for provider in providers if provider.source_path is None]
+            if unsealed:
+                raise ConfigurationError(
+                    "acquisition-sealing capability requires every provider to be pinned; "
+                    "unsealed providers: " + ", ".join(unsealed)
+                )
+        if "receipt-bound-single-pinned-recovery-v1" in args.require_capability:
+            if len(policy_providers) != 1 or ambient_providers:
+                raise ConfigurationError(
+                    "receipt-bound recovery capability requires exactly one pinned "
+                    "policy provider and no ambient providers"
+                )
+        if args.recover_receipt:
+            if ambient_providers:
+                raise ConfigurationError(
+                    "recovery forbids ambient providers; use one pinned repository policy"
+                )
+            if len(policy_providers) != 1 or policy_providers[0].source_path is None:
+                raise ConfigurationError(
+                    "recovery requires exactly one pinned repository-policy provider"
+                )
+            request_id = _load_recovery_receipt(
+                Path(args.recover_receipt),
+                repository=repository,
+                provider=policy_providers[0],
+            )
+            receipt, exit_code = recover_transaction(
+                repository=repository,
+                provider=policy_providers[0],
+                request_id=request_id,
+                timeout=args.timeout,
+            )
+            receipt["repository_policy"] = policy_required
+            if policy_home is not None:
+                receipt["policy_home"] = str(policy_home)
+            print(json.dumps(receipt, sort_keys=True))
+            return exit_code
         if required and not providers:
             receipt = {
                 "schema": SCHEMA,

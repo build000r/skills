@@ -31,6 +31,8 @@ import time
 
 mode = sys.argv[1] if len(sys.argv) > 1 else os.environ.get("FAKE_PROVIDER_MODE", "allow")
 log_path = Path(sys.argv[2] if len(sys.argv) > 2 else os.environ["FAKE_PROVIDER_LOG"])
+state_path = log_path.with_suffix(".state.json")
+fail_end_path = log_path.with_suffix(".fail-end")
 request = json.load(sys.stdin)
 with log_path.open("a", encoding="utf-8") as handle:
     handle.write(
@@ -39,6 +41,8 @@ with log_path.open("a", encoding="utf-8") as handle:
                 "mode": mode,
                 "operation": request["operation"],
                 "root": request["repository"]["root"],
+                "request_id": request["request_id"],
+                "session": request["session"],
             }
         )
         + "\n"
@@ -54,6 +58,11 @@ response = {
 }
 
 if operation == "begin":
+    if mode == "stateful":
+        state_path.write_text(
+            json.dumps({"request_id": request["request_id"], "root": request["repository"]["root"]}),
+            encoding="utf-8",
+        )
     if mode == "timeout_begin":
         time.sleep(1)
     if mode == "begin_blocked":
@@ -70,6 +79,8 @@ if operation == "begin":
     elif mode == "begin_schema_session":
         response["schema"] = "wrong/v1"
 elif operation == "check":
+    if mode == "stateful" and not state_path.exists():
+        response.update(verdict="blocked", message="no held state")
     if mode == "check_blocked":
         response.update(verdict="blocked", message="lost authority")
     elif mode == "check_indeterminate":
@@ -79,6 +90,14 @@ elif operation == "check":
 elif operation == "end":
     if mode == "end_indeterminate":
         response.update(verdict="indeterminate", message="release not confirmed")
+    elif mode == "stateful" and fail_end_path.exists():
+        response.update(verdict="indeterminate", message="simulated uncertain release")
+    elif mode == "stateful" and state_path.exists():
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        if state != {"request_id": request["request_id"], "root": request["repository"]["root"]}:
+            response.update(verdict="blocked", message="recovery binding mismatch")
+        else:
+            state_path.unlink()
 
 print(json.dumps(response))
 '''
@@ -785,13 +804,43 @@ class WriterFenceTests(unittest.TestCase):
         """
 
         log = self.root / "rewrite-during-steps.log"
-        _, source = self._write_policy("allow", log)
+        module = self.repo / "held_module.py"
+        resource = self.repo / "held_resource.json"
+        module.write_text("VALUE = 1\n", encoding="utf-8")
+        resource.write_text('{"version":1}\n', encoding="utf-8")
+        policy, source = self._write_policy(
+            "allow",
+            log,
+            modules=[
+                {
+                    "name": "held_module",
+                    "source": module.name,
+                    "source_sha256": hashlib.sha256(module.read_bytes()).hexdigest(),
+                }
+            ],
+            resources=[
+                {
+                    "name": "held_resource",
+                    "source": resource.name,
+                    "source_sha256": hashlib.sha256(resource.read_bytes()).hexdigest(),
+                }
+            ],
+            resource_args=["{resource:held_resource}"],
+        )
         pinned_digest = hashlib.sha256(source.read_bytes()).hexdigest()
         rewrite = [
             sys.executable,
             "-c",
-            "from pathlib import Path; Path(r'%s').write_text('# rewritten\\n', encoding='utf-8')"
-            % source,
+            (
+                "from pathlib import Path; "
+                "[(Path(p).write_text(v, encoding='utf-8')) for p, v in %r]"
+                % [
+                    (str(policy), "{}\n"),
+                    (str(source), "# rewritten\n"),
+                    (str(module), "VALUE = 2\n"),
+                    (str(resource), '{"version":2}\n'),
+                ]
+            ),
         ]
         completed, receipt, _ = self._run(providers=[], steps=[rewrite])
 
@@ -801,6 +850,9 @@ class WriterFenceTests(unittest.TestCase):
         self.assertEqual(self._operations(log), ["begin", "check", "end"])
         # The step really did invalidate the pin on disk.
         self.assertEqual(source.read_text(encoding="utf-8"), "# rewritten\n")
+        self.assertEqual(policy.read_text(encoding="utf-8"), "{}\n")
+        self.assertEqual(module.read_text(encoding="utf-8"), "VALUE = 2\n")
+        self.assertEqual(resource.read_text(encoding="utf-8"), '{"version":2}\n')
         self.assertNotEqual(hashlib.sha256(source.read_bytes()).hexdigest(), pinned_digest)
         # And every call executed the bytes verified at acquisition.
         acquisitions = receipt["provider_acquisitions"]
@@ -862,6 +914,182 @@ class WriterFenceTests(unittest.TestCase):
         self.assertEqual(receipt["provider_count"], 2)
         self.assertEqual(self._operations(policy_log), ["begin", "check", "end"])
         self.assertEqual(self._operations(ambient_log), ["begin", "check", "end"])
+
+    def test_capabilities_are_machine_readable_without_repo_or_step(self) -> None:
+        completed = subprocess.run(
+            [sys.executable, str(SCRIPT), "--capabilities"],
+            cwd=self.root,
+            check=False,
+            capture_output=True,
+            text=True,
+            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+            shell=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        payload = json.loads(completed.stdout)
+        self.assertEqual(payload["schema"], writer_fences.CAPABILITIES_SCHEMA)
+        self.assertEqual(payload["capabilities"], list(writer_fences.RUNNER_CAPABILITIES))
+        self.assertIn("acquisition-sealing-v1", payload["capabilities"])
+        self.assertIn("receipt-bound-single-pinned-recovery-v1", payload["capabilities"])
+
+    def test_required_capability_is_checked_inside_mutation_invocation(self) -> None:
+        log = self.root / "required-capability.log"
+        self._write_policy("allow", log)
+        baseline = self._fingerprint()
+        completed, receipt, marker = self._run(
+            providers=[], extra_args=["--require-capability", "future-capability-v9"]
+        )
+        self.assertEqual(completed.returncode, writer_fences.EXIT_USAGE)
+        self.assertIn("runner lacks required capabilities", str(receipt["message"]))
+        self.assertFalse(log.exists())
+        self.assert_fenced_without_change(completed, receipt, marker, baseline)
+
+    def test_recovery_capability_enforces_recoverable_provider_topology(self) -> None:
+        policy_log = self.root / "topology-policy.log"
+        ambient_log = self.root / "topology-ambient.log"
+        self._write_policy("allow", policy_log)
+        baseline = self._fingerprint()
+        completed, receipt, marker = self._run(
+            providers=[self._provider("allow", ambient_log)],
+            extra_args=[
+                "--require-capability",
+                "receipt-bound-single-pinned-recovery-v1",
+            ],
+        )
+        self.assertEqual(completed.returncode, writer_fences.EXIT_USAGE)
+        self.assertIn("requires exactly one pinned", str(receipt["message"]))
+        self.assertFalse(policy_log.exists())
+        self.assertFalse(ambient_log.exists())
+        self.assert_fenced_without_change(completed, receipt, marker, baseline)
+
+    def test_acquisition_sealing_capability_rejects_unpinned_provider(self) -> None:
+        policy_log = self.root / "sealed-policy.log"
+        ambient_log = self.root / "unsealed-ambient.log"
+        self._write_policy("allow", policy_log)
+        baseline = self._fingerprint()
+        completed, receipt, marker = self._run(
+            providers=[self._provider("allow", ambient_log)],
+            extra_args=["--require-capability", "acquisition-sealing-v1"],
+        )
+
+        self.assertEqual(completed.returncode, writer_fences.EXIT_USAGE)
+        self.assertEqual(receipt["outcome"], "configuration_error")
+        self.assertFalse(receipt["mutation_started"])
+        self.assertFalse(marker.exists())
+        self.assertFalse(policy_log.exists())
+        self.assertFalse(ambient_log.exists())
+        self.assert_fenced_without_change(completed, receipt, marker, baseline)
+
+    def test_receipt_bound_recovery_clears_state_and_repeats_idempotently(self) -> None:
+        log = self.root / "recovery.log"
+        self._write_policy("stateful", log)
+        fail_end = log.with_suffix(".fail-end")
+        fail_end.write_text("fail once\n", encoding="utf-8")
+        baseline = self._fingerprint()
+        failed, failed_receipt, _ = self._run(providers=[])
+        self.assertEqual(failed.returncode, writer_fences.EXIT_RELEASE_FAILED)
+        state_path = log.with_suffix(".state.json")
+        self.assertTrue(state_path.exists())
+        receipt_path = self.root / "failed-receipt.json"
+        receipt_path.write_text(json.dumps(failed_receipt), encoding="utf-8")
+        fail_end.unlink()
+        self._write_policy("allow", log)
+        wrong_provider = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT),
+                "--repo",
+                str(self.repo),
+                "--recover-receipt",
+                str(receipt_path),
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+            shell=False,
+        )
+        self.assertEqual(wrong_provider.returncode, writer_fences.EXIT_USAGE)
+        self.assertIn("provider identity does not match", wrong_provider.stdout)
+        self.assertTrue(state_path.exists())
+        self._write_policy("stateful", log)
+        baseline = self._fingerprint()
+        command = [
+            sys.executable,
+            str(SCRIPT),
+            "--repo",
+            str(self.repo),
+            "--recover-receipt",
+            str(receipt_path),
+        ]
+        completed = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+            shell=False,
+        )
+        receipt = json.loads(completed.stdout)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(receipt["outcome"], "recovered")
+        self.assertIs(receipt["mutation_started"], False)
+        self.assertFalse(state_path.exists())
+        self.assertEqual(self._fingerprint(), baseline)
+        repeated = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+            shell=False,
+        )
+        self.assertEqual(repeated.returncode, 0, repeated.stderr)
+        self.assertEqual(json.loads(repeated.stdout)["outcome"], "recovered")
+
+    def test_recovery_rejects_wrong_repository_receipt_without_invocation(self) -> None:
+        log = self.root / "wrong-repo-recovery.log"
+        self._write_policy("allow", log)
+        receipt_path = self.root / "wrong-repo-receipt.json"
+        receipt_path.write_text(
+            json.dumps(
+                {
+                    "schema": writer_fences.SCHEMA,
+                    "outcome": "release_failed_after_preflight",
+                    "release_verdict": "indeterminate",
+                    "transaction_id": "transaction-123",
+                    "provider_count": 1,
+                    "repository": {**writer_fences.repository_identity(self.repo), "root": "/wrong"},
+                    "provider_acquisitions": [
+                        {
+                            "provider": "repository-policy#0",
+                            "provider_identity_sha256": "0" * 64,
+                            "pinned": True,
+                            "digests": {},
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        completed = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT),
+                "--repo",
+                str(self.repo),
+                "--recover-receipt",
+                str(receipt_path),
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+            shell=False,
+        )
+        self.assertEqual(completed.returncode, writer_fences.EXIT_USAGE)
+        self.assertFalse(log.exists())
+        self.assertIn("does not match current repository", completed.stdout)
 
     def test_policy_home_fences_a_repository_that_declares_no_policy(self) -> None:
         log = self.root / "policy-home.log"

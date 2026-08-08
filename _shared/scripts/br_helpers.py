@@ -1237,11 +1237,34 @@ def render_workgraph(*, epic: Optional[str] = None, include_closed: bool = True)
             elif isinstance(child_data, dict):
                 issues.append(child_data.get("issue", child_data))
 
+    # A no-ragrets plan can intentionally consume an issue whose ownership
+    # parent remains another epic.  Intake scopes those nodes by the canonical
+    # plan label, so the generated workgraph must use the same union rather than
+    # silently omitting an external consumer from the handoff view.
+    if epic:
+        root = next((item for item in issues if str(item.get("id")) == epic), None)
+        if root is None:
+            try:
+                root = show_issue(epic)
+            except (subprocess.CalledProcessError, RuntimeError):
+                root = None
+        plan_labels = [
+            label for label in ((root or {}).get("labels") or [])
+            if str(label).startswith(f"{PLAN_LABEL_PREFIX}:")
+        ]
+        if len(plan_labels) == 1:
+            try:
+                issues.extend(list_issues(labels=(plan_labels[0],), include_closed=include_closed))
+            except subprocess.CalledProcessError:
+                pass
+
     rich_issues = []
     seen: set[str] = set()
     for issue in issues:
         iid = str(issue.get("id", ""))
-        if iid and iid not in seen:
+        if iid and iid in seen:
+            continue
+        if iid:
             try:
                 issue = {**issue, **show_issue(iid)}
             except (subprocess.CalledProcessError, RuntimeError):

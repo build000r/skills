@@ -510,6 +510,43 @@ class RenderWorkgraphFallbackTests(unittest.TestCase):
         self.assertIn("skills-epic-001", rendered)
         self.assertIn("skills-child-001", rendered)
 
+    def test_render_workgraph_unions_plan_labeled_external_nodes(self) -> None:
+        root = {
+            "id": "skills-epic-001",
+            "title": "Epic",
+            "status": "open",
+            "labels": ["plan:repo-atlas", "plan-role:root"],
+        }
+        child = {
+            "id": "skills-child-001",
+            "title": "Child",
+            "status": "open",
+            "labels": ["plan:repo-atlas", "plan-role:execution-leaf"],
+        }
+        external = {
+            "id": "skills-external-001",
+            "title": "External consumer",
+            "status": "open",
+            "labels": ["plan:repo-atlas", "plan-role:integration"],
+        }
+
+        def fake_list_issues(**kwargs):
+            if kwargs.get("parent") == "skills-epic-001":
+                return [root, child]
+            if kwargs.get("labels") == ("plan:repo-atlas",):
+                return [root, child, external]
+            return []
+
+        issues = {item["id"]: item for item in (root, child, external)}
+        with mock.patch.object(MODULE, "list_issues", side_effect=fake_list_issues), \
+             mock.patch.object(MODULE, "show_issue", side_effect=lambda iid: issues[iid]):
+            rendered = MODULE.render_workgraph(epic="skills-epic-001")
+
+        self.assertEqual(rendered.count("skills-external-001"), 1)
+        self.assertEqual(rendered.count("skills-epic-001"), 1)
+        self.assertEqual(rendered.count("skills-child-001"), 1)
+        self.assertIn("External consumer", rendered)
+
     def test_render_workgraph_without_epic(self) -> None:
         minimal = {
             "id": "skills-solo-001",

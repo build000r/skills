@@ -765,6 +765,9 @@ class AcceptedPlanIntakeTests(unittest.TestCase):
                 self.assertFalse(result["ok"])
                 self.assertFalse(result["handoff_ready"])
                 self.assertIn("plan_state_not_handoff_ready", reasons(result))
+                self.assertEqual(result["admitted"], [])
+                self.assertEqual(result["deferred"], [])
+                self.assertEqual(result["serialization_edges"], [])
                 repair = result["rejected"][0]["repair"]
                 self.assertIn("plan-state:handoff-ready", repair)
 

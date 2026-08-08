@@ -682,6 +682,12 @@ def plan_admission(
             continue
         admitted.append(node)
 
+    # A strict handoff request is an execution gate, not merely a diagnostic.
+    # Never expose dispatchable work when the accepted root is absent, duplicate,
+    # or not handoff-ready; callers that intentionally inspect drafts must opt in
+    # through require_handoff_ready=False / --allow-draft-plan.
+    if require_handoff_ready and not result["handoff_ready"]:
+        admitted = []
     concurrent, deferred, edges = _serialize_write_scopes(
         admitted, materialize=materialize_serialization
     )

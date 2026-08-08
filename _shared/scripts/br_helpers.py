@@ -1077,6 +1077,18 @@ def hydrate_node_contract(issue_id: str, *, include_comments: bool = True) -> di
         "stop_rules": _parse_list_block(issue.get("design"), "stop_rules"),
         "non_goals": _parse_list_block(issue.get("design"), "non_goals"),
         "global_constraints": _parse_list_block(issue.get("design"), "global_constraints"),
+        "completion_protocol": _parse_list_block(issue.get("design"), "completion_protocol"),
+        "worker_write_authority": _parse_list_block(issue.get("design"), "worker_write_authority"),
+        "apply_step_json": _parse_list_block(issue.get("design"), "apply_step_json"),
+        "close_step_json": _parse_list_block(issue.get("design"), "close_step_json"),
+        "transaction_driver": _parse_scalar(issue.get("design"), "transaction_driver"),
+        "patch_artifact": _parse_scalar(issue.get("design"), "patch_artifact"),
+        "result_artifact": _parse_scalar(issue.get("design"), "result_artifact"),
+        "apply_receipt": _parse_scalar(issue.get("design"), "apply_receipt"),
+        "apply_log": _parse_scalar(issue.get("design"), "apply_log"),
+        "close_receipt": _parse_scalar(issue.get("design"), "close_receipt"),
+        "close_log": _parse_scalar(issue.get("design"), "close_log"),
+        "policy_home": _parse_scalar(issue.get("design"), "policy_home"),
         "done_when": _lines_from_text(issue.get("acceptance_criteria")),
         "validate_cmds": _parse_list_block(issue.get("notes"), "validate"),
     }
@@ -1116,6 +1128,44 @@ def render_node_brief(issue_id: str) -> str:
         items = [str(value) for value in values if str(value).strip()]
         return "\n".join(f"- {item}" for item in items) if items else f"- {fallback}"
 
+    protected_completion = bool(contract.get("transaction_driver") and contract.get("close_step_json"))
+    completion_rules = (
+        [
+            "- Do not call `br close` or `br update` directly; follow the protected completion contract above through its transaction driver",
+            "- Pass validation only through the rendered apply step JSON to the transaction driver; never execute apply step JSON or close step JSON directly",
+            "- For apply nodes, invoke the transaction driver in apply mode with the rendered repo, patch, policy home, apply receipt/log, close receipt/log, declared write targets, current base OID, and every rendered step JSON",
+            "- For evidence/review nodes without apply step JSON, invoke the transaction driver with `--close-only` and the rendered close step/receipt/log",
+            "- On any apply, validation, receipt, release, recovery, or close failure: stop without retrying mutation or closing the node and report the exact artifact",
+        ]
+        if protected_completion
+        else [
+            "- On done: `br close <id> --reason \"<summary>\" --suggest-next --json`",
+            "- On blocked: `br update <id> -s blocked --notes \"<reason>\"`",
+        ]
+    )
+    protected_lines = []
+    if protected_completion:
+        protected_lines = [
+            "",
+            "Protected completion contract:",
+            f"Transaction driver: {contract.get('transaction_driver') or 'None'}",
+            f"Patch artifact: {contract.get('patch_artifact') or 'None'}",
+            f"Result artifact: {contract.get('result_artifact') or 'None'}",
+            f"Policy home: {contract.get('policy_home') or 'None'}",
+            f"Apply receipt: {contract.get('apply_receipt') or 'None'}",
+            f"Apply log: {contract.get('apply_log') or 'None'}",
+            f"Close receipt: {contract.get('close_receipt') or 'None'}",
+            f"Close log: {contract.get('close_log') or 'None'}",
+            "Worker write authority:",
+            bullets(contract.get("worker_write_authority") or []),
+            "Apply step JSON:",
+            bullets(contract.get("apply_step_json") or []),
+            "Close step JSON:",
+            bullets(contract.get("close_step_json") or []),
+            "Completion protocol:",
+            bullets(contract.get("completion_protocol") or []),
+        ]
+
     return "\n".join([
         "You own one divide-and-conquer node inside an execution swarm.",
         "",
@@ -1151,6 +1201,7 @@ def render_node_brief(issue_id: str) -> str:
         "",
         "Global constraints:",
         bullets(contract.get("global_constraints") or []),
+        *protected_lines,
         "",
         "Rules:",
         "- export BR_AGENT_NAME=<role> BR_HARNESS=<harness> BR_MODEL=<model> before any br call",
@@ -1158,9 +1209,8 @@ def render_node_brief(issue_id: str) -> str:
         "- Work only inside the repo and inside your declared write scope",
         "- Do not commit; the integration wave commits everything together",
         "- If you need edits outside `writes`, do NOT close the issue; report the smallest graph change needed",
-        "- Run your validate commands before declaring success",
-        "- On done: `br close <id> --reason \"<summary>\" --suggest-next --json`",
-        "- On blocked: `br update <id> -s blocked --notes \"<reason>\"`",
+        *( [] if protected_completion else ["- Run your validate commands before declaring success"] ),
+        *completion_rules,
         "",
     ])
 

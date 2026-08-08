@@ -35,6 +35,22 @@ ISSUE = {
         "expected_assignee: worker-1",
     ]),
     "design": "\n".join([
+        "patch_artifact: /tmp/run/patches/skills-exec-001.patch",
+        "result_artifact: /tmp/run/results/skills-exec-001_RESULT.md",
+        "apply_receipt: /tmp/run/receipts/skills-exec-001.apply.json",
+        "apply_log: /tmp/run/receipts/skills-exec-001.apply.log",
+        "close_receipt: /tmp/run/receipts/skills-exec-001.close.json",
+        "close_log: /tmp/run/receipts/skills-exec-001.close.log",
+        "transaction_driver: /tmp/run/capture_writer_transaction.py",
+        "policy_home: /policy",
+        "worker_write_authority:",
+        "  - /tmp/run/results/skills-exec-001_RESULT.md",
+        "apply_step_json:",
+        "  - [\"git\",\"apply\",\"/tmp/run/patches/skills-exec-001.patch\"]",
+        "close_step_json:",
+        "  - [\"br\",\"close\",\"skills-exec-001\"]",
+        "completion_protocol:",
+        "  - Validate and close through the transaction driver",
         "writes:",
         "  - divide-and-conquer/SKILL.md",
         "stop_rules:",
@@ -293,6 +309,18 @@ class BrHelpersTests(unittest.TestCase):
         self.assertEqual(contract["run_dir"], "/tmp/run")
         self.assertEqual(contract["expected_assignee"], "worker-1")
         self.assertEqual(contract["global_constraints"], ["No remote push"])
+        self.assertEqual(contract["result_artifact"], "/tmp/run/results/skills-exec-001_RESULT.md")
+        self.assertEqual(contract["patch_artifact"], "/tmp/run/patches/skills-exec-001.patch")
+        self.assertEqual(contract["apply_receipt"], "/tmp/run/receipts/skills-exec-001.apply.json")
+        self.assertEqual(contract["apply_log"], "/tmp/run/receipts/skills-exec-001.apply.log")
+        self.assertEqual(contract["close_receipt"], "/tmp/run/receipts/skills-exec-001.close.json")
+        self.assertEqual(contract["close_log"], "/tmp/run/receipts/skills-exec-001.close.log")
+        self.assertEqual(contract["transaction_driver"], "/tmp/run/capture_writer_transaction.py")
+        self.assertEqual(contract["policy_home"], "/policy")
+        self.assertEqual(contract["worker_write_authority"], ["/tmp/run/results/skills-exec-001_RESULT.md"])
+        self.assertEqual(contract["apply_step_json"], ['["git","apply","/tmp/run/patches/skills-exec-001.patch"]'])
+        self.assertEqual(contract["close_step_json"], ['["br","close","skills-exec-001"]'])
+        self.assertEqual(contract["completion_protocol"], ["Validate and close through the transaction driver"])
         self.assertEqual(contract["depends_on"], ["skills-epic-001"])
 
     def test_render_node_brief_uses_hydrated_contract(self) -> None:
@@ -309,6 +337,71 @@ class BrHelpersTests(unittest.TestCase):
         self.assertIn("Expected Beads assignee: worker-1", brief)
         self.assertIn("Repo path: /repo", brief)
         self.assertIn("- No remote push", brief)
+        self.assertIn("Protected completion contract:", brief)
+        self.assertIn("Transaction driver: /tmp/run/capture_writer_transaction.py", brief)
+        self.assertIn("Result artifact: /tmp/run/results/skills-exec-001_RESULT.md", brief)
+        self.assertIn("Patch artifact: /tmp/run/patches/skills-exec-001.patch", brief)
+        self.assertIn("Apply receipt: /tmp/run/receipts/skills-exec-001.apply.json", brief)
+        self.assertIn("Apply log: /tmp/run/receipts/skills-exec-001.apply.log", brief)
+        self.assertIn("Close receipt: /tmp/run/receipts/skills-exec-001.close.json", brief)
+        self.assertIn("Close log: /tmp/run/receipts/skills-exec-001.close.log", brief)
+        self.assertIn('- ["git","apply","/tmp/run/patches/skills-exec-001.patch"]', brief)
+        self.assertIn('- ["br","close","skills-exec-001"]', brief)
+        self.assertIn("Do not call `br close` or `br update` directly", brief)
+        self.assertIn("Pass validation only through the rendered apply step JSON", brief)
+        self.assertIn("invoke the transaction driver in apply mode", brief)
+        self.assertNotIn("Run your validate commands before declaring success", brief)
+        self.assertNotIn("On done: `br close", brief)
+
+    def test_render_node_brief_preserves_legacy_direct_completion(self) -> None:
+        legacy = dict(ISSUE)
+        legacy["design"] = "\n".join([
+            "writes:",
+            "  - divide-and-conquer/SKILL.md",
+            "stop_rules:",
+            "  - Stop if br cannot expose rich fields",
+            "non_goals:",
+            "  - Do not edit unrelated skills",
+            "global_constraints:",
+            "  - No remote push",
+        ])
+        with mock.patch.object(MODULE, "show_issue", return_value=legacy), mock.patch.object(
+            MODULE, "issue_comments", return_value=[]
+        ):
+            brief = MODULE.render_node_brief("skills-exec-001")
+
+        self.assertNotIn("Protected completion contract:", brief)
+        self.assertIn("On done: `br close", brief)
+        self.assertIn("On blocked: `br update", brief)
+        self.assertIn("Run your validate commands before declaring success", brief)
+
+    def test_render_node_brief_routes_read_only_close_through_driver(self) -> None:
+        read_only = dict(ISSUE)
+        read_only["design"] = "\n".join([
+            "result_artifact: /tmp/run/results/review_RESULT.md",
+            "close_receipt: /tmp/run/receipts/review.close.json",
+            "close_log: /tmp/run/receipts/review.close.log",
+            "transaction_driver: /tmp/run/capture_writer_transaction.py",
+            "worker_write_authority:",
+            "  - /tmp/run/results/review_RESULT.md",
+            "close_step_json:",
+            "  - [\"br\",\"close\",\"review\"]",
+            "completion_protocol:",
+            "  - Validate read-only evidence then close through the driver",
+            "writes:",
+            "  - /tmp/run/results/review_RESULT.md",
+            "global_constraints:",
+            "  - No remote push",
+        ])
+        with mock.patch.object(MODULE, "show_issue", return_value=read_only), mock.patch.object(
+            MODULE, "issue_comments", return_value=[]
+        ):
+            brief = MODULE.render_node_brief("skills-exec-001")
+
+        self.assertIn("Protected completion contract:", brief)
+        self.assertIn("invoke the transaction driver with `--close-only`", brief)
+        self.assertNotIn("On done: `br close", brief)
+        self.assertNotIn("Run your validate commands before declaring success", brief)
 
     def test_render_node_brief_fails_when_dispatch_fields_are_missing(self) -> None:
         incomplete = dict(ISSUE)

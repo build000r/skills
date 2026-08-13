@@ -13,15 +13,18 @@ from typing import Any
 PLAN_PREFIX = "plan:"
 ROLE_PREFIX = "plan-role:"
 STATE_PREFIX = "plan-state:"
+EVIDENCE_PREFIX = "plan-evidence:"
 ROOT_ROLE = "plan-role:root"
 BRANCH_ROLE = "plan-role:branch"
+HISTORICAL_ROLE = "plan-role:historical-evidence"
+HISTORICAL_EVIDENCE = "plan-evidence:historical-only"
 GROUPING_ROLES = {ROOT_ROLE, BRANCH_ROLE}
 DISPATCHABLE_ROLES = {
     "plan-role:execution-leaf",
     "plan-role:integration",
     "plan-role:review",
 }
-ALLOWED_ROLES = GROUPING_ROLES | DISPATCHABLE_ROLES
+ALLOWED_ROLES = GROUPING_ROLES | DISPATCHABLE_ROLES | {HISTORICAL_ROLE}
 ALLOWED_ROOT_STATES = {
     "plan-state:draft",
     "plan-state:synthesized",
@@ -214,6 +217,19 @@ def intake_plan(
             role = role_labels[0]
         roles_by_id[issue_id] = role
 
+        evidence_labels = _prefixed(labels, EVIDENCE_PREFIX)
+        if role == HISTORICAL_ROLE:
+            if evidence_labels != [HISTORICAL_EVIDENCE]:
+                defects.append(
+                    f"{issue_id}: historical evidence requires exactly "
+                    f"{HISTORICAL_EVIDENCE}; found {evidence_labels}"
+                )
+        elif evidence_labels:
+            defects.append(
+                f"{issue_id}: plan-evidence labels require {HISTORICAL_ROLE}; "
+                f"found {evidence_labels}"
+            )
+
         state_labels = _prefixed(labels, STATE_PREFIX)
         if role == ROOT_ROLE:
             root_states_by_id[issue_id] = state_labels
@@ -266,12 +282,15 @@ def intake_plan(
 
     candidate_frontier: list[dict[str, str]] = []
     excluded_ready_grouping_ids: list[str] = []
+    excluded_ready_historical_ids: list[str] = []
     for ready_id in ready_ids:
         role = roles_by_id.get(ready_id)
         if role in DISPATCHABLE_ROLES:
             candidate_frontier.append({"id": ready_id, "role": role})
         elif role in GROUPING_ROLES:
             excluded_ready_grouping_ids.append(ready_id)
+        elif role == HISTORICAL_ROLE:
+            excluded_ready_historical_ids.append(ready_id)
 
     gate_reasons: list[str] = []
     if defects:
@@ -320,6 +339,12 @@ def intake_plan(
         ),
         "raw_ready_ids": ready_ids,
         "excluded_ready_grouping_ids": excluded_ready_grouping_ids,
+        "excluded_historical_ids": sorted(
+            issue_id
+            for issue_id, role in roles_by_id.items()
+            if role == HISTORICAL_ROLE
+        ),
+        "excluded_ready_historical_ids": excluded_ready_historical_ids,
         "candidate_frontier": candidate_frontier,
         "admitted_frontier": admitted_frontier,
         "dispatchable": dispatchable,

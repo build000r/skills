@@ -146,7 +146,7 @@ landed in the intended checkout before counting the node in flight.
 When a skill can choose models, record the route and authority separately in
 the Bead or dispatch contract before launch. Route NTM runtime orchestration —
 frontier reads, claims of accepted leaves, dispatch, tending, harvest, and
-convergence — to a Grok 4.5 plugin controller. Runtime orchestration is not
+convergence — to a Grok 4.6 plugin controller. Runtime orchestration is not
 planning: Grok must escalate decomposition, dependency design, acceptance-
 criteria authorship, plan synthesis, architecture, ambiguity, and final
 acceptance. Route those planning/authority roles, plus no-ragrets bead
@@ -157,12 +157,12 @@ review, commit acceptance, and final-say review to Codex `gpt-5.6-sol` at
 when Grok/another model is demonstrably struggling. If SOL is unavailable,
 route the same planning/authority roles to Codex
 `gpt-5.6-terra` with `ultra` effort. Route design-related
-execution nodes to Grok 4.5 design/UX through `--grok=N:grok-4.5` and record the
+execution nodes to Grok 4.6 design/UX through `--grok=N:grok-4.6` and record the
 route. Use Codex `gpt-5.6-sol` with `max` for pivotal route-blocker triage;
 ordinary authority remains SOL medium. Design-related includes UI/UX, visual design, design systems,
 CSS/tokens, responsive behavior, screenshots, visual parity, product
 interaction copy, and fresh-eyes review of those surfaces. For bounded
-task-runner work, prefer Grok 4.5 when the owning Bead names the exact
+task-runner work, prefer Grok 4.6 when the owning Bead names the exact
 write scope or read-only artifact, validation, stop rules, review owner, and
 final authority. Good task-runner work includes cwd/workflow routing, skill-tag
 extraction, cleaned-request drafting, read-only clerk/preflight work,
@@ -170,17 +170,17 @@ mechanical scripting, fixtures/docs cleanup, generated-command cleanup,
 classification into a declared artifact, and scoped commit batching. Use the
 workspace `voice-to-text` Grok dispatcher for cheap routing/preflight, the NTM
 Grok plugin when interactive pane preflight passes, Swimmers or the local
-Grok 4.5 route for maintained task-runner sessions, and direct headless Grok
-with a prompt file for bounded one-shots. If Grok 4.5 stalls, emits no
+Grok 4.6 route for maintained task-runner sessions, and direct headless Grok
+with a prompt file for bounded one-shots. If Grok 4.6 stalls, emits no
 artifact, fails validation, leaves scope, or needs judgment it does not own,
 escalate authority questions to Codex `gpt-5.6-sol` max; route design/UX work
-to Grok 4.5 design/UX and record the route failure.
+to Grok 4.6 design/UX and record the route failure.
 
 ### Grok routing — NTM orchestrator/plugin preferred, sidecar backup
 
 **Preferred (interactive swarms):** NTM agent plugin at `~/.config/ntm/agents/grok.toml`.
-Every actively orchestrated NTM swarm should reserve one Grok 4.5 plugin pane
-as its runtime controller. The installed plugin is already Grok 4.5; spawn with
+Every actively orchestrated NTM swarm should reserve one Grok 4.6 plugin pane
+as its runtime controller. The installed plugin is already Grok 4.6; spawn with
 `ntm spawn <session> --grok=1`
 (alias `--grk`). Send with
 `ntm send <session> --panes=N` — there is no `ntm send --grok`. Agents must
@@ -214,10 +214,10 @@ sidecar/task-runner lanes and reconcile the output back into the owning workflow
   directly with a prompt file and capture the response into the caller's normal
   artifact path. Keep it read-only unless the caller has an explicit write
   scope and validation contract.
-- **Grok 4.5 task-runner lane:** for narrow writer tasks such as mechanical
+- **Grok 4.6 task-runner lane:** for narrow writer tasks such as mechanical
   scripts, fixtures, docs cleanup, generated command cleanup, classification
   artifacts, deterministic codemods, or `$commit` batching, prefer the locally
-  configured Grok 4.5 route when the Bead names exact writes, validation
+  configured Grok 4.6 route when the Bead names exact writes, validation
   commands, stop rules, a Codex `gpt-5.6-sol` review owner, and final acceptance
   authority. Composer/Grok may create a commit in a scoped `$commit` node, but
   Codex `gpt-5.6-sol` owns acceptance and any amend or follow-up decision.
@@ -241,12 +241,12 @@ Record the route in the caller's dispatch contract:
 
 ```text
 Model route: Grok NTM plugin       # preferred interactive swarm pane
-Model route: Grok 4.5 NTM orchestrator  # runtime controller; never planning
+Model route: Grok 4.6 NTM orchestrator  # runtime controller; never planning
 Model route: Grok dispatcher       # backup pure routing/preflight
 Model route: Grok CLI sidecar      # backup bounded read-only analysis/ideation
-Model route: Grok CLI writer       # legacy narrow writer; prefer Grok 4.5 task-runner
-Model route: Grok 4.5 task-runner  # narrow writer or commit-runner node
-Model route: Grok 4.5 design/UX    # design/UI/visual/fresh-eyes design work
+Model route: Grok CLI writer       # legacy narrow writer; prefer Grok 4.6 task-runner
+Model route: Grok 4.6 task-runner  # narrow writer or commit-runner node
+Model route: Grok 4.6 design/UX    # design/UI/visual/fresh-eyes design work
 Model route: Codex gpt-5.6-sol medium  # ordinary planning and authority
 Model route: Codex gpt-5.6-sol max escalation  # pivotal planning or another model struggling
 Model route: Codex gpt-5.6-terra ultra fallback  # same authority roles when SOL is unavailable

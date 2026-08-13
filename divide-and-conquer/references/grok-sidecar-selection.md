@@ -1,24 +1,24 @@
 # Grok Sidecar Task Selection
 
-Use this reference when a divide-and-conquer run can use Grok 4.5
+Use this reference when a divide-and-conquer run can use Grok 4.6
 as a bounded task runner without turning that lane into an unsupervised
 implementation or review owner.
 
 ## Default Posture
 
-Grok 4.5 is a task-runner lane, not an authority lane. Route it through the
+Grok 4.6 is a task-runner lane, not an authority lane. Route it through the
 NTM Grok plugin when interactive pane preflight passes; otherwise use the shared
 dispatcher, a Swimmers hidden session, a direct headless prompt-file one-shot,
-or the locally configured Grok 4.5 task-runner lane. Reconcile all output
+or the locally configured Grok 4.6 task-runner lane. Reconcile all output
 through Beads and the normal result artifact.
 
-Prefer Grok 4.5 when the work is cheap to verify, read-only by default or
+Prefer Grok 4.6 when the work is cheap to verify, read-only by default or
 scoped to exact files, and useful even when the output is only a rough first
-pass. Grok 4.5 is the preferred runner for narrow writer tasks when the
+pass. Grok 4.6 is the preferred runner for narrow writer tasks when the
 Bead names exact files, validation, stop rules, a stronger-model review owner,
-and final authority. Avoid Grok 4.5 when the work needs trusted final
+and final authority. Avoid Grok 4.6 when the work needs trusted final
 judgment, secret-bearing access, broad writes, or architecture authority. Use
-the dedicated Grok 4.5 design/UX route for UI taste, visual parity, interaction
+the dedicated Grok 4.6 design/UX route for UI taste, visual parity, interaction
 copy, and design-system review, with Codex retaining final acceptance
 authority. If the runner stalls, produces no artifact, fails validation, edits
 outside scope, or asks for a decision it does not own, escalate authority
@@ -90,10 +90,10 @@ Use these tiers when deciding how much autonomy to give Grok:
 | G0 router | cwd, skill tags, prompt cleanup | read-only, no tools beyond search | lead inspects output before dispatch |
 | G1 evidence sidecar | inventories, doc audits, candidate file lists | read-only shell/search | artifact plus reproducible commands |
 | G2 task-runner | mechanical scripts, docs, fixtures, deterministic codemods, commit batching | explicit write scope only | diff/commit plan reviewed by Codex gpt-5.6-sol and validation rerun |
-| G3 never | secrets, deploys, final authority, architecture | none | route ordinary authority to Codex gpt-5.6-sol medium and pivotal/failed-model escalation to SOL max; route UI/UX and visual review to Grok 4.5 design/UX |
+| G3 never | secrets, deploys, final authority, architecture | none | route ordinary authority to Codex gpt-5.6-sol medium and pivotal/failed-model escalation to SOL max; route UI/UX and visual review to Grok 4.6 design/UX |
 
 Default fuzzy or exploratory work to G0/G1. When a Bead is already clear and
-task-runner safe, default that execution node to Grok 4.5 rather than a
+task-runner safe, default that execution node to Grok 4.6 rather than a
 smarter model doing clerk work. G2 requires exact files, an easy revert path,
 deterministic validation, stop rules, and Codex `gpt-5.6-sol` review before final
 acceptance. A G2 `$commit` node may create the commit, but Codex `gpt-5.6-sol` still
@@ -279,7 +279,7 @@ CLI-invocation gotcha worth remembering (cost ~4 retries this session):
 ## Current Routing Notes
 
 When a live run has multiple NTM panes writing in the same git worktree, do not
-use Grok 4.5 as an implementation or integration sidecar for broad code
+use Grok 4.6 as an implementation or integration sidecar for broad code
 changes. The useful Grok lane in that situation is G0/G1, plus preferred G2
 task-runner nodes when Beads prove non-overlapping writes and a Codex `gpt-5.6-sol`
 review node owns acceptance. Examples: clean up dispatch prompts, identify
@@ -327,7 +327,7 @@ lead-verified, not Grok self-reports.
 
 ### 2026-06-13 — sbp epic divide-and-conquer round (legacy Claude lead + Grok sidecars)
 
-> **Note (2026-07):** This entry records a historical run. Current Grok CLI default model is `grok-4.5` (replaces `grok-composer-2.5-fast`).
+> **Note (2026-07):** This entry records a historical run. Current Grok CLI default model is `grok-4.6` (replaces `grok-composer-2.5-fast`).
 
 Two **G2 commit-runner** tasks, both clean PASS:
 
@@ -381,7 +381,7 @@ cass search "grok prompt-file always-approve dcg fwc MCP spawn failed shell ok" 
 
 ### 2026-06-14 — portfolio autonomous-burndown run (legacy Claude NTM lead, grok-composer-2.5-fast sidecar)
 
-> **Note (2026-07):** This entry records a historical run. Current Grok CLI default model is `grok-4.5` (replaces `grok-composer-2.5-fast`).
+> **Note (2026-07):** This entry records a historical run. Current Grok CLI default model is `grok-4.6` (replaces `grok-composer-2.5-fast`).
 
 **Invocation gotcha (record this — it cost ~5 probe cycles).** In this devbox session the *only* reliable headless one-shot is the documented `--prompt-file` form. The `--output-format plain|json` top-level path **fails silently**: `grok --output-format plain "prompt"` returns `rc=1` with **empty stdout, empty stderr, and an empty `--debug-file`** — no error surfaced. `grok agent stdio` is a JSON-RPC channel (rejects a plain-text line: `failed to parse incoming message: expected value at line 1 column 1`). `grok agent headless` is the WebSocket-relay lane (needs relay/leader infra). Auth itself was fine throughout (`grok models` → "logged in with grok.com", default `grok-composer-2.5-fast`). **Working command:**
 

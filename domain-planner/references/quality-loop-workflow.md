@@ -57,7 +57,7 @@ When `/divide-and-conquer` selects Codex as the worker transport and the
 ```
 
 If GPT-5.6 SOL is unavailable, rerun the same assessor with
-`--model gpt-5.6-terra --effort ultra`. The Grok 4.5 NTM controller may launch
+`--model gpt-5.6-terra --effort ultra`. The Grok 4.6 NTM controller may launch
 and tend this assessor but never substitutes its own planning judgment.
 SOL uses `medium` by default. For pivotal/high-consequence planning or after
 another model has struggled, rerun SOL with `--effort max`; do not select Terra

@@ -39,6 +39,13 @@ Do not change or omit that prefix.
 - At least 2 different agent CLIs: `cc` (Claude Code), `cod` (Codex),
   `gemini`, or Grok CLI as a sidecar through Swimmers/direct headless Grok
 - Target vault must have a `CLAUDE.md` schema and 10+ concept pages in `_concepts/`
+- **A local checkout of the target vault.** Forging writes back into the vault
+  (concept pages, exclusion ledger, `_sources/notes/`, wizard artifacts), so it
+  cannot run from a checkout-less machine. The `sbp wiki` central front door
+  (contract `wiki-central-sbp-v1` in the wiki skill) is read-only — use it only
+  for preliminary reads such as checking a vault's concept count or freshness
+  (`sbp wiki status --json`, `sbp wiki search`) before deciding where to run
+  the forge; the duel and file-back require the checkout.
 
 ## Pre-Flight
 

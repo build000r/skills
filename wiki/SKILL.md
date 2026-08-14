@@ -73,8 +73,105 @@ Vaults are resolved through the operator-wide registry at `~/repos/skillbox-conf
 2. **Implicit by `cwd`** — if the current working directory is inside any per-client overlay's `wikis[].path`, use that vault.
 3. **`defaults.default_vault`** — fall back to the registry's default vault (resolved through the same client-overlay lookup).
 4. **Legacy fallback** — if no registry exists, use `content/research/` relative to cwd.
+5. **Central read-only** — if no registry entry matches *and* there is no local vault on this machine (a checkout-less box), fall back to the central read-serving clone via `sbp wiki` (see "Central Front Door" below). Report the degraded posture explicitly in the closeout: reads only, no writes, content only as fresh as the serving copy's last `git pull`.
 
-If the registry exists, prefer it. If the resolved path has no `CLAUDE.md`, this skill cannot operate — the schema must be written first.
+If the registry exists, prefer it. If the resolved path has no `CLAUDE.md`, this skill cannot operate — the schema must be written first (steps 1–4). Step 5 is the checkout-less exception: the central clone carries the vault's `CLAUDE.md`, readable via `sbp wiki page CLAUDE` / `sbp wiki raw`.
+
+### Central Front Door
+
+<!-- operator-contract: wiki-central-sbp-v1 -->
+
+The `buildooor` vault also has a central **read-serving** clone on
+`portfolio-devbox` at `/srv/skillbox/repos/buildooor/web/content/research`.
+Which posture applies depends only on whether this machine has a checkout.
+
+**With a checkout (laptop, or the VPS itself) — primary mode, unchanged.**
+Operate on the local vault exactly as the rest of this skill documents: full
+read/write, ingest/query/lint/exclude/migrate, ordinary file ops and git.
+Nothing below changes local operation, and local work must not be routed
+through the front door.
+
+**Without a checkout — read-only.** Reads go through `sbp wiki`
+(`status`, `search`, `page`, `log`, `list`, `raw` — all read-only). On a remote
+box with `SBP_REMOTE` set, the same reads are `GET /v1/wiki/{status,search,page,log}`
+served by sbpd. **Writes are out of scope in v1.** Do not invent a write path
+and do not try to `raw` your way into one. Surface the blocker plus the exact
+resume condition: either obtain a checkout of `buildooor` (then the primary
+mode above applies), or wait for the orb proposal lane — bead
+`skillbox-vecn.7`, a provenance-bound proposal inbox that files quarantined
+`_sources/notes/` candidates for host-side ingest under the vault's normal
+gates.
+
+`buildooor` is the only vault with a central clone today. Every other
+registered vault reports typed `"central": "absent"` (`central_absent`,
+exit 4 on verbs that need the clone), so on a checkout-less machine those
+vaults are simply unavailable — say so rather than substituting another vault.
+
+#### Envelope / jq mapping
+
+`sbp wiki --json` prints the `wiki-central-sbp-v1` routing-proof envelope with
+the verb payload nested under **`.result`**. Native recipes need the `.result`
+prefix; do not expect top-level `.hits`.
+
+| native (rg / file read) | front-door `sbp wiki` jq |
+|---|---|
+| `.data.path.text` | `.result.hits[].path` (vault-relative) |
+| `.data.line_number` | `.result.hits[].line` |
+| `.data.lines.text` | `.result.hits[].text` |
+| (count of match events) | `.result.total_matches` |
+| page body on disk | `.result.content` (`.result.candidates[]` when a slug is ambiguous) |
+| `log.md` sections | `.result.entries[]` |
+| `wikis.yaml` entries | `.result.wikis[]` |
+| per-vault status rows | `.result.vaults[]` |
+| passthrough stdout | `.result.stdout`, `.result.command_exit_code` |
+
+Routing proof rides at the **top level**, not under `.result`:
+`.index_host == "portfolio-devbox"`, `.default_targets_remote == true`,
+`.vault`, `.vault_path`, and a non-null `.vault_git_sha`. Freshness is also
+top-level: `.vault_commit_age_seconds`, `.last_fetch_age_seconds`,
+`.vault_git_sha`. Every response carries a self-describing `.envelope`, so
+`jq '.envelope'` re-derives this table (and the exit-code map) without guessing.
+
+#### Staleness rule
+
+The front door **never fetches and never writes**. Before treating central
+content as current, read `sbp wiki status --json` and check
+`.vault_commit_age_seconds` (age of the serving copy's HEAD commit) and
+`.last_fetch_age_seconds` (age of `<central.repo>/.git/FETCH_HEAD`; `null`
+means the clone has never fetched). `status` also reports `sha_match` against
+the local checkout when one exists. If freshness matters for the claim you are
+about to make, refresh with plain git over ssh. This is **ordinary git, not an
+sbp verb** — there is deliberately no `sbp wiki sync` (operator decision
+2026-08-14: no abstraction layer over git):
+
+```bash
+ssh skillbox@skillbox-portfolio-devbox \
+  'git -C /srv/skillbox/repos/buildooor pull --ff-only'
+```
+
+Publishing is the same story: commit and push by normal git from any checkout
+of `buildooor`, then refresh the serving copy with the line above.
+
+#### `raw` contract
+
+`sbp wiki raw --json -- <argv>` is a guarded read-only passthrough (allowlisted
+commands only — `cat`, `find`, `git`, `grep`, `head`, `ls`, `rg`, `stat`,
+`tail`, `wc`, with `git` restricted to read verbs), argv-exec'd on the central
+host with cwd pinned to the vault path. It is fail-closed: anything off the
+allowlist is refused with exit `77`, `.status == "rejected"`, and the current
+`.read_only_allowlist` in the payload — read that list instead of guessing.
+Otherwise `raw` returns the passthrough command's own exit status verbatim
+(an rg no-match exits 1), so branch on `.status` / `.result.command_exit_code`,
+never on the process exit alone. A non-zero passthrough exit is reported as
+`.status == "error"` with `.error == "raw_command_failed"` plus
+`command_exit_code` and a stderr snippet — distinct from the exit-77 refusal
+path.
+
+`page SLUG` accepts a page basename only — letters, digits, spaces, and
+`. _ - , ? ( ) +`; no `/`, no `..`, no leading dot. A path-shaped slug is
+refused before any remote call with typed `invalid_slug` (exit 2), and the
+central host independently realpath-checks that every resolved candidate stays
+inside the vault.
 
 ### Autoblog awareness (REQUIRED before any write or move)
 
@@ -509,6 +606,30 @@ For skill-contract edits, rerun:
 ```bash
 python3 skill-issue/scripts/quick_validate.py wiki
 ```
+
+<!-- begin: wiki-central-sbp-v1 assertions -->
+
+Central front-door contract (run from any machine with `sbp`):
+
+```bash
+# Central routing + non-empty read through the front door.
+sbp wiki search "skill-as-workflow" --json --limit 3 \
+  | jq -e '.status == "ok" and .index_host == "portfolio-devbox"
+      and .default_targets_remote == true
+      and (.vault_git_sha | type == "string")
+      and (.result.total_matches > 0)'
+
+# Writes stay refused: exit 77, status "rejected", allowlist in the payload.
+sbp wiki raw --json -- git push \
+  | jq -e '.status == "rejected" and (.read_only_allowlist.git_verbs | index("log"))'
+
+# Freshness fields are present so staleness can be judged before citing.
+sbp wiki status --json \
+  | jq -e '(.vault_commit_age_seconds | type == "number")
+      and (.envelope.contract == "wiki-central-sbp-v1")'
+```
+
+<!-- end: wiki-central-sbp-v1 assertions -->
 
 Before returning, confirm all of the following:
 

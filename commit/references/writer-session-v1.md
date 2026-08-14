@@ -274,6 +274,67 @@ passes `--require-capability receipt-bound-single-pinned-recovery-v1` inside eve
 mutation invocation; this enforces one pinned provider and no ambient providers
 before `begin`.
 
+### Prebound response-loss recovery
+
+`prebound-intent-recovery-v1` adds caller-owned durable identity without making a
+UUID replayable. A mutation invocation supplies a canonical UUID-v4 and absolute
+paths for one immutable intent, bounded hash-chain event directory, terminal result,
+and canonical provider recovery manifest. Their immediate directory must be owned
+mode 0700; artifacts are mode 0600, nofollow, bounded, fsynced, and outside the
+protected worktree, Git dirs, and policy home. Intent, empty terminal reservation,
+journal directory, and journal events use O_EXCL.
+
+The intent closes over the exact repository root/git dir/common dir/HEAD/ref,
+`<uuid>:0` request, policy home, provider topology, exact step count and canonical
+argv digest, result/journal/manifest paths, manifest SHA-256, and exactly one current
+provider digest map. A provider-policy self-update is deliberately outside this
+generic capability: it needs a separately frozen packet-held old/successor recovery
+surface. Raw caller digest JSON is not an authority surface.
+
+Before `begin`, the journal durably records `prepared` and `intent_ready`. It is a
+mode-0700 directory of closed-schema mode-0600 files. Each file is written and
+fsynced under a deterministic sequence/event/content-hash pending name before a
+no-replace hard-link publishes the final name; both parent-directory boundaries
+are fsynced. Resume publishes only a complete self-manifesting pending file and
+quarantines malformed named temps. Every provider and step call has a durable
+intent record before execution and a bounded result record afterward. Each child
+enters a new session but blocks in a minimal gate before provider/step bytes run;
+the parent durably publishes its `child_spawned` PGID and only then releases the
+gate. Failed PGID publication therefore executes no protected program. Provider and
+step children run in private process groups
+with nonblocking concurrent pipes, hard per-stream/combined caps, one finite
+deadline, direct-child reap, TERM/KILL fallback, and post-KILL group-extinction
+proof. The locked intent fd is inherited. If extinction is unproven, `end` is
+suppressed and the journal records `release_suppressed`; no terminal success exists.
+Before `intent_ready`, any admission fault removes only exact owned empty
+result/journal/intent reservations and calls no provider. Once `intent_ready` is
+durable, those artifacts are permanent single-use evidence.
+
+Successful release appends `terminal_intent` containing the exact closed terminal
+payload and SHA-256, writes/fsyncs a deterministic pending result, releases only the
+exact empty reservation, no-replace publishes and stably reopens the result, then
+publishes `terminal_done` with its digest. Crash recovery handles pending-only,
+final+pending-same-inode, final-only, and pending-done states. A conflicting inode
+or final byte string rejects; a malformed temp is quarantined. Once a valid
+`terminal_intent` exists, result finalization never calls provider `end` again.
+Recovery requires `--recover-intent`, `--recover-transaction-id`, and
+`--recover-intent-sha256`; it accepts no steps. It locks and stable-reads the exact
+intent, validates the complete journal and manifest, holds the admitted provider
+bytes once, and performs end-only recovery with the original step count and null
+session. An exact terminal returns immediately with zero provider calls. An absent
+terminal permits one idempotent end attempt; response loss remains journaled and is
+resumed without step replay. Recovery receipts say
+`original_mutation_state: "unknown"` and bind the original argv digest.
+
+The evidence directory's owner-only mode and held flock define a cooperative
+same-UID boundary. They prevent other users and conforming launchers from racing;
+they do not make files cryptographically immutable from the owning UID. Every
+resume therefore performs nofollow stable reads, explicit inode/mode/link checks,
+closed keyset/type validation, and full hash-chain verification. Same-UID evidence
+replacement is detected when it conflicts with the recorded hashes/inodes, but a
+malicious owner with unrestricted filesystem authority is outside this protocol's
+threat model.
+
 ## Request Schema
 
 The runner writes one compact JSON object to provider stdin. A provider reads

@@ -36,6 +36,7 @@ Do not change or omit that prefix.
 - **skill-issue** for skill packaging, validation, and the SKILLS_COVERAGE.yaml lifecycle when `--target skills`
 - **dueling-idea-wizards** for contested merge-vs-split calls (Phase 4)
 - Read access to either a registered wiki vault (via `~/repos/skillbox-config/wikis.yaml`) or the skills root (`~/.claude/skills/`)
+- On a checkout-less machine the vault is reachable **read-only** via the `sbp wiki` front door (contract `wiki-central-sbp-v1` in the wiki skill) — enough for `--mode audit`, never enough for `--mode apply`
 
 ## Modes and Targets
 

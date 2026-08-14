@@ -219,6 +219,53 @@ providers by requiring that capability inside the mutation invocation. Never
 retry mutation or hand-edit provider state. See
 `references/writer-session-v1.md`.
 
+For a launcher that must survive losing the runner's final stdout, require
+`prebound-intent-recovery-v1` and supply all of `--transaction-id`,
+`--transaction-intent`, `--transaction-journal`, `--transaction-result`, and
+`--recovery-provider-manifest`. The UUID is canonical v4. The intent, result,
+journal directory, and private canonical provider manifest live together in a
+caller-created mode-0700 directory outside the protected repository, Git dirs, and
+policy home. Intent, empty result reservation, journal directory, and each journal
+event use O_EXCL publication: collision permanently refuses another mutation
+attempt with that identity.
+
+The runner locks the immutable mode-0600 intent before provider `begin`, passes its
+fd into every provider and protected process group, and retains the lock through
+provider `end`, terminal-result fsync/reopen, and the journal's `terminal_done`.
+The journal is a bounded directory of canonical mode-0600 event files. Each event
+is completely written and fsynced under a deterministic self-hashed pending name,
+then no-replace linked to its final sequence name and parent-fsynced. Recovery
+publishes a complete pending event or quarantines a malformed pending name. The
+hash chain records intent before every provider/step call. A protected
+child first enters a private session and blocks in a minimal gate; the parent
+durably publishes `child_spawned` with its PGID before releasing one byte that
+permits provider or step program bytes to execute. A protected process group that
+cannot be proven extinct suppresses provider release and terminal
+success. Never infer the original mutation state from recovery alone.
+
+If result/journal/intent admission fails before `intent_ready`, the runner removes
+only exact inode-owned empty reservations and emits a generic configuration error;
+no provider call occurs. After `intent_ready`, evidence is permanent and recovery,
+never another mutation invocation, owns the identity.
+
+After durable `terminal_intent`, terminal bytes use the same pending/no-replace
+publication. Recovery can finish an absent result, a full pending result, a linked
+final+pending inode, or a pending `terminal_done` without a second provider call.
+The mode-0700 directory and held flock are a cooperative same-UID trust boundary,
+not an OS claim that the owner cannot rewrite bytes; every resume stable-reads and
+rehashes all admitted evidence and rejects conflicting inodes or final bytes.
+
+Recovery accepts only `--recover-intent` plus the caller-expected UUID and exact
+intent SHA-256. It validates the repository, request, journal, provider topology,
+and manifest-bound current digest map, proves the
+original flock is free, and calls only idempotent provider `end` with a null session.
+It never replays steps. An exact existing terminal returns without a provider call;
+otherwise recovery reports `original_mutation_state: unknown` and callers must
+reconcile their own durable journal and live product state. Generic recovery still
+depends on successful policy discovery; a transaction rewriting that policy needs a
+separately frozen packet-held old/successor provider recovery surface rather than a
+generic caller-authorized manifest or blind retry.
+
 `--policy-home DIR` (or `COMMIT_WRITER_SESSION_POLICY_HOME`) reads the writer-session
 policy from a trusted repository while `--repo` stays the mutation target, so one
 attested authority can fence repositories that declare no policy of their own. It

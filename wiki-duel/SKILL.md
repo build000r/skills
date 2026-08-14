@@ -30,6 +30,8 @@ Invoke the wiki skill in query mode against the duel topic:
 
 > /wiki query {topic or project name} — what does the wiki already say about this? Surface the relevant concept pages, frameworks, cross-links, open tensions, and any focus-sweep lens currently active. Return a tight grounding brief suitable for seeding an adversarial duel.
 
+On a machine with no wiki checkout, the vault is still reachable **read-only** through the `sbp wiki` front door (contract `wiki-central-sbp-v1` in the wiki skill), which is enough for this grounding pass.
+
 Capture the brief. Do not edit the wiki during this step — this is a read-only grounding pass. If `/wiki query` produces a novel synthesis that would normally be filed back, note it but defer the write until after the duel so the grounding stays honest.
 
 If the wiki has no coverage, stop and tell the user. Either ingest first or run a plain duel. Do not fabricate grounding.

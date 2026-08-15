@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "skillbox": {
-      "command": "python3",
-      "args": ["scripts/skillbox_mcp.py"]
-    }
-  }
-}

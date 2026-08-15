@@ -43,7 +43,7 @@ If any combo uses a swarm, NTM session, parallel worker wave, or NTM-backed
 review loop, include `vibing-with-ntm`. If the task is large-ish, UI-facing,
 multi-file, naturally parallel, or review-sensitive, use `divide-and-conquer`
 before parallel execution. For UI, visual, design/UX, or ambiguous review-heavy
-work, include Grok 4.5 design/UX; use Codex `gpt-5.6-sol` medium ordinarily and
+work, include Grok 4.6 design/UX; use Codex `gpt-5.6-sol` medium ordinarily and
 max for pivotal planning or failed-model escalation, with Terra ultra only when
 SOL is unavailable, and finish with a fresh-eyes reviewer pass.
 

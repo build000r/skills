@@ -66,6 +66,7 @@ ISSUE = {
 
 
 PLAN = "loop-indispensable"
+TEST_REPO_ROOT = str(Path(__file__).resolve().parents[2])
 
 
 def plan_node(
@@ -82,6 +83,10 @@ def plan_node(
     run_dir: str | None = "/invocations/repo/divide-and-conquer/2026-07-25T00-00-00Z",
     expected_assignee: str | None = "dac-worker-001",
     validate: bool = True,
+    repo_path: str | None = TEST_REPO_ROOT,
+    completion_protocol=(),
+    patch_artifact: str | None = None,
+    apply_step_json=(),
 ) -> dict:
     """Build one accepted-plan Beads issue in the canonical vocabulary."""
     labels = [f"plan:{plan}", "risk:none"]
@@ -98,11 +103,12 @@ def plan_node(
         notes += ["validate:", "  - pytest -q"]
     notes += [
         "model_route: Codex gpt-5.6-sol medium",
-        "repo_path: /repo",
         "branch: main",
         "planning_parent: none",
         "produces: named proof artifact",
     ]
+    if repo_path is not None:
+        notes.append(f"repo_path: {repo_path}")
     if run_dir is not None:
         notes.append(f"run_dir: {run_dir}")
     if expected_assignee is not None:
@@ -113,8 +119,19 @@ def plan_node(
         notes.append(f"local_criteria: {local_criteria}")
 
     design = []
+    if patch_artifact is not None:
+        design.append(f"patch_artifact: {patch_artifact}")
     if writes:
         design += ["writes:"] + [f"  - {scope}" for scope in writes]
+    if apply_step_json:
+        design += ["apply_step_json:"] + [
+            f"  - {json.dumps(step, separators=(',', ':'))}"
+            for step in apply_step_json
+        ]
+    if completion_protocol:
+        design += ["completion_protocol:"] + [
+            f"  - {step}" for step in completion_protocol
+        ]
     design += ["global_constraints:", "  - No remote push"]
 
     return {
@@ -823,6 +840,7 @@ class AcceptedPlanIntakeTests(unittest.TestCase):
         cases = [
             ("plan-noconcern", {"concern": None}, "concern_label_missing", "concern:"),
             ("plan-norun", {"run_dir": None}, "hydration_incomplete", "--run-dir"),
+            ("plan-norepo", {"repo_path": None}, "hydration_incomplete", "--repo-path"),
             ("plan-placeholder-run", {"run_dir": "<absolute-run-dir>"}, "run_dir_placeholder", "--run-dir"),
             ("plan-relative-run", {"run_dir": "run/dir"}, "run_dir_placeholder", "--run-dir"),
             ("plan-noassignee", {"expected_assignee": None}, "hydration_incomplete", "--expected-assignee"),
@@ -847,6 +865,501 @@ class AcceptedPlanIntakeTests(unittest.TestCase):
                 self.assertEqual(rejection["id"], issue_id)
                 self.assertIn(repair_hint, rejection["repair"])
                 self.assertTrue(rejection["detail"])
+
+    def test_pinned_entry_module_and_resource_require_atomic_policy_update(self) -> None:
+        pinned_paths = (
+            "reconcile/scripts/amp_writer_session.py",
+            "reconcile/scripts/amp_registry_snapshot.py",
+            "reconcile/references/estate.yaml",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_path = Path(tmp)
+            policy = {
+                "schema": "commit-writer-session-policy/v1",
+                "required": True,
+                "providers": [{
+                    "argv": [
+                        "{python}",
+                        f"{{repo}}/{pinned_paths[0]}",
+                        "{resource:estate}",
+                    ],
+                    "source": pinned_paths[0],
+                    "source_sha256": "a" * 64,
+                    "modules": [{
+                        "name": "snapshot",
+                        "source": pinned_paths[1],
+                        "source_sha256": "b" * 64,
+                    }],
+                    "resources": [{
+                        "name": "estate",
+                        "source": pinned_paths[2],
+                        "source_sha256": "c" * 64,
+                    }],
+                }],
+            }
+            policy_path = repo_path / ".commit-writer-session.json"
+            original = json.dumps(policy, sort_keys=True)
+            policy_path.write_text(original, encoding="utf-8")
+            for index, pinned in enumerate(pinned_paths):
+                with self.subTest(pinned=pinned):
+                    issue_id = f"plan-pinned-{index}"
+                    nodes = [
+                        self.accepted_root(),
+                        plan_node(
+                            issue_id,
+                            ["execution-leaf"],
+                            writes=(pinned,),
+                            repo_path=str(repo_path),
+                        ),
+                    ]
+                    with plan_graph(nodes, [issue_id]):
+                        result = MODULE.plan_admission(PLAN)
+                    self.assertEqual(result["admitted"], [])
+                    self.assertEqual(
+                        reasons(result), ["writer_policy_atomic_update_required"]
+                    )
+                    rejection = result["rejected"][0]
+                    self.assertIn(pinned, rejection["detail"])
+                    self.assertIn(".commit-writer-session.json", rejection["repair"])
+                    self.assertIn(
+                        "atomic final-digest advancement under acquisition sealing",
+                        rejection["repair"],
+                    )
+                    self.assertEqual(policy_path.read_text(encoding="utf-8"), original)
+
+    def test_pinned_write_with_policy_but_without_atomic_contract_rejects(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_path = Path(tmp)
+            policy = {
+                "schema": "commit-writer-session-policy/v1",
+                "required": True,
+                "providers": [{
+                    "argv": ["{python}", "{repo}/writer.py"],
+                    "source": "writer.py",
+                    "source_sha256": "a" * 64,
+                    "modules": [],
+                    "resources": [],
+                }],
+            }
+            (repo_path / ".commit-writer-session.json").write_text(
+                json.dumps(policy), encoding="utf-8"
+            )
+            leaf = plan_node(
+                "plan-policy-no-contract",
+                ["execution-leaf"],
+                writes=("writer.py", ".commit-writer-session.json"),
+                repo_path=str(repo_path),
+            )
+            with plan_graph([self.accepted_root(), leaf], [leaf["id"]]):
+                result = MODULE.plan_admission(PLAN)
+        self.assertEqual(reasons(result), ["writer_policy_atomic_update_required"])
+        self.assertIn("contract statement", result["rejected"][0]["detail"])
+
+    def test_complete_atomic_policy_contract_is_admitted_read_only(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_path = Path(tmp)
+            policy = {
+                "schema": "commit-writer-session-policy/v1",
+                "required": True,
+                "providers": [{
+                    "argv": ["{python}", "{repo}/writer.py"],
+                    "source": "writer.py",
+                    "source_sha256": "a" * 64,
+                    "modules": [],
+                    "resources": [],
+                }],
+            }
+            policy_path = repo_path / ".commit-writer-session.json"
+            original = json.dumps(policy, sort_keys=True)
+            policy_path.write_text(original, encoding="utf-8")
+            leaf = plan_node(
+                "plan-policy-complete",
+                ["execution-leaf"],
+                writes=("writer.py", ".commit-writer-session.json"),
+                repo_path=str(repo_path),
+                patch_artifact="/tmp/plan-policy-complete.patch",
+                apply_step_json=(
+                    ["git", "apply", "--check", "/tmp/plan-policy-complete.patch"],
+                    ["git", "apply", "/tmp/plan-policy-complete.patch"],
+                    ["git", "add", "--", ".commit-writer-session.json"],
+                    ["pytest", "-q"],
+                ),
+                completion_protocol=(
+                    "Perform atomic final-digest advancement under acquisition sealing",
+                ),
+            )
+            with plan_graph([self.accepted_root(), leaf], [leaf["id"]]):
+                result = MODULE.plan_admission(PLAN)
+            self.assertEqual(
+                [node["id"] for node in result["admitted"]], [leaf["id"]]
+            )
+            self.assertTrue(result["ok"], result["rejected"])
+            self.assertEqual(policy_path.read_text(encoding="utf-8"), original)
+
+    def test_policy_self_update_requires_exact_ordered_staging_step(self) -> None:
+        patch = "/tmp/plan-policy-stage.patch"
+        valid_steps = (
+            ["git", "apply", "--check", patch],
+            ["git", "apply", patch],
+            ["git", "add", "--", ".commit-writer-session.json"],
+            ["pytest", "-q"],
+        )
+        invalid_steps = {
+            "missing": valid_steps[:2] + valid_steps[3:],
+            "before apply": (valid_steps[0], valid_steps[2], valid_steps[1], valid_steps[3]),
+            "after validation": valid_steps[:2] + (valid_steps[3], valid_steps[2]),
+            "git add dot": valid_steps[:2] + (["git", "add", "."], valid_steps[3]),
+            "missing separator": valid_steps[:2] + (["git", "add", ".commit-writer-session.json"], valid_steps[3]),
+            "extra target": valid_steps[:2] + (["git", "add", "--", ".commit-writer-session.json", "other.py"], valid_steps[3]),
+            "duplicate": valid_steps[:3] + (valid_steps[2], valid_steps[3]),
+            "exact plus broad": valid_steps[:3] + (["git", "add", "."], valid_steps[3]),
+            "git global cwd add": valid_steps[:3] + (["git", "-C", ".", "add", "."], valid_steps[3]),
+            "git global config add": valid_steps[:3] + (["git", "-c", "core.filemode=false", "add", "--", ".commit-writer-session.json"], valid_steps[3]),
+            "absolute git add": valid_steps[:3] + (["/usr/bin/git", "add", "--", ".commit-writer-session.json"], valid_steps[3]),
+            "env git add": valid_steps[:3] + (["env", "git", "add", "--", ".commit-writer-session.json"], valid_steps[3]),
+            "absolute env git add": valid_steps[:3] + (["/usr/bin/env", "-i", "git", "add", "--", ".commit-writer-session.json"], valid_steps[3]),
+            "update index": valid_steps[:3] + (["git", "update-index", "--add", ".commit-writer-session.json"], valid_steps[3]),
+            "absolute update index": valid_steps[:3] + (["/usr/bin/git", "update-index", "--refresh"], valid_steps[3]),
+            "env update index": valid_steps[:3] + (["env", "GIT_OPTIONAL_LOCKS=0", "git", "update-index", "--refresh"], valid_steps[3]),
+            "cached apply": valid_steps[:3] + (["git", "apply", "--cached", patch], valid_steps[3]),
+            "indexed apply": valid_steps[:3] + (["git", "apply", "--index", patch], valid_steps[3]),
+            "cached remove": valid_steps[:3] + (["git", "rm", "--cached", ".commit-writer-session.json"], valid_steps[3]),
+            "reset index": valid_steps[:3] + (["git", "reset", "HEAD", "--", ".commit-writer-session.json"], valid_steps[3]),
+            "restore staged": valid_steps[:3] + (["git", "restore", "--staged", ".commit-writer-session.json"], valid_steps[3]),
+            "read tree": valid_steps[:3] + (["git", "read-tree", "HEAD"], valid_steps[3]),
+            "alias index mutation": valid_steps[:3] + (["git", "-c", "alias.stage=add", "stage", "."], valid_steps[3]),
+            "env unset operand named git": valid_steps[:3] + (["env", "-u", "git", "git", "add", "."], valid_steps[3]),
+            "env chdir operand named git": valid_steps[:3] + (["env", "-C", "git", "git", "add", "."], valid_steps[3]),
+            "env config alias": valid_steps[:3] + (["env", "STAGE=add", "git", "--config-env=alias.stage=STAGE", "stage", "."], valid_steps[3]),
+            "separate config env alias": valid_steps[:3] + (["git", "--config-env", "alias.stage=STAGE", "stage", "."], valid_steps[3]),
+            "preconfigured alias": valid_steps[:3] + (["git", "stage", "."], valid_steps[3]),
+            "direct git add": valid_steps[:3] + (["git-add", "."], valid_steps[3]),
+            "env direct git add": valid_steps[:3] + (["env", "git-add", "."], valid_steps[3]),
+            "opaque env split": valid_steps[:3] + (["env", "-S", "git add ."], valid_steps[3]),
+            "opaque env split equals": valid_steps[:3] + (["env", "--split-string=git add ."], valid_steps[3]),
+            "unknown git command": valid_steps[:3] + (["git", "unknown-command", "."], valid_steps[3]),
+            "malformed json": ("not-json",),
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_path = Path(tmp)
+            policy = {
+                "schema": "commit-writer-session-policy/v1",
+                "required": True,
+                "providers": [{
+                    "argv": ["{python}", "{repo}/writer.py"],
+                    "source": "writer.py",
+                    "source_sha256": "a" * 64,
+                    "modules": [],
+                    "resources": [],
+                }],
+            }
+            (repo_path / ".commit-writer-session.json").write_text(
+                json.dumps(policy), encoding="utf-8"
+            )
+
+            def rejection(steps):
+                encoded = [
+                    step if isinstance(step, str) else json.dumps(step, separators=(",", ":"))
+                    for step in steps
+                ]
+                return MODULE._writer_policy_rejection(
+                    "plan-policy-stage",
+                    {
+                        "repo_path": str(repo_path),
+                        "writes": ["writer.py", ".commit-writer-session.json"],
+                        "completion_protocol": [
+                            "atomic final-digest advancement under acquisition sealing"
+                        ],
+                        "patch_artifact": patch,
+                        "apply_step_json": encoded,
+                    },
+                )
+
+            self.assertIsNone(rejection(valid_steps))
+            for name, steps in invalid_steps.items():
+                with self.subTest(name=name):
+                    result = rejection(steps)
+                    self.assertIsNotNone(result)
+                    self.assertEqual(result["reason"], "writer_policy_staging_required")
+
+    def test_git_index_mutator_detection_preserves_read_only_commands(self) -> None:
+        mutating = (
+            ("git", "add", "--", ".commit-writer-session.json"),
+            ("git", "-C", ".", "add", "."),
+            ("/usr/bin/git", "update-index", "--refresh"),
+            ("env", "GIT_OPTIONAL_LOCKS=0", "git", "restore", "--staged", "policy"),
+            ("git", "apply", "--cached", "change.patch"),
+            ("git", "-c", "alias.stage=add", "stage", "."),
+            ("env", "-u", "git", "git", "add", "."),
+            ("env", "-C", "git", "git", "add", "."),
+            ("env", "STAGE=add", "git", "--config-env=alias.stage=STAGE", "stage", "."),
+            ("git", "stage", "."),
+            ("git-add", "."),
+            ("env", "-S", "git add ."),
+        )
+        read_only = (
+            ("git", "status", "--short"),
+            ("git", "-C", ".", "diff", "--cached"),
+            ("/usr/bin/git", "ls-files", "--stage"),
+            ("env", "GIT_OPTIONAL_LOCKS=0", "git", "rev-parse", "HEAD"),
+            ("env", "-u", "git", "git", "status", "--short"),
+            ("env", "-C", ".", "git", "diff", "--cached"),
+            ("git-status", "--short"),
+            ("git", "apply", "--check", "change.patch"),
+            ("git", "apply", "change.patch"),
+            ("git-apply", "change.patch"),
+            ("env", "PYTHONDONTWRITEBYTECODE=1", "python3", "-m", "pytest", "-q"),
+        )
+        for step in mutating:
+            with self.subTest(mutating=step):
+                self.assertTrue(MODULE._git_index_mutating_step(step))
+        for step in read_only:
+            with self.subTest(read_only=step):
+                self.assertFalse(MODULE._git_index_mutating_step(step))
+        self.assertEqual(
+            MODULE._git_command_argv(("env", "-u", "git", "git", "status")),
+            ("git", "status"),
+        )
+        self.assertEqual(
+            MODULE._git_command_argv(("env", "-C", "git", "git", "add", ".")),
+            ("git", "add", "."),
+        )
+
+    def test_policy_only_write_still_requires_exact_staging(self) -> None:
+        patch = "/tmp/plan-policy-only.patch"
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_path = Path(tmp)
+            policy = {
+                "schema": "commit-writer-session-policy/v1",
+                "required": True,
+                "providers": [{
+                    "argv": ["{python}", "{repo}/writer.py"],
+                    "source": "writer.py",
+                    "source_sha256": "a" * 64,
+                    "modules": [],
+                    "resources": [],
+                }],
+            }
+            (repo_path / ".commit-writer-session.json").write_text(
+                json.dumps(policy), encoding="utf-8"
+            )
+
+            def rejection(steps):
+                return MODULE._writer_policy_rejection(
+                    "plan-policy-only",
+                    {
+                        "repo_path": str(repo_path),
+                        "writes": [".commit-writer-session.json"],
+                        "patch_artifact": patch,
+                        "apply_step_json": [
+                            json.dumps(step, separators=(",", ":")) for step in steps
+                        ],
+                    },
+                )
+
+            apply_steps = (
+                ["git", "apply", "--check", patch],
+                ["git", "apply", patch],
+            )
+            missing = rejection(apply_steps + (["pytest", "-q"],))
+            self.assertIsNotNone(missing)
+            self.assertEqual(missing["reason"], "writer_policy_staging_required")
+            self.assertIsNone(
+                rejection(
+                    apply_steps
+                    + (["git", "add", "--", ".commit-writer-session.json"], ["pytest", "-q"])
+                )
+            )
+
+    def test_unrelated_and_legacy_no_policy_nodes_retain_prior_behavior(self) -> None:
+        with tempfile.TemporaryDirectory() as policy_tmp, tempfile.TemporaryDirectory() as legacy_tmp:
+            policy_repo = Path(policy_tmp)
+            policy = {
+                "schema": "commit-writer-session-policy/v1",
+                "required": True,
+                "providers": [{
+                    "argv": ["{python}", "{repo}/writer.py"],
+                    "source": "writer.py",
+                    "source_sha256": "a" * 64,
+                    "modules": [],
+                    "resources": [],
+                }],
+            }
+            (policy_repo / ".commit-writer-session.json").write_text(
+                json.dumps(policy), encoding="utf-8"
+            )
+            nodes = [
+                self.accepted_root(),
+                plan_node(
+                    "plan-unrelated",
+                    ["execution-leaf"],
+                    writes=("src/unrelated.py",),
+                    repo_path=str(policy_repo),
+                ),
+                plan_node(
+                    "plan-legacy",
+                    ["review"],
+                    writes=(),
+                    repo_path=legacy_tmp,
+                ),
+            ]
+            with plan_graph(nodes, ["plan-unrelated", "plan-legacy"]):
+                result = MODULE.plan_admission(PLAN)
+            self.assertEqual(
+                [node["id"] for node in result["admitted"]],
+                ["plan-unrelated", "plan-legacy"],
+            )
+            self.assertTrue(result["ok"], result["rejected"])
+            self.assertIsNone(MODULE._writer_policy_rejection(
+                "plan-legacy-glob",
+                {
+                    "repo_path": legacy_tmp,
+                    "writes": ["src/**"],
+                    "completion_protocol": [],
+                },
+            ))
+
+    def test_invalid_repo_path_and_malformed_policy_fail_closed(self) -> None:
+        missing = plan_node(
+            "plan-missing-repo",
+            ["execution-leaf"],
+            repo_path="/definitely/missing/repo-atlas-policy-admission",
+        )
+        with plan_graph([self.accepted_root(), missing], [missing["id"]]):
+            missing_result = MODULE.plan_admission(PLAN)
+        self.assertEqual(reasons(missing_result), ["repo_path_unresolvable"])
+        self.assertNotIn(
+            "/definitely/missing", missing_result["rejected"][0]["detail"]
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_path = Path(tmp)
+            (repo_path / ".commit-writer-session.json").write_text(
+                "not-json", encoding="utf-8"
+            )
+            malformed = plan_node(
+                "plan-malformed-policy",
+                ["execution-leaf"],
+                repo_path=str(repo_path),
+            )
+            with plan_graph(
+                [self.accepted_root(), malformed], [malformed["id"]]
+            ):
+                malformed_result = MODULE.plan_admission(PLAN)
+        self.assertEqual(reasons(malformed_result), ["writer_policy_invalid"])
+
+    def test_writer_policy_schema_is_closed_and_canonical(self) -> None:
+        def valid_policy() -> dict:
+            return {
+                "schema": "commit-writer-session-policy/v1",
+                "required": True,
+                "providers": [{
+                    "argv": [
+                        "{python}",
+                        "{repo}/writer.py",
+                        "{resource:estate}",
+                    ],
+                    "source": "writer.py",
+                    "source_sha256": "a" * 64,
+                    "modules": [{
+                        "name": "snapshot",
+                        "source": "snapshot.py",
+                        "source_sha256": "b" * 64,
+                    }],
+                    "resources": [{
+                        "name": "estate",
+                        "source": "estate.yaml",
+                        "source_sha256": "c" * 64,
+                    }],
+                }],
+            }
+
+        def mutate_top(policy: dict, key: str, value) -> None:
+            policy[key] = value
+
+        def mutate_provider(policy: dict, key: str, value) -> None:
+            policy["providers"][0][key] = value
+
+        cases = {
+            "unknown top-level": lambda p: mutate_top(p, "future_pins", []),
+            "unknown provider": lambda p: mutate_provider(p, "artifacts", []),
+            "missing argv": lambda p: p["providers"][0].pop("argv"),
+            "typo module collection": lambda p: (
+                p["providers"][0].pop("modules"),
+                mutate_provider(p, "module", []),
+            ),
+            "missing resources": lambda p: p["providers"][0].pop("resources"),
+            "unknown module key": lambda p: p["providers"][0]["modules"][0].__setitem__("future", True),
+            "unknown resource key": lambda p: p["providers"][0]["resources"][0].__setitem__("future", True),
+            "malformed provider digest": lambda p: mutate_provider(p, "source_sha256", "A" * 64),
+            "malformed module digest": lambda p: p["providers"][0]["modules"][0].__setitem__("source_sha256", "bad"),
+            "malformed resource digest": lambda p: p["providers"][0]["resources"][0].__setitem__("source_sha256", "bad"),
+            "duplicate module name": lambda p: p["providers"][0]["modules"].append(dict(p["providers"][0]["modules"][0], source="other.py")),
+            "duplicate resource name": lambda p: p["providers"][0]["resources"].append(dict(p["providers"][0]["resources"][0], source="other.yaml")),
+            "duplicate pin path": lambda p: p["providers"][0]["resources"][0].__setitem__("source", "snapshot.py"),
+            "invalid provider path": lambda p: mutate_provider(p, "source", "../writer.py"),
+            "invalid module path": lambda p: p["providers"][0]["modules"][0].__setitem__("source", "modules/*.py"),
+            "invalid resource path": lambda p: p["providers"][0]["resources"][0].__setitem__("source", "/estate.yaml"),
+            "invalid module name": lambda p: p["providers"][0]["modules"][0].__setitem__("name", "bad-name"),
+            "invalid resource name": lambda p: p["providers"][0]["resources"][0].__setitem__("name", "bad.name"),
+            "unsupported argv placeholder": lambda p: p["providers"][0]["argv"].append("{future}"),
+            "missing resource argv binding": lambda p: p["providers"][0].__setitem__("argv", ["{python}", "{repo}/writer.py"]),
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_path = Path(tmp)
+            policy_path = repo_path / ".commit-writer-session.json"
+            for name, mutate in cases.items():
+                with self.subTest(name=name):
+                    policy = valid_policy()
+                    mutate(policy)
+                    policy_path.write_text(json.dumps(policy), encoding="utf-8")
+                    rejection = MODULE._writer_policy_rejection(
+                        "plan-malformed-policy",
+                        {
+                            "repo_path": str(repo_path),
+                            "writes": ["unrelated.py"],
+                            "completion_protocol": [],
+                        },
+                    )
+                    self.assertIsNotNone(rejection)
+                    self.assertEqual(rejection["reason"], "writer_policy_invalid")
+
+    def test_policy_repo_requires_every_write_scope_to_be_one_exact_file(self) -> None:
+        policy = {
+            "schema": "commit-writer-session-policy/v1",
+            "required": True,
+            "providers": [{
+                "argv": ["{python}", "{repo}/writer.py"],
+                "source": "writer.py",
+                "source_sha256": "a" * 64,
+                "modules": [],
+                "resources": [],
+            }],
+        }
+        invalid = (
+            "*.py", "src/**", "/absolute.py", "../escape.py", "src\\bad.py",
+            "", "src/", "./writer.py", "src//writer.py", "src", "bad\npath",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_path = Path(tmp)
+            (repo_path / "src").mkdir()
+            (repo_path / ".commit-writer-session.json").write_text(
+                json.dumps(policy), encoding="utf-8"
+            )
+            for write in invalid:
+                with self.subTest(write=write):
+                    rejection = MODULE._writer_policy_rejection(
+                        "plan-invalid-write",
+                        {
+                            "repo_path": str(repo_path),
+                            "writes": [write],
+                            "completion_protocol": [],
+                        },
+                    )
+                    self.assertIsNotNone(rejection)
+                    self.assertEqual(
+                        rejection["reason"], "writer_policy_write_scope_invalid"
+                    )
 
     def test_historical_evidence_never_dispatches_or_inflates_coverage(self) -> None:
         nodes = [

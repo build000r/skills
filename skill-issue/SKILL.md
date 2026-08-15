@@ -1,6 +1,6 @@
 ---
 name: skill-issue
-description: Create, update, review, and package skills for AI coding agents. Also manages client overlays (create, list, validate, match, migrate). Use when asked to "create a skill", "make a skill", "new skill", "skill template", "design a skill", "build a skill", "review this skill", "improve this skill based on past runs", "when did we last use this skill", or when working with SKILL.md files, frontmatter, bundled resources (scripts/, references/, assets/), .skill packaging, or Claude/Codex transcript-driven skill reliability. Also triggers on "how do I make a skill", "skill best practices", "skill structure", "skill reliability", "operator evidence", "create an overlay", "list overlays", "check my overlays", "which overlay matches", "migrate overlays", or requests to extend an agent's capabilities with reusable workflows.
+description: Create, update, review, and package skills for AI coding agents. Also manages client overlays and routes durable knowledge out of Claude/Codex memories into canonical skills or tracked project authority. Use for skill creation or review, SKILL.md/frontmatter/resources, packaging, transcript-driven reliability, overlays, or requests to extend an agent with a reusable workflow. Also triggers on "promote this memory", "move memories into skills", "where should this knowledge live", "estate knowledge", "skill best practices", "create an overlay", "check my overlays", and "which overlay matches".
 license: Complete terms in LICENSE.txt
 ---
 
@@ -49,6 +49,7 @@ Pick the branch before editing:
 | "create a skill", "new skill", "skill template" | create/update | choose placement, initialize or patch the owning skill | `scripts/quick_validate.py <skill>` |
 | "review this skill", "when did we last use it", "improve from past runs" | reliability review | use the configured transcript evidence backend first, run `review_skill_usage.py` as the local scanner, build evidence packets/opportunities, then patch one repeated failure family | regenerate packets/opportunities and validate |
 | "$cass $skill-issue $lube", "rank improvements", "high leverage lube opportunities" | portfolio triage | self-heal named companion skill visibility if needed, then run `scripts/rank_skill_improvements.py` and create Beads for the top actionable cards | Beads exist and top cards map to owning skill files |
+| "promote this memory", "move memories into skills", "where should this knowledge live" | estate knowledge routing | classify each fact, update its canonical owner first, then leave at most a thin timestamped memory pointer | canonical artifact exists, no forbidden memory-root skill exists, and owning validation passes |
 | "create/check/match/migrate overlay" | overlay mode | use `manage_overlays.py`, then print the overlay diagnostic block below | `manage_overlays.py match --cwd ... --json` |
 | "I do not see skill X", "expected skill missing" | visibility miss | invoke SBP recalibration/activation instead of falling back to memory or repo artifacts | show the SBP command result |
 
@@ -168,6 +169,67 @@ If a requested skill would leak private context in a public repo, create or
 update it in `../../skills-private` first. Extract a public version into
 `opensource/skills` only after sanitizing names, paths, examples, assets, and
 references into a generic contract.
+
+## Estate Knowledge Routing Gate
+
+Apply this gate whenever proposed content comes from or is headed toward a
+Claude/Codex memory surface and contains an estate fact, runbook, recovery
+sequence, access path, command, policy, guardrail, or reusable workflow. Do not
+let the word "memory" determine placement; classify the knowledge by its
+authority and lifetime.
+
+| Knowledge | Canonical destination |
+|-----------|-----------------------|
+| Durable estate procedure, command, policy, recovery path, access workflow, or reusable guardrail | The relevant existing canonical skill. Search the active/catalogued skills first. Create a new skill only when no owner fits; use a private skill for operator-, estate-, client-, or machine-specific context and record why a new owner is necessary. |
+| Stable repository fact, architecture contract, build rule, or project-specific runbook | Tracked repository documentation, tests, configuration, or agent instructions in the owning repo. Link to it from a skill only when a reusable workflow needs the fact. |
+| Live task status, current blocker, claim, SHA, deployment result, or runtime observation | Beads and/or direct runtime evidence. Do not freeze changing state into a skill or durable memory. |
+| Secret, credential value, token, password, private key, or recoverable secret fragment | Nowhere in skills, tracked docs, Beads, memory, examples, logs, or receipts. Keep only a non-secret reference to the approved credential mechanism when needed. |
+| Episodic recall after canonicalization | At most a thin, timestamped pointer containing the event/result, canonical owner path or ID, `verified_at`, and recall keywords. Do not duplicate commands, procedures, access details, secrets, or live-state claims. |
+
+Never create or treat a `SKILL.md` under a Claude or Codex memory root (including
+any `memory/` or `memories/` subtree in an agent home) as canonical. A skill
+source must live in its owning version-controlled public/private skill repo and
+be made visible through the normal skill delivery mechanism.
+
+A destructive-command guard (DCG) is defense-in-depth for common literal
+shell/PreToolUse writes, not a filesystem boundary or an authorization signal.
+Standalone apply-patch, Write, Edit, or MCP operations and cwd-relative,
+symlink/alias, or computed-path writes still obey this routing contract even
+when the DCG cannot recognize them. A legitimate thin pointer is allowed only
+after canonicalization and must be validated against the pointer fields above.
+
+### Cold-Agent Routing Procedure
+
+1. Inventory the candidate statements and classify them independently with the
+   table above; split mixed entries rather than choosing one destination for the
+   whole file.
+2. Search for an existing owning skill and tracked repo authority before
+   proposing a new skill. Prefer updating the narrowest relevant owner.
+3. Stop and reroute if the proposed write targets a memory root, embeds a
+   secret, copies live state into a durable contract, or creates a second owner.
+   Name the correct destination and continue there when it is within scope;
+   otherwise report the exact blocked write and required owner.
+4. Update the canonical artifact first. Only after it validates may a memory
+   entry be replaced with a thin pointer. Do not claim promotion when only the
+   pointer or memory copy changed.
+5. Check sibling skill dependencies and references when the promoted contract
+   changes commands, phases, paths, or policy.
+
+### Routing Verification
+
+Before closeout, prove all applicable checks:
+
+- The selected canonical file exists in an owning tracked repo and its diff
+  contains the durable knowledge.
+- The source memory, if retained, contains only the thin pointer fields and no
+  copied procedure, command sequence, access detail, live-state assertion, or
+  secret.
+- No newly created `SKILL.md` resolves beneath an agent memory root.
+- `scripts/quick_validate.py <owning-skill>` passes for every changed skill.
+- `scripts/check_skill_deps.py --changed-skill <skill-id> --roots <skill-roots> --json`
+  passes or every reported dependent is updated/called out explicitly.
+- The owning repo's focused checks and `git diff --check -- <changed-paths>`
+  pass. Report memory cleanup separately from canonical skill delivery.
 
 ## Overlay Mode
 

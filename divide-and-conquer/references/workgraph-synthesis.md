@@ -90,7 +90,7 @@ Rules per node:
 - Set `--model-route`, `--repo-path`, `--branch`, and `--run-dir` before dispatch so
   `br_helpers.py hydrate-node` can prove the node is dispatch-ready
 - Route runtime root/subgoal controller loops to
-  `--model-route 'Grok 4.5 NTM orchestrator'`; they may dispatch and tend only
+  `--model-route 'Grok 4.6 NTM orchestrator'`; they may dispatch and tend only
   accepted, hydrated leaves and must escalate planning.
 - Route no-ragrets bead composition, decomposition/synthesis, domain-planner
   sessions, system design, impactful execution, integration review, commit
@@ -101,7 +101,7 @@ Rules per node:
   If SOL is unavailable, use
   `--model-route 'Codex gpt-5.6-terra ultra fallback'` for those same roles.
 - Route design work, UI/UX, visual systems, CSS/tokens, screenshot parity, and
-  design/fresh-eyes review to `--model-route 'Grok 4.5 design/UX'`. If the Grok
+  design/fresh-eyes review to `--model-route 'Grok 4.6 design/UX'`. If the Grok
   4.5 design route is unavailable, record the route blocker; use
   `--model-route 'Codex gpt-5.6-sol max escalation'` only for pivotal authority
   or explicit failed-model triage.
@@ -110,7 +110,7 @@ Rules per node:
   and broad evidence bucketing.
 - Use `--model-route 'Grok CLI sidecar'` for Grok-authored read-only evidence
   artifacts that a stronger model will verify.
-- Prefer `--model-route 'Grok 4.5 task-runner'` for narrow writer,
+- Prefer `--model-route 'Grok 4.6 task-runner'` for narrow writer,
   scripting, fixture/docs, generated-command cleanup, classification, or
   `$commit` nodes when the Bead names exact writes or a read-only artifact,
   validation, review owner, final authority, and stop rules. Codex `gpt-5.6-sol`
@@ -224,15 +224,15 @@ The minimum Beads-backed node brief must carry:
 - run directory path (for the `WG-*_RESULT.md` artifact)
 - the node's concern, depends_on, writes, done_when, validate, risk_gate
 - attribution preamble: `export BR_AGENT_NAME=… BR_HARNESS=… BR_MODEL=…`
-- model route: Grok 4.5 NTM orchestrator for frontier/dispatch/tending/harvest
+- model route: Grok 4.6 NTM orchestrator for frontier/dispatch/tending/harvest
   only; Codex gpt-5.6-sol for planning, no-ragrets bead composition,
   decomposition/synthesis, domain-planner sessions, system design, impactful
   execution, integration review, commit acceptance, and final say, with Codex
-  gpt-5.6-terra ultra as the SOL-unavailable fallback; Grok 4.5 design/UX for design-related
+  gpt-5.6-terra ultra as the SOL-unavailable fallback; Grok 4.6 design/UX for design-related
   nodes, with Codex gpt-5.6-sol medium as the default and SOL max reserved for
   pivotal planning or explicit failed-model triage;
   Grok dispatcher for read-only router/preflight nodes; Grok CLI sidecar
-  for read-only evidence artifacts; Grok 4.5 task-runner for narrow
+  for read-only evidence artifacts; Grok 4.6 task-runner for narrow
   scripting, docs/fixtures, or commit batching with stronger-model review
 - verified claim state: the lead must have run `br update <id> --claim` for
   the assigned worker, and the worker must verify `br show <id>` reports

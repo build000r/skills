@@ -75,6 +75,108 @@ PLAN_HISTORICAL_ROLES = ("historical-evidence",)
 PLAN_HISTORICAL_EVIDENCE = "historical-only"
 PLAN_NOTE_SCALARS = ("planning_parent", "supports", "local_criteria", "produces")
 PLAN_ROOT_NOTE_SCALARS = ("synthesis_receipt", "plan_score", "hard_gate_result")
+WRITER_POLICY_FILE = ".commit-writer-session.json"
+WRITER_POLICY_SCHEMA = "commit-writer-session-policy/v1"
+WRITER_POLICY_ATOMIC_CONTRACT = (
+    "atomic final-digest advancement under acquisition sealing"
+)
+WRITER_POLICY_STAGE_ARGV = ("git", "add", "--", WRITER_POLICY_FILE)
+GIT_GLOBAL_OPTIONS_WITH_VALUE = frozenset({
+    "-C",
+    "-c",
+    "--config-env",
+    "--exec-path",
+    "--git-dir",
+    "--namespace",
+    "--super-prefix",
+    "--work-tree",
+})
+GIT_GLOBAL_OPTIONS_WITHOUT_VALUE = frozenset({
+    "--bare",
+    "--glob-pathspecs",
+    "--icase-pathspecs",
+    "--literal-pathspecs",
+    "--no-lazy-fetch",
+    "--no-optional-locks",
+    "--no-pager",
+    "--no-replace-objects",
+    "--noglob-pathspecs",
+    "--paginate",
+})
+GIT_INDEX_READ_ONLY_COMMANDS = frozenset({
+    "cat-file",
+    "check-attr",
+    "check-ignore",
+    "check-mailmap",
+    "check-ref-format",
+    "count-objects",
+    "describe",
+    "diff",
+    "diff-files",
+    "diff-index",
+    "diff-tree",
+    "for-each-ref",
+    "fsck",
+    "grep",
+    "ls-files",
+    "ls-remote",
+    "log",
+    "merge-base",
+    "name-rev",
+    "rev-list",
+    "rev-parse",
+    "show",
+    "show-ref",
+    "status",
+    "verify-commit",
+    "verify-tag",
+})
+ENV_OPTIONS_WITH_VALUE = frozenset({"-C", "-u", "--chdir", "--unset"})
+ENV_OPTIONS_WITHOUT_VALUE = frozenset({
+    "-0",
+    "-i",
+    "--ignore-environment",
+    "--null",
+})
+ENV_ASSIGNMENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+GIT_INDEX_MUTATING_COMMANDS = frozenset({
+    "add",
+    "am",
+    "checkout",
+    "checkout-index",
+    "cherry-pick",
+    "commit",
+    "merge",
+    "mv",
+    "read-tree",
+    "rebase",
+    "reset",
+    "restore",
+    "revert",
+    "rm",
+    "sparse-checkout",
+    "stash",
+    "switch",
+    "update-index",
+})
+GIT_APPLY_INDEX_OPTIONS = frozenset({
+    "--3-way",
+    "--3way",
+    "--cached",
+    "--index",
+    "--intent-to-add",
+})
+SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+WRITER_POLICY_KEYS = frozenset({"schema", "required", "providers"})
+WRITER_PROVIDER_KEYS = frozenset({"argv", "source", "source_sha256", "modules", "resources"})
+WRITER_PIN_KEYS = frozenset({"name", "source", "source_sha256"})
+WRITER_MODULE_NAME_RE = re.compile(
+    r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$"
+)
+WRITER_RESOURCE_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+WRITER_RESOURCE_PLACEHOLDER_RE = re.compile(
+    r"^\{resource:([A-Za-z_][A-Za-z0-9_]*)\}$"
+)
 
 # Values that look filled in but carry no invocation-specific meaning. An accepted
 # plan is written before a swarm exists, so `run_dir`/`expected_assignee` are the
@@ -416,6 +518,325 @@ def _hydrate_plan_node(issue: dict) -> dict:
         return issue
 
 
+def _exact_repo_relative_path(value: object) -> Optional[str]:
+    """Return one exact normalized repo-relative path, never a glob or guess."""
+    if (
+        not isinstance(value, str)
+        or not value
+        or "\\" in value
+        or value.endswith("/")
+        or any(ord(character) < 32 or ord(character) == 127 for character in value)
+    ):
+        return None
+    if any(character in value for character in "*?["):
+        return None
+    path = Path(value)
+    if (
+        path.is_absolute()
+        or any(part in {"", ".", ".."} for part in path.parts)
+        or path.as_posix() != value
+    ):
+        return None
+    return value
+
+
+def _policy_argv_is_valid(values: object, source: str, resources: set[str]) -> bool:
+    if (
+        not isinstance(values, list)
+        or not values
+        or not all(isinstance(value, str) and value for value in values)
+    ):
+        return False
+    expected_source = f"{{repo}}/{source}"
+    if values.count(expected_source) != 1 or values[:2] != ["{python}", expected_source]:
+        return False
+    placeholders: list[str] = []
+    for value in values:
+        if value in {"{python}", "{repo}"}:
+            continue
+        if value.startswith("{repo}/"):
+            if _exact_repo_relative_path(value[len("{repo}/"):]) is None:
+                return False
+            continue
+        match = WRITER_RESOURCE_PLACEHOLDER_RE.fullmatch(value)
+        if match is not None:
+            placeholders.append(match.group(1))
+        elif "{" in value or "}" in value:
+            return False
+    return sorted(placeholders) == sorted(resources) and len(placeholders) == len(set(placeholders))
+
+
+def _pinned_policy_paths(policy: object) -> set[str]:
+    """Parse provider entry/module/resource pins from repository authority."""
+    if not isinstance(policy, dict) or set(policy) != WRITER_POLICY_KEYS:
+        raise ValueError("policy must be an object")
+    if policy.get("schema") != WRITER_POLICY_SCHEMA or policy.get("required") is not True:
+        raise ValueError("policy header is invalid")
+    providers = policy.get("providers")
+    if not isinstance(providers, list) or not providers:
+        raise ValueError("policy providers are invalid")
+    pinned: set[str] = set()
+    for provider in providers:
+        if not isinstance(provider, dict) or set(provider) != WRITER_PROVIDER_KEYS:
+            raise ValueError("policy provider is invalid")
+        source = _exact_repo_relative_path(provider.get("source"))
+        digest = provider.get("source_sha256")
+        if source is None or not isinstance(digest, str) or SHA256_RE.fullmatch(digest) is None:
+            raise ValueError("policy provider source or digest is invalid")
+        pinned.add(source)
+        resource_names: set[str] = set()
+        for collection, name_pattern in (
+            ("modules", WRITER_MODULE_NAME_RE),
+            ("resources", WRITER_RESOURCE_NAME_RE),
+        ):
+            values = provider.get(collection)
+            if not isinstance(values, list):
+                raise ValueError("policy pin collection is invalid")
+            collection_names: set[str] = set()
+            for entry in values:
+                if not isinstance(entry, dict) or set(entry) != WRITER_PIN_KEYS:
+                    raise ValueError("policy pin is invalid")
+                name = entry.get("name")
+                pin_source = _exact_repo_relative_path(entry.get("source"))
+                pin_digest = entry.get("source_sha256")
+                if (
+                    not isinstance(name, str)
+                    or name_pattern.fullmatch(name) is None
+                    or (collection == "modules" and name in {"__main__", "builtins"})
+                    or name in collection_names
+                    or pin_source is None
+                    or pin_source in pinned
+                    or not isinstance(pin_digest, str)
+                    or SHA256_RE.fullmatch(pin_digest) is None
+                ):
+                    raise ValueError("policy pin identity or digest is invalid")
+                collection_names.add(name)
+                pinned.add(pin_source)
+            if collection == "resources":
+                resource_names = collection_names
+        if not _policy_argv_is_valid(provider.get("argv"), source, resource_names):
+            raise ValueError("policy provider argv is invalid")
+    return pinned
+
+
+def _git_command_argv(step: tuple[str, ...]) -> Optional[tuple[str, ...]]:
+    """Return normalized Git argv, rejecting opaque env command construction."""
+
+    def direct(command: tuple[str, ...]) -> Optional[tuple[str, ...]]:
+        if not command:
+            return None
+        executable = Path(command[0]).name
+        if executable == "git":
+            return command
+        if executable.startswith("git-") and len(executable) > len("git-"):
+            return ("git", executable[len("git-"):], *command[1:])
+        return None
+
+    if not step:
+        return None
+    git_argv = direct(step)
+    if git_argv is not None:
+        return git_argv
+    if Path(step[0]).name != "env":
+        return None
+    index = 1
+    while index < len(step):
+        value = step[index]
+        if value == "--":
+            index += 1
+            break
+        if value in {"-S", "--split-string"} or value.startswith(
+            ("-S", "--split-string=")
+        ):
+            return ("git", "__opaque_env_command__")
+        if value in ENV_OPTIONS_WITH_VALUE:
+            if index + 1 >= len(step):
+                return ("git", "__malformed_env_command__")
+            index += 2
+            continue
+        if value.startswith(("--chdir=", "--unset=")):
+            index += 1
+            continue
+        if value in ENV_OPTIONS_WITHOUT_VALUE or ENV_ASSIGNMENT_RE.match(value):
+            index += 1
+            continue
+        if value.startswith("-"):
+            return ("git", "__opaque_env_command__")
+        break
+    return direct(step[index:])
+
+
+def _git_index_mutating_step(step: tuple[str, ...]) -> bool:
+    """Recognize direct Git argv that can modify the repository index."""
+
+    git_argv = _git_command_argv(step)
+    if git_argv is None:
+        return False
+    index = 1
+    while index < len(git_argv):
+        value = git_argv[index]
+        if value == "--":
+            index += 1
+            break
+        if value in GIT_GLOBAL_OPTIONS_WITH_VALUE:
+            if index + 1 >= len(git_argv):
+                return True
+            assignment = git_argv[index + 1]
+            if value in {"-c", "--config-env"} and assignment.casefold().startswith(
+                "alias."
+            ):
+                return True
+            index += 2
+            continue
+        if value.startswith("-c") and value != "-c":
+            if value[2:].casefold().startswith("alias."):
+                return True
+            index += 1
+            continue
+        if value.startswith("--config-env="):
+            if value[len("--config-env="):].casefold().startswith("alias."):
+                return True
+            index += 1
+            continue
+        if any(
+            value.startswith(option + "=")
+            for option in GIT_GLOBAL_OPTIONS_WITH_VALUE
+            if option.startswith("--")
+        ):
+            index += 1
+            continue
+        if value in GIT_GLOBAL_OPTIONS_WITHOUT_VALUE:
+            index += 1
+            continue
+        if value.startswith("-"):
+            return True
+        break
+    if index >= len(git_argv):
+        return False
+    command = git_argv[index]
+    arguments = git_argv[index + 1:]
+    if command in GIT_INDEX_MUTATING_COMMANDS:
+        return True
+    if command == "apply":
+        return any(
+            value in GIT_APPLY_INDEX_OPTIONS
+            or value.startswith("--build-fake-ancestor=")
+            for value in arguments
+        )
+    return command not in GIT_INDEX_READ_ONLY_COMMANDS
+
+
+def _writer_policy_rejection(issue_id: str, contract: dict) -> Optional[dict]:
+    """Fail closed when a node would strand a repository policy pin."""
+    repo_value = contract.get("repo_path")
+    try:
+        if not isinstance(repo_value, str) or not Path(repo_value).is_absolute():
+            raise ValueError("repo_path is not absolute")
+        repo = Path(repo_value).resolve(strict=True)
+        if not repo.is_dir():
+            raise ValueError("repo_path is not a directory")
+    except (OSError, RuntimeError, ValueError):
+        return _rejection(
+            issue_id,
+            "repo_path_unresolvable",
+            "repo_path is not an existing resolvable absolute directory",
+            f"hydrate {issue_id} with the exact existing repository path before admission",
+        )
+
+    policy_path = repo / WRITER_POLICY_FILE
+    if not policy_path.exists():
+        return None
+    try:
+        if policy_path.is_symlink() or not policy_path.is_file():
+            raise ValueError("policy path is not a regular file")
+        policy = json.loads(policy_path.read_text(encoding="utf-8"))
+        pinned = _pinned_policy_paths(policy)
+    except (OSError, UnicodeError, json.JSONDecodeError, ValueError):
+        return _rejection(
+            issue_id,
+            "writer_policy_invalid",
+            "repository writer policy is unreadable or malformed",
+            f"repair {WRITER_POLICY_FILE} from repository authority before dispatching {issue_id}",
+        )
+
+    raw_writes = contract.get("writes")
+    if raw_writes is None:
+        raw_writes = []
+    if not isinstance(raw_writes, list):
+        raw_writes = [None]
+    exact_writes: set[str] = set()
+    for value in raw_writes:
+        normalized = _exact_repo_relative_path(value)
+        if normalized is None or (repo / normalized).is_dir():
+            return _rejection(
+                issue_id,
+                "writer_policy_write_scope_invalid",
+                "repository policy requires exact normalized file write scopes",
+                f"replace {issue_id}'s writes with exact repo-relative file paths",
+            )
+        exact_writes.add(normalized)
+    touched = sorted(pinned & exact_writes)
+    policy_touched = WRITER_POLICY_FILE in exact_writes
+    if not touched and not policy_touched:
+        return None
+    if touched:
+        protocol = " ".join(contract.get("completion_protocol") or []).casefold()
+        missing_policy_write = not policy_touched
+        missing_atomic_contract = WRITER_POLICY_ATOMIC_CONTRACT not in protocol
+        if missing_policy_write or missing_atomic_contract:
+            missing = []
+            if missing_policy_write:
+                missing.append(f"exact write {WRITER_POLICY_FILE}")
+            if missing_atomic_contract:
+                missing.append(f"contract statement {WRITER_POLICY_ATOMIC_CONTRACT!r}")
+            return _rejection(
+                issue_id,
+                "writer_policy_atomic_update_required",
+                f"pinned paths {touched} require " + " and ".join(missing),
+                f"add {WRITER_POLICY_FILE} to {issue_id}'s exact writes and state "
+                f"'{WRITER_POLICY_ATOMIC_CONTRACT}' in completion_protocol",
+            )
+
+    patch_artifact = contract.get("patch_artifact")
+    raw_steps = contract.get("apply_step_json")
+    parsed_steps: list[tuple[str, ...]] = []
+    if isinstance(patch_artifact, str) and patch_artifact and isinstance(raw_steps, list):
+        try:
+            for raw_step in raw_steps:
+                step = json.loads(raw_step)
+                if not isinstance(step, list) or any(
+                    not isinstance(value, str) for value in step
+                ):
+                    raise ValueError("apply step is not a string argv")
+                parsed_steps.append(tuple(step))
+        except (json.JSONDecodeError, TypeError, ValueError):
+            parsed_steps = []
+    apply_argv = ("git", "apply", patch_artifact)
+    apply_indexes = [
+        index for index, step in enumerate(parsed_steps) if step == apply_argv
+    ]
+    index_mutating_indexes = [
+        index
+        for index, step in enumerate(parsed_steps)
+        if _git_index_mutating_step(step)
+    ]
+    stage_is_ordered = (
+        len(apply_indexes) == 1
+        and index_mutating_indexes == [apply_indexes[0] + 1]
+        and parsed_steps[index_mutating_indexes[0]] == WRITER_POLICY_STAGE_ARGV
+    )
+    if not stage_is_ordered:
+        protected = touched or [WRITER_POLICY_FILE]
+        return _rejection(
+            issue_id,
+            "writer_policy_staging_required",
+            f"protected paths {protected} require exact policy staging immediately after patch apply",
+            f"add apply_step_json argv {list(WRITER_POLICY_STAGE_ARGV)!r} immediately after "
+            f"['git', 'apply', {patch_artifact!r}] for {issue_id}",
+        )
+    return None
+
+
 def _admit_plan_node(view: dict) -> tuple[Optional[dict], Optional[dict]]:
     """Return (admitted_contract, rejection) for one ready plan node.
 
@@ -501,6 +922,9 @@ def _admit_plan_node(view: dict) -> tuple[Optional[dict], Optional[dict]]:
             f"expected_assignee is not a concrete worker: {contract.get('expected_assignee')!r}",
             f"python3 br_helpers.py update-node {issue_id} --expected-assignee <worker-id>",
         )
+    policy_rejection = _writer_policy_rejection(issue_id, contract)
+    if policy_rejection is not None:
+        return None, policy_rejection
 
     admitted = dict(contract)
     admitted["plan_role"] = role

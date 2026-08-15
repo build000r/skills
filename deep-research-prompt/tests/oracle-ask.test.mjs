@@ -14,6 +14,7 @@ import {
   install,
   installTargetPath,
   parseArgs,
+  rememberThread,
   resolveModel,
   resolvePrompt,
 } from "../assets/scripts/oracle-ask.mjs";
@@ -189,6 +190,13 @@ test("an unrecognised code still degrades with an action, not a silent pass", ()
   assert.match(d.action, /--doctor/);
 });
 
+test("an answer timeout directs recovery of the submitted thread, never a resend", () => {
+  const d = diagnose("answer_timeout", { env: {} });
+  assert.match(d.action, /last-conversation\.json/);
+  assert.match(d.action, /Do not resend/);
+  assert.doesNotMatch(d.action, /Re-run with a longer/);
+});
+
 test("the not-ready action tells the operator how to start the browser", () => {
   const d = diagnose("cdp_unreachable", {
     env: { ORACLE_PROFILE_DIRECTORY: "Profile 1", ORACLE_CHATGPT_PROJECT_URL: "https://example.test/project" },
@@ -289,6 +297,33 @@ test("install writes an executable shim pointing at the real script", async () =
   assert.match(writes[0].body, /oracle-ask\.mjs/);
   assert.match(writes[0].body, /"\$@"/);
   assert.equal(writes[0].opts.mode, 0o755);
+});
+
+test("rememberThread persists a resumable conversation without credential material", async () => {
+  const calls = [];
+  const result = await rememberThread("conversation-123", "gpt-5-6-pro", {
+    path: "/private/last-conversation.json",
+    mkdirImpl: async (...args) => calls.push(["mkdir", ...args]),
+    writeFileImpl: async (...args) => calls.push(["write", ...args]),
+  });
+  assert.equal(result, true);
+  assert.equal(calls[0][0], "mkdir");
+  assert.equal(calls[1][0], "write");
+  assert.equal(calls[1][1], "/private/last-conversation.json");
+  const payload = JSON.parse(calls[1][2]);
+  assert.equal(payload.conversation_id, "conversation-123");
+  assert.equal(payload.model, "gpt-5-6-pro");
+  assert.equal(calls[1][3].mode, 0o600);
+  assert.deepEqual(Object.keys(payload).sort(), ["at", "conversation_id", "model"]);
+});
+
+test("the Pro handoff persists its conversation id before the polling deadline", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const src = await readFile(new URL("../assets/scripts/oracle-http-client.mjs", import.meta.url), "utf8");
+  const notify = src.indexOf("await onConversation({");
+  const deadline = src.indexOf("const deadline = started + timeoutMs;");
+  assert.ok(notify > 0, "askOracle must publish the submitted conversation id");
+  assert.ok(deadline > notify, "conversation recovery state must exist before polling can time out");
 });
 
 /* ------------------------------------------------------------------ *

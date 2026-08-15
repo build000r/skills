@@ -102,6 +102,12 @@ node "$ASK" --json "..."                                           # result obje
 node "$ASK" --doctor                                               # readiness only; submits nothing
 ```
 
+For handed-off Pro turns, Ask mode saves the conversation ID before polling.
+If the local deadline expires while ChatGPT is still generating, the timeout
+prints that ID and it remains in
+`~/.oracle/oracle-subagent/last-conversation.json`. Harvest or read that exact
+conversation; do not resend the prompt and consume a second Pro turn.
+
 `--models` lists what the account can select. Anything unrecognised passed to
 `--model` is forwarded verbatim, so a new slug never needs a code change.
 

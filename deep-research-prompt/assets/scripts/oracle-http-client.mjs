@@ -606,6 +606,7 @@ export async function askOracle({
   conversationId = null,
   fetchImpl = globalThis.fetch,
   onProgress = () => {},
+  onConversation = async () => {},
 } = {}) {
   const started = Date.now();
   const projectId = project ? (projectIdFromUrl(project) ?? project) : null;
@@ -653,6 +654,14 @@ export async function askOracle({
   // Handed-off turn (Pro / reasoning): the answer lands on the conversation.
   const answerThreadId = summary.conversationId ?? body.conversation_id;
   if (!answerThreadId) fail("conversation_id_missing");
+  // Persist recovery state before polling. Pro can keep generating after the
+  // local deadline, so callers must be able to harvest the submitted turn
+  // without sending the prompt again.
+  await onConversation({
+    conversationId: answerThreadId,
+    model,
+    project: projectId ?? "root",
+  });
   const deadline = started + timeoutMs;
   while (Date.now() < deadline) {
     const conversation = await getConversation(answerThreadId, creds, { fetchImpl });
@@ -668,7 +677,7 @@ export async function askOracle({
     onProgress({ phase: "poll", elapsedMs: Date.now() - started, generating });
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
   }
-  fail("answer_timeout", `${timeoutMs}ms`);
+  fail("answer_timeout", `conversation_id=${answerThreadId}; timeout=${timeoutMs}ms`);
 }
 
 /* ------------------------------------------------------------------ *

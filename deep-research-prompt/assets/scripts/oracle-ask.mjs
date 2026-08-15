@@ -175,6 +175,26 @@ export const LAST_THREAD_PATH = join(
   "last-conversation.json",
 );
 
+/** Persist only the resumable thread identity; never credentials or cookies. */
+export async function rememberThread(
+  conversationId,
+  model,
+  {
+    path = LAST_THREAD_PATH,
+    mkdirImpl = mkdir,
+    writeFileImpl = writeFile,
+  } = {},
+) {
+  if (typeof conversationId !== "string" || !conversationId.trim()) return false;
+  await mkdirImpl(dirname(path), { recursive: true, mode: 0o700 });
+  await writeFileImpl(
+    path,
+    `${JSON.stringify({ conversation_id: conversationId, model, at: new Date().toISOString() })}\n`,
+    { encoding: "utf8", mode: 0o600 },
+  );
+  return true;
+}
+
 /**
  * Positional words are the prompt. `--` ends option parsing so a prompt may
  * begin with a dash. Prompt text is never required to be quoted-as-one-arg.
@@ -370,8 +390,9 @@ export function diagnose(code, { env = process.env, launchHint = LAUNCH_HINT } =
         exit: EXIT.timeout,
         summary: "the model did not finish inside the deadline",
         action:
-          "The turn may still be running in the conversation. Re-run with a longer\n" +
-          "deadline, e.g. --timeout 3600, or read the conversation directly.\n",
+          "The submitted turn may still be running. Use the conversation_id in\n" +
+          "the detail line (also saved in ~/.oracle/oracle-subagent/last-conversation.json)\n" +
+          "to read or harvest that exact conversation. Do not resend the prompt.\n",
       };
     case "auth_doctor_blocked":
       return {
@@ -558,7 +579,10 @@ function reportFailure(code, detail) {
   const { exit, summary, action } = diagnose(code);
   process.stderr.write(`\noracle-ask: ${summary} [${code}]\n`);
   if (detail) process.stderr.write(`  detail: ${detail}\n`);
-  process.stderr.write(`\n${action}\nNothing was submitted for this attempt.\n`);
+  const submission = code === "answer_timeout"
+    ? "The turn was submitted and may still be generating; no duplicate was sent."
+    : "Nothing was submitted for this attempt.";
+  process.stderr.write(`\n${action}\n${submission}\n`);
   return exit;
 }
 
@@ -712,6 +736,13 @@ async function main(argv) {
     port: args.port,
     timeoutMs: args.timeoutSeconds * 1000,
     project: args.project,
+    onConversation: async ({ conversationId: submittedId }) => {
+      try {
+        await rememberThread(submittedId, model);
+      } catch {
+        log("note: could not record the submitted thread for recovery");
+      }
+    },
     onProgress: (p) => {
       if (p.phase === "credentials") log(`session ok (plan ${p.planType ?? "unknown"})`);
       else if (p.phase === "sentinel") log("submission token minted");
@@ -728,12 +759,7 @@ async function main(argv) {
   // record it must not lose an answer we already have.
   if (result.conversationId) {
     try {
-      await mkdir(dirname(LAST_THREAD_PATH), { recursive: true, mode: 0o700 });
-      await writeFile(
-        LAST_THREAD_PATH,
-        `${JSON.stringify({ conversation_id: result.conversationId, model, at: new Date().toISOString() })}\n`,
-        { encoding: "utf8", mode: 0o600 },
-      );
+      await rememberThread(result.conversationId, model);
     } catch {
       log("note: could not record this thread for --continue");
     }

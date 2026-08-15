@@ -1,0 +1,18 @@
+{
+  "protocol_version": "repo-validation-commands/v1",
+  "source": "Makefile test",
+  "commands": [
+    {
+      "id": "test",
+      "cwd": ".",
+      "command": "make test",
+      "timeout_seconds": 1800
+    },
+    {
+      "id": "diff-check",
+      "cwd": ".",
+      "command": "git diff --check",
+      "timeout_seconds": 300
+    }
+  ]
+}

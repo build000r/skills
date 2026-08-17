@@ -24,6 +24,7 @@ import {
 } from "node:fs/promises";
 import { homedir } from "node:os";
 import {
+  basename,
   dirname,
   isAbsolute,
   join,
@@ -736,6 +737,304 @@ function inspectListenerFromLsof(receipt, lsofPath) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Linux /proc fallback for hosts without lsof.
+//
+// Two failure shapes, both fail closed:
+//   * gateError(...)     evidence is absent, unreadable, or wrong-shaped, so no
+//                        claim can be made at all.
+//   * false check value  evidence was readable and says the contract is broken
+//                        (doctor turns this into listener_ambiguous /
+//                        wildcard_cdp / browser_visible).
+// Neither shape ever carries an address, PID, profile path, display, or any
+// other browser state into a message or a return value.
+// ---------------------------------------------------------------------------
+
+const PROC_LISTEN_STATE = "0A"; // TCP_LISTEN
+const CHROME_EXECUTABLE_NAMES = new Set([
+  "chrome",
+  "chromium",
+  "chromium-browser",
+  "google-chrome",
+  "google-chrome-beta",
+  "google-chrome-stable",
+  "google-chrome-unstable",
+]);
+// Linux prints local_address as host-order 32-bit words, so loopback is a
+// fixed set of literals rather than something to re-derive per read.
+const LOOPBACK_ADDRESS_HEX = new Set([
+  "0100007F", // 127.0.0.1            (/proc/net/tcp)
+  "00000000000000000000000001000000", // ::1                  (/proc/net/tcp6)
+  "0000000000000000FFFF00000100007F", // ::ffff:127.0.0.1     (/proc/net/tcp6)
+]);
+// Same virtual-display contract the launcher enforces before it launches.
+const XVFB_DISPLAY_PATTERN = /^:[0-9]{1,3}$/;
+const OFFSCREEN_WINDOW_FLAG = "--window-position=-32000,-32000";
+
+function requireProcPid(value, code) {
+  if (!Number.isSafeInteger(value) || value <= 1) gateError(code);
+  return value;
+}
+
+function requireProcPort(value, code) {
+  if (!Number.isSafeInteger(value) || value < 1 || value > 65535) {
+    gateError(code);
+  }
+  return value;
+}
+
+// Every /proc read goes through this facade so the fallback is exercisable
+// from deterministic fixtures instead of a live host.
+export function procSystem(overrides = {}) {
+  if (!isPlainObject(overrides)) gateError("listener_unverifiable");
+  return {
+    procRoot: "/proc",
+    x11SocketRoot: "/tmp/.X11-unix",
+    uid: typeof process.getuid === "function" ? process.getuid() : -1,
+    readFile: (pathname) => readFileSync(pathname, "utf8"),
+    readdir: (pathname) => readdirSync(pathname),
+    readlink: (pathname) => readlinkSync(pathname),
+    realpath: (pathname) => realpathSync(pathname),
+    statUid: (pathname) => statSync(pathname).uid,
+    exists: (pathname) => {
+      try {
+        accessSync(pathname, fsConstants.F_OK);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    ...overrides,
+  };
+}
+
+export function parseProcCmdline(raw, code = "listener_unverifiable") {
+  if (typeof raw !== "string") gateError(code);
+  // Some Linux Chrome builds collapse cmdline into one space-joined string.
+  const argv = raw.includes("\0")
+    ? raw.split("\0").filter(Boolean)
+    : raw.trim().split(/\s+/).filter(Boolean);
+  if (argv.length === 0) gateError(code);
+  return argv;
+}
+
+export function parseProcEnvironValue(raw, name, code = "visibility_unverifiable") {
+  if (typeof raw !== "string" || typeof name !== "string" || name.length === 0) {
+    gateError(code);
+  }
+  const prefix = `${name}=`;
+  const matches = raw.split("\0").filter((entry) => entry.startsWith(prefix));
+  // Absent or duplicated: unverifiable, never "pick one".
+  if (matches.length !== 1) return null;
+  return matches[0].slice(prefix.length);
+}
+
+export function parseProcNetTcpListeners(
+  table,
+  port,
+  code = "listener_unverifiable",
+) {
+  if (typeof table !== "string") gateError(code);
+  const portHex = requireProcPort(port, code)
+    .toString(16)
+    .toUpperCase()
+    .padStart(4, "0");
+  const listeners = [];
+  for (const line of table.split("\n").slice(1)) {
+    const parts = line.trim().split(/\s+/);
+    if (parts.length < 10) continue;
+    if (parts[3].toUpperCase() !== PROC_LISTEN_STATE) continue;
+    const [addressHex, localPortHex] = parts[1].split(":");
+    if (!localPortHex || localPortHex.toUpperCase() !== portHex) continue;
+    if (
+      !/^[0-9A-Fa-f]{8}$|^[0-9A-Fa-f]{32}$/.test(addressHex ?? "") ||
+      !/^[0-9]+$/.test(parts[7]) ||
+      !/^[0-9]+$/.test(parts[9])
+    ) {
+      gateError(code);
+    }
+    listeners.push({
+      address_hex: addressHex.toUpperCase(),
+      uid: Number(parts[7]),
+      inode: parts[9],
+    });
+  }
+  return listeners;
+}
+
+function argvFlagsMatchExactly(argv, expected) {
+  for (const [option, value] of Object.entries(expected)) {
+    const matches = argv.filter((entry) => entry.startsWith(`${option}=`));
+    // Exactly once, exact value: duplicates let a later flag win silently.
+    if (matches.length !== 1 || matches[0] !== `${option}=${value}`) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function readProcArgv(system, procDirectory, code) {
+  try {
+    return parseProcCmdline(system.readFile(`${procDirectory}/cmdline`), code);
+  } catch {
+    gateError(code);
+  }
+}
+
+function requireProcOwner(system, procDirectory, code) {
+  let owner;
+  try {
+    owner = system.statUid(procDirectory);
+  } catch {
+    gateError(code);
+  }
+  if (
+    !Number.isSafeInteger(owner) ||
+    !Number.isSafeInteger(system.uid) ||
+    system.uid < 0 ||
+    owner !== system.uid
+  ) {
+    gateError(code);
+  }
+}
+
+// Proves the exact loopback listen slot on the receipt port is a socket held by
+// the receipt PID, that the PID and the socket are owned by the current uid,
+// and that the PID is the Chrome the receipt describes.
+export function inspectListenerProc(receipt, overrides = {}) {
+  const code = "listener_unverifiable";
+  const system = procSystem(overrides);
+  if (!isPlainObject(receipt)) gateError(code);
+  const pid = requireProcPid(receipt.pid, code);
+  const port = requireProcPort(receipt.port, code);
+  const profileRoot = receipt.profile_root;
+  const profileDirectory = receipt.profile_directory;
+  if (
+    typeof profileRoot !== "string" ||
+    !isAbsolute(profileRoot) ||
+    typeof profileDirectory !== "string" ||
+    profileDirectory.length === 0
+  ) {
+    gateError(code);
+  }
+
+  const procDirectory = `${system.procRoot}/${pid}`;
+  requireProcOwner(system, procDirectory, code);
+
+  let executable;
+  try {
+    executable = system.realpath(`${procDirectory}/exe`);
+  } catch {
+    gateError(code);
+  }
+  if (
+    typeof executable !== "string" ||
+    !isAbsolute(executable) ||
+    !CHROME_EXECUTABLE_NAMES.has(basename(executable))
+  ) {
+    gateError(code);
+  }
+
+  const argv = readProcArgv(system, procDirectory, code);
+  if (
+    !argvFlagsMatchExactly(argv, {
+      "--remote-debugging-address": "127.0.0.1",
+      "--remote-debugging-port": String(port),
+      "--user-data-dir": profileRoot,
+      "--profile-directory": profileDirectory,
+    })
+  ) {
+    gateError(code);
+  }
+
+  // Both families: a foreign v6 listener on the same port is still foreign.
+  const listeners = [];
+  for (const table of ["net/tcp", "net/tcp6"]) {
+    const pathname = `${system.procRoot}/${table}`;
+    if (table === "net/tcp6" && !system.exists(pathname)) continue; // IPv6 off
+    let raw;
+    try {
+      raw = system.readFile(pathname);
+    } catch {
+      gateError(code);
+    }
+    listeners.push(...parseProcNetTcpListeners(raw, port, code));
+  }
+
+  const ownedSocketInodes = new Set();
+  let descriptors;
+  try {
+    descriptors = system.readdir(`${procDirectory}/fd`);
+  } catch {
+    gateError(code);
+  }
+  if (!Array.isArray(descriptors)) gateError(code);
+  for (const descriptor of descriptors) {
+    let target;
+    try {
+      target = system.readlink(`${procDirectory}/fd/${descriptor}`);
+    } catch {
+      continue;
+    }
+    const match = /^socket:\[([0-9]+)\]$/.exec(String(target));
+    if (match) ownedSocketInodes.add(match[1]);
+  }
+
+  const exactlyOne = listeners.length === 1;
+  const listener = exactlyOne ? listeners[0] : null;
+  return {
+    single_listener:
+      exactlyOne &&
+      listener.uid === system.uid &&
+      listener.inode !== "0" &&
+      ownedSocketInodes.has(listener.inode),
+    loopback_only:
+      exactlyOne && LOOPBACK_ADDRESS_HEX.has(listener.address_hex),
+  };
+}
+
+// Hidden-headful under Xvfb: no operator display exists, so the posture is
+// "our process, alive, on a virtual display, windows parked off-screen, and
+// never true headless" — the same contract the launcher enforces.
+export function inspectVisibilityProc(pid, overrides = {}) {
+  const code = "visibility_unverifiable";
+  const system = procSystem(overrides);
+  const target = requireProcPid(pid, code);
+  const procDirectory = `${system.procRoot}/${target}`;
+  requireProcOwner(system, procDirectory, code);
+
+  const argv = readProcArgv(system, procDirectory, code);
+  // True headless is Cloudflare-blocked and leaves no hidden-headful posture
+  // to verify, so it is unverifiable rather than merely "not hidden".
+  if (
+    argv.some(
+      (entry) => entry === "--headless" || entry.startsWith("--headless="),
+    )
+  ) {
+    gateError(code);
+  }
+
+  let environ;
+  try {
+    environ = system.readFile(`${procDirectory}/environ`);
+  } catch {
+    gateError(code);
+  }
+  const display = parseProcEnvironValue(environ, "DISPLAY", code);
+  if (typeof display !== "string" || !XVFB_DISPLAY_PATTERN.test(display)) {
+    gateError(code);
+  }
+  if (!system.exists(`${system.x11SocketRoot}/X${display.slice(1)}`)) {
+    gateError(code);
+  }
+
+  // Readable posture: windows were requested off-screen exactly once.
+  const positions = argv.filter((entry) =>
+    entry.startsWith("--window-position="),
+  );
+  return positions.length === 1 && positions[0] === OFFSCREEN_WINDOW_FLAG;
+}
+
 function inspectListenerLinux(receipt) {
   // Prefer lsof when present (same -F records as Darwin). Fall back to /proc
   // so the VPS host still works if lsof is missing from PATH.
@@ -746,82 +1045,7 @@ function inspectListenerLinux(receipt) {
       if (!(error instanceof AuthGateError)) throw error;
     }
   }
-  let exe;
-  try {
-    exe = realpathSync(`/proc/${receipt.pid}/exe`);
-  } catch {
-    gateError("listener_unverifiable");
-  }
-  if (!exe || typeof exe !== "string") gateError("listener_unverifiable");
-  let cmdline = "";
-  try {
-    cmdline = readFileSync(`/proc/${receipt.pid}/cmdline`, "utf8");
-  } catch {
-    gateError("listener_unverifiable");
-  }
-  const argv = cmdline.includes("\0")
-    ? cmdline.split("\0").filter(Boolean)
-    : cmdline.trim().split(/\s+/).filter(Boolean);
-  const joined = argv.join(" ");
-  const hasPort =
-    argv.some((part) => part === `--remote-debugging-port=${receipt.port}`) ||
-    joined.includes(`--remote-debugging-port=${receipt.port}`);
-  const hasLoopback =
-    argv.some((part) => part === "--remote-debugging-address=127.0.0.1") ||
-    joined.includes("--remote-debugging-address=127.0.0.1");
-  if (!hasPort || !hasLoopback) gateError("listener_unverifiable");
-  // Confirm the TCP listen slot is loopback-only via /proc/net/tcp.
-  let loopbackOnly = false;
-  let singleMatch = false;
-  let pidOwnsListener = false;
-  try {
-    const table = readFileSync("/proc/net/tcp", "utf8");
-    const portHex = Number(receipt.port).toString(16).toUpperCase().padStart(4, "0");
-    const matches = [];
-    for (const line of table.split("\n").slice(1)) {
-      const parts = line.trim().split(/\s+/);
-      if (parts.length < 10) continue;
-      const local = parts[1];
-      const state = parts[3];
-      if (state !== "0A") continue; // TCP_LISTEN
-      const [addrHex, port] = local.split(":");
-      if (port !== portHex) continue;
-      matches.push({ addrHex, inode: parts[9] });
-    }
-    singleMatch = matches.length === 1;
-    // 0100007F = 127.0.0.1 little-endian
-    loopbackOnly = singleMatch && matches[0].addrHex === "0100007F";
-    const ownedSocketInodes = new Set();
-    for (const fd of readdirSync(`/proc/${receipt.pid}/fd`)) {
-      let target;
-      try {
-        target = readlinkSync(`/proc/${receipt.pid}/fd/${fd}`);
-      } catch {
-        continue;
-      }
-      const match = /^socket:\[([0-9]+)\]$/.exec(target);
-      if (match) ownedSocketInodes.add(match[1]);
-    }
-    pidOwnsListener =
-      singleMatch &&
-      ownedSocketInodes.has(matches[0].inode) &&
-      statSync(`/proc/${receipt.pid}`).uid === process.getuid();
-  } catch {
-    gateError("listener_unverifiable");
-  }
-  return {
-    single_listener: singleMatch && pidOwnsListener,
-    loopback_only: loopbackOnly,
-  };
-}
-
-function PathExistsProc(pid) {
-  try {
-    accessSync(`/proc/${pid}`, fsConstants.F_OK);
-    return true;
-  } catch {
-    return false;
-  }
+  return inspectListenerProc(receipt);
 }
 
 function inspectListener(receipt) {
@@ -834,10 +1058,7 @@ function inspectListener(receipt) {
 
 function inspectVisibility(pid) {
   if (process.platform === "linux") {
-    // Hidden-headful under Xvfb: no operator-visible display. Contract is
-    // "process still alive" — true headless is forbidden at launch time.
-    if (!PathExistsProc(pid)) gateError("visibility_unverifiable");
-    return true;
+    return inspectVisibilityProc(pid);
   }
   if (process.platform !== "darwin") gateError("visibility_unverifiable");
   const script = [

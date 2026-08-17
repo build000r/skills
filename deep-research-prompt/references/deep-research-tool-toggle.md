@@ -27,12 +27,18 @@ resolver and a no-op when the resolver or overlay is absent, so the existing
 manual env-var path still works:
 
 ```bash
-RESOLVER=""
 for d in "./.claude/skills/skill-issue" "$HOME/.claude/skills/skill-issue"; do
-  [ -f "$d/scripts/resolve_overlay_config.py" ] && { RESOLVER="$d/scripts/resolve_overlay_config.py"; break; }
+  [ -f "$d/scripts/overlay_env.sh" ] && { . "$d/scripts/overlay_env.sh"; break; }
 done
-[ -n "$RESOLVER" ] && eval "$(python3 "$RESOLVER" --section oracle --format env)"
+# No-op if skill-issue is absent; non-zero if it is present and the resolver fails.
+command -v overlay_env_load >/dev/null && { overlay_env_load oracle || exit 1; }
 ```
+
+Do **not** substitute a bare `eval "$(python3 "$RESOLVER" ... )"` here. That form
+discards the resolver's exit status, so a crashed resolver sets nothing and
+returns 0 — the run then proceeds against default CDP port and model instead of
+the project's, which looks like success and targets the wrong account. See
+[skill-issue references/overlay-config.md](../../skill-issue/references/overlay-config.md#why-not-eval).
 
 After sourcing, these are set from the project overlay when defined (otherwise
 unset, and the agent may still set them by hand):

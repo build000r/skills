@@ -11,11 +11,16 @@ state.
 Resolve the `skills` Oracle overlay and launch its exact dedicated target:
 
 ```bash
-eval "$(python3 skill-issue/scripts/resolve_overlay_config.py \
-  --section oracle --cwd "$PWD" --format env --require)"
+. skill-issue/scripts/overlay_env.sh
+overlay_env_load oracle --cwd "$PWD" --require || exit 1
 deep-research-prompt/assets/scripts/launch-chatgpt-cdp.sh \
   --no-submit-smoke --json
 ```
+
+`overlay_env_load` rather than `eval "$(...)"`: this proof asserts fail-closed
+behaviour, and the bare `eval` form cannot see a resolver failure at all — it
+discards the exit status, including `--require`'s, and would run the proof
+against default config while reporting success.
 
 The first-ever setup, or an expired ChatGPT session, requires the only visible
 browser interaction in this workflow:

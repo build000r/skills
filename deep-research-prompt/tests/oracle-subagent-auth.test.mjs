@@ -23,11 +23,17 @@ import {
   canonicalProCapability,
   deriveAccountCapability,
   evaluateAuthDoctor,
+  inspectListenerProc,
+  inspectVisibilityProc,
   isPermittedLoginTarget,
   loginCandidateReady,
   loginPreflightReady,
   normalizeChatGptUrl,
   parseListenerRecords,
+  parseProcCmdline,
+  parseProcEnvironValue,
+  parseProcNetTcpListeners,
+  procSystem,
   readAuthPolicy,
   sameBrowserContext,
   writeAuthPolicy,
@@ -679,6 +685,533 @@ test("strict inputs and reports cannot echo identity or attacker fields", () => 
       assert.deepEqual(parsed.reasons, ["usage"]);
     }
   }
+});
+
+// ---------------------------------------------------------------------------
+// Linux /proc fallback (hosts without lsof).
+//
+// Every read is served from a deterministic in-memory /proc fixture, so these
+// run identically on any platform and never touch a live host, browser, port,
+// or credential.
+// ---------------------------------------------------------------------------
+
+const PROC_ROOT = "/proc";
+const X11_ROOT = "/tmp/.X11-unix";
+const PROC_UID = 1000;
+const PROC_PID = 4321;
+const PROC_PORT = 19222;
+const PROC_PORT_HEX = "4B16";
+const PROC_PROFILE_ROOT = "/home/oracle/.oracle/browser-profile";
+const PROC_PROFILE_DIRECTORY = "Default";
+const PROC_INODE = "918273";
+const PROC_CHROME_EXE = "/opt/oracle/chrome-linux64/chrome";
+const PROC_DISPLAY = ":97";
+const LOOPBACK_V4_HEX = "0100007F";
+const LOOPBACK_V6_HEX = "00000000000000000000000001000000";
+const WILDCARD_V4_HEX = "00000000";
+
+function procReceipt(overrides = {}) {
+  return {
+    pid: PROC_PID,
+    port: PROC_PORT,
+    profile_root: PROC_PROFILE_ROOT,
+    profile_directory: PROC_PROFILE_DIRECTORY,
+    ...overrides,
+  };
+}
+
+function chromeArgv(extra = []) {
+  return [
+    PROC_CHROME_EXE,
+    "--remote-debugging-address=127.0.0.1",
+    `--remote-debugging-port=${PROC_PORT}`,
+    `--user-data-dir=${PROC_PROFILE_ROOT}`,
+    `--profile-directory=${PROC_PROFILE_DIRECTORY}`,
+    "--no-first-run",
+    "--window-position=-32000,-32000",
+    "--window-size=1280,900",
+    "about:blank",
+    ...extra,
+  ];
+}
+
+function tcpTable(rows) {
+  const header =
+    "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode";
+  const lines = rows.map((row, index) =>
+    [
+      `${String(index).padStart(4, " ")}:`,
+      `${row.address_hex}:${row.port_hex ?? PROC_PORT_HEX}`,
+      row.address_hex.length === 32 ? `${"0".repeat(32)}:0000` : "00000000:0000",
+      row.state ?? "0A",
+      "00000000:00000000",
+      "00:00000000",
+      "00000000",
+      String(row.uid ?? PROC_UID),
+      "0",
+      String(row.inode ?? PROC_INODE),
+      "1",
+      "0000000000000000",
+      "100",
+      "0",
+      "0",
+      "10",
+      "0",
+    ].join(" "),
+  );
+  return [header, ...lines, ""].join("\n");
+}
+
+function missingEntry() {
+  const error = new Error("ENOENT");
+  error.code = "ENOENT";
+  return error;
+}
+
+function fakeProc(overrides = {}) {
+  const world = {
+    uid: PROC_UID,
+    pid: PROC_PID,
+    processUid: PROC_UID,
+    exe: PROC_CHROME_EXE,
+    argv: chromeArgv(),
+    cmdlineRaw: null,
+    fds: { 0: "/dev/null", 3: `socket:[${PROC_INODE}]`, 7: "pipe:[551]" },
+    tcp: [{ address_hex: LOOPBACK_V4_HEX }],
+    tcp6: null,
+    environ: [`DISPLAY=${PROC_DISPLAY}`, "HOME=/home/oracle", "LANG=C"],
+    displays: [PROC_DISPLAY],
+    extraSockets: [],
+    ...overrides,
+  };
+  const procDirectory = `${PROC_ROOT}/${world.pid}`;
+  const files = new Map();
+  if (world.cmdlineRaw !== null) {
+    files.set(`${procDirectory}/cmdline`, world.cmdlineRaw);
+  } else if (world.argv !== null) {
+    files.set(`${procDirectory}/cmdline`, `${world.argv.join("\0")}\0`);
+  }
+  if (world.environ !== null) {
+    files.set(`${procDirectory}/environ`, `${world.environ.join("\0")}\0`);
+  }
+  if (world.tcp !== null) {
+    files.set(`${PROC_ROOT}/net/tcp`, tcpTable(world.tcp));
+  }
+  if (world.tcp6 !== null) {
+    files.set(`${PROC_ROOT}/net/tcp6`, tcpTable(world.tcp6));
+  }
+  const links = new Map();
+  if (world.exe !== null) links.set(`${procDirectory}/exe`, world.exe);
+  const directories = new Map();
+  if (world.fds !== null) {
+    directories.set(`${procDirectory}/fd`, Object.keys(world.fds));
+    for (const [descriptor, target] of Object.entries(world.fds)) {
+      links.set(`${procDirectory}/fd/${descriptor}`, target);
+    }
+  }
+  const owners = new Map();
+  if (world.processUid !== null) owners.set(procDirectory, world.processUid);
+  const present = new Set(files.keys());
+  for (const display of world.displays) {
+    present.add(`${X11_ROOT}/X${display.slice(1)}`);
+  }
+  for (const socket of world.extraSockets) present.add(socket);
+  return procSystem({
+    procRoot: PROC_ROOT,
+    x11SocketRoot: X11_ROOT,
+    uid: world.uid,
+    readFile: (pathname) => {
+      if (!files.has(pathname)) throw missingEntry();
+      return files.get(pathname);
+    },
+    readdir: (pathname) => {
+      if (!directories.has(pathname)) throw missingEntry();
+      return [...directories.get(pathname)];
+    },
+    readlink: (pathname) => {
+      if (!links.has(pathname)) throw missingEntry();
+      return links.get(pathname);
+    },
+    realpath: (pathname) => {
+      if (!links.has(pathname)) throw missingEntry();
+      return links.get(pathname);
+    },
+    statUid: (pathname) => {
+      if (!owners.has(pathname)) throw missingEntry();
+      return owners.get(pathname);
+    },
+    exists: (pathname) => present.has(pathname),
+  });
+}
+
+const BROWSER_STATE_STRINGS = [
+  String(PROC_PID),
+  String(PROC_PORT),
+  PROC_PORT_HEX,
+  "127.0.0.1",
+  LOOPBACK_V4_HEX,
+  LOOPBACK_V6_HEX,
+  PROC_PROFILE_ROOT,
+  PROC_CHROME_EXE,
+  PROC_DISPLAY,
+  PROC_INODE,
+];
+
+function assertNoBrowserState(text, label) {
+  for (const needle of BROWSER_STATE_STRINGS) {
+    assert.equal(text.includes(needle), false, `${label} echoed ${needle}`);
+  }
+}
+
+function assertGateClosed(run, expectedCode, label) {
+  assert.throws(run, (error) => {
+    assert.equal(error.name, "AuthGateError", label);
+    assert.equal(error.code, expectedCode, label);
+    assert.equal(error.message, "oracle-subagent auth gate failed", label);
+    assertNoBrowserState(`${error.message} ${error.code}`, label ?? "gate error");
+    return true;
+  }, label);
+}
+
+test("Linux /proc fallback proves the exact loopback listener without lsof", () => {
+  const proven = inspectListenerProc(procReceipt(), fakeProc());
+  assert.deepEqual(proven, { single_listener: true, loopback_only: true });
+  assertNoBrowserState(JSON.stringify(proven), "listener verdict");
+  assert.equal(inspectVisibilityProc(PROC_PID, fakeProc()), true);
+
+  // IPv6 loopback is the same proof.
+  assert.deepEqual(
+    inspectListenerProc(
+      procReceipt(),
+      fakeProc({ tcp: [], tcp6: [{ address_hex: LOOPBACK_V6_HEX }] }),
+    ),
+    { single_listener: true, loopback_only: true },
+  );
+  // Builds that collapse cmdline into one space-joined string still prove.
+  assert.deepEqual(
+    inspectListenerProc(
+      procReceipt(),
+      fakeProc({ cmdlineRaw: chromeArgv().join(" ") }),
+    ),
+    { single_listener: true, loopback_only: true },
+  );
+
+  const live = procSystem();
+  assert.equal(live.procRoot, "/proc");
+  assert.equal(live.x11SocketRoot, "/tmp/.X11-unix");
+  assert.throws(() => procSystem("not-an-object"), /auth gate failed/);
+});
+
+test("Linux /proc fallback refuses a PID that is not the receipt's Chrome", () => {
+  assertGateClosed(
+    () => inspectListenerProc(procReceipt({ pid: PROC_PID + 1 }), fakeProc()),
+    "listener_unverifiable",
+    "dead pid",
+  );
+  assertGateClosed(
+    () => inspectListenerProc(procReceipt(), fakeProc({ processUid: PROC_UID + 1 })),
+    "listener_unverifiable",
+    "foreign uid",
+  );
+  assertGateClosed(
+    () => inspectListenerProc(procReceipt(), fakeProc({ exe: "/usr/bin/socat" })),
+    "listener_unverifiable",
+    "non-chrome executable",
+  );
+  assertGateClosed(
+    () => inspectListenerProc(procReceipt(), fakeProc({ exe: "chrome" })),
+    "listener_unverifiable",
+    "relative executable",
+  );
+  for (const [label, argv] of [
+    [
+      "missing port flag",
+      chromeArgv().filter(
+        (entry) => !entry.startsWith("--remote-debugging-port="),
+      ),
+    ],
+    ["duplicate port flag", chromeArgv([`--remote-debugging-port=${PROC_PORT}`])],
+    [
+      "shadowed port flag",
+      chromeArgv([`--remote-debugging-port=${PROC_PORT + 1}`]),
+    ],
+    [
+      "wildcard debugging address",
+      chromeArgv().map((entry) =>
+        entry === "--remote-debugging-address=127.0.0.1"
+          ? "--remote-debugging-address=0.0.0.0"
+          : entry,
+      ),
+    ],
+    [
+      "foreign profile root",
+      chromeArgv().map((entry) =>
+        entry.startsWith("--user-data-dir=")
+          ? "--user-data-dir=/tmp/attacker-profile"
+          : entry,
+      ),
+    ],
+    [
+      "foreign profile directory",
+      chromeArgv().map((entry) =>
+        entry.startsWith("--profile-directory=")
+          ? "--profile-directory=Attacker"
+          : entry,
+      ),
+    ],
+    [
+      "flag hidden in a positional argument only",
+      [
+        PROC_CHROME_EXE,
+        `about:blank#--remote-debugging-port=${PROC_PORT}`,
+        "--remote-debugging-address=127.0.0.1",
+        `--user-data-dir=${PROC_PROFILE_ROOT}`,
+        `--profile-directory=${PROC_PROFILE_DIRECTORY}`,
+      ],
+    ],
+  ]) {
+    assertGateClosed(
+      () => inspectListenerProc(procReceipt(), fakeProc({ argv })),
+      "listener_unverifiable",
+      label,
+    );
+  }
+});
+
+test("Linux /proc fallback rejects foreign listeners on the receipt port", () => {
+  // Slot on the port is owned by another user.
+  assert.deepEqual(
+    inspectListenerProc(
+      procReceipt(),
+      fakeProc({ tcp: [{ address_hex: LOOPBACK_V4_HEX, uid: PROC_UID + 1 }] }),
+    ),
+    { single_listener: false, loopback_only: true },
+  );
+  // A second listener on the same port over IPv6 makes ownership ambiguous.
+  assert.deepEqual(
+    inspectListenerProc(
+      procReceipt(),
+      fakeProc({ tcp6: [{ address_hex: LOOPBACK_V6_HEX, inode: "112233" }] }),
+    ),
+    { single_listener: false, loopback_only: false },
+  );
+  // Loopback slot exists but its inode belongs to some other process.
+  assert.deepEqual(
+    inspectListenerProc(
+      procReceipt(),
+      fakeProc({ tcp: [{ address_hex: LOOPBACK_V4_HEX, inode: "555000" }] }),
+    ),
+    { single_listener: false, loopback_only: true },
+  );
+  // Wildcard bind is a distinct axis from ownership.
+  assert.deepEqual(
+    inspectListenerProc(
+      procReceipt(),
+      fakeProc({ tcp: [{ address_hex: WILDCARD_V4_HEX }] }),
+    ),
+    { single_listener: true, loopback_only: false },
+  );
+  // Nothing is listening on the receipt port at all.
+  assert.deepEqual(
+    inspectListenerProc(procReceipt(), fakeProc({ tcp: [] })),
+    { single_listener: false, loopback_only: false },
+  );
+});
+
+test("Linux /proc fallback fails closed when the listening fd cannot be proven", () => {
+  assertGateClosed(
+    () => inspectListenerProc(procReceipt(), fakeProc({ fds: null })),
+    "listener_unverifiable",
+    "unreadable fd table",
+  );
+  assert.deepEqual(
+    inspectListenerProc(procReceipt(), fakeProc({ fds: { 0: "/dev/null" } })),
+    { single_listener: false, loopback_only: true },
+  );
+  assert.deepEqual(
+    inspectListenerProc(
+      procReceipt(),
+      fakeProc({
+        tcp: [{ address_hex: LOOPBACK_V4_HEX, inode: "0" }],
+        fds: { 3: "socket:[0]" },
+      }),
+    ),
+    { single_listener: false, loopback_only: true },
+  );
+  for (const [label, overrides] of [
+    ["missing tcp table", { tcp: null }],
+    ["missing cmdline", { argv: null }],
+    ["missing exe link", { exe: null }],
+  ]) {
+    assertGateClosed(
+      () => inspectListenerProc(procReceipt(), fakeProc(overrides)),
+      "listener_unverifiable",
+      label,
+    );
+  }
+  for (const [label, receipt] of [
+    ["no receipt", null],
+    ["pid 1", procReceipt({ pid: 1 })],
+    ["port out of range", procReceipt({ port: 70000 })],
+    ["relative profile root", procReceipt({ profile_root: "relative/path" })],
+    ["empty profile directory", procReceipt({ profile_directory: "" })],
+  ]) {
+    assertGateClosed(
+      () => inspectListenerProc(receipt, fakeProc()),
+      "listener_unverifiable",
+      label,
+    );
+  }
+});
+
+test("Linux hidden-Xvfb posture is unverifiable without a proven virtual display", () => {
+  for (const [label, overrides] of [
+    ["no DISPLAY", { environ: ["HOME=/home/oracle"] }],
+    ["ambiguous DISPLAY", { environ: [`DISPLAY=${PROC_DISPLAY}`, "DISPLAY=:0"] }],
+    ["screen-qualified DISPLAY", { environ: ["DISPLAY=:97.0"] }],
+    ["remote DISPLAY", { environ: ["DISPLAY=remote.example:0"] }],
+    ["empty DISPLAY", { environ: ["DISPLAY="] }],
+    ["unreadable environ", { environ: null }],
+    ["no Xvfb socket for the display", { displays: [] }],
+    ["foreign process owner", { processUid: PROC_UID + 1 }],
+    ["unreadable cmdline", { argv: null }],
+  ]) {
+    assertGateClosed(
+      () => inspectVisibilityProc(PROC_PID, fakeProc(overrides)),
+      "visibility_unverifiable",
+      label,
+    );
+  }
+  assertGateClosed(
+    () => inspectVisibilityProc(PROC_PID + 1, fakeProc()),
+    "visibility_unverifiable",
+    "dead pid",
+  );
+  // A socket that answers to the name proves nothing: only a bare :N display
+  // is the Xvfb posture the launcher is allowed to create.
+  for (const value of [":97.0", ":1000", "remote.example:97", "", "localhost:97"]) {
+    assertGateClosed(
+      () =>
+        inspectVisibilityProc(
+          PROC_PID,
+          fakeProc({
+            environ: [`DISPLAY=${value}`],
+            displays: [],
+            extraSockets: [`${X11_ROOT}/X${value.slice(1)}`],
+          }),
+        ),
+      "visibility_unverifiable",
+      `display shape ${JSON.stringify(value)}`,
+    );
+  }
+  // True headless is forbidden outright, not a flavour of hidden.
+  for (const flag of ["--headless", "--headless=new"]) {
+    assertGateClosed(
+      () => inspectVisibilityProc(PROC_PID, fakeProc({ argv: chromeArgv([flag]) })),
+      "visibility_unverifiable",
+      flag,
+    );
+  }
+});
+
+test("Linux browser windows that are not parked off-screen report visible", () => {
+  for (const [label, argv] of [
+    [
+      "on-screen window",
+      chromeArgv().map((entry) =>
+        entry === "--window-position=-32000,-32000"
+          ? "--window-position=0,0"
+          : entry,
+      ),
+    ],
+    [
+      "no window position",
+      chromeArgv().filter(
+        (entry) => !entry.startsWith("--window-position="),
+      ),
+    ],
+    ["duplicate window position", chromeArgv(["--window-position=0,0"])],
+  ]) {
+    assert.equal(
+      inspectVisibilityProc(PROC_PID, fakeProc({ argv })),
+      false,
+      label,
+    );
+  }
+  const report = evaluateAuthDoctor(
+    healthyInput({
+      transport: {
+        single_listener: true,
+        loopback_only: true,
+        pid_matches: true,
+        target_matches: true,
+        hidden: false,
+      },
+    }),
+  );
+  assert.equal(report.ok, false);
+  assert.ok(report.reasons.includes("browser_visible"));
+});
+
+test("Linux /proc verdicts fail the doctor closed without echoing browser state", () => {
+  const foreign = inspectListenerProc(
+    procReceipt(),
+    fakeProc({
+      tcp: [{ address_hex: WILDCARD_V4_HEX, uid: PROC_UID + 1 }],
+    }),
+  );
+  assert.deepEqual(foreign, { single_listener: false, loopback_only: false });
+  const report = evaluateAuthDoctor(
+    healthyInput({
+      transport: {
+        ...foreign,
+        pid_matches: true,
+        target_matches: true,
+        hidden: true,
+      },
+    }),
+  );
+  assert.equal(report.ok, false);
+  assert.ok(report.reasons.includes("listener_ambiguous"));
+  assert.ok(report.reasons.includes("wildcard_cdp"));
+  assert.equal(loginPreflightReady(report), false);
+  assertNoBrowserState(JSON.stringify(report), "doctor report");
+});
+
+test("/proc parsers ignore non-listening slots and reject malformed rows", () => {
+  const table = tcpTable([
+    { address_hex: LOOPBACK_V4_HEX, state: "01" },
+    { address_hex: LOOPBACK_V4_HEX, port_hex: "0050" },
+    { address_hex: WILDCARD_V4_HEX, uid: 0, inode: "42" },
+  ]);
+  assert.deepEqual(parseProcNetTcpListeners(table, PROC_PORT), [
+    { address_hex: WILDCARD_V4_HEX, uid: 0, inode: "42" },
+  ]);
+  assert.deepEqual(parseProcNetTcpListeners(tcpTable([]), PROC_PORT), []);
+  for (const malformed of [
+    tcpTable([{ address_hex: "ZZZZZZZZ" }]),
+    tcpTable([{ address_hex: "0100" }]),
+    tcpTable([{ address_hex: LOOPBACK_V4_HEX, inode: "nope" }]),
+    tcpTable([{ address_hex: LOOPBACK_V4_HEX, uid: "root" }]),
+  ]) {
+    assert.throws(
+      () => parseProcNetTcpListeners(malformed, PROC_PORT),
+      /auth gate failed/,
+    );
+  }
+  assert.throws(() => parseProcNetTcpListeners("", 0), /auth gate failed/);
+  assert.throws(() => parseProcNetTcpListeners(null, PROC_PORT), /auth gate failed/);
+
+  assert.deepEqual(parseProcCmdline("chrome\0--flag\0"), ["chrome", "--flag"]);
+  assert.deepEqual(parseProcCmdline("  chrome --flag  "), ["chrome", "--flag"]);
+  assert.throws(() => parseProcCmdline(""), /auth gate failed/);
+  assert.throws(() => parseProcCmdline(null), /auth gate failed/);
+
+  assert.equal(parseProcEnvironValue("A=1\0DISPLAY=:97\0", "DISPLAY"), ":97");
+  assert.equal(parseProcEnvironValue("A=1\0", "DISPLAY"), null);
+  assert.equal(parseProcEnvironValue("DISPLAY=:97\0DISPLAY=:0\0", "DISPLAY"), null);
+  assert.throws(() => parseProcEnvironValue(null, "DISPLAY"), /auth gate failed/);
+  assert.throws(() => parseProcEnvironValue("A=1\0", ""), /auth gate failed/);
 });
 
 test("page probe is observation-only and contains no credential extraction or send path", () => {

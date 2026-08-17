@@ -102,13 +102,18 @@ on_error() {
 trap on_error ERR
 
 cd "$SKILLS_ROOT"
-eval "$(
-  /usr/bin/python3 "$RESOLVER" \
-    --section oracle \
-    --cwd "$SKILLS_ROOT" \
-    --format env \
-    --require
-)"
+CURRENT_PHASE="overlay-resolve"
+# Load via overlay_env.sh, never `eval "$(...)"`: command substitution discards
+# the resolver's exit status (including --require's), so a resolver that dies
+# under /usr/bin/python3 would leave every ORACLE_* unset and this proof would
+# run against default config while reporting success. overlay_env_load returns
+# non-zero instead, which the ERR trap turns into a failed manifest.
+# shellcheck source=../../../skill-issue/scripts/overlay_env.sh
+. "$SKILLS_ROOT/skill-issue/scripts/overlay_env.sh"
+OVERLAY_ENV_PYTHON=/usr/bin/python3 \
+OVERLAY_ENV_RESOLVER="$RESOLVER" \
+  overlay_env_load oracle --cwd "$SKILLS_ROOT" --require ||
+  die "overlay resolve failed; refusing to run the proof unoverlaid"
 
 CURRENT_PHASE="auth-doctor"
 AUTH_REPORT="$OUT/auth-doctor.json"

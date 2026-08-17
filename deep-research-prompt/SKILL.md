@@ -169,8 +169,10 @@ it there rather than reconstructing it here.** The shape:
 1. Write the prompt to `/tmp/<slug>-deep-research-<date>.md` and size it:
    `oracle --dry-run summary --file <promptfile>`.
 2. Optionally source per-project ChatGPT config (soft dependency on
-   `skill-issue`; no-op when absent):
-   `eval "$(python3 <skill-issue>/scripts/resolve_overlay_config.py --section oracle --format env)"`.
+   `skill-issue`; no-op when absent, but fails loudly when present and broken):
+   `. <skill-issue>/scripts/overlay_env.sh` then `overlay_env_load oracle || exit 1`.
+   Never `eval "$(resolve_overlay_config.py ...)"` — it cannot detect a failed
+   resolver and silently runs against default config.
 3. Launch the dedicated CDP Chrome (`assets/scripts/launch-chatgpt-cdp.sh`) and
    confirm the tab list shows the signed-in account.
 4. Render the bundle — **render only, Oracle never submits a Deep Research run**:

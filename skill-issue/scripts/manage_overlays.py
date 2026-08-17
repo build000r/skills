@@ -12,7 +12,14 @@ All commands output JSON when --json is passed.
 By default, new overlays are created under .buildooor/skillbox-config/clients
 inside the target git repo; legacy/shared skillbox-config/clients roots are
 still discovered for matching and explicit --config-root use.
+
+Runtime floor: **Python 3.9**. `resolve_overlay_config.py` imports this module
+inside a shell `eval` bridge, so a PEP-604 union here raises TypeError at import
+and silently disables the *resolver* too. Keep the `from __future__ import
+annotations` import below. See tests/test_resolve_overlay_config_py39.py.
 """
+
+from __future__ import annotations
 
 import argparse
 import json

@@ -42,10 +42,15 @@ pick up project settings unchanged:
 # Emit: export ORACLE_CDP_PORT='9222'  export ORACLE_CHATGPT_URL_MATCH='g-p-abc123' ...
 scripts/resolve_overlay_config.py --section oracle --format env
 
-# Source them into the current shell, then run the tool normally:
-eval "$(scripts/resolve_overlay_config.py --section oracle --format env)"
+# Load them into the current shell, then run the tool normally:
+. scripts/overlay_env.sh
+overlay_env_load oracle || exit 1
 oracle --engine browser ...
 ```
+
+> **Load it with `overlay_env.sh`, never with a bare `eval "$(...)"`.**
+> See [Why not `eval "$(...)"`](#why-not-eval) below — that form cannot detect a
+> failed resolver, and silently running unoverlaid is the outcome that hurts.
 
 Mapping is mechanical: each scalar key `k` in section `s` becomes
 `<S>_<K>` (uppercased), e.g. section `oracle`, key `cdp_port` →
@@ -54,22 +59,63 @@ Mapping is mechanical: each scalar key `k` in section `s` becomes
 in env output (use `--format json` to read them structurally).
 
 It is a **silent no-op** when no overlay matches or the section is absent
-(exit 0, no output), so callers can `eval` it unconditionally and fall back to
-their own defaults. Pass `--require` to make a miss a non-zero exit instead.
+(exit 0, no output), so callers fall back to their own defaults. Pass
+`--require` to make a miss a non-zero exit instead.
+
+<a id="why-not-eval"></a>
+### Why not `eval "$(...)"`
+
+The obvious consumer line is unsafe, and was the documented one until this was
+found:
+
+```bash
+eval "$(python3 "$RESOLVER" --section oracle --format env)"   # DO NOT — see below
+```
+
+Command substitution discards the resolver's exit status. `eval` reports the
+status of *the text it evaluated*, not of the process that produced it, and
+empty text evaluates to 0. So when the resolver dies — a stack trace, a missing
+PyYAML, a PEP-604 union under Python 3.9 — that line returns **0 with nothing
+set**, and the caller proceeds with its own defaults exactly as if no overlay
+had ever been configured.
+
+Neither `--require` nor `set -e` catches it: the non-zero exit is thrown away by
+the same substitution before either can see it.
+
+That matters because the fallback defaults are *plausible* — the default CDP
+port, the default model, no account pin. The run appears to succeed while
+targeting the wrong thing. A loud failure is recoverable; a silent wrong target
+is not.
 
 ### Consumer contract (graceful, optional)
 
-A skill that wants overlay-aware config should treat the resolver as a soft
-dependency:
+Source `scripts/overlay_env.sh` and call `overlay_env_load`. It keeps the
+soft-dependency behaviour and adds the two checks the bare `eval` cannot make:
 
 ```bash
-RESOLVER=""
-for d in "./.claude/skills/skill-issue" "$HOME/.claude/skills/skill-issue"; do
-  [ -f "$d/scripts/resolve_overlay_config.py" ] && { RESOLVER="$d/scripts/resolve_overlay_config.py"; break; }
-done
-[ -n "$RESOLVER" ] && eval "$(python3 "$RESOLVER" --section oracle --format env)"
+. "$SKILL_ISSUE/scripts/overlay_env.sh"   # or ./.claude/skills/skill-issue/...
+overlay_env_load oracle || exit 1
 # Tool still works with its own defaults if the resolver or overlay is absent.
 ```
+
+| Situation | `overlay_env_load` |
+| --- | --- |
+| resolver absent (skill-issue not installed) | no-op, returns 0 — optional dependency |
+| resolver present but fails | returns non-zero, sets nothing, prints the interpreter and stderr |
+| resolver output is not pure `export` lines | returns non-zero, sets nothing, never evals |
+| resolver succeeds | variables exported, returns 0 |
+
+Absent and broken are deliberately different: a missing optional dependency is
+expected, a crashing one is a bug you need to see. Set `OVERLAY_ENV_REQUIRE=1`
+to make absent an error too. `OVERLAY_ENV_PYTHON` overrides the interpreter,
+`OVERLAY_ENV_RESOLVER` the resolver path.
+
+Output is checked against an allowlist — every non-blank line must be
+`export NAME=…` — before anything is evaluated, so a truncated write or a
+traceback on stdout is refused rather than executed. The check is all-or-nothing:
+a half-valid payload sets nothing, because a half-configured environment is the
+same silent-wrong-target failure in a smaller costume. A value containing a
+literal newline is refused too; use `--format json` for structured values.
 
 Declare it in frontmatter so `check_skill_deps.py` flags resolver-interface
 drift: `depends_on: [skill-issue]`.

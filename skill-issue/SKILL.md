@@ -82,11 +82,14 @@ Use the repo-local `.buildooor/` root when the overlay explains project trajecto
 
 Overlays are also where per-project *settings that multiple skills must agree on* live — not just skill-creation config. Put a setting once under `client.context.<section>` in `overlay.yaml` instead of relying on ambient env vars an agent has to remember. The canonical example is the `oracle:` block (which ChatGPT account/profile, project URL, CDP port, and engine/model defaults a repo's GPT-5 Pro / Deep Research runs use).
 
-Skills consume these via the env-var bridge `scripts/resolve_overlay_config.py`, which resolves the matched overlay's section into `export <SECTION>_<KEY>` lines (a silent no-op when absent, so callers can `eval` it unconditionally):
+Skills consume these via the env-var bridge `scripts/resolve_overlay_config.py`, which resolves the matched overlay's section into `export <SECTION>_<KEY>` lines. Load it through `scripts/overlay_env.sh`, which no-ops when the resolver is absent but fails loudly when it is present and broken:
 
 ```bash
-eval "$(scripts/resolve_overlay_config.py --section oracle --format env)"
+. scripts/overlay_env.sh
+overlay_env_load oracle || exit 1
 ```
+
+Do **not** use `eval "$(resolve_overlay_config.py ...)"`: command substitution discards the resolver's exit status, so a crashed resolver returns 0 with nothing set and the caller silently runs unoverlaid against its own defaults. See [references/overlay-config.md](references/overlay-config.md#why-not-eval).
 
 `manage_overlays.py validate` checks the `oracle` block when present. See [references/overlay-config.md](references/overlay-config.md) for the section convention, the full `oracle` key→env mapping, the multi-profile/multi-account pattern, and the graceful consumer contract.
 

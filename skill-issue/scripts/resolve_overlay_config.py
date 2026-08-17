@@ -39,7 +39,18 @@ Usage:
 `~` and `$VAR` references in scalar values are expanded. Non-scalar values
 (nested mappings/lists) are skipped in env output and reported on stderr with
 --verbose; use --format json to read them structurally.
+
+Runtime floor: **Python 3.9**. This module is invoked by shell `eval` from
+whatever `python3` is on a consumer's PATH -- on macOS that is `/usr/bin/python3`
+(3.9.6), and `tests/live/oracle-subagent-local-proof.sh` hardcodes exactly that
+interpreter. PEP-604 unions (`dict | None`) are evaluated eagerly at function
+definition time, so a single one anywhere in this module or in `manage_overlays`
+raises TypeError at import and the resolver emits nothing. Keep the
+`from __future__ import annotations` import below, and keep `|` unions out of
+runtime (non-annotation) positions. See tests/test_resolve_overlay_config_py39.py.
 """
+
+from __future__ import annotations
 
 import argparse
 import json

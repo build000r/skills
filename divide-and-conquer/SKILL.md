@@ -167,12 +167,14 @@ Because execution is swarm/NTM-coordinated, `vibing-with-ntm` is mandatory for
 every divide-and-conquer run. Activate it through `sbp` when needed, then follow
 its operator, reservation, transport, and review-loop guidance.
 
-Before any `ntm spawn`, prove the NTM project name resolves to the repo you
-intend to edit. NTM derives pane working directories from
-`projects_base/session_name`; a wave name that does not map to the target repo
-can launch workers in a sibling or empty checkout. This root preflight belongs
-to `divide-and-conquer` because it is an execution-safety gate, not a live
-operator-tending concern. See [NTM Project Root Preflight](#ntm-project-root-preflight).
+Before any `ntm spawn`, derive NTM's project root from the actual Git checkout:
+set `NTM_PROJECTS_BASE` to the checkout's parent, use the checkout basename as
+the stable NTM project, and put the unique wave identity in `--label`. NTM then
+creates `<project>--<label>` sessions whose panes share the real checkout.
+Never create a per-wave directory or symlink under a global projects directory.
+This root preflight belongs to `divide-and-conquer` because it is an
+execution-safety gate, not a live operator-tending concern. See
+[NTM Project Root Preflight](#ntm-project-root-preflight).
 
 Use this skill for large-ish, UI-facing, multi-file, naturally parallel, or
 review-sensitive tasks even when the user did not explicitly ask for a swarm.
@@ -601,26 +603,38 @@ Run this before every wave spawn, including review waves:
 ```bash
 export PATH="$HOME/.local/bin:$PATH"
 repo_root="$(git rev-parse --show-toplevel)"
+export NTM_PROJECTS_BASE="$(dirname "$repo_root")"
+NTM_PROJECT="$(basename "$repo_root")"
+WAVE_LABEL="dac-${SLICE_SLUG}-wave-${WAVE_NUMBER}"
+WAVE_SESSION="${NTM_PROJECT}--${WAVE_LABEL}"
 pwd
-rg '^projects_base' ~/.config/ntm/config.toml
+test "$(realpath "$NTM_PROJECTS_BASE/$NTM_PROJECT")" = "$repo_root"
+test ! -e "$NTM_PROJECTS_BASE/$WAVE_SESSION"
+ntm config get projects_base
 ntm version
 ntm list --json
 ```
 
-Then verify the proposed `$WAVE_PROJECT` resolves to `repo_root`. If
-`projects_base/$WAVE_PROJECT` is not the target checkout, do not spawn the wave
-by basename. Prefer collision-free session names backed by explicit
-`projects_base` symlinks. Fix the NTM project mapping first, choose a supported
-session name that maps to the actual repo, or block the Beads node with the
-exact root resolution problem.
+`NTM_PROJECTS_BASE` is invocation-scoped and must resolve to the actual
+checkout's parent, even when the repo lives outside the user's configured
+default or is nested below it. The stable project directory must be exactly
+`$NTM_PROJECTS_BASE/$NTM_PROJECT`; the label is session identity only. Do not
+create `$WAVE_SESSION` on disk, do not symlink it to the repo, and do not pass
+the wave label as the positional project argument. If the installed NTM does
+not honor `NTM_PROJECTS_BASE` plus `--label`, block the wave with the exact
+version/root error instead of restoring the symlink workaround.
 
 Record the result in the dispatch contract:
 
 ```text
 NTM root preflight:
 - repo_root: <absolute git root>
-- wave_project: <ntm session name>
-- projects_base mapping: <verified target path or blocker>
+- ntm_projects_base: <repo parent>
+- ntm_project: <repo basename>
+- wave_label: <unique label>
+- wave_session: <repo basename>--<unique label>
+- project mapping: <verified target path or blocker>
+- wave-named filesystem entry: absent | blocker
 - result: pass | blocked
 ```
 
@@ -630,8 +644,8 @@ name prefix-collides with an existing session, and tmux prefix matching can mask
 the miss. After spawn, prove exact tmux session identity before dispatch:
 
 ```bash
-tmux has-session -t "=${WAVE_PROJECT}"
-tmux list-panes -t "=${WAVE_PROJECT}" -F '#{session_name}:#{window_index}.#{pane_index} #{pane_current_path}'
+tmux has-session -t "=${WAVE_SESSION}"
+tmux list-panes -t "=${WAVE_SESSION}" -F '#{session_name}:#{window_index}.#{pane_index} #{pane_current_path}'
 ```
 
 Use the leading `=` for exact tmux target matching. After dispatch, verify pane
@@ -707,7 +721,7 @@ For Grok panes, write the brief to a file in the run directory and send a
 single-line pointer:
 
 ```bash
-ntm send "$WAVE_PROJECT" --pane="$N" "Read <absolute-run-dir>/BRIEF-<node>.md and execute exactly that node brief."
+ntm send "$WAVE_SESSION" --pane="$N" "Read <absolute-run-dir>/BRIEF-<node>.md and execute exactly that node brief."
 ```
 
 `ntm send` may also leave the text in the compose box without submitting it. After
@@ -715,7 +729,7 @@ sending, if the pane shows your text at a `❯` prompt rather than working outpu
 submit it explicitly:
 
 ```bash
-tmux send-keys -t "=${WAVE_PROJECT}:1.${N}" Enter
+tmux send-keys -t "=${WAVE_SESSION}:1.${N}" Enter
 ```
 
 ### Declare test files in `writes`
@@ -885,7 +899,7 @@ frontier_json="$(python3 "$DAC_SHARED_ROOT/scripts/br_helpers.py" ready --label 
 # Optional: ranked by br's evidence-aware scheduler instead of plain priority
 # frontier_json="$(python3 "$DAC_SHARED_ROOT/scripts/br_helpers.py" scheduler)"
 
-ntm spawn "$WAVE_PROJECT" \
+ntm spawn "$NTM_PROJECT" --label "$WAVE_LABEL" \
   --grok=1 \
   --cod="${NUM_CODEX}:gpt-5.6-sol:medium" --grok="${NUM_GROK}:grok-4.6" \
   --no-user \
@@ -896,7 +910,7 @@ If the Grok plugin preflight passes and the frontier has Grok 4.6 design/UX or
 task-runner nodes, include the Grok count explicitly:
 
 ```bash
-ntm spawn "$WAVE_PROJECT" \
+ntm spawn "$NTM_PROJECT" --label "$WAVE_LABEL" \
   --grok=1 \
   --cod="${NUM_CODEX}:gpt-5.6-sol:medium" \
   --grok="${NUM_GROK}:grok-4.6" \
@@ -926,11 +940,13 @@ review.
 Wait for the swarm to be ready:
 
 ```bash
-ntm --robot-wait="$WAVE_PROJECT" --condition=idle --timeout=120s
+ntm --robot-wait="$WAVE_SESSION" --condition=idle --timeout=120s
 ```
 
-Prefer wave-scoped swarm names such as
-`dac-<repo>-wave-01`, `dac-<repo>-wave-02`, and `dac-<repo>-review`.
+Prefer wave-scoped labels such as `dac-<slice>-wave-01`,
+`dac-<slice>-wave-02`, and `dac-<slice>-review`. NTM prefixes the stable project
+name, producing sessions such as `<repo>--dac-<slice>-wave-01` without creating
+matching filesystem entries.
 
 Optionally render `EXECUTION_CONTEXT.md` inside the run directory after the
 Beads contract is complete. Treat it as a cached view for humans and transport
@@ -965,7 +981,7 @@ avoid thundering-herd effects:
 
 ```bash
 for pane in <pane indexes for this wave>; do
-  ntm send "$WAVE_PROJECT" --pane="$pane" "$(cat <<'PROMPT'
+  ntm send "$WAVE_SESSION" --pane="$pane" "$(cat <<'PROMPT'
   <INSERT NODE-SPECIFIC PROMPT>
   PROMPT
   )"
@@ -1125,9 +1141,9 @@ Set up monitoring immediately after dispatch:
 CronCreate(
   cron: "*/3 * * * *",
   recurring: true,
-  prompt: "Check divide-and-conquer wave $WAVE_PROJECT. Run:
-    1. ntm --robot-is-working=$WAVE_PROJECT
-    2. ntm --robot-tail=$WAVE_PROJECT --lines=80
+  prompt: "Check divide-and-conquer wave $WAVE_SESSION. Run:
+    1. ntm --robot-is-working=$WAVE_SESSION
+    2. ntm --robot-tail=$WAVE_SESSION --lines=80
     3. test <absolute-run-dir> -ef \"$(git rev-parse --show-toplevel)\" && echo BAD_RUN_DIR || true
     4. ls -la <absolute-run-dir>/WG-*_RESULT.md 2>/dev/null
     5. br show <each-active-issue-id> --json
@@ -1155,19 +1171,19 @@ CronCreate(
 **Generic nudge (idle, no result):**
 
 ```bash
-ntm send "$WAVE_PROJECT" --pane="$N" "You own node WG-00N. Finish the node, run its validate commands, and write WG-00N_RESULT.md only at <absolute-run-dir>/WG-00N_RESULT.md. Do not create repo-root, .dac, .ntm, or /tmp fallback artifacts. Stay inside the declared write scope."
+ntm send "$WAVE_SESSION" --pane="$N" "You own node WG-00N. Finish the node, run its validate commands, and write WG-00N_RESULT.md only at <absolute-run-dir>/WG-00N_RESULT.md. Do not create repo-root, .dac, .ntm, or /tmp fallback artifacts. Stay inside the declared write scope."
 ```
 
 **Depth nudge (result lacks proof):**
 
 ```bash
-ntm send "$WAVE_PROJECT" --pane="$N" "<absolute-run-dir>/WG-00N_RESULT.md is not sufficient yet. Add the exact files changed, explicit validation commands, and whether the node is done, blocked, or needs_rework. Do not write evidence files in the product repo."
+ntm send "$WAVE_SESSION" --pane="$N" "<absolute-run-dir>/WG-00N_RESULT.md is not sufficient yet. Add the exact files changed, explicit validation commands, and whether the node is done, blocked, or needs_rework. Do not write evidence files in the product repo."
 ```
 
 **Boundary nudge (scope drift):**
 
 ```bash
-ntm send "$WAVE_PROJECT" --pane="$N" "Do not code past your declared write scope. If the node truly needs broader edits, stop and propose the smallest Beads graph change instead."
+ntm send "$WAVE_SESSION" --pane="$N" "Do not code past your declared write scope. If the node truly needs broader edits, stop and propose the smallest Beads graph change instead."
 ```
 
 ### 10. Collect Results and Advance the Graph
@@ -1177,7 +1193,7 @@ Once the wave has produced results, or the timeout is reached:
 1. Cancel the monitoring cron
 2. Capture final pane state:
    ```bash
-   ntm --robot-tail="$WAVE_PROJECT" --lines=200
+   ntm --robot-tail="$WAVE_SESSION" --lines=200
    ```
 3. Read every `<absolute-run-dir>/WG-*_RESULT.md` for the active wave completely.
    Treat repo-root, `.dac/`, `.ntm/`, or `/tmp` result files as misplaced
@@ -1228,8 +1244,10 @@ Spawn a small review swarm: one Grok runtime controller, one independent Grok
 fresh-eyes reviewer, and one Codex final-authority reviewer:
 
 ```bash
-ntm spawn "$REVIEW_PROJECT" --grok=2:grok-4.6 --cod=1:gpt-5.6-sol:medium --no-user --stagger-mode=smart
-ntm --robot-wait="$REVIEW_PROJECT" --condition=idle --timeout=120s
+REVIEW_LABEL="dac-${SLICE_SLUG}-review"
+REVIEW_SESSION="${NTM_PROJECT}--${REVIEW_LABEL}"
+ntm spawn "$NTM_PROJECT" --label "$REVIEW_LABEL" --grok=2:grok-4.6 --cod=1:gpt-5.6-sol:medium --no-user --stagger-mode=smart
+ntm --robot-wait="$REVIEW_SESSION" --condition=idle --timeout=120s
 ```
 
 If SOL is unavailable, replace the Codex allocation with

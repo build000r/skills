@@ -149,23 +149,32 @@ stale mental model. Use labels/external refs for epic grouping, remove or avoid
 the blocking parent-child edge for actionable nodes, or use a scheduler mode
 that explicitly understands non-blocking hierarchy before spawning workers.
 
-This skill now defaults to an external NTM swarm for execution. Do not fall
-back to ad hoc local subagents or `/codex:rescue` as the primary path unless
-the user explicitly asks to bypass the swarm. Before declaring `ntm`
-unavailable, normalize the common agent-shell PATH gap:
+This skill defaults to an external NTM swarm when nodes need live attach,
+mid-flight steering, or shared-context repair. The tracked headless one-shot
+lane in [Dispatch Substrate Selection](#dispatch-substrate-selection) is a
+sanctioned peer for single-shot artifact nodes, not a silent degrade. Do not
+dispatch leaf work through the orchestrator's in-process Task/subagent UI
+(Claude Code `Task`, Codex subagents, or equivalent): those are untracked extra
+agent processes, not the headless lane. Do not use `/codex:rescue` or other
+untracked local workers as the primary path unless the user explicitly asks.
+
+Before declaring a substrate binary missing, put `$HOME/.local/bin` on `PATH`.
+Homebrew paths such as `/opt/homebrew/bin/grok` are not authoritative.
 
 ```bash
 export PATH="$HOME/.local/bin:$PATH"
 command -v ntm >/dev/null 2>&1 || test -x "$HOME/.local/bin/ntm"
-ntm version >/dev/null 2>&1 || ntm deps -v >/dev/null
+command -v grok >/dev/null 2>&1 || test -x "$HOME/.local/bin/grok"
+command -v codex >/dev/null 2>&1 || test -x "$HOME/.local/bin/codex"
 ```
 
-If `ntm` is still unavailable after that check, stop and surface the missing
-prerequisite instead of silently degrading.
+If the **chosen** substrate's binary is still missing, stop and surface that
+prerequisite. `ntm` missing does not block a wave already classified as
+headless; `grok`/`codex` missing does not block an NTM-only wave.
 
-Because execution is swarm/NTM-coordinated, `vibing-with-ntm` is mandatory for
-every divide-and-conquer run. Activate it through `sbp` when needed, then follow
-its operator, reservation, transport, and review-loop guidance.
+`vibing-with-ntm` is mandatory for every NTM-substrate wave. Headless-only
+waves monitor PID, exit file, and result artifacts instead; do not invent a
+tmux session just to satisfy that skill.
 
 Before any `ntm spawn`, derive NTM's project root from the actual Git checkout:
 set `NTM_PROJECTS_BASE` to the checkout's parent, use the checkout basename as
@@ -196,9 +205,12 @@ Design-related execution nodes should run on Grok 4.6 through the NTM Grok
 plugin when preflight passes, otherwise through the Swimmers/local/direct
 headless Grok 4.6 route. If no Grok 4.6 design route is available, surface the
 routing blocker rather than silently reassigning design work to Codex.
-Runtime orchestration must run on Grok 4.6 through the NTM plugin: it owns
-frontier reads, claims, dispatch, tending, harvest, and convergence, but never
-planning. System design, domain-planner quality loops, no-ragrets bead
+On NTM-substrate waves, runtime orchestration must run on Grok 4.6 through
+the NTM plugin: it owns frontier reads, claims, dispatch, tending, harvest,
+and convergence, but never planning. Headless-only waves keep that same
+split of duties in the lead process (claim, dispatch, PID/artifact harvest,
+convergence); do not spawn an NTM plugin pane solely to host the
+controller. System design, domain-planner quality loops, no-ragrets bead
 composition, decomposition, dependency topology, acceptance-criteria design,
 impactful architecture/code decisions, integration review, commit acceptance,
 and final say must run on Codex `gpt-5.6-sol`; if SOL is unavailable, use Codex
@@ -283,6 +295,62 @@ Plan intake:
 - rejected: <n> (reasons + applied repairs)
 - result: pass | repaired-and-passed | blocked
 ```
+
+## Dispatch Substrate Selection
+
+Classify each **node**, then the wave, before spawning. Record the choice in
+the dispatch contract. Width (how many nodes are concurrent) is not the
+discriminator: four single-shot artifact nodes may still be headless. Need to
+watch, nudge, or reuse context is.
+
+| Node shape | Substrate |
+|------------|-----------|
+| Self-contained, one result artifact, no mid-flight steering | Direct headless one-shot (`grok -p`, `codex exec`, or equivalent, fed a prompt-file brief) |
+| Live attach, marching orders, multi-round repair on shared context, or interactive review dialogue | NTM swarm (default) |
+
+A wave is headless only when **every** node in it matches the first row.
+Mixed waves: NTM for the nodes that need steering; headless siblings are
+allowed. Independent verdict-file reviews are headless-eligible; a review
+that must talk back is not.
+
+Why headless wins on that first row: the worker is a real PID that is
+supposed to exit; completion is typed (PID dead + exit file + artifact +
+lead `validate_cmds`) instead of pane scraping; there is no NTM tending
+loop for lanes that cannot be nudged anyway. RAM vs a Grok/Codex **tmux
+pane** is small (~15 MB). The large save is vs in-process Claude/Codex
+Task subagents (~550–740 MB extra each) and vs panes that stay resident
+across waves.
+
+What it gives up: no live pane, no mid-flight marching orders, no session
+continuity, cold context every launch. `grok -p` can exit 0 with empty
+stdout — exit code alone is not success.
+
+Headless one-shot rules (everything else in this skill still applies):
+
+- Same lead-owned Beads claim handshake before launch; track each node by
+  issue ID, PID, exit-file path, and expected absolute result-artifact path.
+- Resolve the CLI with `PATH="$HOME/.local/bin:$PATH"` and `command -v`.
+  Do not hardcode `/opt/homebrew/bin/grok`.
+- Every brief must be fully self-contained: embed the `br show` contract in
+  the prompt file, because a headless process cannot ask follow-ups.
+- Bound the run: pass a turn cap (`--max-turns` or equivalent) **or** the
+  wave `--wave-timeout-min` (default 45). Without one of those, a hung
+  `-p` process is the same failure mode as an idle pane.
+- Launch through a wrapper that writes pid, log, and exit code. Detached
+  `nohup` without an exit file drops the status:
+  `( "$cli" -p "$(cat "$brief")" … ; echo $? > "$lane.exit" ) >"$lane.log" 2>&1 & echo $! > "$lane.pid"`
+- Completion = process exited AND exit file present AND result artifact
+  exists and is non-empty AND the lead independently re-ran
+  `validate_cmds`. Dead PID + no artifact, or exit 0 + empty stdout and
+  no artifact, is a failed node, never a quiet success.
+- Monitor with PID liveness, the exit file, and artifact existence (see
+  Step 9 headless probes). Do not `ntm send` a dead process. Do not
+  treat pane-idle nudges as applicable.
+- Record `Dispatch substrate: NTM swarm` or `Dispatch substrate: headless
+  one-shot` per wave, and per node when mixed.
+
+Do not stand up a full NTM session to tend a frontier of one. Do not
+fire-and-forget a node whose acceptance depends on interactive review.
 
 ## Model Routing Is Mandatory
 
@@ -598,7 +666,8 @@ orchestrators do not commit.
 
 ### NTM Project Root Preflight
 
-Run this before every wave spawn, including review waves:
+Run this before every **NTM** spawn, including NTM review waves. Headless
+waves skip it.
 
 ```bash
 export PATH="$HOME/.local/bin:$PATH"
@@ -892,7 +961,14 @@ debugging, but workers must receive a Beads-rendered node brief.
 
 ### 7. Spawn the Wave Swarm
 
-For each ready frontier wave, launch an NTM swarm sized to that wave.
+Apply [Dispatch Substrate Selection](#dispatch-substrate-selection) first.
+If the wave (or a subset of its nodes) classified as headless, dispatch
+those nodes with the headless rules (claim handshake, prompt-file brief,
+wrapper pid/log/exit, artifact path) and skip `ntm spawn` for them. The
+rest of this step covers the NTM default.
+
+For each NTM-classified ready frontier wave, launch an NTM swarm sized to
+that wave.
 
 ```bash
 frontier_json="$(python3 "$DAC_SHARED_ROOT/scripts/br_helpers.py" ready --label slice:${SLICE_SLUG})"
@@ -1166,6 +1242,29 @@ CronCreate(
 )
 ```
 
+This CronCreate block is NTM-only. Headless waves use process/artifact probes
+instead; pane idle/stuck nudges do not apply to a `-p` process.
+
+**Headless probes (substitute for the NTM cron body):**
+
+```text
+For each in-flight lane:
+  1. pid=$(cat $RD/logs/$lane.pid)
+  2. kill -0 $pid ? still running : read $RD/logs/$lane.exit
+  3. test -s $RD/<issue>_RESULT.md
+  4. br show <issue-id> --json  (in_progress + expected assignee)
+  5. if elapsed > wave-timeout-min and pid still alive: fail the node
+     (kill the process, treat as blocked/needs_rework). Do not ntm send.
+
+ACTIONS:
+  - PID dead + non-empty artifact: harvest; independently run validate_cmds
+  - PID dead + no/empty artifact: failed node, not quiet success
+  - PID alive + no artifact + under timeout: wait
+  - PID alive + over timeout: fail closed
+  - Do not nudge a headless worker. Relaunch with a tighter brief, or
+    reroute the node to NTM if it needed steering.
+```
+
 ### Nudge Prompts
 
 **Generic nudge (idle, no result):**
@@ -1191,10 +1290,10 @@ ntm send "$WAVE_SESSION" --pane="$N" "Do not code past your declared write scope
 Once the wave has produced results, or the timeout is reached:
 
 1. Cancel the monitoring cron
-2. Capture final pane state:
-   ```bash
-   ntm --robot-tail="$WAVE_SESSION" --lines=200
-   ```
+2. Capture final worker state: NTM waves use
+   `ntm --robot-tail="$WAVE_SESSION" --lines=200`. Headless waves copy
+   `$RD/logs/$lane.log` and `$RD/logs/$lane.exit` into the harvest notes
+   instead.
 3. Read every `<absolute-run-dir>/WG-*_RESULT.md` for the active wave completely.
    Treat repo-root, `.dac/`, `.ntm/`, or `/tmp` result files as misplaced
    evidence that must be moved to the run directory before reconciliation.
@@ -1237,8 +1336,10 @@ next wave instead of forcing the old split.
 
 After all execution nodes are complete, the root runs final integration in this
 same invocation. Final integration and closeout are never left as open or
-blocked Beads for a future session. Use the same swarm runtime; do not default
-to `/codex:rescue`.
+blocked Beads for a future session. Apply
+[Dispatch Substrate Selection](#dispatch-substrate-selection): independent
+verdict-file reviews may stay headless; a review that must talk back uses the
+NTM spawn below. Do not default to `/codex:rescue`.
 
 Spawn a small review swarm: one Grok runtime controller, one independent Grok
 fresh-eyes reviewer, and one Codex final-authority reviewer:
@@ -1345,7 +1446,13 @@ When the final review result is available:
 - Do not accept a subgoal as done from controller status or child prose; run the
   independent completion gate before rollup
 - `writes` ownership is a hard boundary, not a suggestion
-- Default to NTM swarm execution; do not substitute local ad hoc workers
+- Default to NTM when a node needs live attach, steering, or shared-context
+  repair. The direct headless one-shot lane is the sanctioned peer for
+  self-contained single-shot artifact nodes that pass Dispatch Substrate
+  Selection (claim handshake, prompt-file brief, pid/log/exit wrapper, turn
+  cap or wave timeout, non-empty artifact, lead `validate_cmds`). Width is
+  not the gate. Do not substitute untracked local ad hoc workers or
+  in-process Task/subagent UIs
 - Cwd/workflow routing, skill-tag extraction, cleaned-request drafting,
   read-only clerk/preflight nodes, bounded scripting, fixture/docs cleanup,
   generated-command cleanup, classification, and scoped commit-runner nodes
@@ -1353,7 +1460,8 @@ When the final review result is available:
   hidden Grok sessions, direct headless Grok, or a local Grok 4.6
   task-runner route when the Bead is explicit; reconcile all output through the
   normal Beads/result-artifact contract, validation, and stronger-model review
-- NTM runtime orchestration must use a Grok 4.6 plugin controller. Design-related
+- NTM-substrate runtime orchestration must use a Grok 4.6 plugin controller.
+  Headless-only waves keep the same duties in the lead process. Design-related
   nodes and design/fresh-eyes review nodes should also use Grok 4.6. Planning,
   no-ragrets bead composition, decomposition/synthesis, domain-planner sessions,
   system design, impactful execution, integration review, commit acceptance,
@@ -1377,5 +1485,7 @@ When the final review result is available:
 - Workers stamp `BR_AGENT_NAME`/`BR_HARNESS`/`BR_MODEL` before any `br` mutation
 - Node workers do not commit; only the final integration review commits, and it includes `.beads/issues.jsonl` while excluding `.beads/*.db*`
 - Independently run `validate_cmds` and reconcile `br` state before treating any node `done`
-- If `ntm` or `br` is missing or broken, stop and surface the prerequisite gap
+- If `br` is missing or broken, stop. If the chosen substrate's binary
+  (`ntm` for NTM waves, `grok`/`codex` for headless waves) is missing
+  after `$HOME/.local/bin` is on `PATH`, stop and surface that gap
 - Sequential waves are fine; fake parallelism is not

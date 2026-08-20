@@ -636,6 +636,7 @@ Default rule: visual encoding must serve the user's decision, not decorate the c
 - Never rely on color alone. Include short labels such as `HIGH`, `MED`, `OK`, `LOW`, `UNKNOWN`, or `BLOCKED`.
 - Prefer muted category nodes and stronger color on the actionable leaf nodes.
 - Put the most important conclusion, bottleneck, effect, or recommendation where the eye naturally lands for that chart type.
+- Node-label vocabulary follows the reader, not the repo. On a decision surface a human will click through, translate raw identifiers (content hashes, issue-tracker ids, schema/version strings) into plain-language roles that keep the load-bearing consequence ("gatekeeper program, already security-audited" rather than a bare hash), and put the identifier→label translation key in the surrounding prose. If an operator communication-preference skill (for example an `eli-me`-style skill) is active, its chart-vocabulary rules govern and take precedence.
 
 For an Ishikawa/fishbone chart, use native Mermaid `ishikawa-beta` syntax by default. Keep categories neutral and put severity in the cause labels:
 

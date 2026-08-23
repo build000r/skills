@@ -140,6 +140,12 @@ When the scan hits:
 - scrub secrets, workstation paths, internal hosts, personal identifiers, and private business names before committing
 - convert environment-specific values to placeholders, docs, or examples when appropriate
 - if the file should never be public, do not stage it; ignore it or leave it out with an explicit reason
+- never commit a secret-SHAPED literal even when it is deliberately fake test data
+  (e.g. an `xoxb-…` fixture whose purpose is to be rejected): server-side push
+  protection (GitHub GH013) matches the shape, not the validity, and blocks every
+  future push on the historical blob until a human bypasses it. Construct such
+  fixtures at runtime (concatenation/format) so no committed blob ever carries the
+  literal shape.
 
 When the active repo is the local `opensource/skills` collection, a nested repo inside that
 collection, or another open-source repo inside the local `opensource/` workspace, switch into

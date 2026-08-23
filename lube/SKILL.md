@@ -1,6 +1,8 @@
 ---
 name: lube
 description: Friction-removal retrospective for agent sessions. Use when the user says "lube", "$lube", "/lube", "friction", "several frictions were observed", "how do we unblock this", "avoid this in the future", or asks to prevent similar or adjacent blockers across future sessions.
+depends_on:
+  - ask-cascade   # closeout cascade interviews the operator through remaining asks
 ---
 
 # Lube
@@ -40,6 +42,8 @@ Use the current session as evidence, then convert each friction into the smalles
    prevents adjacent failures. If verification cannot run because it needs a
    secret, external gate, paid action, or unavailable tool, do not call the fix
    verified; put the blocker and the command that remains under `Remaining ask`.
+7. Run the Closeout Cascade below: in an interactive session, every
+   `Remaining ask` becomes an `ask-cascade` question, not parked prose.
 
 ## Evidence Miner
 
@@ -79,6 +83,16 @@ search errored with zero sessions found — treat that as backend-down, check
 (`[lube-miner] N/M searching: <pattern>`), so a backgrounded run shows
 liveness.
 
+## Skill Self-Verification
+
+When this skill's contract or the bundled miner changes, run the bundled tests
+from the skill directory and re-validate the contract before shipping:
+
+```bash
+pytest tests/ -q
+python3 "$SKILL_ISSUE_DIR"/scripts/quick_validate.py .   # skill-issue's validator
+```
+
 ## Skillbox Log Review
 
 When the friction source is an orchestration or Skillbox runtime issue, inspect
@@ -107,3 +121,23 @@ failure into the target repo's blocker list.
 - Remaining ask
 
 Do not turn this into a blame postmortem. Do not stop at advice when a safe concrete fix can be made in the workspace.
+
+## Closeout Cascade (Required When Asks Remain)
+
+A written `Remaining ask` list is not a closeout in an interactive session —
+it is where operator-owned blockers go to rot. After printing the output
+shape, if one or more remaining asks need an operator decision or action,
+invoke the `ask-cascade` skill and interview the operator through them:
+
+- One question per remaining ask, dependency-ordered: decisions that unblock,
+  reshape, or invalidate other asks come first.
+- Offer concrete executable options with a recommended default, never an
+  open-ended "what do you want?"; "leave it parked" is always a valid option
+  and must be listed when parking is safe.
+- Execute whatever each answer unlocks in the same session, appending the new
+  actions and their verifications to the closeout.
+
+Skip the cascade only when there are zero remaining asks, or the run is
+non-interactive (headless, cron, subagent, or the operator asked for a
+report-only pass); then the written `Remaining ask` list stands as the
+handoff.

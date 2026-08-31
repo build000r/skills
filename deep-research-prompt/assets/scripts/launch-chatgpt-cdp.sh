@@ -6,7 +6,8 @@ umask 077
 
 TEST_MODE="${ORACLE_LAUNCHER_TEST_MODE:-0}"
 ATTESTATION_TEST_MODE="${ORACLE_LAUNCHER_TEST_ATTESTATION:-0}"
-# Resolved after argv parse: --port > config.json cdp_port > ORACLE_CDP_PORT > 9222.
+# Resolved after argv parse: --port > config.json cdp_port > ORACLE_CDP_PORT >
+# 9222 (canonical contract: oracle-cdp-port.mjs).
 PORT=""
 PORT_FROM_CLI=0
 PROFILE_ROOT="${ORACLE_BROWSER_PROFILE_DIR:-$HOME/.oracle/browser-profile}"
@@ -26,12 +27,40 @@ die() {
   exit "$code"
 }
 
+# CDP port resolution — native-shell PARITY implementation of the canonical
+# contract in oracle-cdp-port.mjs (this launcher cannot import an ES module).
+# Matrix: explicit --port > config cdp_port/cdpPort > ORACLE_CDP_PORT env >
+# default 9222. Valid = decimal integer 1..65535 (surrounding whitespace
+# trimmed). Invalid explicit/env values FAIL; invalid/unreadable config falls
+# through; blank counts as unset. Keep in lockstep with oracle-cdp-port.mjs.
 # Never prints config contents (may hold non-port secrets).
+trim_whitespace() {
+  local value="$1"
+  value="${value#"${value%%[![:space:]]*}"}"
+  value="${value%"${value##*[![:space:]]}"}"
+  printf '%s' "$value"
+}
+
+valid_cdp_port() {
+  case "$1" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  [ "$1" -ge 1 ] && [ "$1" -le 65535 ]
+}
+
 resolve_cdp_port() {
-  if [ "${PORT_FROM_CLI:-0}" -eq 1 ] && [ -n "${PORT:-}" ]; then
-    printf '%s\n' "$PORT"
-    return
+  # 1. explicit --port: blank is unset; set-but-invalid fails.
+  if [ "${PORT_FROM_CLI:-0}" -eq 1 ]; then
+    local explicit_port
+    explicit_port="$(trim_whitespace "${PORT:-}")"
+    if [ -n "$explicit_port" ]; then
+      valid_cdp_port "$explicit_port" ||
+        die 2 "--port must be an integer between 1 and 65535"
+      printf '%s\n' "$explicit_port"
+      return
+    fi
   fi
+  # 2. config cdp_port / cdpPort: missing/unreadable/invalid falls through.
   local config_path="${ORACLE_CONFIG_PATH:-$HOME/.oracle/config.json}"
   local from_config=""
   if [ -f "$config_path" ] && [ -r "$config_path" ]; then
@@ -65,10 +94,17 @@ PY
     printf '%s\n' "$from_config"
     return
   fi
-  if [ -n "${ORACLE_CDP_PORT:-}" ]; then
-    printf '%s\n' "$ORACLE_CDP_PORT"
+  # 3. ORACLE_CDP_PORT env: blank is unset; set-but-invalid fails.
+  local env_port
+  env_port="$(trim_whitespace "${ORACLE_CDP_PORT:-}")"
+  if [ -n "$env_port" ]; then
+    valid_cdp_port "$env_port" ||
+      die 2 "ORACLE_CDP_PORT must be an integer between 1 and 65535"
+    printf '%s\n' "$env_port"
     return
   fi
+  # 4. (browser receipt is HEAL-ONLY — launchers never read receipts.)
+  # 5. default.
   printf '9222\n'
 }
 

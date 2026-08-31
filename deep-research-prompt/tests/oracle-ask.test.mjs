@@ -75,6 +75,71 @@ test("non-positive or non-numeric timeout and port are rejected", () => {
   assert.throws(() => parseArgs(["--port", "-1", "hi"], {}), UsageError);
 });
 
+/* ------------------------------------------------------------------ *
+ * CDP port — canonical matrix (oracle-cdp-port.mjs) wired into parseArgs
+ * ------------------------------------------------------------------ */
+
+test("explicit --port beats the ORACLE_CDP_PORT env", () => {
+  const args = parseArgs(["--port", "9444", "hi"], { ORACLE_CDP_PORT: "9333" });
+  assert.equal(args.port, 9444);
+});
+
+test("config cdp_port beats env when config is consulted", () => {
+  const args = parseArgs(["hi"], { ORACLE_CDP_PORT: "9333" }, {
+    useConfig: true,
+    configPath: "/fake/config.json",
+    readFileSyncImpl: () => '{"cdp_port": 19222}',
+  });
+  assert.equal(args.port, 19222);
+});
+
+test("explicit --port beats config", () => {
+  const args = parseArgs(["--port", "9444", "hi"], {}, {
+    useConfig: true,
+    configPath: "/fake/config.json",
+    readFileSyncImpl: () => '{"cdp_port": 19222}',
+  });
+  assert.equal(args.port, 9444);
+});
+
+test("invalid --port values are usage errors: non-numeric, out of range", () => {
+  for (const value of ["abc", "0", "70000", "12.5"]) {
+    assert.throws(() => parseArgs(["--port", value, "hi"], {}), UsageError, value);
+  }
+});
+
+test("an invalid ORACLE_CDP_PORT fails instead of silently using 9222", () => {
+  for (const value of ["abc", "0", "70000"]) {
+    assert.throws(() => parseArgs(["hi"], { ORACLE_CDP_PORT: value }), UsageError, value);
+  }
+});
+
+test("a blank ORACLE_CDP_PORT counts as unset", () => {
+  assert.equal(parseArgs(["hi"], { ORACLE_CDP_PORT: "" }).port, DEFAULT_PORT);
+  assert.equal(parseArgs(["hi"], { ORACLE_CDP_PORT: "  " }).port, DEFAULT_PORT);
+});
+
+test("--help still works under a broken ambient env (port is unused)", () => {
+  const args = parseArgs(["--help"], { ORACLE_CDP_PORT: "abc" });
+  assert.equal(args.help, true);
+  assert.equal(args.port, DEFAULT_PORT);
+});
+
+test("an invalid config value falls through to env", () => {
+  const args = parseArgs(["hi"], { ORACLE_CDP_PORT: "9333" }, {
+    useConfig: true,
+    configPath: "/fake/config.json",
+    readFileSyncImpl: () => '{"cdp_port": "not-a-port"}',
+  });
+  assert.equal(args.port, 9333);
+});
+
+test("the ask lane never opts into the heal-only receipt level", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const src = await readFile(new URL("../assets/scripts/oracle-ask.mjs", import.meta.url), "utf8");
+  assert.equal(src.includes("receiptPath"), false, "receipt resolution is heal-only");
+});
+
 test("boolean flags are recognised", () => {
   const args = parseArgs(["--json", "--quiet", "--doctor", "--models", "--install", "--help"], {});
   assert.equal(args.json, true);

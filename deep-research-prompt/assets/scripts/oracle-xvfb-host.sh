@@ -38,11 +38,33 @@ die() {
   exit "$code"
 }
 
-# Priority: ~/.oracle/config.json cdp_port > ORACLE_CDP_PORT > 9222.
-# Host config is the pin (19222 on skillbox-portfolio-devbox) and beats ambient
-# overlay env that still exports ORACLE_CDP_PORT=9222. Does not print config
-# contents (may hold non-port secrets).
+# CDP port resolution — native-shell PARITY implementation of the canonical
+# contract in launch-chatgpt-cdp.sh's sibling module oracle-cdp-port.mjs (this
+# supervisor cannot import an ES module). Matrix: config cdp_port/cdpPort >
+# ORACLE_CDP_PORT env > default 9222 (no explicit --port here; the browser
+# receipt level is HEAL-ONLY and never read by launchers). Valid = decimal
+# integer 1..65535 (surrounding whitespace trimmed). Invalid env FAILS;
+# invalid/unreadable config falls through; blank counts as unset. Host config
+# is the pin (19222 on skillbox-portfolio-devbox) and beats ambient overlay
+# env that still exports ORACLE_CDP_PORT=9222. Does not print config contents
+# (may hold non-port secrets). Keep in lockstep with oracle-cdp-port.mjs.
+trim_whitespace() {
+  local value="$1"
+  value="${value#"${value%%[![:space:]]*}"}"
+  value="${value%"${value##*[![:space:]]}"}"
+  printf '%s' "$value"
+}
+
+valid_cdp_port() {
+  case "$1" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  [ "$1" -ge 1 ] && [ "$1" -le 65535 ]
+}
+
 resolve_cdp_port() {
+  # 1. (no explicit port argument on this entrypoint.)
+  # 2. config cdp_port / cdpPort: missing/unreadable/invalid falls through.
   local config_path="${ORACLE_CONFIG_PATH:-$HOME/.oracle/config.json}"
   local from_config=""
   if [ -f "$config_path" ] && [ -r "$config_path" ]; then
@@ -76,10 +98,17 @@ PY
     printf '%s\n' "$from_config"
     return
   fi
-  if [ -n "${ORACLE_CDP_PORT:-}" ]; then
-    printf '%s\n' "$ORACLE_CDP_PORT"
+  # 3. ORACLE_CDP_PORT env: blank is unset; set-but-invalid fails.
+  local env_port
+  env_port="$(trim_whitespace "${ORACLE_CDP_PORT:-}")"
+  if [ -n "$env_port" ]; then
+    valid_cdp_port "$env_port" ||
+      die 2 "ORACLE_CDP_PORT must be an integer between 1 and 65535"
+    printf '%s\n' "$env_port"
     return
   fi
+  # 4. (browser receipt is HEAL-ONLY — launchers never read receipts.)
+  # 5. default.
   printf '9222\n'
 }
 
@@ -109,7 +138,7 @@ Commands:
   run-rpc     foreground tailnet RPC broker (ExecStart for oracle-rpc.service)
   ensure      prepare + install + start + doctor
 
-Port resolution (first wins):
+Port resolution (first wins; canonical contract: oracle-cdp-port.mjs):
   ~/.oracle/config.json field "cdp_port" (or "cdpPort")
   ORACLE_CDP_PORT env
   default 9222

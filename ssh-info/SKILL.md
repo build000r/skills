@@ -161,7 +161,10 @@ docker exec <db-container> psql -U <user> -d <db> -c "SELECT ...;"
 ```
 
 Prefer `SELECT` queries. Treat write queries as out of scope unless the user
-explicitly asks for them.
+explicitly asks for them. Do not default to the `postgres` superuser. For
+ingredient_server, inspection is `psql -U ingredient_readonly`; catalog writes
+that are not live scores are `psql -U ingredient_datafill`; `-U postgres` is
+break-glass only (see `docs/reference/db-roles.md`).
 
 ## Safety
 

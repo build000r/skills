@@ -27,7 +27,7 @@ Using commit: surveying dirty state, deciding commit scope, and batching intenti
 2. Choose commit mode
 3. Classify every dirty path
 4. Prepare ignore, privacy, staging, and commit mutations
-5. Run each logical batch inside one held writer session
+5. Stage, review, and commit each logical batch with Git-native locking
 6. Verify no unexplained leftovers
 
 ## Step 1: Survey dirty state
@@ -117,9 +117,7 @@ Common drive-by signatures to catch:
 
 If untracked local-only artifacts are present and the repo does not already ignore them,
 plan an update to `.gitignore` or the repo-appropriate ignore file **before** staging the rest.
-Do not apply that worktree mutation until Step 5 has acquired and checked the writer
-session. Prepare replacement content or a small mutation helper outside the protected
-worktree so it can run inside the same fenced transaction as staging and committing.
+Apply the smallest reviewed ignore change before staging the rest.
 
 Rules:
 
@@ -140,6 +138,12 @@ When the scan hits:
 - scrub secrets, workstation paths, internal hosts, personal identifiers, and private business names before committing
 - convert environment-specific values to placeholders, docs, or examples when appropriate
 - if the file should never be public, do not stage it; ignore it or leave it out with an explicit reason
+- never commit a secret-SHAPED literal even when it is deliberately fake test data
+  (e.g. an `xoxb-…` fixture whose purpose is to be rejected): server-side push
+  protection (GitHub GH013) matches the shape, not the validity, and blocks every
+  future push on the historical blob until a human bypasses it. Construct such
+  fixtures at runtime (concatenation/format) so no committed blob ever carries the
+  literal shape.
 
 When the active repo is the local `opensource/skills` collection, a nested repo inside that
 collection, or another open-source repo inside the local `opensource/` workspace, switch into
@@ -153,142 +157,26 @@ collection, or another open-source repo inside the local `opensource/` workspace
 - If adding `.gitignore` rules, keep them generic and publishable.
 - If a new file includes internal names, customer data, proprietary URLs, or machine-local paths, scrub or exclude it.
 
-## Step 5: Acquire a writer session, then batch and commit
+## Step 5: Batch and commit
 
-Before any ignore-file, index, worktree, or commit mutation, run the whole logical
-batch through `scripts/run_writer_fences.py`. Read
-[`references/writer-session-v1.md`](references/writer-session-v1.md) before using a
-configured provider or required-provider mode.
+Ordinary commits use Git's native index and ref locks. Do not require a remote
+writer authority, an Amp lease, a checked-in `.commit-writer-session.json`, or a
+pinned infrastructure hash merely to stage and commit local work. A remote provider
+must not make local durability depend on network or host availability.
 
-The runner discovers provider-neutral writer-session commands, calls `begin` and
-`check`, executes no mutation unless every provider allows, and calls `end` in
-`finally`. Providers and protected commands are invoked as argv arrays without a
-shell. A configured provider that blocks, times out, returns `indeterminate`, or
-violates the response schema fails closed before the mutation plan runs.
-
-Before ambient discovery, the runner reads an optional checked-in
-`.commit-writer-session.json` at the canonical repository root. Its providers
-are additive and cannot be displaced by CLI, environment, or `PATH` discovery.
-A policy committed at `HEAD` is the durable managed marker and required-policy
-floor. Its current index and worktree policy must both exist, agree byte for
-byte, and remain strict. Staged or unstaged deletion, weakening, an unstaged
-replacement, or an ambiguous index fails before mutation. A deliberate staged
-strict policy/provider-pin upgrade remains committable when index and worktree
-agree. A new strict worktree policy protects its own first landing even before
-it reaches `HEAD`; only a repository with no policy on any plane remains
-portable. Malformed content, an unsafe repo-relative expansion, a missing
-provider, an incomplete/incorrectly ordered declared local-module bundle, or
-entry/module source digest drift also fails closed. Named authority/config data
-must be declared as pinned resources and passed only through
-`{resource:NAME}` placeholders, which become read-only unlinked fd pseudopaths
-at invocation. Every declared local module
-executes from the same unlinked read-only snapshot mechanism as the entry; the
-entire managed repo tree is excluded from import search, and sealed code gets
-synthetic non-live source identity. Do not pass an
-environment selector unless the private provider contract explicitly requires
-one; providers should prefer canonical repository identity when sufficient.
-
-No-provider portable mode remains the default. Use `--require-provider` or set
-`COMMIT_WRITER_SESSION_REQUIRE_PROVIDER=1` only when the current repository or
-operator contract explicitly requires provider authority. Never silently fall back
-to portable mode when a configured provider fails.
-
-Required-provider mode needs at least one **pinned** provider, not merely one
-provider. An ambient `--provider`/`--provider-json`/`COMMIT_WRITER_SESSION_PROVIDERS`
-entry carries no pinned source, so nothing attests that the executable invoked is
-the authority the operator believes in; a required run satisfied by nothing but
-such entries exits `provider_required_but_unpinned` without invoking them. Extra
-ambient providers alongside a pinned one stay additive — they can only add a veto —
-and are still accepted. `--allow-unpinned-provider` is the explicit opt-in for
-accepting an unattested executable as the sole authority.
-
-Pinned sources are read and verified **once, at acquisition**, and the held bytes
-are what every later call executes. A protected step may therefore rewrite a pinned
-source — landing a new provider revision, or pulling one — without poisoning its own
-release. Sources that have already drifted when the run starts still refuse at
-preflight, before anything is acquired.
-
-Before remotely using a runner that may be stale, require machine-readable
-capabilities with `scripts/run_writer_fences.py --capabilities`. A self-updating
-transaction passes `--require-capability acquisition-sealing-v1` in same runner
-invocation; this rejects unpinned/ambient providers before `begin`. Recovery
-after `release_failed_after_preflight` requires
-`receipt-bound-single-pinned-recovery-v1`; run `--recover-receipt PATH` with
-same repo/policy selection. Reconcile must use one pinned provider, no ambient
-providers by requiring that capability inside the mutation invocation. Never
-retry mutation or hand-edit provider state. See
-`references/writer-session-v1.md`.
-
-For a launcher that must survive losing the runner's final stdout, require
-`prebound-intent-recovery-v1` and supply all of `--transaction-id`,
-`--transaction-intent`, `--transaction-journal`, `--transaction-result`, and
-`--recovery-provider-manifest`. The UUID is canonical v4. The intent, result,
-journal directory, and private canonical provider manifest live together in a
-caller-created mode-0700 directory outside the protected repository, Git dirs, and
-policy home. Intent, empty result reservation, journal directory, and each journal
-event use O_EXCL publication: collision permanently refuses another mutation
-attempt with that identity.
-
-The runner locks the immutable mode-0600 intent before provider `begin`, passes its
-fd into every provider and protected process group, and retains the lock through
-provider `end`, terminal-result fsync/reopen, and the journal's `terminal_done`.
-The journal is a bounded directory of canonical mode-0600 event files. Each event
-is completely written and fsynced under a deterministic self-hashed pending name,
-then no-replace linked to its final sequence name and parent-fsynced. Recovery
-publishes a complete pending event or quarantines a malformed pending name. The
-hash chain records intent before every provider/step call. A protected
-child first enters a private session and blocks in a minimal gate; the parent
-durably publishes `child_spawned` with its PGID before releasing one byte that
-permits provider or step program bytes to execute. A protected process group that
-cannot be proven extinct suppresses provider release and terminal
-success. Never infer the original mutation state from recovery alone.
-
-If result/journal/intent admission fails before `intent_ready`, the runner removes
-only exact inode-owned empty reservations and emits a generic configuration error;
-no provider call occurs. After `intent_ready`, evidence is permanent and recovery,
-never another mutation invocation, owns the identity.
-
-After durable `terminal_intent`, terminal bytes use the same pending/no-replace
-publication. Recovery can finish an absent result, a full pending result, a linked
-final+pending inode, or a pending `terminal_done` without a second provider call.
-The mode-0700 directory and held flock are a cooperative same-UID trust boundary,
-not an OS claim that the owner cannot rewrite bytes; every resume stable-reads and
-rehashes all admitted evidence and rejects conflicting inodes or final bytes.
-
-Recovery accepts only `--recover-intent` plus the caller-expected UUID and exact
-intent SHA-256. It validates the repository, request, journal, provider topology,
-and manifest-bound current digest map, proves the
-original flock is free, and calls only idempotent provider `end` with a null session.
-It never replays steps. An exact existing terminal returns without a provider call;
-otherwise recovery reports `original_mutation_state: unknown` and callers must
-reconcile their own durable journal and live product state. Generic recovery still
-depends on successful policy discovery; a transaction rewriting that policy needs a
-separately frozen packet-held old/successor provider recovery surface rather than a
-generic caller-authorized manifest or blind retry.
-
-`--policy-home DIR` (or `COMMIT_WRITER_SESSION_POLICY_HOME`) reads the writer-session
-policy from a trusted repository while `--repo` stays the mutation target, so one
-attested authority can fence repositories that declare no policy of their own. It
-never downgrades: a protected repository that declares its own policy keeps it, and
-the override is refused rather than ignored.
-
-Keep all mutations that need one continuous hold in one invocation. For example:
+Stage explicit whole-file paths, review the staged diff, then commit each logical
+batch:
 
 ```bash
-python3 <commit-skill-dir>/scripts/run_writer_fences.py \
-  --repo <repo> \
-  --step-json '["git","add","<file1>","<file2>"]' \
-  --step-json '["git","commit","-m","feat(scope): add change"]'
+git -C <repo> add <file1> <file2>
+git -C <repo> diff --cached --check
+git -C <repo> diff --cached --stat
+git -C <repo> commit -m "feat(scope): add change"
 ```
 
-When `.gitignore` or another worktree file must change, make a helper outside the
-repo and pass its argv as the first `--step-json`, followed by `git add` and
-`git commit`. Do not edit the protected worktree with a separate tool call between
-`begin` and `end`; the runner owns the complete lifecycle.
-
-Inspect the runner's final JSON receipt. If preflight is not `allow`, confirm
-`mutation_started` is false and stop. If release is not confirmed, stop and report
-the receipt; the mutation may already have run, so do not retry it blindly.
+If `HEAD` moves or Git reports an index/ref lock conflict, stop that attempt, inspect
+the new state, preserve every byte, and retry from the new `HEAD`. Never delete a
+lock file merely because it exists; prove its owner is gone first.
 
 Group staged files by **logical unit**, not by extension and not by directory alone.
 Use as few commits as preserve meaning. Usually `1-4` commits is right. Do not create a pile of micro-commits.

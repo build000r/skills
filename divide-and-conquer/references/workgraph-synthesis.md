@@ -61,7 +61,7 @@ python3 "$DAC_SHARED_ROOT/scripts/br_helpers.py" mint-node \
   --writes 'src/domain/**' \
   --done-when 'Binary completion check' \
   --validate 'Concrete validation command' \
-  --model-route 'Codex gpt-5.6-sol medium' \
+  --model-route 'high work tier' \
   --repo-path "$PWD" \
   --branch "$(git rev-parse --abbrev-ref HEAD 2>/dev/null || git rev-parse --short HEAD)" \
   --run-dir "$run_dir" \
@@ -90,21 +90,21 @@ Rules per node:
 - Set `--model-route`, `--repo-path`, `--branch`, and `--run-dir` before dispatch so
   `br_helpers.py hydrate-node` can prove the node is dispatch-ready
 - Route runtime root/subgoal controller loops to
-  `--model-route 'Grok 4.6 NTM orchestrator'`; they may dispatch and tend only
-  accepted, hydrated leaves and must escalate planning.
+  `--model-route 'Grok route-v2 high NTM orchestrator'`; they may dispatch and
+  tend only accepted, hydrated leaves and must escalate planning.
 - Route no-ragrets bead composition, decomposition/synthesis, domain-planner
   sessions, system design, impactful execution, integration review, commit
-  acceptance, and final-say nodes to
-  `--model-route 'Codex gpt-5.6-sol medium'` by default. Use
-  `--model-route 'Codex gpt-5.6-sol max escalation'` for pivotal planning or
-  when another model is demonstrably struggling.
-  If SOL is unavailable, use
-  `--model-route 'Codex gpt-5.6-terra ultra fallback'` for those same roles.
+  acceptance, and final-say nodes to `--model-route 'high work tier'`.
+  Resolve that lane with `sbp route high --refresh --json`, retain the exact
+  runnable decision, and hand it to `route_ntm_spawn.sh --decision-json`.
+  A typed `high` tier no-route stops execution. A different model requires separately
+  pre-authorized `MODEL_CHANGE` authority and its receipt; availability alone
+  never authorizes substitution.
 - Route design work, UI/UX, visual systems, CSS/tokens, screenshot parity, and
-  design/fresh-eyes review to `--model-route 'Grok 4.6 design/UX'`. If the Grok
-  4.5 design route is unavailable, record the route blocker; use
-  `--model-route 'Codex gpt-5.6-sol max escalation'` only for pivotal authority
-  or explicit failed-model triage.
+  design/fresh-eyes review to `--model-route 'Grok route-v2 high design/UX'`.
+  Resolve the Grok lane through the same shared selector and adapter. A typed
+  Grok no-route is a blocker unless a separate model-change gate was already
+  authorized.
 - Use `--model-route 'Grok dispatcher'` only for read-only router/preflight
   nodes such as cwd selection, skill-tag extraction, cleaned-request drafting,
   and broad evidence bucketing.
@@ -113,9 +113,8 @@ Rules per node:
 - Prefer `--model-route 'Grok 4.6 task-runner'` for narrow writer,
   scripting, fixture/docs, generated-command cleanup, classification, or
   `$commit` nodes when the Bead names exact writes or a read-only artifact,
-  validation, review owner, final authority, and stop rules. Codex `gpt-5.6-sol`
-  keeps final acceptance authority and owns escalation when Composer stalls,
-  drifts, or cannot validate.
+  validation, review owner, final authority, and stop rules. The `high` tier keeps final acceptance authority and owns escalation when a
+  worker stalls, drifts, or cannot validate.
 - Read-only nodes: omit `--writes` entirely
 
 ## Mint Subgoals For Massive Runs
@@ -169,7 +168,7 @@ python3 "$DAC_SHARED_ROOT/scripts/br_helpers.py" mint-node \
   --writes 'backend/auth/**' \
   --done-when 'Auth sessions are validated and tested' \
   --validate 'pytest tests/auth -q' \
-  --model-route 'Codex gpt-5.6-sol medium' \
+  --model-route 'high work tier' \
   --repo-path "$PWD" --branch "$(git rev-parse --abbrev-ref HEAD)" \
   --run-dir "$run_dir/subgoals/auth" \
   --expected-assignee 'dac-auth-worker-001' \
@@ -224,13 +223,13 @@ The minimum Beads-backed node brief must carry:
 - run directory path (for the `WG-*_RESULT.md` artifact)
 - the node's concern, depends_on, writes, done_when, validate, risk_gate
 - attribution preamble: `export BR_AGENT_NAME=… BR_HARNESS=… BR_MODEL=…`
-- model route: Grok 4.6 NTM orchestrator for frontier/dispatch/tending/harvest
-  only; Codex gpt-5.6-sol for planning, no-ragrets bead composition,
+- model route: the `low` work tier for frontier/dispatch/tending/harvest
+  only; the `high` work tier for planning, no-ragrets bead composition,
   decomposition/synthesis, domain-planner sessions, system design, impactful
-  execution, integration review, commit acceptance, and final say, with Codex
-  gpt-5.6-terra ultra as the SOL-unavailable fallback; Grok 4.6 design/UX for design-related
-  nodes, with Codex gpt-5.6-sol medium as the default and SOL max reserved for
-  pivotal planning or explicit failed-model triage;
+  execution, integration review, commit acceptance, and final say; Grok
+  route-v2 at `high` for design-related nodes; any same-lane no-route stops
+  unless a separate, pre-authorized `MODEL_CHANGE` gate and receipt permit a
+  different model;
   Grok dispatcher for read-only router/preflight nodes; Grok CLI sidecar
   for read-only evidence artifacts; Grok 4.6 task-runner for narrow
   scripting, docs/fixtures, or commit batching with stronger-model review

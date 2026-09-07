@@ -18,9 +18,10 @@ import { dirname, join } from "node:path";
 import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+import { CdpPortError, resolveCdpPort } from "./oracle-cdp-port.mjs";
+
 const SESSION_COOKIE = "__Secure-next-auth.session-token";
 const ORIGIN = "https://chatgpt.com";
-const DEFAULT_PORT = 9222;
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 
 export const HEALABLE_REASONS = Object.freeze([
@@ -55,29 +56,15 @@ function runtimeRoot() {
   );
 }
 
+// Canonical matrix (oracle-cdp-port.mjs): explicit > config cdp_port/cdpPort
+// > ORACLE_CDP_PORT env > validated browser receipt > default 9222. Healing
+// is the ONLY caller allowed the receipt level — a heal must reach the
+// browser the last launch actually bound, even when config/env are silent.
 function resolvePort(explicit) {
-  if (Number.isFinite(explicit) && explicit > 0) return explicit;
-  const env = Number(process.env.ORACLE_CDP_PORT);
-  if (Number.isFinite(env) && env > 0) return env;
-  try {
-    const cfg = JSON.parse(
-      readFileSync(join(homedir(), ".oracle", "config.json"), "utf8"),
-    );
-    const p = Number(cfg.cdp_port ?? cfg.cdpPort);
-    if (Number.isFinite(p) && p > 0) return p;
-  } catch {
-    /* ignore */
-  }
-  try {
-    const receipt = JSON.parse(
-      readFileSync(join(runtimeRoot(), "browser.json"), "utf8"),
-    );
-    const p = Number(receipt.port);
-    if (Number.isFinite(p) && p > 0) return p;
-  } catch {
-    /* ignore */
-  }
-  return DEFAULT_PORT;
+  return resolveCdpPort({
+    explicit,
+    receiptPath: join(runtimeRoot(), "browser.json"),
+  });
 }
 
 function readPortableSessionToken() {
@@ -644,7 +631,16 @@ async function main(argv) {
   const quiet = flags.has("--quiet");
   const json = flags.has("--json");
   const portArg = argv.find((a, i) => argv[i - 1] === "--port");
-  const port = resolvePort(portArg ? Number(portArg) : undefined);
+  let port;
+  try {
+    port = resolvePort(portArg);
+  } catch (error) {
+    if (error instanceof CdpPortError) {
+      process.stderr.write(`oracle-heal: ${error.message}\n`);
+      return 2;
+    }
+    throw error;
+  }
 
   if (flags.has("--help") || argv.includes("-h")) {
     process.stdout.write(

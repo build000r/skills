@@ -40,7 +40,7 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { readFileSync, realpathSync } from "node:fs";
+import { realpathSync } from "node:fs";
 import { mkdir, readFile, symlink, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -56,69 +56,30 @@ import {
   listModels,
 } from "./oracle-http-client.mjs";
 import {
+  CdpPortError,
+  DEFAULT_CDP_PORT,
+  DEFAULT_CONFIG_PATH,
+  resolveCdpPort,
+} from "./oracle-cdp-port.mjs";
+import {
   healAuthSession,
   remediationForAuthReport,
 } from "./oracle-session-heal.mjs";
 
-export const DEFAULT_PORT = 9222;
+export const DEFAULT_PORT = DEFAULT_CDP_PORT;
 export const DEFAULT_TIMEOUT_SECONDS = 900;
 export const INSTALL_NAME = "oracle-ask";
-export const DEFAULT_CONFIG_PATH = join(homedir(), ".oracle", "config.json");
+export { DEFAULT_CONFIG_PATH, resolveCdpPort };
 
-/**
- * Resolve loopback CDP port.
- *
- * Priority:
- *   1. ~/.oracle/config.json `cdp_port` / `cdpPort` when config is consulted
- *   2. ORACLE_CDP_PORT env
- *   3. DEFAULT_PORT (9222)
- *
- * Host config is the pin (e.g. 19222 on skillbox-portfolio-devbox). It wins
- * over ambient overlay env that still ships ORACLE_CDP_PORT=9222, so
- * `sbp oracle --doctor` needs no --port. Explicit CLI `--port` still wins
- * because parseArgs overwrites after resolve.
- *
- * Config is read only when `env` is `process.env` (real CLI) or
- * `options.useConfig === true`, so pure unit tests that pass `{}` stay on
- * DEFAULT_PORT without host config pollution.
- */
-export function resolveCdpPort(env = process.env, options = {}) {
-  const useConfig =
-    options.useConfig ?? Object.is(env, process.env);
-  if (useConfig) {
-    const configPath =
-      options.configPath ||
-      env?.ORACLE_CONFIG_PATH ||
-      DEFAULT_CONFIG_PATH;
-    try {
-      const reader = options.readFileSyncImpl ?? readFileSync;
-      const raw = reader(configPath, "utf8");
-      const data = JSON.parse(raw);
-      if (data && typeof data === "object" && !Array.isArray(data)) {
-        const candidate = data.cdp_port ?? data.cdpPort;
-        const fromConfig = Number(candidate);
-        if (
-          Number.isFinite(fromConfig) &&
-          fromConfig >= 1 &&
-          fromConfig <= 65535
-        ) {
-          return Math.trunc(fromConfig);
-        }
-      }
-    } catch {
-      // Missing/unreadable/invalid config → fall through to env/default.
-    }
-  }
-  const rawEnv = env?.ORACLE_CDP_PORT;
-  if (rawEnv !== undefined && String(rawEnv).trim() !== "") {
-    const fromEnv = Number(rawEnv);
-    if (Number.isFinite(fromEnv) && fromEnv >= 1 && fromEnv <= 65535) {
-      return Math.trunc(fromEnv);
-    }
-    if (Number.isFinite(fromEnv)) return fromEnv;
-  }
-  return DEFAULT_PORT;
-}
+// CDP port resolution is centralized in ./oracle-cdp-port.mjs — the canonical
+// precedence matrix (explicit --port > config cdp_port/cdpPort >
+// ORACLE_CDP_PORT env > default 9222; invalid explicit/env fail, invalid
+// config falls through) lives in that module's header. Host config is the pin
+// (e.g. 19222 on skillbox-portfolio-devbox) and beats ambient overlay env
+// that still ships ORACLE_CDP_PORT=9222, so `sbp oracle --doctor` needs no
+// --port. Config is read only when `env` IS `process.env` (real CLI) or
+// `options.useConfig === true`, so pure unit tests that pass `{}` stay on
+// DEFAULT_PORT without host config pollution.
 
 /**
  * Friendly names for the slugs a caller actually wants. Anything unrecognised
@@ -203,7 +164,7 @@ export function parseArgs(argv, env = {}, options = {}) {
   const out = {
     model: env.ORACLE_ASK_MODEL || DEFAULT_MODEL_ALIAS,
     timeoutSeconds: Number(env.ORACLE_ASK_TIMEOUT_SECONDS || DEFAULT_TIMEOUT_SECONDS),
-    port: resolveCdpPort(env, options),
+    port: DEFAULT_PORT,
     // Answers file into this ChatGPT Project. Accepts a full project URL or a
     // bare g-p-… id. Without it the answer lands in root chat.
     project: env.ORACLE_CHATGPT_PROJECT_URL || null,
@@ -214,6 +175,7 @@ export function parseArgs(argv, env = {}, options = {}) {
     quiet: false,
     words: [],
   };
+  let explicitPort;
   let literal = false;
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
@@ -231,7 +193,7 @@ export function parseArgs(argv, env = {}, options = {}) {
       i += 1;
       if (arg === "--model") out.model = value;
       else if (arg === "--timeout") out.timeoutSeconds = Number(value);
-      else if (arg === "--port") out.port = Number(value);
+      else if (arg === "--port") explicitPort = value;
       else if (arg === "--prompt-file") out.promptFile = value;
       else if (arg === "--out") out.out = value;
       else if (arg === "--project") out.project = value;
@@ -279,8 +241,16 @@ export function parseArgs(argv, env = {}, options = {}) {
   if (!Number.isFinite(out.timeoutSeconds) || out.timeoutSeconds <= 0) {
     throw new UsageError("--timeout must be a positive number of seconds");
   }
-  if (!Number.isFinite(out.port) || out.port <= 0) {
-    throw new UsageError("--port must be a positive number");
+  // Canonical matrix (oracle-cdp-port.mjs): explicit --port > config > env >
+  // default. Invalid explicit/env values fail as usage errors, never silently
+  // downgrade to a different browser on 9222.
+  try {
+    out.port = resolveCdpPort({ explicit: explicitPort, env, ...options });
+  } catch (error) {
+    if (!(error instanceof CdpPortError)) throw error;
+    // --help must print even under a broken ambient env; the port is unused.
+    if (out.help) out.port = DEFAULT_PORT;
+    else throw new UsageError(error.message);
   }
   out.prompt = out.words.join(" ").trim();
   return out;

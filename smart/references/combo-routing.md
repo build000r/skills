@@ -43,9 +43,13 @@ If any combo uses a swarm, NTM session, parallel worker wave, or NTM-backed
 review loop, include `vibing-with-ntm`. If the task is large-ish, UI-facing,
 multi-file, naturally parallel, or review-sensitive, use `divide-and-conquer`
 before parallel execution. For UI, visual, design/UX, or ambiguous review-heavy
-work, include Grok 4.6 design/UX; use Codex `gpt-5.6-sol` medium ordinarily and
-max for pivotal planning or failed-model escalation, with Terra ultra only when
-SOL is unavailable, and finish with a fresh-eyes reviewer pass.
+work, use Grok route-v2 at `high`; use SOL route-v2 at `xhigh` for planning and
+final authority. Resolve lanes with `sbp route pick <lane> --refresh --json`
+and preserve the retained decision through the shared execution adapter.
+Native exhaustion may change only runner/quota surface to the same-family
+Cursor rung. A typed same-lane no-route stops unless an explicit
+`MODEL_CHANGE` gate and receipt already permit another model. Finish with a
+fresh-eyes reviewer pass.
 
 ## When `cass` Should Open The Combo
 

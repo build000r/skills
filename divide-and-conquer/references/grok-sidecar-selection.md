@@ -19,10 +19,10 @@ Bead names exact files, validation, stop rules, a stronger-model review owner,
 and final authority. Avoid Grok 4.6 when the work needs trusted final
 judgment, secret-bearing access, broad writes, or architecture authority. Use
 the dedicated Grok 4.6 design/UX route for UI taste, visual parity, interaction
-copy, and design-system review, with Codex retaining final acceptance
+copy, and design-system review, with the `high` tier allocation retaining final acceptance
 authority. If the runner stalls, produces no artifact, fails validation, edits
 outside scope, or asks for a decision it does not own, escalate authority
-questions to Codex `gpt-5.6-sol` max instead of retrying indefinitely.
+questions to the `high` work tier instead of retrying indefinitely.
 
 ## Good Grok Work
 
@@ -44,7 +44,7 @@ These tasks are good default sidecar candidates:
 - generated-command cleanup or deterministic codemods with a tiny revert path
 - `$commit` / logical commit batching when the Bead names the intended scope,
   leave-list, no-wildcard staging rules, privacy scan, validation commands, and
-  Codex `gpt-5.6-sol` final acceptance owner
+  the `high` work tier final acceptance owner
 
 Good signs:
 
@@ -89,14 +89,14 @@ Use these tiers when deciding how much autonomy to give Grok:
 | --- | --- | --- | --- |
 | G0 router | cwd, skill tags, prompt cleanup | read-only, no tools beyond search | lead inspects output before dispatch |
 | G1 evidence sidecar | inventories, doc audits, candidate file lists | read-only shell/search | artifact plus reproducible commands |
-| G2 task-runner | mechanical scripts, docs, fixtures, deterministic codemods, commit batching | explicit write scope only | diff/commit plan reviewed by Codex gpt-5.6-sol and validation rerun |
-| G3 never | secrets, deploys, final authority, architecture | none | route ordinary authority to Codex gpt-5.6-sol medium and pivotal/failed-model escalation to SOL max; route UI/UX and visual review to Grok 4.6 design/UX |
+| G2 task-runner | mechanical scripts, docs, fixtures, deterministic codemods, commit batching | explicit write scope only | diff/commit plan reviewed by the `high` work tier and validation rerun |
+| G3 never | secrets, deploys, final authority, architecture | none | route authority to the `high` work tier; route UI/UX and visual review to the `low` work tier |
 
 Default fuzzy or exploratory work to G0/G1. When a Bead is already clear and
 task-runner safe, default that execution node to Grok 4.6 rather than a
 smarter model doing clerk work. G2 requires exact files, an easy revert path,
-deterministic validation, stop rules, and Codex `gpt-5.6-sol` review before final
-acceptance. A G2 `$commit` node may create the commit, but Codex `gpt-5.6-sol` still
+deterministic validation, stop rules, and the `high` work tier review before final
+acceptance. A G2 `$commit` node may create the commit, but the `high` work tier still
 owns the final review and any amend/follow-up decision.
 
 ## CASS Search Recipes
@@ -281,7 +281,7 @@ CLI-invocation gotcha worth remembering (cost ~4 retries this session):
 When a live run has multiple NTM panes writing in the same git worktree, do not
 use Grok 4.6 as an implementation or integration sidecar for broad code
 changes. The useful Grok lane in that situation is G0/G1, plus preferred G2
-task-runner nodes when Beads prove non-overlapping writes and a Codex `gpt-5.6-sol`
+task-runner nodes when Beads prove non-overlapping writes and a the `high` work tier
 review node owns acceptance. Examples: clean up dispatch prompts, identify
 likely write-overlap risks from Beads metadata, produce a read-only evidence
 inventory, write a bounded helper script, classify a bounded repo set into a
@@ -317,9 +317,9 @@ A Grok sidecar is complete only when its expected artifact, process/session
 state, Beads node, and independent validation agree. If those surfaces disagree,
 treat Grok output as advisory evidence and keep the owning Beads node open.
 
-## Observed Outcomes Log
+## Observed Outcomes Log — HISTORICAL ONLY: Grok 4.5 runs
 
-A running log of real Grok 4.5 sidecar runs so future rounds calibrate
+A running log of HISTORICAL ONLY: Grok 4.5 sidecar runs so future rounds calibrate
 task selection by evidence, not vibes. Append newest entries last. Each entry:
 date, task class + leeway tier, prompt shape, outcome, and a CASS hook to find
 the run. The lead always re-verifies independently — these "PASS" marks are
@@ -356,8 +356,8 @@ Two **G2 commit-runner** tasks, both clean PASS:
 - The lead validates the diff is green BEFORE handing the commit to Grok: Grok
   runs the commit; the lead owns correctness and acceptance.
 
-**Leeway update:** two clean runs (incl. a 60-dirty-path minefield) → Grok
-Grok 4.5 is reliable for **G2 `$commit` / commit-batching** when the prompt
+**Leeway update:** two clean runs (incl. a 60-dirty-path minefield) →
+HISTORICAL ONLY: Grok 4.5 was reliable for **G2 `$commit` / commit-batching** when the prompt
 names the exact paths, the no-wildcard rules, and the leave-list, and the lead
 pre-validates the diff. Keep it **G3 (never)** for: deciding WHAT to commit,
 judging whether a diff is correct, push/amend, or any commit whose scope is
@@ -377,7 +377,7 @@ cass search "grok sidecar baseline commit minefield dirty paths leave-list" --ro
 cass search "grok prompt-file always-approve dcg fwc MCP spawn failed shell ok" --robot --limit 10 --days 30
 ```
 
-**Update (same session, +3 more clean runs → 5 total, 0 failures):** grok also cleanly executed (3) a **2-commit split** and (4) a **3-commit split** from a single multi-file diff, plus (5) another 2-commit opensource split — each commit's file list specified exactly in the prompt. Conclusion reinforced: when the prompt names the exact per-commit file lists + no-wildcard rules + the leave-list, and the lead pre-validates the diff and re-verifies after, Grok 4.5 is a dependable G2 commit-runner even for multi-commit splits and minefield repos. The lead doing the *grouping decision* (which files → which commit) and grok doing the *mechanical staging+commit* is the reliable division of labor — do NOT ask grok to decide the grouping itself.
+**HISTORICAL ONLY: Grok 4.5 update (same session, +3 more clean runs → 5 total, 0 failures):** Grok also cleanly executed a two-commit split, a three-commit split, and another two-commit split from one multi-file diff. In those trials, exact per-commit file lists, no-wildcard rules, a leave-list, and independent pre/post verification made Grok dependable as the mechanical G2 commit runner. The lead made the grouping decision. Current guidance remains the `low` work tier with the `high` work tier acceptance authority.
 
 ### 2026-06-14 — portfolio autonomous-burndown run (legacy Claude NTM lead, grok-composer-2.5-fast sidecar)
 

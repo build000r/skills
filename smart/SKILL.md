@@ -48,13 +48,16 @@ until then, activate individual skills through `sbp`.
 Any swarm or NTM-coordinated work must route through `vibing-with-ntm`. Any
 large-ish, UI-facing, multi-file, naturally parallel, or review-sensitive task
 must route through `divide-and-conquer` before parallel execution. For UI,
-design/UX, visual, or ambiguous review-heavy work, include Grok 4.6 design/UX
-in the worker or reviewer mix. Use Grok 4.6 as the NTM runtime orchestrator,
+design/UX, visual, or ambiguous review-heavy work, include Grok route-v2 at
+`high` in the worker or reviewer mix. Use that same Grok lane as the NTM
+runtime orchestrator,
 but keep this skill's goal selection, no-ragrets planning, decomposition,
-architecture, route-blocker review, and final authority on Codex
-`gpt-5.6-sol` with `medium` by default. Use SOL `max` for pivotal planning or
-when another model is struggling; if SOL is unavailable, use Codex
-`gpt-5.6-terra` with `ultra` for those same authority roles.
+architecture, route-blocker review, and final authority on SOL route-v2 at
+`xhigh`. Resolve it through
+`sbp route pick sol --refresh --json`, retain the complete decision, and let
+native-to-Cursor fallback change only runner/quota surface. A typed SOL
+same-lane no-route stops execution unless separately pre-authorized
+`MODEL_CHANGE` authority and its receipt already permit a different model.
 Require a final fresh-eyes reviewer pass before completion.
 
 `smart` chooses the next move; `divide-and-conquer` turns substantial execution
@@ -345,15 +348,17 @@ For every `/smart` invocation:
   implementation slice that benefits from a Beads-backed ready frontier.
 - Use `vibing-with-ntm` for every swarm or NTM-coordinated run, including
   divide-and-conquer execution, operator tending, review loops, and transport
-  recovery. The live NTM controller is Grok 4.6 and must escalate planning.
+  recovery. The live NTM controller is Grok route-v2 at `high` and must
+  escalate planning.
 - Use `ntm` directly only when orchestration itself is the task. For ordinary
   execution waves, route through `/divide-and-conquer` so Beads remain
   authoritative.
-- Include Grok 4.6 design/UX for UI, visual, design/UX, or ambiguous
-  review-heavy work; use Codex `gpt-5.6-sol` medium for ordinary authority and
-  SOL max for pivotal planning or failed-model escalation, falling back to
-  Codex `gpt-5.6-terra` ultra only when SOL is
-  unavailable, and do not call the loop complete until a fresh-eyes reviewer
+- Include Grok route-v2 at `high` for UI, visual, design/UX, or ambiguous
+  review-heavy work; use SOL route-v2 at
+  `xhigh` for planning and final authority. Native exhaustion may move either
+  lane to its same-family Cursor runner, but a typed same-lane no-route stops
+  unless an explicit `MODEL_CHANGE` gate and receipt already permit a
+  different model. Do not call the loop complete until a fresh-eyes reviewer
   pass has checked the final diff and validation evidence.
 - Do not recurse lazily by repeatedly wrapping `/smart` around itself with no new artifact or verification. Each loop must either sharpen the goal, produce a concrete repo or artifact delta, route an unresolved question, or prove that the success criteria have been met.
 

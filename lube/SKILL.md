@@ -19,17 +19,24 @@ confirmed skill use.
 
 Several frictions were observed in our session that I believe could have been avoided. How do we unblock this and all similar or adjacent situations in the future?
 
-Use the current session as evidence, then convert each friction into the smallest durable unblocker.
+Use the current session as evidence, then choose the smallest sufficient response. A prompt correction or no durable change can be enough.
 
 ## Workflow
 
 1. List the observed frictions as concrete moments. If details are missing, state the assumption instead of inventing evidence.
 2. Classify the avoidable cause: missing skill trigger, unclear skill contract, absent API key, unavailable CLI/API/SDK, brittle manual step, missing environment setup, weak defaults, missing test, missing runbook, or missing automation.
-3. Pick the smallest durable fix:
+3. Choose the earned context layer before choosing a fix. Read
+   `automating-your-automations` → `references/ESCALATION-LADDER.md` when
+   available (resolve via SBP if needed), then resume this workflow; do not run
+   its miner merely to read the guide. If unavailable, use the same conservative
+   rule: recurrence alone does not earn automation. Name the current and suggested
+   home, observed evidence, upkeep cost, and what remains judgment. A prompt
+   correction, wiki explanation, existing bug fix, or no durable change is valid.
+   For a justified durable fix:
    - Use `$skill-issue` to create or improve a skill when the fix belongs in an agent workflow.
    - Set up or document credentials, environment variables, or one-time configuration when access blocked the work.
    - Check for an official CLI, API, or SDK when repeated browser/manual service work caused friction.
-   - Add or improve a script when the same shell/API sequence is likely to recur.
+   - Add or improve a script when stable mechanics and observed reuse or a precise error contract repay upkeep.
    - Add a checklist, test, or repo doc when the prevention belongs next to the code.
 4. Execute safe local fixes immediately. Ask only for secrets, paid external actions, destructive changes, or ambiguous policy decisions.
 5. Before closeout, run at least one concrete verification command for every
@@ -116,7 +123,8 @@ failure into the target repo's blocker list.
 
 - Observed friction
 - Root cause class
-- Durable unblocker
+- Suggested context layer and evidence (including keep-here/no durable change)
+- Smallest sufficient response
 - Action taken
 - Remaining ask
 

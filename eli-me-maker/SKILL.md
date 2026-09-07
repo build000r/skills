@@ -1,11 +1,16 @@
 ---
 name: eli-me-maker
 description: >-
-  Create or update a private eli-me skill that captures a user's preferred
-  explanation style. Use when the user says "eli-me-maker", asks to make an
-  "eli-me" skill, wants a reusable personalized communication-preference skill,
-  or wants examples-based questions that discover how they like concepts
-  defined, explained, scoped, and checked.
+  Create or update a private eli-me skill that captures a person's or
+  persona's communication profile: preferred explanation style, and optionally
+  a full-customer-lifecycle communication contract — how to sell to them,
+  advertise to them, and email existing clients matching them, in their
+  language with consistent brand voice. Use when the user says "eli-me-maker",
+  asks to make an "eli-me" skill, wants a reusable personalized
+  communication-preference skill, wants examples-based questions that discover
+  how they like concepts defined, explained, scoped, and checked, or wants a
+  persona/customer communication profile for sales copy, ad copy, or
+  lifecycle emails.
 depends_on:
   - ask-cascade
   - mmdx
@@ -14,10 +19,20 @@ depends_on:
 
 # Eli Me Maker
 
-Create a private `eli-me` skill for one person. This public skill owns the
-repeatable maker workflow; `ask-cascade` owns dependency-aware calibration
-questions; `mmdx` owns optional preference maps; the generated `eli-me` skill
-owns the private preference content.
+Create a private `eli-me` skill for one person or persona. This public skill
+owns the repeatable maker workflow; `ask-cascade` owns dependency-aware
+calibration questions; `mmdx` owns optional preference maps; the generated
+`eli-me` skill owns the private preference content.
+
+Two profile scopes:
+
+- **Explanation profile**: how the target likes concepts defined, explained,
+  scoped, and checked. The original flow.
+- **Lifecycle profile**: how to sell to, advertise to, and email clients
+  matching the target across the customer lifecycle — their language, the
+  operator's brand voice, consistent the whole way through. Card schemas in
+  [lifecycle-template.md](references/lifecycle-template.md), flights in
+  [lifecycle-calibration-prompts.md](references/lifecycle-calibration-prompts.md).
 
 ## First Progress Marker
 
@@ -45,9 +60,11 @@ Preferred format:
 
 Before asking the user, infer what you can from the prompt and environment:
 
-- Target skill name: default `eli-me`.
+- Target skill name: default `eli-me` (personas: `eli-{persona}`).
 - Target root: a private skills directory, private overlay, or user-named path.
-- Starting examples: any explanation-style examples the user provided.
+- Profile scope: explanation only, full lifecycle, or both.
+- Starting examples: any explanation-style examples or communication
+  artifacts the user provided.
 - Existing skill: whether a private `eli-me/SKILL.md` already exists.
 
 If the target root is unclear, ask one placement question before collecting
@@ -75,22 +92,49 @@ Root decision: where should the private eli-me skill live?
 Reply with 1, 2, 3, or give the target path.
 ```
 
-### 2. Gather Examples With Ask-Cascade
+### 2. Declare Scope And Evidence Authority
 
-Do not dump a survey. Run the ladder in
-[Calibration Prompts](references/calibration-prompts.md).
+Ask Round 0 from
+[lifecycle-calibration-prompts.md](references/lifecycle-calibration-prompts.md)
+whenever scope is not already clear: explanation profile, lifecycle profile,
+or both — and who answers for the target.
+
+For any profile whose subject cannot sit for calibration (a customer
+persona), fill the Target & Evidence Authority card before asking anything
+else. Rules that are hard prerequisites:
+
+- Respondent is explicit: subject, named proxy, or operator.
+- Persona evidence is a **bounded, operator-named pack** (won/lost
+  proposals, replied-vs-ignored emails, reviews, tickets). Never roam the
+  workspace for customer material; accept "no evidence yet" as a
+  provisional-profile answer.
+- Personas are evidence-informed, never evidence-answered. The generated
+  skill says "supplied artifacts suggest X" or "operator predicts X" —
+  never "the customer prefers X" unless the customer said it.
+
+### 3. Gather Examples With Ask-Cascade
+
+Do not dump a survey. For explanation profiles run the ladder in
+[Calibration Prompts](references/calibration-prompts.md). For lifecycle
+profiles run the flights in
+[Lifecycle Calibration Prompts](references/lifecycle-calibration-prompts.md),
+grounded in the evidence pack when one exists.
 
 Rules:
 
-- Ask the highest-impact explanation fork first.
+- Ask the highest-impact fork first.
 - Use concrete A/B/C examples, not abstract adjectives like "friendly" or
-  "detailed" by themselves.
+  "detailed" by themselves. One variable per trio; facts held constant.
+- No projection phrasing for personas ("if you were them"); ask which
+  option matches the supplied evidence with the smallest unsupported
+  assumption.
 - Accept terse answers such as `1`, `2B`, `more like the failure-first one`, or
   `none`.
 - Stop after enough signal to write a useful first version. The private
-  `eli-me` skill can improve from future corrections.
+  `eli-me` skill can improve from future corrections. Uncalibrated
+  lifecycle rows ship marked `provisional`, never as silent defaults.
 
-### 3. Map The Preference With MMDX When Useful
+### 4. Map The Preference With MMDX When Useful
 
 Use MMDX when the user's preference has several interacting axes, such as
 starting shape, evidence type, compression, and checkpoint cadence. Do not make
@@ -116,9 +160,13 @@ Private generated maps:
   `MMDX preference map`, so drilldowns answer "why this step exists" rather than
   restating every branch.
 
-### 4. Synthesize The Preference Contract
+### 5. Synthesize The Preference Contract
 
-Turn the answers into a compact, operational card:
+Turn the answers into compact, operational cards. For lifecycle profiles use
+the schemas in [lifecycle-template.md](references/lifecycle-template.md) —
+target/evidence authority, voice braid, lifecycle intent matrix, objection
+ledger, relationship cards, closeout — generating only the cards the
+operator's current surface needs. For explanation profiles:
 
 ```markdown
 ## Eli-Me Preference Card
@@ -149,9 +197,15 @@ Compression:
 Keep it behavioral. Avoid vague traits such as "clear", "smart", "human", or
 "good" unless each one is tied to an observable output rule.
 
-### 5. Generate Or Patch The Private Skill
+### 6. Generate Or Patch The Private Skill
 
-Use [eli-me-template.md](references/eli-me-template.md) as the starting point.
+Use [eli-me-template.md](references/eli-me-template.md) as the starting point
+for explanation profiles; add the card schemas from
+[lifecycle-template.md](references/lifecycle-template.md) for lifecycle
+profiles. Lifecycle profiles keep one private entrypoint (brand spine inline
+or as one canonical private reference); extract a separate brand skill only
+at the second persona or second brand scope, per the template's extraction
+rule.
 
 For a new skill:
 
@@ -167,7 +221,7 @@ For an existing skill:
 3. Patch the smallest section that needs updating.
 4. Add a dated note only when it helps explain a preference change.
 
-### 6. Validate And Activate
+### 7. Validate And Activate
 
 Run the skill validator from the public skills checkout when available:
 
@@ -200,7 +254,23 @@ Before finishing, verify:
 - Private `eli-me` contains the personalized preference content.
 - The generated or patched private skill validates, or the validation blocker is
   explicit.
-- No public repo file contains private examples or personal preference details.
+- No public repo file contains private examples, personal preference details,
+  real customer language, brand specifics, objections, campaign results, or
+  client artifacts.
+
+For lifecycle profiles, additionally:
+
+- The Target & Evidence Authority card exists and every persona rule uses
+  evidence-informed language with a `basis` tag where provisional.
+- No live account facts, metrics, or per-client state were persisted into
+  the durable profile.
+- Claims reference an approved source or escalation route — none were minted
+  by calibration.
+- Cold-agent acceptance when the operator wants proof: from the profile plus
+  a product brief alone, draft one proposal opening, one ad + landing hero,
+  one onboarding email, and one retention or win-back email; check each for
+  customer recognition, brand recognition, lifecycle fit, and evidence
+  honesty.
 
 If this public skill changed, validate it from the public skills repo:
 

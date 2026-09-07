@@ -19,6 +19,12 @@
       "label": "Private eli-me skill",
       "to": "private-skill-detail",
       "title": "Open the private skill boundary"
+    },
+    {
+      "from": "main",
+      "label": "Lifecycle calibration",
+      "to": "lifecycle-detail",
+      "title": "Open the lifecycle profile flow"
     }
   ]
 }
@@ -29,16 +35,21 @@
 flowchart TD
   maker["Public eli-me-maker skill"]
   placement["Placement decision"]
+  scope["Scope and evidence authority"]
   ask["Ask-cascade calibration"]
+  lifecycle["Lifecycle calibration"]
   map["MMDX preference map"]
   private["Private eli-me skill"]
   validate["Validate and activate"]
 
   maker --> placement
-  placement --> ask
+  placement --> scope
+  scope --> ask
+  scope --> lifecycle
   ask --> map
   map --> private
   ask --> private
+  lifecycle --> private
   private --> validate
 ```
 
@@ -70,6 +81,29 @@ flowchart TD
   need --> axes
   axes --> private
   axes --> public
+```
+
+## chart lifecycle-detail Lifecycle Profile Flow
+```mermaid
+flowchart TD
+  authority["Target and evidence authority card"]
+  pack["Bounded authorized evidence pack"]
+  flights["Evidence-conditioned A/B/C flights"]
+  braid["Voice braid: brand spine x audience language"]
+  matrix["Lifecycle intent matrix"]
+  ledger["Objection to proof ledger"]
+  relationship["Relationship cards: account join, sender, reply, repair, advocacy"]
+  closeout["Lifecycle copy closeout"]
+
+  authority --> pack
+  pack --> flights
+  flights --> braid
+  flights --> matrix
+  flights --> ledger
+  matrix --> relationship
+  ledger --> relationship
+  braid --> closeout
+  relationship --> closeout
 ```
 
 ## chart private-skill-detail Private Skill Boundary

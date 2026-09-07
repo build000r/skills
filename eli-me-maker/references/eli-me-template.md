@@ -3,6 +3,10 @@
 Use this as the starting point for the generated private `eli-me/SKILL.md`.
 Replace bracketed placeholders with the user's calibrated preferences.
 
+For full-lifecycle profiles (sell / advertise / lifecycle email), append the
+card schemas from [lifecycle-template.md](lifecycle-template.md) after the
+preference card.
+
 ```markdown
 ---
 name: eli-me

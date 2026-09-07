@@ -165,12 +165,11 @@ Homebrew paths such as `/opt/homebrew/bin/grok` are not authoritative.
 export PATH="$HOME/.local/bin:$PATH"
 command -v ntm >/dev/null 2>&1 || test -x "$HOME/.local/bin/ntm"
 command -v grok >/dev/null 2>&1 || test -x "$HOME/.local/bin/grok"
-command -v codex >/dev/null 2>&1 || test -x "$HOME/.local/bin/codex"
 ```
 
 If the **chosen** substrate's binary is still missing, stop and surface that
 prerequisite. `ntm` missing does not block a wave already classified as
-headless; `grok`/`codex` missing does not block an NTM-only wave.
+headless; `grok` missing does not block an NTM-only wave.
 
 `vibing-with-ntm` is mandatory for every NTM-substrate wave. Headless-only
 waves monitor PID, exit file, and result artifacts instead; do not invent a
@@ -193,29 +192,36 @@ inventories, bounded scripting, fixtures/docs cleanup, generated-command
 cleanup, and scoped commit batching. A Bead is clear enough for Grok 4.6 only
 when it names the exact write scope or read-only artifact, validation commands,
 stop rules, review owner, and final authority. Route through the shared Grok
-lanes in `../_shared/references/orchestration-contract.md`: `voice-to-text`
-dispatcher for cheap routing/preflight, the NTM Grok plugin when interactive
-pane preflight passes, Swimmers or the local Grok 4.6 route for maintained
-task-runner sessions, and direct headless Grok with a prompt file for bounded
-one-shots. If Grok 4.6 stalls, emits no artifact, violates scope, or needs a
-judgment it does not own, escalate the node to Codex `gpt-5.6-sol` max, or route
+lanes in `../_shared/references/orchestration-contract.md`. An NTM-classified
+allocation uses the NTM Grok plugin with the retained decision required by
+[Binding Grok Route-v2 Allocation](#binding-grok-route-v2-allocation).
+`voice-to-text`, Swimmers or a local Grok 4.6 route, and direct headless Grok
+are separately classified non-NTM substrates; they are never quota fallback
+after an NTM Grok no-route decision. If Grok 4.6 stalls, emits no artifact,
+violates scope, or needs a judgment it does not own, allocate Codex
+the `high` work tier through the binding route-v2 contract below, or route
 design/UX work to a Grok 4.6 design lane, and record the route failure in the
 result artifact.
-Design-related execution nodes should run on Grok 4.6 through the NTM Grok
-plugin when preflight passes, otherwise through the Swimmers/local/direct
-headless Grok 4.6 route. If no Grok 4.6 design route is available, surface the
-routing blocker rather than silently reassigning design work to Codex.
+Design-related execution nodes classified for NTM use the retained Grok
+route-v2 decision and adapter. Nodes independently classified as non-NTM may
+use the Swimmers, local, or direct headless Grok 4.6 substrate. A typed NTM
+Grok no-route stops that allocation; it does not trigger substrate fallback.
+If no Grok 4.6 design route is available, surface the routing blocker rather
+than silently reassigning design work to Codex.
 On NTM-substrate waves, runtime orchestration must run on Grok 4.6 through
-the NTM plugin: it owns frontier reads, claims, dispatch, tending, harvest,
-and convergence, but never planning. Headless-only waves keep that same
+the NTM plugin with the retained route-v2 decision and adapter: it owns
+frontier reads, claims, dispatch, tending, harvest, and convergence, but never
+planning. Headless-only waves keep that same
 split of duties in the lead process (claim, dispatch, PID/artifact harvest,
 convergence); do not spawn an NTM plugin pane solely to host the
 controller. System design, domain-planner quality loops, no-ragrets bead
 composition, decomposition, dependency topology, acceptance-criteria design,
 impactful architecture/code decisions, integration review, commit acceptance,
-and final say must run on Codex `gpt-5.6-sol`; if SOL is unavailable, use Codex
-`gpt-5.6-terra` at `ultra`. Require a final fresh-eyes reviewer pass before
-completion.
+and final say must run on the `high` work tier through
+[Binding High Tier Allocation](#binding-high-tier-allocation). If that
+lane returns typed no-route evidence, apply
+[Non-default Model-Change Gate](#non-default-model-change-gate); otherwise
+stop. Require a final fresh-eyes reviewer pass before completion.
 
 ## Accepted No-Ragrets Plan Intake
 
@@ -305,13 +311,18 @@ watch, nudge, or reuse context is.
 
 | Node shape | Substrate |
 |------------|-----------|
-| Self-contained, one result artifact, no mid-flight steering | Direct headless one-shot (`grok -p`, `codex exec`, or equivalent, fed a prompt-file brief) |
+| Self-contained, one result artifact, no mid-flight steering, and no `high` tier planning/final-review authority | Direct headless Grok one-shot (`grok -p` or equivalent, fed a prompt-file brief) |
 | Live attach, marching orders, multi-round repair on shared context, or interactive review dialogue | NTM swarm (default) |
 
 A wave is headless only when **every** node in it matches the first row.
 Mixed waves: NTM for the nodes that need steering; headless siblings are
 allowed. Independent verdict-file reviews are headless-eligible; a review
 that must talk back is not.
+
+`high` tier planning, integration acceptance, commit acceptance, and final-review
+authority are never direct headless allocations. They use the retained `high` tier
+route-v2 decision and `route_ntm_spawn.sh`, even when the work product is only
+a verdict file.
 
 Why headless wins on that first row: the worker is a real PID that is
 supposed to exit; completion is typed (PID dead + exit file + artifact +
@@ -354,42 +365,107 @@ fire-and-forget a node whose acceptance depends on interactive review.
 
 ## Model Routing Is Mandatory
 
+### Work-tier selection
+
+Choose `low`, `med`, or `high` from task complexity, then run
+`sbp route <tier> --refresh --json` once per allocation. Use `high` for planning,
+architecture, integration acceptance, and final review; `med` for ordinary
+implementation needing judgment; `low` for bounded mechanical work and runtime
+coordination. Tier names describe work, not provider reasoning effort.
+SBP and the effective operator overlay own the model, effort, and ordered
+transport bindings. Do not duplicate those tuples here or improvise substitutes.
+Explicit user effort requests take precedence; pass supported `--effort` overrides.
+
+### Binding Grok Route-v2 Allocation
+
+The examples below use `sbp route low --refresh --json` for bounded runtime
+work. Retain the complete decision, validate it with SBP's `route_ladders.py`,
+and pass it verbatim through `route_ntm_spawn.sh --decision-json` with
+`--project-dir "$PROJECT_DIR"`. The Grok labels describe the default policy;
+never reconstruct runner/model/effort flags from those labels.
+A no-route result stops this new allocation; existing work instead enters the
+safe-continuation procedure below. It never silently grants planning authority.
+
+### Binding High Tier Allocation
+
+1. Set `PROJECT_DIR="$(realpath "$(git rev-parse --show-toplevel)")"` and
+   `PROJECT="$(basename "$PROJECT_DIR")"` from the target checkout.
+2. Run `sbp route high --refresh --json` exactly once for this allocation.
+3. Validate the retained decision using the installed SBP `route_ladders.py`.
+   SBP is the allocation authority; no static fallback exists in this skill.
+4. Pass the retained, already validated JSON verbatim as repeatable
+   `--decision-json` input to `route_ntm_spawn.sh`, with
+   `--project-dir "$PROJECT_DIR"`. Never re-pick between preflight and spawn.
+5. Bind each pane's initial task through Step 8 before sending work. Preserve
+   the selected effort and full decision through execution and recovery.
+
+A fresh final review selects `high` again. A mid-task failure does not select
+new work: enter `vibing-with-ntm` safe continuation with the retained allocation,
+original task binding, and observed progress. A provider fallback must preserve
+the allocation; availability alone does not authorize a model or effort change.
+
+### Non-default Model-Change Gate
+
+Terra is not a route-v2 lane or fallback. Every Terra reference is
+non-default and may be acted on only when all three receipts already exist:
+
+- the exact retained `high` tier decision is typed `runnable:false` with
+  `reason:"no-route"`, null executable fields, and null `fallback_depth`
+- the accepted Bead/plan or current user instruction already grants explicit
+  `MODEL_CHANGE` authority before selection
+- a `MODEL_CHANGE` receipt records the exact `high` tier decision, authority source,
+  new runner, `runner_model`, and effort before execution
+
+Only then may the separately authorized procedure select
+`gpt-5.6-terra:ultra`. This skill never fabricates a Terra route-v2 decision or
+derives a Terra spawn from prose. If the authority does not name the executable
+model-change procedure, or any prerequisite above is absent, stop. Otherwise,
+continue only under that named procedure. A rate limit, worker failure,
+provider name, nonzero fallback depth, or Grok result is not this authority.
+Grok never becomes planning, integration, commit, or final authority.
+
 Route every ready node before spawning workers:
 
 - **Grok 4.6 owns NTM runtime orchestration.** Route root and subgoal controller
-  loops to the NTM Grok plugin. Grok may census, read the accepted ready
+  loops to the NTM Grok plugin using the retained decision required by
+  [Binding Grok Route-v2 Allocation](#binding-grok-route-v2-allocation). Grok
+  may census, read the accepted ready
   frontier, claim hydrated leaves for workers, dispatch, observe, unstick,
   harvest, reconcile verified statuses, and detect convergence. It must not
   decompose goals, invent or repair plan topology, author material acceptance
   criteria, resolve architectural ambiguity, synthesize planning branches, or
   make final acceptance decisions. When those needs appear, it dispatches an
   authority node and waits for the accepted result before continuing.
-- **Codex GPT-5.6 SOL owns planning and final authority.** Route no-ragrets bead
+- **Codex high-tier authority owns planning and final authority.** Route no-ragrets bead
   composition, divide-and-conquer decomposition and root synthesis,
   domain-planner sessions and quality loops, system design, architecture,
   security-sensitive or high-impact code decisions, ambiguous repairs,
   integration review, commit acceptance, and any final-say review node to
-  Codex `gpt-5.6-sol`. If SOL is unavailable, use Codex `gpt-5.6-terra` with
-  `ultra` effort for those same roles. SOL uses `medium` by default; use `max`
-  for pivotal/high-consequence planning or when another model is demonstrably
-  struggling. Planning/authority nodes may author or
+  the `high` work tier through
+  [Binding High Tier Allocation](#binding-high-tier-allocation). A typed
+  no-route result proceeds only through
+  [Non-default Model-Change Gate](#non-default-model-change-gate).
+  Planning/authority nodes may author or
   repair Beads and may overrule task-runner output; the Grok controller may not.
 - **Grok 4.6 owns design/UX and visual review work.** Treat a node as design-related
   when it touches UI/UX, visual design, design systems, frontend screen or
   component layout, CSS/tokens, responsive behavior, screenshots, visual
   parity, product interaction copy, or fresh-eyes review of those surfaces.
-  Dispatch these nodes to Grok 4.6 through the NTM Grok plugin when available,
-  or through the approved sidecar/direct Grok 4.6 route. If no Grok 4.6 design
-  route is available, surface the route blocker and keep Codex as final
-  acceptance authority, not as the default design worker.
+  Dispatch NTM-classified nodes through the NTM Grok plugin with the retained
+  route-v2 decision and adapter. Use an approved sidecar/direct Grok 4.6 route
+  only when the node was independently classified for that non-NTM substrate,
+  never as quota fallback. If no Grok 4.6 design route is available, surface
+  the route blocker and keep Codex as final acceptance authority, not as the
+  default design worker.
 - **Grok 4.6 is the preferred bounded task-runner lane for clear
   Beads.** The `voice-to-text` dispatcher is the preferred cheap router for cwd
   selection, skill-tag extraction, request cleanup, broad evidence bucketing,
   and other clerk work. For execution nodes that are task-runner safe, prefer
-  Grok 4.6 through the NTM Grok plugin when preflight passes; otherwise use
-  the Swimmers hidden-session lane with `spawn_tool: "grok"`, the locally
-  configured Grok 4.6 route, or direct headless Grok with a prompt file for a
-  bounded one-shot. Good candidates are `$commit`/logical commit batching,
+  Grok 4.6 through the NTM Grok plugin with the binding retained route-v2
+  decision. The Swimmers hidden-session lane with `spawn_tool: "grok"`, a
+  locally configured Grok 4.6 route, or direct headless Grok with a prompt file
+  is eligible only when independently selected as the node's non-NTM
+  substrate, never as quota fallback. Good candidates are `$commit`/logical commit batching,
   mechanical scripts, fixtures, narrow docs edits, generated-command cleanup,
   manifest/file classification, and other "task rabbit" work with explicit
   files, validation, and revertability. Record `Model route: Grok dispatcher`
@@ -399,7 +475,8 @@ Route every ready node before spawning workers:
   Grok 4.6 result as authority to bypass Beads hydration, ownership,
   validation, stronger-model review, or the final review gate. If the result is
   empty, off-scope, validation-failing, or asks for judgment beyond the Bead,
-  escalate authority questions to Codex `gpt-5.6-sol` max or reroute design/UX
+  allocate authority questions to the `high` work tier through the
+  binding route-v2 contract or reroute design/UX
   work to the Grok 4.6 design lane instead of retrying indefinitely. For
   task-selection heuristics and CASS query examples, see
   [references/grok-sidecar-selection.md](references/grok-sidecar-selection.md).
@@ -408,16 +485,16 @@ Route every ready node before spawning workers:
   exact Beads guidance and is cheap to verify/revert, prefer Grok 4.6
   as the task runner. If the node is broad, high-impact, secret-bearing,
   architecture-sensitive, integration-heavy, or still fuzzy, route it to Codex
-  `gpt-5.6-sol` at the ordinary default effort: `--cod=N:gpt-5.6-sol:medium`.
+  the `high` work tier through the binding route-v2 contract.
 - Ambiguous nodes are design-related if visual/product interaction quality is a
-  material acceptance criterion; otherwise route ambiguity to Codex `gpt-5.6-sol`.
+  material acceptance criterion; otherwise allocate the `high` work tier through the binding route-v2 contract.
   Split mixed nodes before launch when the model routing would otherwise be
   unclear.
 - Record the selected route in the Beads dispatch contract and worker prompt:
   `Model route: Grok 4.6 NTM orchestrator`, `Model route: Grok dispatcher`, `Model route: Grok CLI sidecar`,
-  `Model route: Grok 4.6 task-runner`, `Model route: Grok 4.6 design/UX`,
-  `Model route: Codex gpt-5.6-sol medium`, `Model route: Codex gpt-5.6-sol max escalation`, or
-  `Model route: Codex gpt-5.6-terra ultra fallback`.
+  `Model route: Grok 4.6 task-runner`, `Model route: Grok 4.6 design/UX`, or
+  `Model route: high work tier planning/final authority` with the retained
+  decision identity and adapter handoff receipt.
 
 ## Related Skills
 
@@ -515,7 +592,7 @@ auto-generated `context.yaml`.
 ## Swarm Runtime (Default)
 
 `divide-and-conquer` uses an external NTM swarm with split authority. The Grok
-4.5 runtime controller owns accepted-frontier selection, claims, dispatch,
+4.6 runtime controller at `high` effort owns accepted-frontier selection, claims, dispatch,
 monitoring, collection, and convergence. A Codex planning authority owns
 decomposition, topology, synthesis, integration acceptance, and final say;
 workers execute the nodes.
@@ -533,13 +610,12 @@ unblocks that are explicitly recorded as root-owned.
 | Argument | Default | Description |
 |----------|---------|-------------|
 | `--project=NAME` | derived from cwd + wave id | NTM swarm project name |
-| `--grok=1` | 1 controller | Installed Grok 4.6 NTM runtime orchestrator for frontier/dispatch/tending/harvest; never planning |
+| Grok route-v2 decisions | 1 controller + routed workers | One retained exact native-or-Cursor Grok decision repeated per controller/worker/reviewer pane through `route_ntm_spawn.sh`; never planning or final authority |
 | Grok 4.6 design/UX lanes | auto | UI/UX, visual design, design-system, screenshot, visual parity, interaction-copy, and fresh-eyes review nodes |
-| `--cod=N:gpt-5.6-sol:medium` | auto | Default Codex planning/authority panes |
-| `--cod=N:gpt-5.6-sol:max` | escalation only | Pivotal/high-consequence planning or another model struggling |
-| `--cod=N:gpt-5.6-terra:ultra` | SOL fallback only | Planning/authority fallback when GPT-5.6 SOL is unavailable |
+| `high` tier route-v2 decisions | auto | Planning/authority panes; exact retained `high` tier decision, with its selected effort, through `route_ntm_spawn.sh --project-dir "$PROJECT_DIR"` |
+| Model-family change | disabled by default | Only through the binding non-default model-change gate; otherwise stop |
 | `--gmi=N` | 0 | Optional Gemini panes |
-| Grok 4.6 runners | eligible clear Beads | Grok plugin or sidecar lanes via `voice-to-text`/NTM Grok/Swimmers/local task-runner routes for explicit task-runner nodes |
+| Non-NTM Grok substrates | eligible clear Beads | Independently classified `voice-to-text`, Swimmers, local, or direct-headless task-runner routes; never fallback from an NTM no-route decision |
 | `--max-workers=N` | 10 | Hard cap per wave |
 | `--wave-timeout-min=N` | 45 | Hard timeout for a wave before collect-and-triage |
 | `--monitor-cron` | every 3 minutes | Swarm health checks and nudges |
@@ -553,19 +629,18 @@ unblocks that are explicitly recorded as root-owned.
   exact write scope or read-only artifact, validation, stop rules, and
   stronger-model review owner; keep dispatcher/preflight nodes read-only
 - Route design-related execution nodes and design/fresh-eyes review nodes to
-  Grok 4.6; use Codex `gpt-5.6-sol` medium for ordinary authority and max for
-  pivotal planning or explicit failed-model escalation, not as the default design worker
+  Grok 4.6; use the `high` work tier through the binding route-v2
+  contract for every planning or final-authority allocation, not as the default design worker
 - Route NTM controller/orchestration loops to Grok 4.6. Route no-ragrets bead
   composition, decomposition/synthesis, domain-planner sessions, system design,
   impactful execution, integration review, and final-say nodes to Codex
-  `gpt-5.6-sol`; use `gpt-5.6-terra:ultra` only when SOL is unavailable
-- Use `gpt-5.6-sol:medium` for normal Codex authority allocations and
-  `gpt-5.6-sol:max` only for the named escalation triggers
-- For planning/authority, fall back to `gpt-5.6-terra` at `ultra`; do not use a
-  lower model merely because the controller is Grok
-- Default SOL to `medium`. Use SOL `max` for pivotal/high-consequence planning
-  or when Grok/another model has demonstrably struggled. Terra always uses
-  `ultra` and only when SOL is unavailable.
+  the `high` work tier through the retained route-v2 decision and atomic
+  adapter handoff. Every NTM Grok controller or worker allocation follows
+  [Binding Grok Route-v2 Allocation](#binding-grok-route-v2-allocation)
+- A failed or struggling worker does not change `high` tier effort or model identity;
+  reallocate `high` tier through the binding route-v2 contract or stop
+- Any model-family change is disabled by default and must pass the binding
+  non-default model-change gate; the Grok controller cannot authorize it
 
 ## Subgoal Mode
 
@@ -671,13 +746,14 @@ waves skip it.
 
 ```bash
 export PATH="$HOME/.local/bin:$PATH"
-repo_root="$(git rev-parse --show-toplevel)"
-export NTM_PROJECTS_BASE="$(dirname "$repo_root")"
-NTM_PROJECT="$(basename "$repo_root")"
+PROJECT_DIR="$(realpath "$(git rev-parse --show-toplevel)")"
+PROJECT="$(basename "$PROJECT_DIR")"
+export NTM_PROJECTS_BASE="$(dirname "$PROJECT_DIR")"
+NTM_PROJECT="$PROJECT"
 WAVE_LABEL="dac-${SLICE_SLUG}-wave-${WAVE_NUMBER}"
 WAVE_SESSION="${NTM_PROJECT}--${WAVE_LABEL}"
 pwd
-test "$(realpath "$NTM_PROJECTS_BASE/$NTM_PROJECT")" = "$repo_root"
+test "$(realpath "$NTM_PROJECTS_BASE/$NTM_PROJECT")" = "$PROJECT_DIR"
 test ! -e "$NTM_PROJECTS_BASE/$WAVE_SESSION"
 ntm config get projects_base
 ntm version
@@ -697,7 +773,7 @@ Record the result in the dispatch contract:
 
 ```text
 NTM root preflight:
-- repo_root: <absolute git root>
+- project_dir: <canonical absolute git root>
 - ntm_projects_base: <repo parent>
 - ntm_project: <repo basename>
 - wave_label: <unique label>
@@ -752,54 +828,68 @@ Rules for this skill when those labels are present:
 If you are consuming a graph whose labels you cannot interpret, say so and drive the
 frontier directly rather than reinterpreting the plan.
 
-### Claim Before Spawn — panes self-dispatch
+### Claim Before Spawn — bind before any work dispatch
 
-`ntm spawn` prepares a "recovery context" that can feed the surrounding graph to
-freshly-launched panes. Those panes may **select their own work and begin editing
-before the lead runs a single claim handshake**. Observed 2026-07-27 on the
-`payrun-deeplink` epic: within three minutes of spawn, two panes had self-selected a
-`plan-role:branch` grouping node that was *not* in the ready frontier and had
-modified six files with no claim, no write-scope enforcement, and no validation gate.
+`ntm spawn` can prepare recovery context that lets a fresh pane self-select work.
+That is incompatible with recoverable D&C dispatch when it becomes a successful
+NTM prompt before the pane's canonical work binding. Observed 2026-07-27 on the
+`payrun-deeplink` epic: two panes self-selected a non-ready grouping node and
+modified six files before a claim gate.
 
-The lead-owned claim handshake is therefore not sufficient on its own, because it
-runs *after* spawn. Ordering matters:
+Every NTM pane, including a runtime controller or reviewer, needs one live
+`in_progress` Bead, exact assignee, retained route decision, and base task brief.
+Ordering is binding:
 
 1. Resolve the ready frontier and decide the wave assignment **first**.
 2. Claim every intended node for its named worker **before** `ntm spawn`, so a
    self-selecting pane finds no unclaimed work.
-3. Spawn, then dispatch briefs to the already-claimed nodes.
-4. Immediately after spawn, inspect every pane. If a pane is already working on
-   something you did not dispatch, `C-c` it, diff the working tree, and decide
-   keep-or-revert explicitly before continuing. Do not assume self-started work is
-   off-target — but do not assume it is on-target either; verify it like any other
-   node before retaining it.
+3. Spawn without a user prompt, then resolve each exact pane index, stable pane
+   id, and the exact session creation time from that session.
+4. Before any pointer, nudge, review prompt, or task brief is sent, require the
+   complete unfiltered NTM history to contain no successful post-session-creation CLI
+   dispatch targeting that pane. Any earlier successful target makes the pane
+   deliberately unrecoverable; stop that pane with no binding send, recovery,
+   respawn, or receipt.
+5. Construct the canonical `NTM_WORK_BINDING_V1` file in Step 8 from those exact
+   identities and the same full retained route decision passed to
+   `route_ntm_spawn.sh`. Send that file as the first singleton-target NTM
+   dispatch, then retain its exact bytes for any recovery.
+6. Before any later successful prompt, require authoritative history to show the
+   bound file as the unique earliest successful singleton dispatch after current
+   session
+   creation. Missing, stale, filtered, truncated, broadcast, ambiguous, or
+   mismatched evidence stops the pane; never repair history with a later prompt.
 
-This ordering is also the reason a graph carrying non-dispatchable grouping nodes
-must never be handed to an intake that cannot read `plan-role:*`. If the consumer
-does not recognise those labels, drive the frontier directly with `br ready` and
-claim-before-spawn; do not rely on the intake to respect the topology.
+This ordering is also why a graph carrying non-dispatchable grouping nodes must
+never be handed to an intake that cannot read `plan-role:*`. If the consumer
+does not recognise those labels, drive the frontier directly with `br ready`
+and claim-before-spawn; do not rely on intake or prompt prose to repair it.
 
-### Grok panes need single-line briefs
+### NTM panes receive one bound message file first
 
-`ntm send` delivers a multi-line prompt to the Grok TUI **line by line**, so a
-heredoc node brief is submitted as dozens of separate messages with the tail
-stranded unsent in the compose buffer. Codex panes handle the multi-line form
-correctly; Grok panes do not.
+Direct positional or stdin multi-line `ntm send` can submit a Grok brief line
+by line. Do not send a pointer first and do not send an unbound heredoc. Every
+NTM transport uses the Step 8 bound file through the history-writing
+`ntm send --file` surface, one exact `--pane` value, `--no-cass-check`, and
+`--force-non-interactive`; this makes the complete binding plus task brief one
+history entry. `ntm --robot-send` may deliver successfully without appending
+prompt history, so it cannot establish the original recovery binding.
+NTM 1.18.2 also omits terminal CR/LF bytes from file-backed prompt history, so
+the constructor in Step 8 removes all terminal CR/LF from the body before
+writing the retained bound file. That retained file itself must not end in CR
+or LF; otherwise exact byte proof is impossible and dispatch must stop.
 
-For Grok panes, write the brief to a file in the run directory and send a
-single-line pointer:
-
-```bash
-ntm send "$WAVE_SESSION" --pane="$N" "Read <absolute-run-dir>/BRIEF-<node>.md and execute exactly that node brief."
-```
-
-`ntm send` may also leave the text in the compose box without submitting it. After
-sending, if the pane shows your text at a `❯` prompt rather than working output,
-submit it explicitly:
+After the successful bound-file dispatch is present in authoritative history,
+if the Grok pane still shows the text at a `❯` prompt rather than working
+output, submit it explicitly:
 
 ```bash
 tmux send-keys -t "=${WAVE_SESSION}:1.${N}" Enter
 ```
+
+The Enter keystroke is not binding proof. Only the retained bound file plus the
+original successful NTM history accepted by `route_ntm_recover.sh` can make the
+pane recoverable.
 
 ### Declare test files in `writes`
 
@@ -934,11 +1024,14 @@ ready node is not launchable until `br show {id} --json` or
 - current dependencies, blocked state, and ready frontier membership
 - `writes`, `done_when`, `validate_cmds`, `risk_gate`, non-goals, and stop rules
 - global constraints: no remote push, no cross-repo edits, no write-scope theft
-- model route per node: Grok 4.6 NTM orchestrator for frontier/claim/dispatch/
-  tending/harvest/convergence only; Codex gpt-5.6-sol for no-ragrets bead
+- model route per node: Grok 4.6 NTM orchestrator, using the retained Grok
+  route-v2 decision and adapter, for frontier/claim/dispatch/tending/harvest/
+  convergence only; the high work tier for no-ragrets bead
   composition, decomposition/synthesis, domain-planner sessions, architecture,
-  impactful execution, integration review, and final say, with Codex
-  gpt-5.6-terra ultra as the SOL-unavailable fallback; Grok 4.6 design/UX for design-related nodes; Grok dispatcher
+  impactful execution, integration review, and final say through
+  the retained route-v2 decision and atomic adapter handoff; any typed `high` tier
+  no-route result stops unless the binding non-default model-change gate was
+  already authorized; Grok 4.6 design/UX for design-related nodes; Grok dispatcher
   for read-only router/preflight nodes; Grok CLI sidecar for Grok-authored
   read-only artifacts; Grok 4.6 task-runner as the preferred runner
   for narrow writer, scripting, fixture/docs cleanup, generated-command cleanup,
@@ -968,47 +1061,131 @@ wrapper pid/log/exit, artifact path) and skip `ntm spawn` for them. The
 rest of this step covers the NTM default.
 
 For each NTM-classified ready frontier wave, launch an NTM swarm sized to
-that wave.
+that wave. Resolve the planning/final-authority allocation as logical lane
+using `high` before spawn. Retain the returned allocation unchanged.
 
 ```bash
 frontier_json="$(python3 "$DAC_SHARED_ROOT/scripts/br_helpers.py" ready --label slice:${SLICE_SLUG})"
 # Optional: ranked by br's evidence-aware scheduler instead of plain priority
 # frontier_json="$(python3 "$DAC_SHARED_ROOT/scripts/br_helpers.py" scheduler)"
 
-ntm spawn "$NTM_PROJECT" --label "$WAVE_LABEL" \
-  --grok=1 \
-  --cod="${NUM_CODEX}:gpt-5.6-sol:medium" --grok="${NUM_GROK}:grok-4.6" \
-  --no-user \
-  --stagger-mode=smart
+command -v sbp >/dev/null 2>&1 \
+  || { echo "sbp route unavailable; refusing static model fallback" >&2; exit 2; }
+SBP_BIN=$(realpath "$(command -v sbp)") || exit 2
+ROUTE_NTM_SPAWN="$(dirname -- "$SBP_BIN")/route_ntm_spawn.sh"
+test -x "$ROUTE_NTM_SPAWN" \
+  || { echo "route_ntm_spawn adapter unavailable" >&2; exit 2; }
+
+AUTHORITY_ROUTE_STATUS=0
+AUTHORITY_ROUTE=$(sbp route high --refresh --json) || AUTHORITY_ROUTE_STATUS=$?
+test "$AUTHORITY_ROUTE_STATUS" -eq 0 || test "$AUTHORITY_ROUTE_STATUS" -eq 1 \
+  || { echo "AUTHORITY route probe failed without a decision" >&2; exit 2; }
+
+python3 "$(dirname -- "$SBP_BIN")/route_ladders.py" \
+  --validate-decision-json "$AUTHORITY_ROUTE" --allow-non-runnable >/dev/null || { echo "malformed AUTHORITY route decision" >&2; exit 2; }
+
+if test "$AUTHORITY_ROUTE_STATUS" -eq 0; then
+  printf '%s\n' "$AUTHORITY_ROUTE" | jq -e '.runnable == true' >/dev/null || exit 2
+else
+  printf '%s\n' "$AUTHORITY_ROUTE" | \
+    jq -e '.runnable == false and .reason == "no-route"' >/dev/null || exit 2
+fi
+
+printf '%s\n' "$AUTHORITY_ROUTE" | jq \
+  '{lane, model_family, quota_surface, runner, runner_model, effort, runnable}'
+
+GROK_ROUTE_STATUS=0
+GROK_ROUTE=$(sbp route low --refresh --json) || GROK_ROUTE_STATUS=$?
+test "$GROK_ROUTE_STATUS" -eq 0 || test "$GROK_ROUTE_STATUS" -eq 1 \
+  || { echo "Grok route probe failed without a decision" >&2; exit 2; }
+
+python3 "$(dirname -- "$SBP_BIN")/route_ladders.py" \
+  --validate-decision-json "$GROK_ROUTE" --allow-non-runnable >/dev/null || { echo "malformed Grok route decision" >&2; exit 2; }
+
+if test "$GROK_ROUTE_STATUS" -eq 0; then
+  printf '%s\n' "$GROK_ROUTE" | jq -e '.runnable == true' >/dev/null || exit 2
+else
+  python3 "$(dirname -- "$SBP_BIN")/route_ladders.py" \
+  --validate-decision-json "$GROK_ROUTE" --allow-non-runnable >/dev/null || exit 2
+  printf '%s\n' "$GROK_ROUTE" | jq -e '.runnable == false and .reason == "no-route"' >/dev/null || exit 2
+  printf '%s\n' "$GROK_ROUTE" > "$run_dir/GROK_ROUTE_NO_ROUTE.json"
+  echo "Grok unavailable; retained typed no-route decision; stopping wave" >&2
+  exit 2
+fi
+
+printf '%s\n' "$GROK_ROUTE" | jq \
+  '{lane, model_family, quota_surface, runner, runner_model, effort, runnable}'
 ```
 
-If the Grok plugin preflight passes and the frontier has Grok 4.6 design/UX or
-task-runner nodes, include the Grok count explicitly:
+When `runnable:true`, the high-tier allocation is available; use the
+decision's exact `runner`, `runner_model`, and `effort`. Repeat the already
+selected decision once per planning/authority pane and pass it through
+Skillbox's executable adapter without another pick:
 
 ```bash
-ntm spawn "$NTM_PROJECT" --label "$WAVE_LABEL" \
-  --grok=1 \
-  --cod="${NUM_CODEX}:gpt-5.6-sol:medium" \
-  --grok="${NUM_GROK}:grok-4.6" \
-  --no-user \
-  --stagger-mode=smart
+test "$NUM_CODEX" -gt 0 \
+  || { echo "planning/final authority requires at least one AUTHORITY pane" >&2; exit 2; }
+test "$NUM_GROK" -ge 0 \
+  || { echo "NUM_GROK must be zero or greater" >&2; exit 2; }
+
+if printf '%s\n' "$AUTHORITY_ROUTE" | jq -e '.runnable == true' >/dev/null; then
+  AUTHORITY_DECISION_ARGS=()
+  for ((slot = 0; slot < NUM_CODEX; slot++)); do
+    AUTHORITY_DECISION_ARGS+=(--decision-json "$AUTHORITY_ROUTE")
+  done
+
+  GROK_PANE_COUNT=$((1 + NUM_GROK))
+  GROK_DECISION_ARGS=()
+  for ((slot = 0; slot < GROK_PANE_COUNT; slot++)); do
+    GROK_DECISION_ARGS+=(--decision-json "$GROK_ROUTE")
+  done
+
+  "$ROUTE_NTM_SPAWN" \
+    --project-dir "$PROJECT_DIR" \
+    "${AUTHORITY_DECISION_ARGS[@]}" \
+    "${GROK_DECISION_ARGS[@]}" \
+    --label "$WAVE_LABEL" \
+    -- \
+    --no-user --stagger-mode=smart
+else
+  echo "AUTHORITY unavailable; retain typed no-route decision and stop this spawn" >&2
+fi
 ```
 
-The first `--grok=1` is the installed Grok 4.6 controller allocation; `NUM_GROK` counts
-Grok execution/design workers and may be zero. Discover the controller's pane
+The first retained Grok decision is the runtime controller allocation;
+`NUM_GROK` counts additional Grok execution/design workers and may be zero.
+The picker runs once for the whole allocation, and the exact retained decision
+is repeated once per controller/worker pane.
+Discover the controller's pane
 by command/title after spawn rather than assuming pane 0 because plugin panes
 may be reported as `user`. If any worker count is zero, omit that worker flag.
 Never satisfy a design-related node by increasing `NUM_CODEX`, and never
 satisfy a Codex planning/authority node by increasing `NUM_GROK`.
-If the provider rejects or cannot allocate GPT-5.6 SOL, retry only the Codex
-planning/authority allocation as `--cod="${NUM_CODEX}:gpt-5.6-terra:ultra"`.
-Do not invoke the fallback merely because a worker's task or validation failed;
-Terra ultra is an availability fallback, not a retry lottery.
-Grok 4.6 task-runner nodes are launched after the same Beads claim
-handshake, through the NTM Grok plugin when preflight passes, the
-`voice-to-text`/Swimmers Grok lane, a local Grok 4.6 task-runner route, or a
-direct headless Grok one-shot, and are tracked by their issue ID plus result
-artifact. Do not inflate the Codex count to cover a Grok-routed node, and do
+The Grok controller remains runtime-only: frontier reads, claims, dispatch,
+tending, harvest, and convergence. It never becomes planning or final
+authority; that belongs to the `high` tier allocation independent of its selected runner.
+
+A valid `runnable:false`, `reason:"no-route"` `high` tier decision means `high` tier is
+unavailable. Retain that exact decision and stop this spawn. Continue only if
+[Non-default Model-Change Gate](#non-default-model-change-gate) was already
+authorized and its receipt plus executable procedure are complete; otherwise
+stop. The route-v2 adapter never receives a fabricated substitute decision.
+
+Nonzero `fallback_depth` alone never authorizes `MODEL_CHANGE`. In particular,
+Fallback depth describes the configured transport, not permission to change the allocation.
+Provider or quota-surface diversity is not required for planning authority.
+Do not exclude a provider to manufacture diversity.
+
+If `sbp`, its sensors, the executable adapter, or valid decision JSON is absent,
+abort. Do not use a static or narrative fallback. A worker failure, validation
+failure, provider name, runner name, or spawn rejection is not typed `high` tier
+no-route evidence.
+Grok 4.6 task-runner nodes are launched after the same Beads claim handshake.
+An NTM-classified node uses the binding retained Grok route-v2 decision and
+adapter. A `voice-to-text`/Swimmers lane, local Grok 4.6 route, or direct
+headless Grok one-shot is used only when independently selected as the node's
+non-NTM substrate, never after an NTM no-route result. All are tracked by issue
+ID plus result artifact. Do not inflate the Codex count to cover a Grok-routed node, and do
 not rely on `ntm --robot-*` alone as proof that a Grok 4.6 runner
 completed; verify the artifact, Beads state, validation, and stronger-model
 review.
@@ -1016,7 +1193,7 @@ review.
 Wait for the swarm to be ready:
 
 ```bash
-ntm --robot-wait="$WAVE_SESSION" --condition=idle --timeout=120s
+ntm --robot-wait="$WAVE_SESSION" --wait-until=idle --timeout=120s
 ```
 
 Prefer wave-scoped labels such as `dac-<slice>-wave-01`,
@@ -1037,11 +1214,58 @@ the artifact root before spawning workers.
 
 If the swarm transport looks wrong, fix that before blaming the node brief.
 
+For quota exhaustion, broken auth, a wedged runner, or lost session, use
+`vibing-with-ntm` and its `references/safe-continuation.md` procedure before
+choosing an intervention. Safe continuation is authorized within the existing
+task scope: prefer same-session resume; otherwise reconcile a checkpoint and
+hand off only the remaining work to one replacement writer. Do not restart the
+original task blindly. Broken credentials go to `caam-auth-reconcile`; quota
+exhaustion alone does not authorize credential repair or global account switches.
+
+Retain `FROM_AUTHORITY_ROUTE`, the original Bead and assignee, session/pane
+identity, and original bound prompt. A new route must preserve the model family
+and actual effort. Refresh the original lane with its retained explicit effort
+where supported, not a newly interpreted work tier. If no account/transport is
+eligible now, arrange a bounded retry at the observed reset and keep independent
+ready work moving; avoid repeated failed spawns.
+
+`route_ntm_recover.sh` remains available for a verified same-pane transport
+change, but it resends the original prompt. Its binding receipt proves task
+ownership, not effect idempotency. Use it only when replay is proven safe from
+current state. Otherwise use a fresh checkpoint handoff with new dispatch
+provenance; do not alter the old bound prompt to force the helper to accept it.
+Consult its actual `--help`, dry-run the exact candidate, then apply only after
+the safe-continuation procedure proves the previous worker is no longer writing.
+
+The executable helper and its `--help` output are the recovery schema authority.
+The command-line session, pane, Bead, route, and file select a candidate; they
+do not independently prove preservation. Same-pane replay is authorized only when the
+retained file begins with the helper's exact canonical `NTM_WORK_BINDING_V1`
+envelope and the helper proves it against the complete original NTM history:
+exact session, pane index, stable pane id, live Bead and assignee, full retained
+from-route decision, unique earliest successful post-creation singleton target,
+matching runner type, and exact prompt bytes.
+
+Missing, stale, filtered, truncated, broadcast, ambiguous, or mismatched
+binding/history evidence makes this same-pane replay path deliberately unrecoverable. Stop it with
+zero recovery respawn, prompt send, or `ROUTE_CHANGE` receipt; never substitute
+separate live values or a newly rendered brief. A successful receipt must carry
+the helper-produced `work_binding.history_id`, `history_timestamp`, and
+`prompt_sha256`, proving which original dispatch was retained. If no different
+canonical allocation is runnable, wait for eligibility or continue independent work.
+Any separately authorized model-family change is outside same-lane recovery
+and must pass the binding non-default model-change gate. Consult
+`vibing-with-ntm`'s safe-continuation procedure for checkpoint handoff; missing
+historical provenance never permits inventing old evidence.
+
 - After each dispatch, verify the target pane actually switched onto the new
   brief. `ntm send` reporting success is not enough.
 - If a pane still shows an unrelated prior task, a stale generic prompt, or an
-  idle shell after dispatch, treat it as contaminated. Respawn that pane and
-  resend the node brief before advancing the wave.
+  idle shell after dispatch, treat it as contaminated. Recovery is allowed only
+  with the exact bound prompt file retained from first dispatch and the helper's
+  accepted original history proof; otherwise the pane is deliberately
+  unrecoverable through this helper. Use the safe-continuation procedure to
+  establish a fresh checkpoint handoff after quiescing the old writer.
 - Prefer artifact-aware checks over coarse activity labels: a node is not
   meaningfully in flight until its expected absolute
   `<absolute-run-dir>/WG-*_RESULT.md` path is plausible and the pane output matches the
@@ -1052,47 +1276,356 @@ If the swarm transport looks wrong, fix that before blaming the node brief.
 
 ### 8. Dispatch Node-Specific Prompts
 
-Send each worker a unique node prompt. Stagger dispatch by 15-20 seconds to
-avoid thundering-herd effects:
+Every NTM pane gets one unique, claimed Bead and one bound prompt file. This
+includes controller and final-review panes. Complete the lead-owned claim
+handshake before constructing or sending any prompt:
 
 ```bash
-for pane in <pane indexes for this wave>; do
-  ntm send "$WAVE_SESSION" --pane="$pane" "$(cat <<'PROMPT'
-  <INSERT NODE-SPECIFIC PROMPT>
-  PROMPT
-  )"
-  sleep 18
-done
+BR_AGENT_NAME="$EXPECTED_ASSIGNEE" BR_HARNESS="ntm" BR_MODEL="$MODEL_ID" \
+  br update "$ISSUE_ID" --claim --json
+
+br show "$ISSUE_ID" --json \
+  | jq -e --arg assignee "$EXPECTED_ASSIGNEE" '
+      .[0].status == "in_progress" and .[0].assignee == $assignee
+    '
 ```
 
-### Lead-Owned Claim Handshake
+If claim verification fails, do not dispatch the pane. `br update --claim` can
+assign the system user in some environments, so verify through `br show` and
+repair with `br update <id> --assignee <worker-id> --json` when needed. Prefer
+`br_helpers.py claim` when available because it performs this repair.
+
+Render the ordinary task brief to `BASE_PROMPT_FILE`; never send that file
+directly. Set `RETAINED_FROM_ROUTE` to the exact full decision already passed
+for this pane to `route_ntm_spawn.sh`. Resolve one exact stable pane tuple,
+prove no earlier successful post-creation dispatch targets it, prepend the
+helper-defined envelope, and make the bound file the first successful
+singleton-target dispatch:
+
+```bash
+test -s "$BASE_PROMPT_FILE" || exit 2
+test -n "$RETAINED_FROM_ROUTE" || exit 2
+BOUND_PROMPT_FILE="$run_dir/BOUND-${ISSUE_ID}-pane-${PANE_INDEX}.md"
+test ! -e "$BOUND_PROMPT_FILE" || exit 2
+
+PANE_METADATA="$(
+  tmux list-panes -t "=${WAVE_SESSION}" \
+    -F '#{session_name}|#{pane_index}|#{pane_id}|#{session_created}' \
+  | awk -F '|' -v pane="$PANE_INDEX" '
+      $2 == pane {print; matches++}
+      END {if (matches != 1) exit 2}
+    '
+)" || exit 2
+IFS='|' read -r OBSERVED_SESSION OBSERVED_PANE_INDEX PANE_ID SESSION_CREATED \
+  <<<"$PANE_METADATA"
+test "$OBSERVED_SESSION" = "$WAVE_SESSION" || exit 2
+test "$OBSERVED_PANE_INDEX" = "$PANE_INDEX" || exit 2
+test -n "$PANE_ID" || exit 2
+
+NTM_BIN="$(realpath "$(command -v ntm)")" || exit 2
+PYTHON_BIN="$(realpath "$(command -v python3)")" || exit 2
+test -x "$NTM_BIN" || exit 2
+test -x "$PYTHON_BIN" || exit 2
+
+verify_ntm_binding_history() {
+  "$PYTHON_BIN" - "$@" <<'PY'
+import datetime
+import hashlib
+import json
+import pathlib
+import re
+import subprocess
+import sys
+
+
+class DuplicateKeyError(ValueError):
+    pass
+
+
+def fail(message):
+    raise SystemExit(message)
+
+
+def reject_duplicate_keys(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise DuplicateKeyError
+        result[key] = value
+    return result
+
+
+def load_strict_json(value):
+    try:
+        return json.loads(value, object_pairs_hook=reject_duplicate_keys)
+    except (DuplicateKeyError, json.JSONDecodeError):
+        fail("NTM history response is malformed")
+
+
+def plain_string(value):
+    return (
+        isinstance(value, str)
+        and bool(value)
+        and not any(ord(character) < 32 or ord(character) == 127 for character in value)
+    )
+
+
+def parse_rfc3339(value):
+    if not plain_string(value) or re.fullmatch(
+        r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})",
+        value,
+    ) is None:
+        fail("NTM history timestamp is not timezone-aware RFC3339")
+    normalized = value[:-1] + "+00:00" if value.endswith("Z") else value
+    try:
+        parsed = datetime.datetime.fromisoformat(normalized)
+    except ValueError:
+        fail("NTM history timestamp is not timezone-aware RFC3339")
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        fail("NTM history timestamp is not timezone-aware RFC3339")
+    return parsed.astimezone(datetime.timezone.utc)
+
+
+if len(sys.argv) != 8:
+    fail("binding history verifier received malformed typed inputs")
+mode, ntm_bin, session, pane_text, created_text, runner, prompt_name = sys.argv[1:]
+if mode not in {"pre", "post"} or not all(
+    plain_string(value) for value in (ntm_bin, session, pane_text, created_text)
+):
+    fail("binding history verifier received malformed typed inputs")
+try:
+    pane = int(pane_text)
+    session_created = int(created_text)
+except ValueError:
+    fail("binding history verifier received malformed numeric inputs")
+if pane < 0 or session_created <= 0:
+    fail("binding history verifier received malformed numeric inputs")
+
+history_result = subprocess.run(
+    [ntm_bin, f"--robot-history={session}", "--period=all"],
+    check=False,
+    stdout=subprocess.PIPE,
+    stderr=subprocess.DEVNULL,
+    text=True,
+    encoding="utf-8",
+)
+if history_result.returncode != 0:
+    fail("NTM history lookup failed")
+history = load_strict_json(history_result.stdout)
+
+if not isinstance(history, dict) or history.get("success") is not True:
+    fail("NTM history response was not successful")
+if history.get("session") != session:
+    fail("NTM history session mismatch")
+entries = history.get("entries")
+if not isinstance(entries, list):
+    fail("NTM history entries are missing or malformed")
+for count_field in ("total", "filtered"):
+    count = history.get(count_field)
+    if type(count) is not int or count < 0:
+        fail("NTM history count is malformed")
+if history["total"] != len(entries) or history["filtered"] != len(entries):
+    fail("NTM history is filtered or truncated")
+
+entry_keys = {
+    "agent_types",
+    "duration_ms",
+    "id",
+    "prompt",
+    "session",
+    "source",
+    "success",
+    "targets",
+    "ts",
+}
+seen_ids = set()
+eligible = []
+session_started_at = datetime.datetime.fromtimestamp(
+    session_created, datetime.timezone.utc
+)
+for entry in entries:
+    if not isinstance(entry, dict) or set(entry) != entry_keys:
+        fail("NTM history entry has extra or missing fields")
+    if not plain_string(entry["id"]) or re.fullmatch(
+        r"[A-Za-z0-9][A-Za-z0-9._-]*", entry["id"]
+    ) is None:
+        fail("NTM history id is malformed")
+    if entry["id"] in seen_ids:
+        fail("NTM history contains duplicate entry ids")
+    seen_ids.add(entry["id"])
+    if entry["session"] != session or entry["source"] != "cli":
+        fail("NTM history entry is not authoritative for this session")
+    if type(entry["success"]) is not bool:
+        fail("NTM history entry success is malformed")
+    if type(entry["duration_ms"]) is not int or entry["duration_ms"] < 0:
+        fail("NTM history entry duration is malformed")
+    if not isinstance(entry["prompt"], str):
+        fail("NTM history entry prompt is malformed")
+    if not isinstance(entry["targets"], list) or not all(
+        isinstance(target, str) for target in entry["targets"]
+    ):
+        fail("NTM history entry targets are malformed")
+    if not isinstance(entry["agent_types"], list) or not all(
+        isinstance(agent_type, str) for agent_type in entry["agent_types"]
+    ):
+        fail("NTM history entry agent types are malformed")
+    timestamp = parse_rfc3339(entry["ts"])
+    if (
+        entry["success"] is True
+        and str(pane) in entry["targets"]
+        and timestamp >= session_started_at
+    ):
+        eligible.append((timestamp, entry))
+
+if mode == "pre":
+    if eligible:
+        fail("pane already has successful work history")
+    raise SystemExit(0)
+
+if not plain_string(runner) or not plain_string(prompt_name):
+    fail("post-dispatch verifier received malformed typed inputs")
+if not eligible:
+    fail("no authoritative initial NTM work binding for current session pane")
+earliest_timestamp = min(timestamp for timestamp, _entry in eligible)
+earliest = [entry for timestamp, entry in eligible if timestamp == earliest_timestamp]
+if len(earliest) != 1:
+    fail("ambiguous authoritative initial NTM work binding")
+binding = earliest[0]
+if binding["targets"] != [str(pane)]:
+    fail("authoritative initial NTM work binding was broadcast")
+compatible_types = {
+    "claude": {"claude", "cc"},
+    "codex": {"codex", "cod"},
+    "grok": {"grok", "grk"},
+    "cursor": {"cursor", "cur"},
+}
+if runner not in compatible_types or (
+    len(binding["agent_types"]) != 1
+    or binding["agent_types"][0] not in compatible_types[runner]
+):
+    fail("NTM history agent type does not match retained runner")
+try:
+    prompt_bytes = pathlib.Path(prompt_name).read_bytes()
+except OSError:
+    fail("could not read retained bound prompt")
+if binding["prompt"].encode("utf-8") != prompt_bytes:
+    fail("NTM history prompt bytes do not match retained bound prompt")
+
+print(
+    json.dumps(
+        {
+            "history_id": binding["id"],
+            "history_timestamp": binding["ts"],
+            "prompt_sha256": hashlib.sha256(prompt_bytes).hexdigest(),
+        },
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+)
+PY
+}
+
+if ! verify_ntm_binding_history \
+  pre "$NTM_BIN" "$WAVE_SESSION" "$PANE_INDEX" "$SESSION_CREATED" - -
+then
+  echo "pane already has successful work history; deliberately unrecoverable" >&2
+  exit 2
+fi
+
+BINDING_JSON="$(
+  printf '%s\n' "$RETAINED_FROM_ROUTE" | jq -ceS \
+    --arg session "$WAVE_SESSION" \
+    --argjson pane "$PANE_INDEX" \
+    --arg pane_id "$PANE_ID" \
+    --arg bead "$ISSUE_ID" \
+    --arg assignee "$EXPECTED_ASSIGNEE" '
+      if (keys | sort) != [
+        "effort", "fallback_depth", "lane", "model_family",
+        "quota_surface", "reason", "runnable", "runner", "runner_model"
+      ] then error("noncanonical retained from-route")
+      else {
+        assignee: $assignee,
+        bead: $bead,
+        from: .,
+        pane: $pane,
+        pane_id: $pane_id,
+        session: $session
+      }
+      end
+    '
+)" || exit 2
+
+umask 077
+"$PYTHON_BIN" - "$BINDING_JSON" "$BASE_PROMPT_FILE" \
+  "$BOUND_PROMPT_FILE" <<'PY'
+import pathlib
+import sys
+
+binding_json, base_name, bound_name = sys.argv[1:]
+body = pathlib.Path(base_name).read_bytes().rstrip(b"\r\n")
+if not body:
+    raise SystemExit("base prompt body is empty after terminal-line normalization")
+payload = b"NTM_WORK_BINDING_V1 " + binding_json.encode("utf-8") + b"\n" + body
+payload.decode("utf-8")
+pathlib.Path(bound_name).write_bytes(payload)
+PY
+test -s "$BOUND_PROMPT_FILE" || exit 2
+
+ntm send "$WAVE_SESSION" \
+  --pane="$PANE_INDEX" \
+  --file="$BOUND_PROMPT_FILE" \
+  --no-cass-check \
+  --force-non-interactive \
+  --json \
+  | jq -e --argjson pane "$PANE_INDEX" '
+      .success == true and .delivered == 1 and .failed == 0 and
+      .targets == [$pane]
+    ' >/dev/null || exit 2
+
+FROM_RUNNER="$(printf '%s\n' "$RETAINED_FROM_ROUTE" | jq -er '.runner')" \
+  || exit 2
+if ! verify_ntm_binding_history \
+  post "$NTM_BIN" "$WAVE_SESSION" "$PANE_INDEX" "$SESSION_CREATED" \
+  "$FROM_RUNNER" "$BOUND_PROMPT_FILE"
+then
+  echo "original singleton work binding is not proven; stop all later sends" >&2
+  exit 2
+fi
+```
+
+Both checks fetch complete NTM history only inside the embedded Python process.
+Never capture the response in a shell variable, pass prompt/history contents
+through argv, or persist the response in the run directory. The pre-dispatch
+check emits nothing on success. The post-dispatch check emits only canonical
+secret-free proof fields: history id, history timestamp, and prompt SHA-256.
+Its strict timezone-aware RFC3339 parser accepts whole or fractional seconds.
+
+This post-send typed proof is evidence, not a second schema or recovery authority.
+Retain `BOUND_PROMPT_FILE` byte-for-byte for the pane's lifetime. At recovery,
+pass that exact file to `route_ntm_recover.sh`; the helper rereads live complete
+history and solely owns the full envelope, runner, earliest-history,
+prompt-byte, stable-pane, and TOCTOU checks. A later rendered copy, the same
+prose in a new file, separate live values, pane output, or worker self-report
+cannot substitute. Stagger the next pane's binding dispatch by 15-20 seconds
+only after this pane's original singleton binding is proven.
+
+### Lead-Owned Claim Evidence
 
 Do not rely on worker prose or prompts to make `bv`/`br` state truthful. The
-lead must claim every node for the intended worker before allowing real edits.
-
-For each node, immediately before sending the node brief:
-
-```bash
-BR_AGENT_NAME="<worker-id>" BR_HARNESS="ntm" BR_MODEL="<model-id>" \
-  br update "<issue-id>" --claim --json
-
-br show "<issue-id>" --json \
-  | jq -e '.[0].status == "in_progress" and .[0].assignee == "<worker-id>"'
-```
-
-If this verification fails, do not dispatch the pane. `br update --claim` can
-assign the system user in some environments, so verify the assignee through
-`br show` and repair with `br update <id> --assignee <worker-id> --json` when
-needed. Prefer `br_helpers.py claim` when available because it performs this
-assignee repair automatically. Send the brief only after `br show` confirms
-`status=in_progress` and the expected assignee. `ntm send` success, active pane
-output, modified files, or a worker saying "claimed" are not sufficient.
+lead claims every node before spawn and verifies it again immediately before
+the bound first dispatch. `ntm` send success, active pane output, modified
+files, or a worker saying "claimed" are not sufficient.
 
 Before any closeout, verify the issue is still attributed. If a worker closed a
 node with a blank assignee, repair attribution with `br update <id> --assignee
 <worker-id> --json` and add a comment explaining the reconciliation.
 
-Every worker prompt MUST include:
+The following contract is the base task-brief body. For an NTM pane, render it
+to `BASE_PROMPT_FILE`, prepend the canonical binding into
+`BOUND_PROMPT_FILE`, and send only that exact bound file. Headless substrates
+use their existing prompt-file contract and do not fabricate NTM history.
+
+Every worker base prompt MUST include:
 1. A node brief rendered from Beads (`br_helpers.py render-node-brief <id>`)
 2. The exact `br` issue ID for the node, plus the absolute run directory path
    for evidence artifacts
@@ -1145,15 +1678,15 @@ Model route:
 - Grok CLI sidecar for Grok-authored read-only evidence artifacts
 - Grok 4.6 task-runner for narrow scripting, docs, fixtures, or commit
   batching nodes with explicit write scope, validation, stop rules,
-  stronger-model review, and final authority; escalate to Codex gpt-5.6-sol if the
-  runner stalls, drifts, or cannot validate
+  stronger-model review, and final authority; allocate the high work tier through the binding route-v2 contract if the runner stalls, drifts, or
+  cannot validate
 - Grok 4.6 design/UX for design-related nodes and design/fresh-eyes review;
-  Codex gpt-5.6-sol medium owns ordinary authority; SOL max owns pivotal
-  planning or failed-model escalation
-- Codex gpt-5.6-sol for planning, decomposition/synthesis, system design,
+  the high work tier owns every planning and final-authority allocation
+  through the retained route-v2 decision and atomic adapter handoff
+- the high work tier for planning, decomposition/synthesis, system design,
   domain-planner sessions, no-ragrets bead composition, impactful execution,
-  integration review, and final say; Codex gpt-5.6-terra ultra only when SOL
-  is unavailable
+  integration review, and final say; typed AUTHORITY no-route evidence may
+  proceed only through the already-authorized non-default model-change gate
 Expected Beads assignee:
 - <worker-id>
 
@@ -1267,6 +1800,10 @@ ACTIONS:
 
 ### Nudge Prompts
 
+Nudges are allowed only after the pane's bound first dispatch and original
+singleton history proof passed Step 8. A nudge cannot establish or repair a
+missing binding, and an unbound pane receives no nudge.
+
 **Generic nudge (idle, no result):**
 
 ```bash
@@ -1345,17 +1882,82 @@ Spawn a small review swarm: one Grok runtime controller, one independent Grok
 fresh-eyes reviewer, and one Codex final-authority reviewer:
 
 ```bash
+PROJECT_DIR="$(realpath "$(git rev-parse --show-toplevel)")"
+PROJECT="$(basename "$PROJECT_DIR")"
+export NTM_PROJECTS_BASE="$(dirname "$PROJECT_DIR")"
+NTM_PROJECT="$PROJECT"
+SBP_BIN="$(realpath "$(command -v sbp)")" || exit 2
+ROUTE_NTM_SPAWN="$(dirname -- "$SBP_BIN")/route_ntm_spawn.sh"
+test -x "$ROUTE_NTM_SPAWN" || exit 2
+
 REVIEW_LABEL="dac-${SLICE_SLUG}-review"
 REVIEW_SESSION="${NTM_PROJECT}--${REVIEW_LABEL}"
-ntm spawn "$NTM_PROJECT" --label "$REVIEW_LABEL" --grok=2:grok-4.6 --cod=1:gpt-5.6-sol:medium --no-user --stagger-mode=smart
-ntm --robot-wait="$REVIEW_SESSION" --condition=idle --timeout=120s
+
+REVIEW_AUTHORITY_ROUTE_STATUS=0
+REVIEW_AUTHORITY_ROUTE="$(sbp route high --refresh --json)" \
+  || REVIEW_AUTHORITY_ROUTE_STATUS=$?
+test "$REVIEW_AUTHORITY_ROUTE_STATUS" -eq 0 \
+  || { python3 "$(dirname -- "$SBP_BIN")/route_ladders.py" \
+  --validate-decision-json "$REVIEW_AUTHORITY_ROUTE" --allow-non-runnable >/dev/null;
+       echo "final review requires runnable AUTHORITY authority" >&2; exit 2; }
+
+python3 "$(dirname -- "$SBP_BIN")/route_ladders.py" \
+  --validate-decision-json "$REVIEW_AUTHORITY_ROUTE" >/dev/null || { echo "malformed final-review AUTHORITY decision" >&2; exit 2; }
+
+REVIEW_GROK_ROUTE_STATUS=0
+REVIEW_GROK_ROUTE="$(sbp route low --refresh --json)" \
+  || REVIEW_GROK_ROUTE_STATUS=$?
+test "$REVIEW_GROK_ROUTE_STATUS" -eq 0 || test "$REVIEW_GROK_ROUTE_STATUS" -eq 1 \
+  || { echo "final-review Grok probe failed without a decision" >&2; exit 2; }
+
+python3 "$(dirname -- "$SBP_BIN")/route_ladders.py" \
+  --validate-decision-json "$REVIEW_GROK_ROUTE" --allow-non-runnable >/dev/null || { echo "malformed final-review Grok decision" >&2; exit 2; }
+
+if test "$REVIEW_GROK_ROUTE_STATUS" -eq 0; then
+  printf '%s\n' "$REVIEW_GROK_ROUTE" | \
+    jq -e '.runnable == true' >/dev/null || exit 2
+else
+  python3 "$(dirname -- "$SBP_BIN")/route_ladders.py" \
+  --validate-decision-json "$REVIEW_GROK_ROUTE" --allow-non-runnable >/dev/null || exit 2
+  printf '%s\n' "$REVIEW_GROK_ROUTE" | jq -e '.runnable == false and .reason == "no-route"' >/dev/null || exit 2
+  printf '%s\n' "$REVIEW_GROK_ROUTE" \
+    > "$run_dir/FINAL_REVIEW_GROK_ROUTE_NO_ROUTE.json"
+  echo "Grok unavailable; retained typed no-route decision; stopping final review" >&2
+  exit 2
+fi
+
+REVIEW_GROK_DECISION_ARGS=()
+for ((slot = 0; slot < 2; slot++)); do
+  REVIEW_GROK_DECISION_ARGS+=(--decision-json "$REVIEW_GROK_ROUTE")
+done
+
+"$ROUTE_NTM_SPAWN" \
+  --project-dir "$PROJECT_DIR" \
+  --decision-json "$REVIEW_AUTHORITY_ROUTE" \
+  "${REVIEW_GROK_DECISION_ARGS[@]}" \
+  --label "$REVIEW_LABEL" \
+  -- \
+  --no-user --stagger-mode=smart
+ntm --robot-wait="$REVIEW_SESSION" --wait-until=idle --timeout=120s
 ```
 
-If SOL is unavailable, replace the Codex allocation with
-`--cod=1:gpt-5.6-terra:ultra`; do not ask the Grok controller to make the final
-acceptance decision.
-If the review becomes pivotal/high-consequence or another model has already
-failed to resolve it, use `--cod=1:gpt-5.6-sol:max` instead.
+Before any review task, controller instruction, or nudge is sent, assign and
+claim one live Bead per review pane and apply Step 8 to all three panes. Use
+`REVIEW_AUTHORITY_ROUTE` as the final-authority pane's retained from-route and
+`REVIEW_GROK_ROUTE` for each Grok pane. The exact bound file must be each
+pane's first successful singleton NTM dispatch and must remain the recovery
+prompt. Missing per-pane Bead/assignee identity or pre-existing successful
+history stops final-review dispatch; do not send an unbound reviewer prompt.
+
+The final-review `high` tier pick and Grok pick are each fresh, exact, retained, and
+handed atomically to the adapter; no second live pick may change either
+transport. The same retained Grok decision is repeated for the runtime
+controller and independent Grok reviewer. If either lane returns typed
+no-route, retain it and stop. A `high` tier no-route may continue only through the already-authorized
+[Non-default Model-Change Gate](#non-default-model-change-gate); never ask the
+Grok controller or fresh-eyes reviewer to make the final acceptance decision.
+Pivotal or failed-model review still uses the `high` tier through this exact
+route-v2 path; prompt prose and static flags do not change authority.
 
 Reviewer prompt:
 - Read the original task, live Beads state via `br show` / `hydrate-node`, the
@@ -1365,9 +1967,9 @@ Reviewer prompt:
 - Fix only integration bugs or validation failures
 - For UI, UX, visual, design-system, screenshot, or ambiguous review-heavy work,
   use Grok 4.6 for the fresh-eyes review of the final diff and validation
-  evidence. If the Grok 4.6 design route is unavailable, record that route
-  blocker and use Codex `gpt-5.6-sol` max only for pivotal authority or explicit
-  failed-model triage; ordinary authority remains SOL medium.
+  evidence. If the retained Grok route-v2 decision is typed no-route, record
+  that route blocker and stop this final-review allocation. `high` tier retains final
+  authority but does not authorize bypassing the required Grok review.
 - For visual parity, ask independent fresh-context reviewers the ORIGINAL
   question and require severity-classified findings until two consecutive
   reviews report no blocker or material shortfall.
@@ -1378,8 +1980,8 @@ Reviewer prompt:
 - Commit if there are clean, scoped changes to save (include `.beads/issues.jsonl`,
   exclude `.beads/*.db*`). Prefer Grok 4.6 for the mechanical
   execution of a `$commit` node when the Bead names the exact commit scope,
-  validation, leave-list, and no-wildcard staging rules; Codex `gpt-5.6-sol` owns
-  acceptance of the commit plan and final review of the result.
+  validation, leave-list, and no-wildcard staging rules; the `high` work tier owns acceptance of the commit plan and final review through the
+  retained route-v2 decision and atomic adapter handoff.
 - Write `<absolute-run-dir>/DAC_FINAL_RESULT.md`
 
 `DAC_FINAL_RESULT.md` MUST end with:
@@ -1456,20 +2058,31 @@ When the final review result is available:
 - Cwd/workflow routing, skill-tag extraction, cleaned-request drafting,
   read-only clerk/preflight nodes, bounded scripting, fixture/docs cleanup,
   generated-command cleanup, classification, and scoped commit-runner nodes
-  should prefer the `voice-to-text` Grok dispatcher, NTM Grok plugin, Swimmers
-  hidden Grok sessions, direct headless Grok, or a local Grok 4.6
-  task-runner route when the Bead is explicit; reconcile all output through the
-  normal Beads/result-artifact contract, validation, and stronger-model review
-- NTM-substrate runtime orchestration must use a Grok 4.6 plugin controller.
+  use the NTM Grok plugin with the binding retained route-v2 decision when
+  classified for NTM. The `voice-to-text` dispatcher, Swimmers hidden Grok
+  sessions, direct headless Grok, or a local Grok 4.6 task-runner route are
+  separately classified non-NTM substrates, never quota fallback; reconcile
+  all output through the normal Beads/result-artifact contract, validation,
+  and stronger-model review
+- NTM-substrate runtime orchestration must use a Grok 4.6 plugin controller
+  through the binding retained route-v2 decision and adapter.
   Headless-only waves keep the same duties in the lead process. Design-related
   nodes and design/fresh-eyes review nodes should also use Grok 4.6. Planning,
   no-ragrets bead composition, decomposition/synthesis, domain-planner sessions,
   system design, impactful execution, integration review, commit acceptance,
-  and final-say nodes must use Codex gpt-5.6-sol by default, with Codex
-  gpt-5.6-terra at ultra only when SOL is unavailable
+  and final-say nodes must use the high work tier through the binding
+  route-v2 selector, retained decision, canonical project-dir, and atomic
+  adapter handoff. Typed no-route evidence stops unless the non-default
+  model-change gate was already authorized; Grok never inherits authority
 - The lead must claim every dispatched node for the assigned worker and verify
   `status=in_progress` plus assignee before edits begin; unclaimed pane activity
   does not count as in-flight work
+- Every NTM controller, worker, and reviewer pane receives exactly one
+  canonical `NTM_WORK_BINDING_V1` file as its first successful singleton-target
+  dispatch. Retain that exact file for recovery. The executable helper's
+  original complete-history proof, not separately re-read live values, is the
+  only preservation authority; absent or mismatched evidence makes the pane
+  deliberately unrecoverable with zero recovery respawn, send, or receipt
 - The lead must not collapse into a leaf worker. After dispatching one Bead or
   subgoal, continue selecting, claiming, dispatching, and tending other ready
   work unless the root is performing final integration or a recorded emergency
@@ -1486,6 +2099,6 @@ When the final review result is available:
 - Node workers do not commit; only the final integration review commits, and it includes `.beads/issues.jsonl` while excluding `.beads/*.db*`
 - Independently run `validate_cmds` and reconcile `br` state before treating any node `done`
 - If `br` is missing or broken, stop. If the chosen substrate's binary
-  (`ntm` for NTM waves, `grok`/`codex` for headless waves) is missing
+  (`ntm` for NTM waves, `grok` for headless waves) is missing
   after `$HOME/.local/bin` is on `PATH`, stop and surface that gap
 - Sequential waves are fine; fake parallelism is not

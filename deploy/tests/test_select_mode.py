@@ -288,6 +288,9 @@ class ReleaseReadinessTests(unittest.TestCase):
              patch.object(shared, "LOCAL_SKILLBOX_CLIENTS", self.root / "none"):
             with self.assertRaisesRegex(ValueError, "Ambiguous release context"):
                 selector.resolve_release_context(str(self.repo))
+            first.with_name("context.yaml").write_text(yaml.safe_dump(self.context))
+            with self.assertRaisesRegex(ValueError, "Ambiguous release context"):
+                selector.resolve_release_context(str(self.repo))
             second.unlink()
             generated = json.loads(json.dumps(self.context))
             generated["deploy"]["services"]["prod"]["release"]["command"] = "stale"

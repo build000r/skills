@@ -184,5 +184,154 @@ class SelectModeTests(unittest.TestCase):
             )
 
 
+class ReleaseReadinessTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(os.path.realpath(self.tmp.name))
+        self.repo = self.root / "repo"
+        self.repo.mkdir()
+        self.path = self.root / "overlay.yaml"
+        self.target = {"repo_root": str(self.repo), "release": {
+            "command": "make release", "gate": "make verify",
+            "behavior_proof": "docs/release.md#behavior",
+            "state_proof": "docs/release.md#state", "rollback": "docs/release.md#rollback"}}
+        self.context = {"cwd_match": [str(self.repo)], "deploy": {"services": {"prod": self.target}}}
+
+    def write(self):
+        self.path.write_text(yaml.safe_dump({"client": {"context": self.context}}))
+
+    def run_selector(self, *flags):
+        self.write()
+        return subprocess.run(["python3", str(SCRIPT), str(self.repo),
+                               "--context", str(self.path), "--format", "json", *flags],
+                              text=True, capture_output=True, check=False)
+
+    def test_complete_release_and_provenance(self):
+        result = self.run_selector("--require-release")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        data = json.loads(result.stdout)
+        self.assertEqual(data["MODE_TARGET_ID"], "prod")
+        self.assertEqual(data["MODE_CONTEXT_SOURCE"], str(self.path))
+        self.assertEqual(data["MODE_RELEASE_ROLLBACK"], "docs/release.md#rollback")
+
+    def test_partial_is_diagnostic_only(self):
+        del self.target["release"]["rollback"]
+        self.assertEqual(self.run_selector().returncode, 0)
+        result = self.run_selector("--require-release")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "")
+        self.assertIn("release.rollback", result.stderr)
+
+    def test_missing_and_wrong_target_fail_without_exports(self):
+        self.context["deploy"] = {}
+        result = self.run_selector("--require-release")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "")
+        self.context["deploy"] = {"services": {"prod": self.target}}
+        self.target["repo_root"] = str(self.root / "different")
+        self.assertNotEqual(self.run_selector("--require-release").returncode, 0)
+
+    def test_ambiguous_targets_fail(self):
+        self.context["deploy"]["services"]["other"] = dict(self.target)
+        result = self.run_selector("--require-release")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Ambiguous deploy target", result.stderr)
+        self.assertEqual(result.stdout, "")
+
+    def test_stale_generated_context_fails(self):
+        generated = json.loads(json.dumps(self.context))
+        generated["deploy"]["services"]["prod"]["release"]["command"] = "old release"
+        self.path.with_name("context.yaml").write_text(yaml.safe_dump(generated))
+        result = self.run_selector("--require-release")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Stale or conflicting", result.stderr)
+
+    def test_context_scope_and_absent_path_fail(self):
+        self.context["cwd_match"] = [str(self.root / "other")]
+        self.assertNotEqual(self.run_selector("--require-release").returncode, 0)
+        result = subprocess.run(["python3", str(SCRIPT), str(self.repo), "--require-release",
+                                 "--context", str(self.root / "absent.yaml")],
+                                text=True, capture_output=True, check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "")
+
+    def test_checked_assignment_stops_shell_before_continuation(self):
+        del self.target["release"]["state_proof"]
+        self.write()
+        result = subprocess.run(["bash", "-c", 'mode_exports="$(python3 "$1" "$2" --context "$3" --require-release --format shell)" || exit $?; echo CONTINUED',
+                                 "selector-test", str(SCRIPT), str(self.repo), str(self.path)],
+                                text=True, capture_output=True, check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("CONTINUED", result.stdout)
+
+    def test_implicit_selection_rejects_ambiguous_and_stale_sources(self):
+        import importlib.util
+        from unittest.mock import patch
+
+        spec = importlib.util.spec_from_file_location("deploy_select_test", SCRIPT)
+        selector = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(selector)
+        selector._load_shared_helpers()
+        import resolve_context as shared
+
+        self.write()
+        first = self.root / "skillbox-config" / "clients" / "a" / "overlay.yaml"
+        first.parent.mkdir(parents=True)
+        first.write_text(self.path.read_text())
+        second = first.parent.parent / "b" / "overlay.yaml"
+        second.parent.mkdir()
+        second.write_text(self.path.read_text())
+        with patch.dict(os.environ, {"SKILLBOX_CLIENT_CONTEXT": ""}), \
+             patch.object(shared, "FOCUS_STATE_PATHS", ()), \
+             patch.object(shared, "WORKSPACE_CLIENTS_GLOB", str(self.root / "none")), \
+             patch.object(shared, "LOCAL_SKILLBOX_CLIENTS", self.root / "none"):
+            with self.assertRaisesRegex(ValueError, "Ambiguous release context"):
+                selector.resolve_release_context(str(self.repo))
+            second.unlink()
+            generated = json.loads(json.dumps(self.context))
+            generated["deploy"]["services"]["prod"]["release"]["command"] = "stale"
+            first.with_name("context.yaml").write_text(yaml.safe_dump(generated))
+            with self.assertRaisesRegex(ValueError, "Stale or conflicting"):
+                selector.resolve_release_context(str(self.repo))
+
+    def test_malformed_yaml_never_echoes_contents(self):
+        self.path.write_text("deploy: [private-secret: malformed")
+        result = subprocess.run(["python3", str(SCRIPT), str(self.repo), "--require-release",
+                                 "--context", str(self.path)],
+                                text=True, capture_output=True, check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("private-secret", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+
+    def test_malformed_client_shapes_fail_without_traceback(self):
+        for data in ({"client": []}, {"client": {"context": []}}):
+            with self.subTest(data=data):
+                self.path.write_text(yaml.safe_dump(data))
+                result = subprocess.run(["python3", str(SCRIPT), str(self.repo), "--require-release",
+                                         "--context", str(self.path), "--errors-json"],
+                                        text=True, capture_output=True)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(result.stdout, "")
+                self.assertEqual(json.loads(result.stderr)["code"], "deploy_context_invalid")
+
+    def test_strict_references_never_expand_environment_secrets(self):
+        from unittest.mock import patch
+        self.target["release"]["behavior_proof"] = "probe --password $DEPLOY_TEST_SECRET"
+        with patch.dict(os.environ, {"DEPLOY_TEST_SECRET": "ordinary-private-sentinel"}):
+            result = self.run_selector("--require-release")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("ordinary-private-sentinel", result.stdout + result.stderr)
+        self.assertIn("$DEPLOY_TEST_SECRET", result.stdout)
+
+    def test_structured_missing_fields_name_owning_source(self):
+        del self.target["release"]["rollback"]
+        result = self.run_selector("--require-release", "--errors-json")
+        self.assertNotEqual(result.returncode, 0)
+        detail = json.loads(result.stderr)
+        self.assertEqual(detail["missing_fields"], ["release.rollback"])
+        self.assertEqual(detail["context_source"], str(self.path))
+
+
 if __name__ == "__main__":
     unittest.main()

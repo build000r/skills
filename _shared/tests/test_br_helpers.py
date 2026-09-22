@@ -456,8 +456,28 @@ class BrHelpersTests(unittest.TestCase):
             issues = MODULE.list_issues(cwd=repo, labels=["chain:smart"], include_closed=True)
 
         self.assertEqual(issues, [{"id": "skills-exec-001"}])
-        self.assertEqual(calls[0][0], ["list", "--all", "--label", "chain:smart", "--json"])
+        self.assertEqual(calls[0][0], ["list", "--limit", "0", "--all", "--label", "chain:smart", "--json"])
         self.assertEqual(calls[0][1]["cwd"], repo)
+
+    def test_list_issues_preserves_complete_legacy_array(self) -> None:
+        rows = [{"id": f"leaf-{i}"} for i in range(61)]
+        with mock.patch.object(MODULE, "_json", return_value=rows):
+            self.assertEqual(MODULE.list_issues(), rows)
+
+    def test_list_issues_rejects_incomplete_or_malformed_enumeration(self) -> None:
+        for response in [
+            {"issues": [{"id": "a"}], "has_more": True, "total": 2},
+            {"issues": [{"id": "a"}], "has_more": False, "total": 2},
+            {"issues": [{"id": "a"}, {"id": "a"}], "total": 2},
+            {"issues": [{"id": "a"}], "total": True},
+            {"issues": "not a list"},
+            {"issues": [None]},
+            {"issues": [{}]},
+            None,
+        ]:
+            with self.subTest(response=response), mock.patch.object(MODULE, "_json", return_value=response):
+                with self.assertRaises(RuntimeError):
+                    MODULE.list_issues()
 
     def test_update_node_preserves_existing_notes_on_partial_validate_update(self) -> None:
         calls = []
@@ -725,6 +745,80 @@ class AcceptedPlanIntakeTests(unittest.TestCase):
             concern=None,
             **kwargs,
         )
+
+    def test_complete_query_finds_root_after_default_page_and_closed_owner(self) -> None:
+        root = self.accepted_root(local_criteria="SC-1")
+        owner = plan_node("closed-owner", ["execution-leaf"], supports="SC-1")
+        owner["status"] = "closed"
+        rows = [plan_node(f"leaf-{i}", ["execution-leaf"]) for i in range(60)] + [owner, root]
+        by_id = {row["id"]: row for row in rows}
+
+        def query(args, **kwargs):
+            selected = rows if "--all" in args else [r for r in rows if r["status"] != "closed"]
+            complete = "--limit" in args and args[args.index("--limit") + 1] == "0"
+            page = selected if complete else selected[:50]
+            return {"issues": page, "total": len(selected), "has_more": len(page) < len(selected)}
+
+        with mock.patch.object(MODULE, "_json", side_effect=query), \
+             mock.patch.object(MODULE, "show_issue", side_effect=by_id.__getitem__), \
+             mock.patch.object(MODULE, "ready_frontier", return_value=[]):
+            result = MODULE.plan_admission(PLAN)
+        self.assertTrue(result["ok"], result["rejected"])
+        self.assertEqual(result["root"]["id"], "plan-root")
+        self.assertEqual(result["coverage"]["by_criterion"]["SC-1"], ["closed-owner"])
+
+    def test_partial_query_is_a_typed_rejection_with_no_admitted_work(self) -> None:
+        for error in [RuntimeError("incomplete enumeration"), json.JSONDecodeError("bad JSON", "", 0)]:
+            with self.subTest(error=error), mock.patch.object(MODULE, "list_issues", side_effect=error):
+                result = MODULE.plan_admission(PLAN)
+            self.assertFalse(result["ok"])
+            self.assertEqual(reasons(result), ["plan_query_failed"])
+            self.assertEqual(result["admitted"], [])
+
+    def test_root_supports_require_propagated_implementation_coverage(self) -> None:
+        root = self.accepted_root(supports="SC-9", local_criteria="PC-root-1")
+        branch = plan_node("branch", ["branch"], supports="PC-root-1", writes=())
+        leaf = plan_node("leaf", ["execution-leaf"], supports="PC-root-1,SC-9")
+        leaf["notes"] = leaf["notes"].replace("planning_parent: none", "planning_parent: branch")
+        branch["notes"] = branch["notes"].replace("planning_parent: none", "planning_parent: plan-root")
+        reviewer = plan_node("review", ["review"], supports="SC-9", writes=())
+        with plan_graph([root, branch, leaf, reviewer], ["leaf"]):
+            result = MODULE.plan_admission(PLAN)
+        self.assertEqual(result["coverage"]["declared"], ["PC-root-1", "SC-9"])
+        self.assertEqual(result["coverage"]["uncovered"], ["SC-9"])
+        self.assertFalse(result["ok"])
+        self.assertIn("plan_criteria_uncovered", reasons(result))
+        self.assertEqual(result["admitted"], [])
+
+        branch["notes"] = branch["notes"].replace("supports: PC-root-1", "supports: PC-root-1,SC-9")
+        with plan_graph([root, branch, leaf, reviewer], ["leaf"]):
+            result = MODULE.plan_admission(PLAN)
+        self.assertTrue(result["ok"], result["rejected"])
+        self.assertEqual(result["coverage"]["by_criterion"]["SC-9"], ["leaf"])
+
+        # An explicit hierarchy must reach its root, not terminate at an orphan branch.
+        branch["notes"] = branch["notes"].replace("planning_parent: plan-root", "planning_parent: none")
+        with plan_graph([root, branch, leaf, reviewer], ["leaf"]):
+            result = MODULE.plan_admission(PLAN)
+        self.assertFalse(result["ok"])
+        self.assertIn("SC-9", result["coverage"]["uncovered"])
+
+    def test_mixed_roles_cannot_supply_implementation_coverage(self) -> None:
+        for owner_roles in (["root", "execution-leaf"], ["branch", "integration"], ["review", "execution-leaf"]):
+            with self.subTest(roles=owner_roles):
+                root = self.accepted_root(supports="SC-9,SC-10", local_criteria="SC-9,SC-10")
+                owner = plan_node("owner", owner_roles, supports="SC-9,SC-10", writes=())
+                if "root" in owner_roles:
+                    root["labels"].append("plan-role:execution-leaf")
+                    owners = []
+                else:
+                    owners = [owner]
+                leaf = plan_node("unrelated-leaf", ["execution-leaf"], supports="SC-other")
+                with plan_graph([root, *owners, leaf], ["unrelated-leaf"]):
+                    result = MODULE.plan_admission(PLAN)
+                self.assertFalse(result["ok"])
+                self.assertEqual(result["admitted"], [])
+                self.assertEqual(result["coverage"]["uncovered"], ["SC-9", "SC-10"])
 
     def test_admits_ready_execution_leaf_integration_and_review(self) -> None:
         nodes = [
@@ -1377,14 +1471,14 @@ class AcceptedPlanIntakeTests(unittest.TestCase):
         with plan_graph(nodes, ["plan-leaf-1", "plan-hist-role", "plan-hist-label"]):
             result = MODULE.plan_admission(PLAN)
 
-        self.assertEqual([node["id"] for node in result["admitted"]], ["plan-leaf-1"])
+        self.assertEqual(result["admitted"], [])
         self.assertEqual(
             sorted(node["id"] for node in result["excluded_historical"]),
             ["plan-hist-label", "plan-hist-role"],
         )
-        # Excluded, not rejected: historical provenance is legitimate, just not work.
-        self.assertEqual(result["rejected"], [])
-        self.assertTrue(result["ok"])
+        # Historical provenance is legitimate, but cannot satisfy current coverage.
+        self.assertEqual(reasons(result), ["plan_criteria_uncovered"])
+        self.assertFalse(result["ok"])
         # SC-2 is supported ONLY by historical nodes, so it must still read uncovered.
         self.assertEqual(result["coverage"]["declared"], ["SC-1", "SC-2"])
         self.assertEqual(result["coverage"]["covered"], ["SC-1"])

@@ -447,8 +447,8 @@ def list_issues(
     parent: str | None = None,
     cwd: Path | str | None = None,
 ) -> list[dict]:
-    """Return `br list --json` issues with shared envelope normalization."""
-    args = ["list"]
+    """Return a complete enumeration; never interpret a clipped page as a graph."""
+    args = ["list", "--limit", "0"]
     if parent:
         args += ["--parent", parent]
     if include_closed:
@@ -456,11 +456,28 @@ def list_issues(
     for label in labels:
         args += ["--label", label]
     data = _json(args, cwd=cwd)
-    if isinstance(data, list):
-        return data
     if isinstance(data, dict):
-        return data.get("issues") or []
-    return []
+        rows = data.get("issues")
+        if data.get("has_more", False) is not False:
+            raise RuntimeError("br returned an incomplete issue enumeration")
+        if "total" in data and (
+            type(data["total"]) is not int
+            or not isinstance(rows, list)
+            or data["total"] != len(rows)
+        ):
+            raise RuntimeError("br issue enumeration does not match its total")
+    else:
+        rows = data
+    if not isinstance(rows, list) or any(
+        not isinstance(row, dict)
+        or not isinstance(row.get("id"), str)
+        or not row["id"]
+        for row in rows
+    ):
+        raise RuntimeError("br returned a malformed issue enumeration")
+    if len({row["id"] for row in rows}) != len(rows):
+        raise RuntimeError("br returned duplicate issues in its enumeration")
+    return rows
 
 
 # ------------------- accepted no-ragrets plan intake (read) -------------------
@@ -1022,13 +1039,13 @@ def plan_admission(
         "ok": False,
     }
     try:
-        raw_nodes = list_issues(labels=[plan_label])
-    except subprocess.CalledProcessError as exc:
+        raw_nodes = list_issues(labels=[plan_label], include_closed=True)
+    except (subprocess.CalledProcessError, RuntimeError, json.JSONDecodeError) as exc:
         result["rejected"].append(_rejection(
             None,
             "plan_query_failed",
-            f"br list --label {plan_label} failed (exit {exc.returncode})",
-            f"verify the plan label exists: br list --label {plan_label} --json",
+            f"could not enumerate the complete plan: {exc}",
+            f"verify complete output: br list --label {plan_label} --all --limit 0 --json",
         ))
         return result
 
@@ -1112,20 +1129,16 @@ def plan_admission(
     # through require_handoff_ready=False / --allow-draft-plan.
     if require_handoff_ready and not result["handoff_ready"]:
         admitted = []
-    concurrent, deferred, edges = _serialize_write_scopes(
-        admitted, materialize=materialize_serialization
-    )
-    result["admitted"] = concurrent
-    result["deferred"] = deferred
-    result["serialization_edges"] = edges
-
     # Criterion coverage deliberately ignores historical-evidence nodes so a
     # criterion "covered" only by past proof still reads as uncovered.
     live = [view for view in views if not _is_historical(view)]
     root_view = result["root"]
     declared: list[str] = []
-    if root_view and root_view.get("local_criteria"):
-        declared = _split_ids(root_view["local_criteria"])
+    if root_view and (root_view.get("local_criteria") or root_view.get("supports")):
+        declared = list(dict.fromkeys(
+            _split_ids(root_view.get("local_criteria"))
+            + _split_ids(root_view.get("supports"))
+        ))
     else:
         seen: list[str] = []
         for view in views:
@@ -1134,10 +1147,30 @@ def plan_admission(
                     seen.append(criterion)
         declared = seen
     by_criterion: dict[str, list[str]] = {criterion: [] for criterion in declared}
+
+    def propagates_to_root(view: dict, criterion: str) -> bool:
+        """Respect explicit hierarchy while retaining legacy flat-plan support."""
+        parent_id = view.get("planning_parent")
+        seen = {view["id"]}
+        while parent_id and parent_id != "none":
+            if root_view and parent_id == root_view["id"]:
+                return True
+            parent = by_id.get(parent_id)
+            if parent is None or parent_id in seen or _is_historical(parent):
+                return False
+            if criterion not in _split_ids(parent.get("supports")):
+                return False
+            seen.add(parent_id)
+            parent_id = parent.get("planning_parent")
+        return len(seen) == 1
+
     for view in live:
-        if root_view and view["id"] == root_view["id"]:
+        roles = view.get("roles") or []
+        if view is root_view or len(roles) != 1 or roles[0] not in {"execution-leaf", "integration"}:
             continue
         for criterion in _split_ids(view.get("supports")):
+            if not propagates_to_root(view, criterion):
+                continue
             by_criterion.setdefault(criterion, [])
             if view["id"] not in by_criterion[criterion]:
                 by_criterion[criterion].append(view["id"])
@@ -1150,6 +1183,22 @@ def plan_admission(
         "by_criterion": by_criterion,
     }
 
+    if uncovered and require_handoff_ready:
+        result["rejected"].append(_rejection(
+            root_view["id"] if root_view else None,
+            "plan_criteria_uncovered",
+            "no propagated implementation/integration owner for: " + ", ".join(uncovered),
+            "repair criterion ownership and propagation; reviews and historical proof "
+            "cannot substitute for current implementation coverage",
+        ))
+        return result
+
+    concurrent, deferred, edges = _serialize_write_scopes(
+        admitted, materialize=materialize_serialization
+    )
+    result["admitted"] = concurrent
+    result["deferred"] = deferred
+    result["serialization_edges"] = edges
     result["ok"] = not result["rejected"]
     return result
 

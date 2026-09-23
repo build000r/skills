@@ -1154,7 +1154,7 @@ selected decision once per planning/authority pane and pass it through
 Skillbox's executable adapter without another pick:
 
 ```bash
-test "$NUM_CODEX" -gt 0 \
+test "$NUM_HIGH" -gt 0 \
   || { echo "planning/final authority requires at least one AUTHORITY pane" >&2; exit 2; }
 test "$NUM_LOW" -ge 0 \
   || { echo "NUM_LOW must be zero or greater" >&2; exit 2; }
@@ -1163,7 +1163,7 @@ test "${NUM_MED:-0}" -ge 0 \
 
 if printf '%s\n' "$AUTHORITY_ROUTE" | jq -e '.runnable == true' >/dev/null; then
   AUTHORITY_DECISION_ARGS=()
-  for ((slot = 0; slot < NUM_CODEX; slot++)); do
+  for ((slot = 0; slot < NUM_HIGH; slot++)); do
     AUTHORITY_DECISION_ARGS+=(--decision-json "$AUTHORITY_ROUTE")
   done
 
@@ -1196,7 +1196,7 @@ is repeated once per controller/worker pane.
 Discover the controller's pane
 by command/title after spawn rather than assuming pane 0 because plugin panes
 may be reported as `user`. If any worker count is zero, omit that worker flag.
-Never satisfy a design-related node by increasing `NUM_CODEX`, and never
+Never satisfy a design-related node by increasing `NUM_HIGH`, and never
 satisfy a high-tier planning/authority node by increasing `NUM_LOW`.
 The low-tier controller remains runtime-only: frontier reads, claims, dispatch,
 tending, harvest, and convergence. It never becomes planning or final

@@ -26,24 +26,21 @@ Do not compare percentages from different benchmark suites as if they were a
 single ranking. Provider cost per task depends on effort, harness, caching,
 retries, and acceptance rate. Subscription quota is not an API bill.
 
-## Dispatch policy
+## Approved dispatch policy
 
-| Node | Initial route | Cheaper or stronger candidate |
+| Work tier | Primary | Availability backups, in order |
 | --- | --- | --- |
-| NTM runtime coordination | `low` via SBP | Grok 4.7 after the NTM route and controller behavior are qualified |
-| Clerk work and deterministic edits | `low` via SBP | GPT-6 Luna for tracked native work; Grok 4.7 for Grok work, after exact transport qualification |
-| Ordinary implementation with judgment and scoped tests | `med` via SBP | GPT-6 Sol or qualified Luna when its observed acceptance matches the baseline |
-| Architecture, ambiguous/high-impact work, integration and final acceptance | `high` via SBP | Claude Opus 5.5 or GPT-6 Sol only after the same high-authority route and local proof; never infer authority from a release table |
-| Design and visual review | Existing design route through SBP | Grok 4.7 when the route and visual acceptance are proven |
+| `low`: bounded execution and NTM coordination | Grok 4.7 native `xhigh` | GPT-6 Luna Codex `max`; Grok 4.7 Cursor `xhigh` |
+| `med`: ordinary implementation | GPT-6 Sol Codex `xhigh` | Claude Opus 5.5 Cursor `medium` |
+| `high`: planning and final authority | GPT-6 Astra Codex `medium` | Claude Opus 5.5 Cursor `xhigh` |
 
-The table names *candidates*, not executable model IDs. SBP and the effective
-operator overlay own NTM model/effort/runner tuples. Inspect the complete
-`sbp route <low|med|high> --refresh --json` decision, retain and validate it,
-and pass it unchanged to the adapter. A CLI default or API announcement does
-not update SBP. A native subagent is an explicitly tracked allocation under
-the bounded availability fallback, never a fabricated SBP decision. Do not
-use that fallback to grant planning or final authority. If a new model needs
-an unconfigured lane, record the gap and keep the runnable selected route.
+SBP's effective route configuration owns executable IDs and availability
+checks. Keep the exact decision returned by `sbp route <tier> --refresh --json`
+and pass it unchanged to the adapter. A backup is used only when an earlier
+route or harness is unavailable. Failed validation means repair or work-tier
+escalation under the same Bead acceptance contract. Retain high-tier final
+review for the integrated slice. An independent Grok design reviewer uses
+`sbp route pick grok`, separate from the low-tier controller decision.
 
 ## Qualification before promotion
 

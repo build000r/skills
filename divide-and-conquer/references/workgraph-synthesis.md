@@ -61,7 +61,7 @@ python3 "$DAC_SHARED_ROOT/scripts/br_helpers.py" mint-node \
   --writes 'src/domain/**' \
   --done-when 'Binary completion check' \
   --validate 'Concrete validation command' \
-  --model-route 'high work tier' \
+  --model-route 'med work tier' \
   --repo-path "$PWD" \
   --branch "$(git rev-parse --abbrev-ref HEAD 2>/dev/null || git rev-parse --short HEAD)" \
   --run-dir "$run_dir" \
@@ -110,11 +110,14 @@ Rules per node:
   and broad evidence bucketing.
 - Use `--model-route 'Grok CLI sidecar'` for Grok-authored read-only evidence
   artifacts that a stronger model will verify.
-- Prefer `--model-route 'Grok 4.6 task-runner'` for narrow writer,
+- Prefer `--model-route 'low work tier task-runner'` for narrow writer,
   scripting, fixture/docs, generated-command cleanup, classification, or
   `$commit` nodes when the Bead names exact writes or a read-only artifact,
   validation, review owner, final authority, and stop rules. The `high` tier keeps final acceptance authority and owns escalation when a
   worker stalls, drifts, or cannot validate.
+- Route ordinary implementation needing judgment to
+  `--model-route 'med work tier'`. Use `high` for a named high-impact risk or
+  authority decision, rather than for every multi-file coding node.
 - Read-only nodes: omit `--writes` entirely
 
 ## Mint Subgoals For Massive Runs
@@ -231,7 +234,7 @@ The minimum Beads-backed node brief must carry:
   unless a separate, pre-authorized `MODEL_CHANGE` gate and receipt permit a
   different model;
   Grok dispatcher for read-only router/preflight nodes; Grok CLI sidecar
-  for read-only evidence artifacts; Grok 4.6 task-runner for narrow
+  for read-only evidence artifacts; the selected `low` tier task-runner for narrow
   scripting, docs/fixtures, or commit batching with stronger-model review
 - verified claim state: the lead must have run `br update <id> --claim` for
   the assigned worker, and the worker must verify `br show <id>` reports

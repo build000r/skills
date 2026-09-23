@@ -412,6 +412,13 @@ class RouteContractTests(unittest.TestCase):
         self.assertIn('GROK_ROUTE_NO_ROUTE.json', self.spawn)
         self.assertIn('GROK_DECISION_ARGS+=(--decision-json "$GROK_ROUTE")', self.spawn)
 
+    def test_med_implementation_has_retained_route_and_panes(self) -> None:
+        self.assertEqual(self.spawn.count('sbp route med --refresh --json'), 1)
+        self.assertIn('--validate-decision-json "$MED_ROUTE"', self.spawn)
+        self.assertIn('MED_ROUTE_NO_ROUTE.json', self.spawn)
+        self.assertIn('MED_DECISION_ARGS+=(--decision-json "$MED_ROUTE")', self.spawn)
+        self.assertIn('"${MED_DECISION_ARGS[@]}"', self.spawn)
+
     def test_final_review_grok_allocation_is_atomic_and_exact(self) -> None:
         self.assertEqual(self.review.count('sbp route low --refresh --json'), 1)
         self.assertIn('--validate-decision-json "$REVIEW_GROK_ROUTE"', self.review)

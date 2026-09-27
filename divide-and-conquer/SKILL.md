@@ -1408,12 +1408,20 @@ def plain_string(value):
 
 
 def parse_rfc3339(value):
-    if not plain_string(value) or re.fullmatch(
-        r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})",
+    match = re.fullmatch(
+        r"(?P<clock>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})"
+        r"(?:\.(?P<fraction>\d+))?(?P<zone>Z|[+-]\d{2}:\d{2})",
         value,
-    ) is None:
+    ) if plain_string(value) else None
+    if match is None:
         fail("NTM history timestamp is not timezone-aware RFC3339")
-    normalized = value[:-1] + "+00:00" if value.endswith("Z") else value
+    # Python 3.10 rejects NTM nanoseconds; fromisoformat accepts microseconds.
+    fraction = match.group("fraction")
+    zone = match.group("zone")
+    normalized = match.group("clock")
+    if fraction is not None:
+        normalized += "." + fraction[:6]
+    normalized += "+00:00" if zone == "Z" else zone
     try:
         parsed = datetime.datetime.fromisoformat(normalized)
     except ValueError:

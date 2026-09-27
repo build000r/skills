@@ -134,6 +134,73 @@ class EmptyHistoryCompatibilityTests(unittest.TestCase):
         self.assertEqual(1, result.returncode)
         self.assertIn("agent type does not match retained runner", result.stderr)
 
+    def test_post_binding_accepts_nanosecond_utc_and_rejects_bad_timestamps(self) -> None:
+        # Model the Python 3.10 fromisoformat limit even when this test host
+        # runs a newer Python that accepts nine fractional digits.
+        python310_guard = r'''
+_real_datetime = datetime.datetime
+class _Python310Datetime:
+    @staticmethod
+    def fromtimestamp(*args):
+        return _real_datetime.fromtimestamp(*args)
+    @staticmethod
+    def fromisoformat(value):
+        if re.search(r"\.\d{7,}(?=[+-]\d{2}:\d{2}$)", value):
+            raise ValueError("Python 3.10 rejects nanoseconds")
+        return _real_datetime.fromisoformat(value)
+datetime.datetime = _Python310Datetime
+try:
+    _Python310Datetime.fromisoformat("2026-09-27T20:33:19.825351434+00:00")
+except ValueError:
+    pass
+else:
+    raise AssertionError("Python 3.10 compatibility guard did not activate")
+'''
+        marker = "\nif len(sys.argv) != 8:\n"
+        self.assertIn(marker, self.python_source)
+        compatible_source = self.python_source.replace(marker, python310_guard + marker, 1)
+        prompt_bytes = b"NTM_WORK_BINDING_V1 {}\nbound prompt"
+        with tempfile.TemporaryDirectory() as tmp:
+            prompt = Path(tmp) / "bound.md"
+            prompt.write_bytes(prompt_bytes)
+            ntm = Path(tmp) / "ntm-fixture"
+            for timestamp, expected_pass in (
+                ("2026-09-27T20:33:19.825351434Z", True),
+                ("2026-09-27T20:33:19.badZ", False),
+                ("2026-09-27T20:33:19.825351434", False),
+            ):
+                with self.subTest(timestamp=timestamp):
+                    entry = {
+                        "agent_types": ["cod"], "duration_ms": 1, "id": "bound-send",
+                        "prompt": prompt_bytes.decode(), "session": "exact-session",
+                        "source": "cli", "success": True, "targets": ["2"],
+                        "ts": timestamp,
+                    }
+                    history = {
+                        "success": True, "session": "exact-session", "total": 1,
+                        "filtered": 1, "entries": [entry],
+                    }
+                    ntm.write_text(
+                        "#!/usr/bin/env python3\nimport json, sys\n"
+                        "if sys.argv[1:] != ['--robot-history=exact-session', '--period=all']:\n"
+                        "    sys.exit(2)\n"
+                        f"print(json.dumps({history!r}))\n",
+                        encoding="utf-8",
+                    )
+                    ntm.chmod(0o700)
+                    result = subprocess.run(
+                        ["python3", "-", "post", str(ntm), "exact-session", "2",
+                         "1", "codex", str(prompt)],
+                        input=compatible_source, text=True, capture_output=True,
+                        check=False,
+                    )
+                    self.assertEqual(0 if expected_pass else 1, result.returncode,
+                                     result.stderr)
+                    if expected_pass:
+                        self.assertEqual("bound-send", json.loads(result.stdout)["history_id"])
+                    else:
+                        self.assertIn("not timezone-aware RFC3339", result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

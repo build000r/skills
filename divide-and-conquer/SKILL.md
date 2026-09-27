@@ -1455,12 +1455,51 @@ if not isinstance(history, dict) or history.get("success") is not True:
 if history.get("session") != session:
     fail("NTM history session mismatch")
 entries = history.get("entries")
-if not isinstance(entries, list):
-    fail("NTM history entries are missing or malformed")
 for count_field in ("total", "filtered"):
     count = history.get(count_field)
     if type(count) is not int or count < 0:
         fail("NTM history count is malformed")
+if "entries" not in history and history["total"] == history["filtered"] == 0:
+    # NTM v1.35.1 omits entries for empty robot history. Corroborate via its
+    # documented session-filtered history interface; counts alone prove nothing.
+    documented_result = subprocess.run(
+        [ntm_bin, "history", "--session", session, "--limit", "100000", "--json"],
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+        encoding="utf-8",
+    )
+    if documented_result.returncode != 0:
+        fail("NTM documented history lookup failed")
+    documented = load_strict_json(documented_result.stdout)
+    if not isinstance(documented, dict) or (
+        "session" in documented and documented["session"] != session
+    ):
+        fail("NTM documented history session mismatch")
+    pagination = documented.get("pagination")
+    if (
+        documented.get("entries") != []
+        or type(documented.get("total_count")) is not int
+        or documented["total_count"] != 0
+        or type(documented.get("showing")) is not int
+        or documented["showing"] != 0
+        or documented.get("has_more") is not False
+        or not isinstance(pagination, dict)
+        or type(pagination.get("limit")) is not int
+        or pagination["limit"] != 100000
+        or type(pagination.get("offset")) is not int
+        or pagination["offset"] != 0
+        or type(pagination.get("count")) is not int
+        or pagination["count"] != 0
+        or type(pagination.get("total")) is not int
+        or pagination["total"] != 0
+        or pagination.get("has_more") is not False
+    ):
+        fail("NTM documented history is nonempty, filtered, or truncated")
+    entries = []
+if not isinstance(entries, list):
+    fail("NTM history entries are missing or malformed")
 if history["total"] != len(entries) or history["filtered"] != len(entries):
     fail("NTM history is filtered or truncated")
 

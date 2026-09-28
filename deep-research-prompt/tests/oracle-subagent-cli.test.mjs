@@ -44,7 +44,6 @@ import {
   AUTH_POLICY_SCHEMA,
 } from "../assets/scripts/oracle-subagent-auth.mjs";
 
-const THIS_FILE = fileURLToPath(import.meta.url);
 const CLI = fileURLToPath(
   new URL("../assets/scripts/oracle-subagent.mjs", import.meta.url),
 );
@@ -234,7 +233,7 @@ function spawnJson(arguments_) {
   });
 }
 
-test("parser exposes one strict run, status, wait, and reattach interface", () => {
+test("parser exposes one strict run, status, wait, and reattach interface", async () => {
   const run = parseCliArguments([
     "run",
     "--slug",
@@ -305,6 +304,11 @@ test("parser exposes one strict run, status, wait, and reattach interface", () =
       (error) => assertCliError(error, "arguments_invalid"),
     );
   }
+
+  const help = await spawnJson(["--help"]);
+  assert.equal(help.code, 0);
+  assert.equal(help.stderr, "");
+  assert.match(help.stdout, /Prompt text .*file or stdin.*never from argv/i);
 });
 
 test("configured target accepts only canonical private ChatGPT paths", () => {
@@ -1461,6 +1465,4 @@ test("source has no prompt argv, callback, network listener, or logging surface"
   assert.doesNotMatch(source, /createServer|listen\s*\(/);
   assert.doesNotMatch(source, /cookie(?:s)?\s*[:=]/i);
   assert.doesNotMatch(source, /authorization\s*[:=]/i);
-  assert.match(source, /Prompt text is accepted only from a file or stdin/);
-  assert.equal(path.basename(THIS_FILE), "oracle-subagent-cli.test.mjs");
 });

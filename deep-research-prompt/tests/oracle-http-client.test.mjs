@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createContext, runInContext } from "node:vm";
 
 import {
   CONVERSATION_PATH,
@@ -10,6 +11,7 @@ import {
   buildConversationBody,
   extractFinalAnswer,
   getConversation,
+  harvestSentinelBundle,
   isConversationEndpoint,
   listModels,
   parseSseFrames,
@@ -649,11 +651,52 @@ test("the mint interceptor matches only the submission endpoint, not /prepare", 
   assert.equal(isConversationEndpoint(undefined, ORIGIN, P), false);
 });
 
-test("the injected interceptor uses the exported predicate, not a substring test", async () => {
-  const { readFile } = await import("node:fs/promises");
-  const src = await readFile(new URL("../assets/scripts/oracle-http-client.mjs", import.meta.url), "utf8");
-  assert.ok(src.includes("${isConversationEndpoint.toString()}"), "the page must run the tested predicate");
-  assert.equal(src.includes("url.indexOf("), false, "substring endpoint matching must not return");
+test("the injected interceptor captures only a conversation POST", async () => {
+  const forwarded = [];
+  const originalFetch = async (input, init) => {
+    forwarded.push({ input, method: init?.method });
+    return { ok: true };
+  };
+  let page;
+  const button = {
+    click() {
+      for (const path of [`${CONVERSATION_PATH}/prepare`, `${CONVERSATION_PATH}/init`]) {
+        void page.fetch(path, { method: "POST" });
+      }
+      void page.fetch(CONVERSATION_PATH, { method: "GET" });
+      void page.fetch(CONVERSATION_PATH, {
+        method: "POST",
+        headers: SENTINEL_BUNDLE,
+        body: JSON.stringify({ action: "next" }),
+      }).catch(() => {});
+    },
+  };
+  const form = { querySelector: () => button };
+  page = createContext({
+    fetch: originalFetch,
+    Headers,
+    URL,
+    location: { origin: ORIGIN },
+    document: { activeElement: { closest: () => form } },
+  });
+  const cdp = {
+    evaluate: async (expression) => runInContext(expression, page),
+    send: async (method) => {
+      assert.equal(method, "Input.insertText");
+      return {};
+    },
+  };
+
+  const bundle = await harvestSentinelBundle(cdp, { timeoutMs: 3_000, sleep: async () => {} });
+  assert.equal(bundle.trigger, "submit_button");
+  assert.deepEqual(bundle.template, { action: "next" });
+  assert.equal(bundle.headers["openai-sentinel-proof-token"], SENTINEL_BUNDLE["openai-sentinel-proof-token"]);
+  assert.deepEqual(forwarded.map(({ input, method }) => [input, method]), [
+    [`${CONVERSATION_PATH}/prepare`, "POST"],
+    [`${CONVERSATION_PATH}/init`, "POST"],
+    [CONVERSATION_PATH, "GET"],
+  ]);
+  assert.equal(page.fetch, originalFetch, "the interceptor must restore the original fetch");
 });
 
 test("the client source contains no ChatGPT-specific selectors", async () => {

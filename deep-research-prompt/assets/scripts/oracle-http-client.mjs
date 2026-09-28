@@ -60,6 +60,7 @@ const DEFAULT_PORT = 9222;
 const DEFAULT_TIMEOUT_MS = 900_000;
 const POLL_INTERVAL_MS = 5_000;
 const CDP_TIMEOUT_MS = 30_000;
+const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export class OracleHttpError extends Error {
   constructor(code, detail) {
@@ -444,7 +445,7 @@ export async function harvestCredentials(cdp) {
  * request is made and no message is created. The trigger uses only generic HTML
  * semantics, never a ChatGPT-specific selector.
  */
-export async function harvestSentinelBundle(cdp, { triggerText = "." , timeoutMs = 20_000 } = {}) {
+export async function harvestSentinelBundle(cdp, { triggerText = "." , timeoutMs = 20_000, sleep = pause } = {}) {
   const installed = await cdp.evaluate(`(() => {
     if (globalThis.__oracleHarvest) return "busy";
     globalThis.__oracleHarvest = { captured: null };
@@ -495,7 +496,7 @@ export async function harvestSentinelBundle(cdp, { triggerText = "." , timeoutMs
   try {
     // Generic-HTML trigger: type into whatever the page focused, submit its form.
     await cdp.send("Input.insertText", { text: triggerText });
-    await new Promise((r) => setTimeout(r, 1500));
+    await sleep(1500);
     const submitted = await cdp.evaluate(`(() => {
       const el = document.activeElement;
       const form = el && typeof el.closest === "function" ? el.closest("form") : null;
@@ -509,7 +510,7 @@ export async function harvestSentinelBundle(cdp, { triggerText = "." , timeoutMs
 
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
-      await new Promise((r) => setTimeout(r, 400));
+      await sleep(400);
       const raw = await cdp.evaluate(`JSON.stringify((globalThis.__oracleHarvest || {}).captured || null)`);
       const captured = raw ? JSON.parse(raw) : null;
       if (captured) {

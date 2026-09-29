@@ -31,7 +31,7 @@ retries, and acceptance rate. Subscription quota is not an API bill.
 | Work tier | Primary | Availability backups, in order |
 | --- | --- | --- |
 | `low`: bounded execution and NTM coordination | Grok 4.7 native `xhigh` | GPT-6 Luna Codex `max`; Grok 4.7 Cursor `xhigh` |
-| `med`: ordinary implementation | GPT-6 Sol Codex `xhigh` | Claude Opus 5.5 Cursor `medium` |
+| `med`: ordinary implementation | GPT-6.1 Sol Codex `high` | Claude Opus 5.5 Cursor `medium` |
 | `high`: planning and final authority | GPT-6 Astra Codex `medium` | Claude Opus 5.5 Cursor `xhigh` |
 
 SBP's effective route configuration owns executable IDs and availability

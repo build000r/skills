@@ -383,7 +383,7 @@ Explicit user effort requests take precedence; pass supported `--effort` overrid
 SBP's tier ladder owns every approved availability backup. Run
 `sbp route <low|med|high> --refresh --json` once per new allocation and retain
 its exact nine-field decision. For `low`, SBP tries native Grok 4.7 `xhigh`,
-Codex Luna `max`, then Cursor Grok 4.7 `xhigh`; `med` tries Codex Sol `xhigh`,
+Codex Luna `max`, then Cursor Grok 4.7 `xhigh`; `med` tries Codex GPT-6.1 Sol `high`,
 then Cursor Opus 5.5 `medium`; `high` tries Codex Astra `medium`, then Cursor
 Opus 5.5 `xhigh`. A runnable backup is already authorized by the tier policy.
 Do not request a separate `MODEL_CHANGE` for it, or re-pick a different lane

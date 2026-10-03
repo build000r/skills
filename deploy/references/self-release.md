@@ -67,6 +67,12 @@ inside its clean release worktree. A SHA-bound cached receipt is acceptable only
 when it records the command, inputs, outputs, and artifact digest and the release
 command verifies all of them.
 
+If release uses an installed fixed runner or controller, compare its installed
+identity with the identity required by the selected source before costly
+validation, using the existing prerequisite path. Repeat that comparison
+after a source change and, when it no longer matches, refresh the installation
+through the supported update path with all required native validation intact.
+
 Carry the tested dependency closure, resolved tools and launchers, PATH, worker
 settings, and relevant service/environment configuration from push validation
 into native release setup through the repository's supported configuration.

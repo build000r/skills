@@ -105,10 +105,15 @@ release command must reuse that output; it must not perform a throwaway build
 and rebuild for deployment. A source-only gate may build afterward exactly once,
 then run migration, signature, packaging, or smoke checks on that output.
 
-Use quick or affected-test modes during development. Never substitute them for
-the full production gate. Make the full gate cheap enough to keep by using
-persistent dependency caches, a tuned local test database, bounded parallelism,
-and reusable fixtures.
+Use quick or affected-test modes during development. Before each new full run,
+inspect the final source diff and run the existing focused contract checks it
+affects, including version mirrors in runtime metadata and docs, and checks that
+pin source digests or project migrations into a schema inventory. After a late
+source fix, repeat its affected cheap checks before broad validation. Preserve
+the substantive assertions; review changed behavior before updating expected
+digests. These checks do not replace the full production gate. Keep that gate
+fast with persistent dependency caches, a tuned local test database, bounded
+parallelism, and reusable fixtures.
 
 ## Provenance And Concurrency
 

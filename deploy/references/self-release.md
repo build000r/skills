@@ -73,6 +73,13 @@ validation, using the existing prerequisite path. Repeat that comparison
 after a source change and, when it no longer matches, refresh the installation
 through the supported update path with all required native validation intact.
 
+Before costly validation, use the existing read-only preflight to check migration
+prerequisites against the current schema and aggregate data state. When a
+migration requires an external handoff or receipt for existing data, verify that
+the production execution path supports it and that the owning prerequisite is
+complete. Fixture receipts and empty-database passes do not establish readiness
+to migrate production data.
+
 At the source-validation to native-release handoff, check whether completed
 test-service namespaces still hold resources needed by the next setup. Through
 the repository's existing lifecycle, retire only namespaces whose ownership and

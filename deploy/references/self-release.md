@@ -70,10 +70,13 @@ command verifies all of them.
 Carry the tested dependency closure, resolved tools and launchers, PATH, worker
 settings, and relevant service/environment configuration from push validation
 into native release setup through the repository's supported configuration.
-Use its prerequisite/fingerprint check when available; matching source SHA and
-package versions alone do not prove matching inputs. Invoke the canonical gate
-normally and let its authenticated receipt checks decide reuse. Resolve
-unintended input drift in setup; intentional changes require fresh validation.
+Before full validation, use its prerequisite/fingerprint-only check, when
+available, to compare accepted inputs with native setup and correct unintended
+drift. Matching source SHA and package versions alone do not prove matching
+inputs. Invoke the canonical gate normally and let its authenticated receipt
+checks decide reuse. Avoid a separate full-suite preparation run when the native
+command already owns that validation; retain runs required at other publication
+or integration boundaries. Intentional input changes require fresh validation.
 Keep receipt verification and normalization in the repo-owned runner. Do not
 copy or edit receipts to force reuse.
 

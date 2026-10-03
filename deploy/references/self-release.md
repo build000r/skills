@@ -73,6 +73,13 @@ validation, using the existing prerequisite path. Repeat that comparison
 after a source change and, when it no longer matches, refresh the installation
 through the supported update path with all required native validation intact.
 
+At the source-validation to native-release handoff, check whether completed
+test-service namespaces still hold resources needed by the next setup. Through
+the repository's existing lifecycle, retire only namespaces whose ownership and
+completion are established and which have no active consumers, before allocating
+the next namespace. Preserve retained validation evidence and reusable caches;
+leave active and unrelated services intact.
+
 Carry the tested dependency closure, resolved tools and launchers, PATH, worker
 settings, and relevant service/environment configuration from push validation
 into native release setup through the repository's supported configuration.

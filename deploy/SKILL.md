@@ -83,6 +83,9 @@ converting a release lane. Its load-bearing invariants are:
 6. prove local credentials with a real release before removing the last automatic deploy trigger
 7. close with behavior proof, state proof, a release manifest, retained artifacts, and a compatible rollback path
 
+Preserve the tested inputs when moving from push validation into native release
+setup, as detailed in the canonical-gate guidance in the self-release reference.
+
 Keep `workflow_dispatch` as an optional break-glass fallback. Retain hosted jobs
 when they provide a real boundary, such as untrusted contributor checks or a
 platform unavailable on the trusted host. The objective is near-zero avoidable

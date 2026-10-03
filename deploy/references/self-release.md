@@ -67,6 +67,16 @@ inside its clean release worktree. A SHA-bound cached receipt is acceptable only
 when it records the command, inputs, outputs, and artifact digest and the release
 command verifies all of them.
 
+Carry the tested dependency closure, resolved tools and launchers, PATH, worker
+settings, and relevant service/environment configuration from push validation
+into native release setup through the repository's supported configuration.
+Use its prerequisite/fingerprint check when available; matching source SHA and
+package versions alone do not prove matching inputs. Invoke the canonical gate
+normally and let its authenticated receipt checks decide reuse. Resolve
+unintended input drift in setup; intentional changes require fresh validation.
+Keep receipt verification and normalization in the repo-owned runner. Do not
+copy or edit receipts to force reuse.
+
 If an existing verification command already performs the production build, the
 release command must reuse that output; it must not perform a throwaway build
 and rebuild for deployment. A source-only gate may build afterward exactly once,

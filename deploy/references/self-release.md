@@ -80,6 +80,13 @@ the production execution path supports it and that the owning prerequisite is
 complete. Fixture receipts and empty-database passes do not establish readiness
 to migrate production data.
 
+For Docker capacity, measure free bytes on the filesystem backing its data root
+and use native image-store accounting (`docker system df -v` or `/system/df`).
+Keep total, shared and unique sizes distinct; `docker image inspect` size alone
+does not establish build headroom. Allow for intermediate build storage and
+measure an archive destination on its own filesystem. Reuse unchanged image
+inventory evidence; refresh volatile free space, actors and locks before launch.
+
 At the source-validation to native-release handoff, check whether completed
 test-service namespaces still hold resources needed by the next setup. Through
 the repository's existing lifecycle, retire only namespaces whose ownership and
@@ -239,6 +246,16 @@ Include at least:
 - transport and activation result
 - behavior proof and state proof
 - previous release identity and rollback eligibility
+
+Keep the native action's terminal result separate from subsequent observation
+checks. If the action succeeded but a post-check failed, retain both results and
+recheck the failed observation before deciding on another mutation. Compare
+unordered collections, such as Docker mount lists, by complete descriptors with
+multiplicity preserved; ordering alone is not drift. Expected reference-count
+changes must match the exact owned effect. Never discard differences in resource
+identity, mount source/destination, permissions or other substantive fields.
+Repair a representation-only mismatch with a read-only check, without repeating
+the completed action. Genuine or unexplained drift keeps acceptance open.
 
 Keep the last several artifacts and manifests according to storage cost and
 recovery objectives. For registryless containers, retain compressed archives

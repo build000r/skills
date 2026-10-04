@@ -97,6 +97,19 @@ leave active and unrelated services intact.
 Carry the tested dependency closure, resolved tools and launchers, PATH, worker
 settings, and relevant service/environment configuration from push validation
 into native release setup through the repository's supported configuration.
+For a retained environment with an editable/local project install, prepare that
+project's installed metadata for the final source before its first full gate.
+Source imports can already reflect a new checkout while installed metadata
+still embeds an older README, version or project configuration. When runtime
+requirements and build-tool inputs are unchanged, use the repository's
+constrained project-only install step to refresh the local package while
+preserving the other installed dependencies and approved build-tool constraints.
+Otherwise, update the pinned dependency profile through its normal owner first.
+Complete this before recording the producer receipt, with no active gate using
+that environment. A fresh release install
+must not be the first point where the project metadata catches up to the tested
+source. If the preparation path is missing, fix the existing prerequisite owner
+before spending a full suite on inputs the release setup will replace.
 Before full validation, use its prerequisite/fingerprint-only check, when
 available, to compare accepted inputs with native setup and correct unintended
 drift. Matching source SHA and package versions alone do not prove matching

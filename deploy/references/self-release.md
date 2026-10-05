@@ -67,15 +67,73 @@ inside its clean release worktree. A SHA-bound cached receipt is acceptable only
 when it records the command, inputs, outputs, and artifact digest and the release
 command verifies all of them.
 
+If release uses an installed fixed runner or controller, compare its installed
+identity with the identity required by the selected source before costly
+validation, using the existing prerequisite path. Repeat that comparison
+after a source change and, when it no longer matches, refresh the installation
+through the supported update path with all required native validation intact.
+
+Before costly validation, use the existing read-only preflight to check migration
+prerequisites against the current schema and aggregate data state. When a
+migration requires an external handoff or receipt for existing data, verify that
+the production execution path supports it and that the owning prerequisite is
+complete. Fixture receipts and empty-database passes do not establish readiness
+to migrate production data.
+
+For Docker capacity, measure free bytes on the filesystem backing its data root
+and use native image-store accounting (`docker system df -v` or `/system/df`).
+Keep total, shared and unique sizes distinct; `docker image inspect` size alone
+does not establish build headroom. Allow for intermediate build storage and
+measure an archive destination on its own filesystem. Reuse unchanged image
+inventory evidence; refresh volatile free space, actors and locks before launch.
+
+At the source-validation to native-release handoff, check whether completed
+test-service namespaces still hold resources needed by the next setup. Through
+the repository's existing lifecycle, retire only namespaces whose ownership and
+completion are established and which have no active consumers, before allocating
+the next namespace. Preserve retained validation evidence and reusable caches;
+leave active and unrelated services intact.
+
+Carry the tested dependency closure, resolved tools and launchers, PATH, worker
+settings, and relevant service/environment configuration from push validation
+into native release setup through the repository's supported configuration.
+For a retained environment with an editable/local project install, prepare that
+project's installed metadata for the final source before its first full gate.
+Source imports can already reflect a new checkout while installed metadata
+still embeds an older README, version or project configuration. When runtime
+requirements and build-tool inputs are unchanged, use the repository's
+constrained project-only install step to refresh the local package while
+preserving the other installed dependencies and approved build-tool constraints.
+Otherwise, update the pinned dependency profile through its normal owner first.
+Complete this before recording the producer receipt, with no active gate using
+that environment. A fresh release install
+must not be the first point where the project metadata catches up to the tested
+source. If the preparation path is missing, fix the existing prerequisite owner
+before spending a full suite on inputs the release setup will replace.
+Before full validation, use its prerequisite/fingerprint-only check, when
+available, to compare accepted inputs with native setup and correct unintended
+drift. Matching source SHA and package versions alone do not prove matching
+inputs. Invoke the canonical gate normally and let its authenticated receipt
+checks decide reuse. Avoid a separate full-suite preparation run when the native
+command already owns that validation; retain runs required at other publication
+or integration boundaries. Intentional input changes require fresh validation.
+Keep receipt verification and normalization in the repo-owned runner. Do not
+copy or edit receipts to force reuse.
+
 If an existing verification command already performs the production build, the
 release command must reuse that output; it must not perform a throwaway build
 and rebuild for deployment. A source-only gate may build afterward exactly once,
 then run migration, signature, packaging, or smoke checks on that output.
 
-Use quick or affected-test modes during development. Never substitute them for
-the full production gate. Make the full gate cheap enough to keep by using
-persistent dependency caches, a tuned local test database, bounded parallelism,
-and reusable fixtures.
+Use quick or affected-test modes during development. Before each new full run,
+inspect the final source diff and run the existing focused contract checks it
+affects, including version mirrors in runtime metadata and docs, and checks that
+pin source digests or project migrations into a schema inventory. After a late
+source fix, repeat its affected cheap checks before broad validation. Preserve
+the substantive assertions; review changed behavior before updating expected
+digests. These checks do not replace the full production gate. Keep that gate
+fast with persistent dependency caches, a tuned local test database, bounded
+parallelism, and reusable fixtures.
 
 ## Provenance And Concurrency
 
@@ -201,6 +259,16 @@ Include at least:
 - transport and activation result
 - behavior proof and state proof
 - previous release identity and rollback eligibility
+
+Keep the native action's terminal result separate from subsequent observation
+checks. If the action succeeded but a post-check failed, retain both results and
+recheck the failed observation before deciding on another mutation. Compare
+unordered collections, such as Docker mount lists, by complete descriptors with
+multiplicity preserved; ordering alone is not drift. Expected reference-count
+changes must match the exact owned effect. Never discard differences in resource
+identity, mount source/destination, permissions or other substantive fields.
+Repair a representation-only mismatch with a read-only check, without repeating
+the completed action. Genuine or unexplained drift keeps acceptance open.
 
 Keep the last several artifacts and manifests according to storage cost and
 recovery objectives. For registryless containers, retain compressed archives

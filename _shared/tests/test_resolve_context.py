@@ -28,6 +28,28 @@ def _load_module():
 
 
 class ResolveContextTests(unittest.TestCase):
+    def test_canonical_client_identity_projects_foreign_rendered_path_on_both_hosts(self) -> None:
+        module = _load_module()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            for host in ("mac", "d3"):
+                with self.subTest(host=host):
+                    client_dir = Path(tmpdir) / host / "repos" / "skillbox-config" / "clients" / "sweet-potato"
+                    client_dir.mkdir(parents=True)
+                    context_path = client_dir / "context.yaml"
+                    foreign = "/srv/skillbox/repos" if host == "mac" else "/Users/example/repos"
+                    context_path.write_text(
+                        "client_id: sweet-potato\n"
+                        f"client_dir: {foreign}/skillbox-config/clients/sweet-potato\n"
+                        f"cwd_match: [{client_dir}]\n",
+                        encoding="utf-8",
+                    )
+                    with mock.patch.dict(os.environ, {"SKILLBOX_CLIENT_CONTEXT": str(context_path)}):
+                        payload = module.resolve(str(client_dir))
+                    self.assertEqual(payload["client_id"], "sweet-potato")
+                    self.assertEqual(payload["client_dir"], str(client_dir.resolve()))
+                    self.assertEqual(Path(payload["client_dir"]) / "invocations",
+                                     client_dir / "invocations")
+
     def test_placeholder_cwd_match_expands_for_local_overlay_resolution(self) -> None:
         module = _load_module()
 

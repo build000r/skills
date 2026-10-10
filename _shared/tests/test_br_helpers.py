@@ -459,6 +459,31 @@ class BrHelpersTests(unittest.TestCase):
         self.assertEqual(calls[0][0], ["list", "--all", "--label", "chain:smart", "--json"])
         self.assertEqual(calls[0][1]["cwd"], repo)
 
+    def test_complete_list_pages_include_deferred_and_closed_without_dropping_root(self) -> None:
+        rows = [{"id": f"node-{index}"} for index in range(103)]
+        rows[87] = {"id": "deferred-root", "status": "deferred"}
+        calls = []
+
+        def fake_json(args, **kwargs):
+            calls.append(args)
+            offset = int(args[args.index("--offset") + 1])
+            return {"issues": rows[offset:offset + 50]}
+
+        with mock.patch.object(MODULE, "_json", side_effect=fake_json):
+            issues = MODULE.list_issues(labels=["plan:demo"], include_closed=True,
+                                        include_deferred=True, all_pages=True)
+
+        self.assertEqual(len(issues), 103)
+        self.assertEqual(issues[87]["id"], "deferred-root")
+        self.assertEqual([int(call[call.index("--offset") + 1]) for call in calls], [0, 50, 100])
+        self.assertTrue(all("--all" in call and "--deferred" in call for call in calls))
+
+    def test_complete_list_rejects_overlapping_pages(self) -> None:
+        page = [{"id": f"node-{index}"} for index in range(50)]
+        with mock.patch.object(MODULE, "_json", side_effect=[page, page]):
+            with self.assertRaisesRegex(RuntimeError, "duplicate issue id"):
+                MODULE.list_issues(all_pages=True)
+
     def test_update_node_preserves_existing_notes_on_partial_validate_update(self) -> None:
         calls = []
 
@@ -716,6 +741,14 @@ class RenderWorkgraphFallbackTests(unittest.TestCase):
 class AcceptedPlanIntakeTests(unittest.TestCase):
     """`no-ragrets` handoff-ready graphs are consumed, never reminted."""
 
+    def setUp(self) -> None:
+        # Older plan fixtures exercise role/policy semantics with synthetic
+        # run paths; artifact containment has its own real-filesystem tests.
+        for name, value in (("_host_client_context", {}), ("_run_dir_rejection", None)):
+            patcher = mock.patch.object(MODULE, name, return_value=value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
     def accepted_root(self, **kwargs) -> dict:
         return plan_node(
             "plan-root",
@@ -749,6 +782,24 @@ class AcceptedPlanIntakeTests(unittest.TestCase):
         )
         # Consumed, not reminted: admission is a read path only.
         self.assertTrue(all(node["dispatch_ready"] for node in result["admitted"]))
+
+    def test_deferred_root_beyond_first_page_and_closed_history_are_complete(self) -> None:
+        branches = [plan_node(f"branch-{index}", ["branch"], writes=())
+                    for index in range(60)]
+        root = self.accepted_root(local_criteria="SC-live,SC-old")
+        root["status"] = "deferred"
+        historical = plan_node("old-proof", ["historical-evidence"],
+                               supports="SC-old", writes=())
+        historical["status"] = "closed"
+        leaf = plan_node("only-ready-leaf", ["execution-leaf"], supports="SC-live")
+        nodes = [*branches, historical, root, leaf]
+        with plan_graph(nodes, ["only-ready-leaf"]):
+            result = MODULE.plan_admission(PLAN)
+
+        self.assertEqual(result["plan_node_count"], 63)
+        self.assertEqual(result["root"]["id"], "plan-root")
+        self.assertEqual([item["id"] for item in result["admitted"]], ["only-ready-leaf"])
+        self.assertEqual(result["coverage"]["uncovered"], ["SC-old"])
 
     def test_root_and_branch_never_dispatch_even_when_otherwise_ready(self) -> None:
         nodes = [
@@ -1495,6 +1546,180 @@ class AcceptedPlanIntakeTests(unittest.TestCase):
             with self.subTest(pair=(left, right)):
                 self.assertFalse(MODULE._scopes_overlap(left, right))
                 self.assertFalse(MODULE._scopes_overlap(right, left))
+
+
+class PlanArtifactBoundaryTests(unittest.TestCase):
+    def test_internal_codex_review_admits_only_a_bounded_local_artifact_run(self) -> None:
+        with tempfile.TemporaryDirectory(dir="/var/tmp") as tmpdir:
+            base = Path(tmpdir)
+            repo = base / "repo"
+            repo.mkdir()
+            root = base / "artifacts"
+            run = root / "orchestration" / "review-a"
+            run.mkdir(parents=True)
+            contract = {
+                "repo_path": str(repo),
+                "run_dir": str(run),
+                "labels": ["route:internal-astra-medium"],
+                "model_route": "operator-authorized internal gpt-6-astra medium priority",
+            }
+            with mock.patch.object(MODULE, "INTERNAL_ARTIFACT_ROOT", root, create=True):
+                self.assertIsNone(MODULE._run_dir_rejection("review", contract, {}))
+            self.assertEqual(contract["run_dir"], str(run))
+
+    def test_internal_codex_route_rejects_wrong_authority_and_path_escape(self) -> None:
+        with tempfile.TemporaryDirectory(dir="/var/tmp") as tmpdir:
+            base = Path(tmpdir)
+            repo = base / "repo"
+            repo.mkdir()
+            root = base / "artifacts"
+            good = root / "runs" / "review"
+            good.mkdir(parents=True)
+            outside = base / "outside"
+            outside.mkdir()
+            (root / "escape").symlink_to(outside, target_is_directory=True)
+            for hidden in (".dac", ".ntm"):
+                (root / hidden / "run").mkdir(parents=True)
+            base_contract = {
+                "repo_path": str(repo),
+                "labels": ["route:internal-astra-medium"],
+                "model_route": "operator-authorized internal gpt-6-astra medium priority",
+            }
+            cases = {
+                "root": (str(root), base_contract, "run_dir_unsafe"),
+                "repo": (str(repo), base_contract, "run_dir_unsafe"),
+                "symlink_escape": (str(root / "escape"), base_contract, "run_dir_unsafe"),
+                "traversal": (str(good / ".." / "review"), base_contract, "run_dir_unsafe"),
+                "missing": (str(root / "missing"), base_contract, "run_dir_unresolvable"),
+                "dac": (str(root / ".dac" / "run"), base_contract, "run_dir_unsafe"),
+                "ntm": (str(root / ".ntm" / "run"), base_contract, "run_dir_unsafe"),
+                "external_label": (
+                    str(good),
+                    {**base_contract, "labels": ["route:sol-v2"]},
+                    "route_contract_mismatch",
+                ),
+                "wrong_model": (
+                    str(good),
+                    {**base_contract, "model_route": "Amp Orb gpt-6-astra medium"},
+                    "route_contract_mismatch",
+                ),
+                "forged_model_suffix": (
+                    str(good),
+                    {**base_contract, "model_route": "operator-authorized internal gpt-6-astra medium priority but actually external"},
+                    "route_contract_mismatch",
+                ),
+                "duplicate_route_labels": (
+                    str(good),
+                    {**base_contract, "labels": ["route:internal-astra-medium", "route:sol-v2"]},
+                    "route_contract_mismatch",
+                ),
+                "relative_repo": (
+                    str(good),
+                    {**base_contract, "repo_path": "repo"},
+                    "run_dir_unsafe",
+                ),
+            }
+            with mock.patch.object(MODULE, "INTERNAL_ARTIFACT_ROOT", root, create=True):
+                for name, (path, fields, reason) in cases.items():
+                    with self.subTest(name=name):
+                        rejection = MODULE._run_dir_rejection(
+                            "review", {**fields, "run_dir": path}, {}
+                        )
+                        self.assertIsNotNone(rejection)
+                        self.assertEqual(rejection["reason"], reason)
+
+    def test_host_context_must_match_the_active_working_directory(self) -> None:
+        with tempfile.TemporaryDirectory(dir="/var/tmp") as tmpdir:
+            client = Path(tmpdir) / "clients" / "personal"
+            client.mkdir(parents=True)
+            base = {"client_id": "personal", "client_dir": str(client)}
+            for matches, expected in (([str(Path.cwd())], True), (["/impossible/foreign"], False)):
+                with self.subTest(matches=matches):
+                    payload = {**base, "cwd_match": matches}
+                    proc = SimpleNamespace(returncode=0, stdout=json.dumps(payload))
+                    with mock.patch.object(MODULE.subprocess, "run", return_value=proc):
+                        resolved = MODULE._host_client_context()
+                    self.assertEqual(bool(resolved), expected)
+
+    def test_mac_projection_uses_active_client_and_repo_without_beads_mutation(self) -> None:
+        with tempfile.TemporaryDirectory(dir="/var/tmp") as tmpdir:
+            repos = Path(tmpdir) / "repos"
+            repo = repos / "skills"
+            (repo / ".git").mkdir(parents=True)
+            client = repos / "skillbox-config" / "clients" / "sweet-potato"
+            run = client / "invocations" / "sweet-potato" / "divide-and-conquer" / "run"
+            run.mkdir(parents=True)
+            context = {"client_id": "sweet-potato", "client_dir": str(client)}
+            contract = {
+                "repo": "skills",
+                "repo_path": "/Users/example/repos/opensource/skills",
+                "run_dir": "/Users/example/repos/skillbox-config/clients/sweet-potato/"
+                           "invocations/sweet-potato/divide-and-conquer/run",
+            }
+            MODULE._project_repo_path(contract, context)
+            self.assertEqual(contract["repo_path"], str(repo))
+            self.assertIsNone(MODULE._run_dir_rejection("leaf", contract, context))
+            self.assertEqual(contract["run_dir"], str(run))
+            self.assertEqual(contract["source_repo_path"], "/Users/example/repos/opensource/skills")
+            wrong_repo = {"repo": "other", "repo_path": "/Users/example/repos/opensource/skills"}
+            MODULE._project_repo_path(wrong_repo, context)
+            self.assertEqual(wrong_repo["repo_path"], "/Users/example/repos/opensource/skills")
+            wrong_client = {
+                "repo_path": str(repo),
+                "run_dir": "/Users/example/repos/skillbox-config/clients/other/invocations/run",
+            }
+            rejection = MODULE._run_dir_rejection("leaf", wrong_client, context)
+            self.assertEqual(rejection["reason"], "run_dir_unresolvable")
+
+    def test_run_directory_boundary_rejects_escape_and_internal_roots(self) -> None:
+        with tempfile.TemporaryDirectory(dir="/var/tmp") as tmpdir:
+            base = Path(tmpdir)
+            repo = base / "repo"
+            repo.mkdir()
+            client = base / "skillbox-config" / "clients" / "personal"
+            root = client / "invocations"
+            good = root / "repo" / "divide-and-conquer" / "run"
+            good.mkdir(parents=True)
+            outside = base / "outside"
+            outside.mkdir()
+            (root / "escape").symlink_to(outside, target_is_directory=True)
+            for hidden in (".dac", ".ntm"):
+                (root / hidden / "run").mkdir(parents=True)
+            context = {"client_id": "personal", "client_dir": str(client)}
+            cases = {
+                "valid": (good, None),
+                "root": (root, "run_dir_unsafe"),
+                "outside": (outside, "run_dir_unsafe"),
+                "symlink": (root / "escape", "run_dir_unsafe"),
+                "dotdot": (good / ".." / "run", "run_dir_unsafe"),
+                "dac": (root / ".dac" / "run", "run_dir_unsafe"),
+                "ntm": (root / ".ntm" / "run", "run_dir_unsafe"),
+            }
+            for name, (run, reason) in cases.items():
+                with self.subTest(name=name):
+                    contract = {"repo_path": str(repo), "run_dir": str(run)}
+                    rejection = MODULE._run_dir_rejection("leaf", contract, context)
+                    self.assertEqual(rejection["reason"] if rejection else None, reason)
+
+            internal_client = repo / "skillbox-config" / "clients" / "personal"
+            internal_run = internal_client / "invocations" / "run"
+            internal_run.mkdir(parents=True)
+            internal = MODULE._run_dir_rejection(
+                "leaf", {"repo_path": str(repo), "run_dir": str(internal_run)},
+                {"client_id": "personal", "client_dir": str(internal_client)},
+            )
+            self.assertEqual(internal["reason"], "run_dir_unsafe")
+
+    def test_tmp_run_directory_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory(dir="/tmp") as tmpdir, tempfile.TemporaryDirectory(dir="/var/tmp") as repo_tmp:
+            client = Path(tmpdir) / "clients" / "personal"
+            run = client / "invocations" / "run"
+            run.mkdir(parents=True)
+            rejection = MODULE._run_dir_rejection(
+                "leaf", {"repo_path": repo_tmp, "run_dir": str(run)},
+                {"client_id": "personal", "client_dir": str(client)},
+            )
+            self.assertEqual(rejection["reason"], "run_dir_unsafe")
 
 
 class ReadyCliPlanModeTests(unittest.TestCase):

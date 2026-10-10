@@ -88,7 +88,7 @@ def _load_yaml_file(path: Path) -> dict[str, Any]:
     text = path.read_text(encoding="utf-8")
     # Strip comment header lines before YAML content
     lines = text.split("\n")
-    body_lines = [l for l in lines if not l.startswith("#") or l.strip() == ""]
+    body_lines = [line for line in lines if not line.startswith("#") or line.strip() == ""]
     data = yaml.safe_load("\n".join(body_lines))
     return data if isinstance(data, dict) else {}
 
@@ -129,6 +129,21 @@ def _extract_context_payload(data: dict[str, Any], section: str | None) -> dict[
     return {"value": payload}
 
 
+def _project_client_identity(
+    payload: dict[str, Any] | None, source: Path, section: str | None,
+) -> dict[str, Any] | None:
+    """Bind canonical client identity to the directory of the local context file."""
+    if payload is None or section is not None:
+        return payload
+    client_id = payload.get("client_id") or payload.get("id")
+    if not isinstance(client_id, str) or client_id != source.parent.name:
+        return payload
+    projected = dict(payload)
+    projected["client_id"] = client_id
+    projected["client_dir"] = str(source.parent.resolve())
+    return projected
+
+
 def _resolve_from_env(section: str | None) -> dict[str, Any] | None:
     """Strategy 1: SKILLBOX_CLIENT_CONTEXT env var."""
     env_path = os.environ.get("SKILLBOX_CLIENT_CONTEXT")
@@ -149,7 +164,7 @@ def _resolve_from_env(section: str | None) -> dict[str, Any] | None:
     if not ctx_path.is_file():
         return None
     data = _load_yaml_file(ctx_path)
-    return _extract_context_payload(data, section)
+    return _project_client_identity(_extract_context_payload(data, section), ctx_path, section)
 
 
 def _resolve_from_scan(cwd: str, section: str | None) -> dict[str, Any] | None:
@@ -187,8 +202,8 @@ def _resolve_from_scan(cwd: str, section: str | None) -> dict[str, Any] | None:
         print(f"Ambiguous context match for cwd: {cwd}", file=sys.stderr)
         return None
 
-    _, _, data = top[0]
-    return _extract_context_payload(data, section)
+    _, ctx_path, data = top[0]
+    return _project_client_identity(_extract_context_payload(data, section), ctx_path, section)
 
 
 def _resolve_from_local_overlays(
@@ -286,7 +301,7 @@ def _resolve_from_local_overlays(
         print(f"Ambiguous local context match for cwd: {cwd} ({matches})", file=sys.stderr)
         return None
 
-    return top[0][3]
+    return _project_client_identity(top[0][3], top[0][2], section)
 
 
 # --- Main --------------------------------------------------------------------

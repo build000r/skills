@@ -165,13 +165,24 @@ Rejection reasons are stable identifiers: `plan_root_missing`,
 `plan_role_ambiguous`, `plan_role_not_dispatchable`, `plan_role_unknown`,
 `concern_label_missing`, `hydration_incomplete`, `hydration_failed`,
 `run_dir_placeholder`, `expected_assignee_placeholder`, `plan_query_failed`,
-`plan_frontier_query_failed`. Every one carries a `repair` string the consumer
+`plan_frontier_query_failed`, `route_contract_mismatch`, `run_dir_unresolvable`,
+`run_dir_unsafe`, `invocation_root_unresolved`. Every one carries a `repair` string the consumer
 can run in place.
 
 An accepted plan is written before any swarm exists, so `run_dir` and
 `expected_assignee` are always hydrated at admission time. Template stand-ins
 (`<absolute-run-dir>`, `TBD`, `none`, `worker-id`, `${VAR}`, relative paths) are
 rejected rather than dispatched.
+
+The run directory boundary follows the declared route. External routes use an
+existing descendant of the active client's `@client/invocations` directory.
+`route:internal-astra-medium` plus the matching operator-authorized internal
+model route may use an existing descendant of `/srv/skillbox/artifacts` for
+local Codex review evidence. A label without the matching model route, or the
+model route without the label, is rejected. Both branches reject repository and
+temporary directories, traversal, symlink escapes, and `.dac`/`.ntm` paths.
+Admitting a scratch path does not authorize a source edit or external action;
+the node's own dependencies, write scope, and operator gates still apply.
 
 Plan roles and subgoal roles are different axes. `plan-role:branch` is a
 *recursive planning* grouping node produced by `no-ragrets`;

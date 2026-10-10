@@ -75,6 +75,9 @@ PLAN_HISTORICAL_ROLES = ("historical-evidence",)
 PLAN_HISTORICAL_EVIDENCE = "historical-only"
 PLAN_NOTE_SCALARS = ("planning_parent", "supports", "local_criteria", "produces")
 PLAN_ROOT_NOTE_SCALARS = ("synthesis_receipt", "plan_score", "hard_gate_result")
+INTERNAL_ARTIFACT_ROOT = Path("/srv/skillbox/artifacts")
+INTERNAL_ROUTE_LABEL = "route:internal-astra-medium"
+INTERNAL_MODEL_ROUTE_PREFIX = "operator-authorized internal gpt-6-astra medium priority"
 WRITER_POLICY_FILE = ".commit-writer-session.json"
 WRITER_POLICY_SCHEMA = "commit-writer-session-policy/v1"
 WRITER_POLICY_ATOMIC_CONTRACT = (
@@ -444,23 +447,48 @@ def list_issues(
     *,
     labels: Iterable[str] = (),
     include_closed: bool = False,
+    include_deferred: bool = False,
+    all_pages: bool = False,
     parent: str | None = None,
     cwd: Path | str | None = None,
 ) -> list[dict]:
-    """Return `br list --json` issues with shared envelope normalization."""
+    """Return `br list --json` issues; complete plan reads use explicit pages."""
     args = ["list"]
     if parent:
         args += ["--parent", parent]
     if include_closed:
         args += ["--all"]
+    if include_deferred:
+        args += ["--deferred"]
     for label in labels:
         args += ["--label", label]
-    data = _json(args, cwd=cwd)
-    if isinstance(data, list):
-        return data
-    if isinstance(data, dict):
-        return data.get("issues") or []
-    return []
+    if not all_pages:
+        data = _json(args, cwd=cwd)
+        if isinstance(data, list):
+            return data
+        if isinstance(data, dict):
+            return data.get("issues") or []
+        return []
+
+    page_size = 50
+    issues: list[dict] = []
+    seen: set[str] = set()
+    while True:
+        data = _json([*args, "--sort", "created_at", "--limit", str(page_size),
+                      "--offset", str(len(issues))], cwd=cwd)
+        page = data if isinstance(data, list) else data.get("issues") if isinstance(data, dict) else None
+        if not isinstance(page, list):
+            raise RuntimeError("br list returned a malformed page")
+        if len(page) > page_size:
+            raise RuntimeError("br list exceeded the requested page size")
+        for issue in page:
+            issue_id = issue.get("id") if isinstance(issue, dict) else None
+            if not isinstance(issue_id, str) or not issue_id or issue_id in seen:
+                raise RuntimeError("br list returned a missing or duplicate issue id")
+            seen.add(issue_id)
+        issues.extend(page)
+        if len(page) < page_size:
+            return issues
 
 
 # ------------------- accepted no-ragrets plan intake (read) -------------------
@@ -837,7 +865,191 @@ def _writer_policy_rejection(issue_id: str, contract: dict) -> Optional[dict]:
     return None
 
 
-def _admit_plan_node(view: dict) -> tuple[Optional[dict], Optional[dict]]:
+def _host_client_context() -> dict:
+    """Read the active host's client context without trusting stored host paths."""
+    resolver = Path(__file__).with_name("resolve_context.py")
+    proc = subprocess.run(
+        [sys.executable, str(resolver), os.getcwd(), "--format", "json"],
+        check=False, capture_output=True, text=True,
+    )
+    if proc.returncode != 0:
+        return {}
+    try:
+        context = json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(context, dict):
+        return {}
+    matches = context.get("cwd_match")
+    if isinstance(matches, str):
+        matches = [matches]
+    if not isinstance(matches, list):
+        return {}
+    cwd = Path.cwd().resolve()
+    prefixes = [
+        Path(os.path.expandvars(os.path.expanduser(value))).resolve()
+        for value in matches
+        if isinstance(value, str) and "$" not in os.path.expandvars(value)
+    ]
+    if not any(cwd.is_relative_to(prefix) for prefix in prefixes):
+        return {}
+    client_id, client_dir = context.get("client_id"), context.get("client_dir")
+    if not isinstance(client_id, str) or not isinstance(client_dir, str):
+        return {}
+    try:
+        directory = Path(client_dir).resolve(strict=True)
+    except (OSError, RuntimeError):
+        return {}
+    if directory.name != client_id or not directory.is_dir():
+        return {}
+    return {"client_id": client_id, "client_dir": str(directory)}
+
+
+def _project_repo_path(contract: dict, context: dict) -> None:
+    """Project a known repo label from a foreign host into this client workspace."""
+    raw, slug = contract.get("repo_path"), contract.get("repo")
+    if not isinstance(raw, str) or not isinstance(slug, str):
+        return
+    source = Path(raw)
+    if not source.is_absolute() or source.exists():
+        return
+    parts = source.parts
+    if "repos" not in parts:
+        return
+    suffix = parts[parts.index("repos") + 1:]
+    if suffix not in ((slug,), ("opensource", slug)):
+        return
+    client_dir = context.get("client_dir")
+    if not isinstance(client_dir, str):
+        return
+    client_path = Path(client_dir)
+    if client_path.parent.name != "clients" or client_path.parent.parent.name != "skillbox-config":
+        return
+    candidate = client_path.parent.parent.parent / slug
+    try:
+        resolved = candidate.resolve(strict=True)
+    except (OSError, RuntimeError):
+        return
+    if resolved.is_dir() and (resolved / ".git").exists():
+        contract["repo_path"] = str(resolved)
+        contract["source_repo_path"] = raw
+
+
+def _internal_run_dir_rejection(issue_id: str, contract: dict) -> Optional[dict]:
+    """Keep an internal Codex review's scratch path inside the local artifact root."""
+    raw, repo_raw = contract.get("run_dir"), contract.get("repo_path")
+    if not isinstance(raw, str) or not isinstance(repo_raw, str):
+        return _rejection(issue_id, "run_dir_unresolvable",
+                          "internal run_dir or repo_path is missing",
+                          "hydrate an existing absolute local artifact run_dir and repo_path")
+    path = Path(raw)
+    repo_path = Path(repo_raw)
+    if (
+        not path.is_absolute() or ".." in path.parts
+        or not repo_path.is_absolute() or ".." in repo_path.parts
+    ):
+        return _rejection(issue_id, "run_dir_unsafe",
+                          "internal run_dir or repo_path is not a normalized absolute path",
+                          "hydrate normalized absolute paths under the local artifact root")
+    try:
+        repo = repo_path.resolve(strict=True)
+        root = INTERNAL_ARTIFACT_ROOT.resolve(strict=True)
+        run = path.resolve(strict=True)
+    except (OSError, RuntimeError):
+        return _rejection(issue_id, "run_dir_unresolvable",
+                          "repo, local artifact root, or run_dir does not exist",
+                          "create the exact local artifact run directory on this host")
+    if not repo.is_dir() or not root.is_dir() or not run.is_dir():
+        return _rejection(issue_id, "run_dir_unresolvable",
+                          "repo, local artifact root, and run_dir must be directories",
+                          "hydrate an existing local artifact run directory")
+    if (
+        run == root or not run.is_relative_to(root)
+        or run.is_relative_to(repo)
+        or run.is_relative_to(Path("/tmp"))
+        or path.is_relative_to(Path("/tmp"))
+        or any(part in {".dac", ".ntm"} for part in run.parts)
+        or any(part in {".dac", ".ntm"} for part in path.parts)
+    ):
+        return _rejection(issue_id, "run_dir_unsafe",
+                          "internal run_dir escapes the local artifact boundary",
+                          "hydrate an external descendant of the local artifact root")
+    contract["run_dir"] = str(run)
+    contract["source_run_dir"] = raw
+    return None
+
+
+def _run_dir_rejection(issue_id: str, contract: dict, context: dict) -> Optional[dict]:
+    labels = contract.get("labels")
+    route_labels = (
+        [item for item in labels if isinstance(item, str) and item.startswith("route:")]
+        if isinstance(labels, list) else []
+    )
+    internal_label_present = INTERNAL_ROUTE_LABEL in route_labels
+    internal_label_only = route_labels == [INTERNAL_ROUTE_LABEL]
+    model_route = contract.get("model_route")
+    internal_model = (
+        isinstance(model_route, str)
+        and (
+            model_route == INTERNAL_MODEL_ROUTE_PREFIX
+            or model_route.startswith(INTERNAL_MODEL_ROUTE_PREFIX + ";")
+        )
+    )
+    if internal_label_present or internal_model:
+        if not internal_label_only or not internal_model:
+            return _rejection(issue_id, "route_contract_mismatch",
+                              "internal route label and model route disagree",
+                              "bind one exact internal route label and matching model route")
+        return _internal_run_dir_rejection(issue_id, contract)
+
+    raw, repo_raw = contract.get("run_dir"), contract.get("repo_path")
+    client_dir = context.get("client_dir")
+    if not isinstance(raw, str) or not isinstance(repo_raw, str) or not isinstance(client_dir, str):
+        return _rejection(issue_id, "invocation_root_unresolved",
+                          "active client invocation root could not be resolved",
+                          "resolve the active @client context before plan admission")
+    path = Path(raw)
+    if not path.is_absolute() or ".." in path.parts:
+        return _rejection(issue_id, "run_dir_unsafe", "run_dir is not a normalized absolute path",
+                          "hydrate run_dir with an absolute path under @client/invocations")
+    source_parts = path.parts
+    client_id = context.get("client_id")
+    if not path.exists() and isinstance(client_id, str):
+        anchor = ("skillbox-config", "clients", client_id, "invocations")
+        for index in range(len(source_parts) - len(anchor) + 1):
+            if source_parts[index:index + len(anchor)] == anchor and "repos" in source_parts[:index]:
+                path = Path(client_dir) / "invocations" / Path(*source_parts[index + len(anchor):])
+                break
+    try:
+        repo = Path(repo_raw).resolve(strict=True)
+        root = (Path(client_dir) / "invocations").resolve(strict=True)
+        run = path.resolve(strict=True)
+    except (OSError, RuntimeError):
+        return _rejection(issue_id, "run_dir_unresolvable",
+                          "repo, invocation root, or run_dir does not exist",
+                          "create the exact external invocation directory on this host")
+    if not root.is_dir() or not run.is_dir():
+        return _rejection(issue_id, "run_dir_unresolvable",
+                          "invocation root and run_dir must be directories",
+                          "hydrate run_dir with an existing invocation directory")
+    if (
+        run == root or not run.is_relative_to(root)
+        or run.is_relative_to(repo)
+        or run.is_relative_to(Path("/tmp"))
+        or path.is_relative_to(Path("/tmp"))
+        or Path(raw).is_relative_to(Path("/tmp"))
+        or any(part in {".dac", ".ntm"} for part in run.parts)
+        or any(part in {".dac", ".ntm"} for part in path.parts)
+    ):
+        return _rejection(issue_id, "run_dir_unsafe",
+                          "run_dir is outside the external @client invocation boundary",
+                          "hydrate run_dir with an external descendant of @client/invocations")
+    contract["run_dir"] = str(run)
+    contract["source_run_dir"] = raw
+    return None
+
+
+def _admit_plan_node(view: dict, *, context: Optional[dict] = None) -> tuple[Optional[dict], Optional[dict]]:
     """Return (admitted_contract, rejection) for one ready plan node.
 
     Role filtering uses OR semantics here in helper code rather than repeated
@@ -922,9 +1134,14 @@ def _admit_plan_node(view: dict) -> tuple[Optional[dict], Optional[dict]]:
             f"expected_assignee is not a concrete worker: {contract.get('expected_assignee')!r}",
             f"python3 br_helpers.py update-node {issue_id} --expected-assignee <worker-id>",
         )
+    context = context or {}
+    _project_repo_path(contract, context)
     policy_rejection = _writer_policy_rejection(issue_id, contract)
     if policy_rejection is not None:
         return None, policy_rejection
+    run_rejection = _run_dir_rejection(issue_id, contract, context)
+    if run_rejection is not None:
+        return None, run_rejection
 
     admitted = dict(contract)
     admitted["plan_role"] = role
@@ -991,7 +1208,7 @@ def _serialize_write_scopes(
 def plan_admission(
     plan_slug: str,
     *,
-    limit: int = 20,
+    limit: int = 0,
     require_handoff_ready: bool = True,
     materialize_serialization: bool = False,
 ) -> dict:
@@ -1018,16 +1235,19 @@ def plan_admission(
         "serialization_edges": [],
         "excluded_historical": [],
         "rejected": [],
+        "plan_node_count": 0,
+        "plan_node_ids": [],
         "coverage": {"declared": [], "covered": [], "uncovered": [], "by_criterion": {}},
         "ok": False,
     }
     try:
-        raw_nodes = list_issues(labels=[plan_label])
-    except subprocess.CalledProcessError as exc:
+        raw_nodes = list_issues(labels=[plan_label], include_closed=True,
+                                include_deferred=True, all_pages=True)
+    except (subprocess.CalledProcessError, RuntimeError) as exc:
         result["rejected"].append(_rejection(
             None,
             "plan_query_failed",
-            f"br list --label {plan_label} failed (exit {exc.returncode})",
+            f"complete br list --label {plan_label} failed: {exc}",
             f"verify the plan label exists: br list --label {plan_label} --json",
         ))
         return result
@@ -1039,6 +1259,8 @@ def plan_admission(
         if plan_label in _labels(issue)
     ]
     by_id = {view["id"]: view for view in views}
+    result["plan_node_count"] = len(views)
+    result["plan_node_ids"] = [view["id"] for view in views]
 
     roots = [view for view in views if PLAN_ROOT_ROLE in (view.get("roles") or [])]
     if not roots:
@@ -1084,6 +1306,7 @@ def plan_admission(
         frontier = []
 
     admitted: list[dict] = []
+    context = _host_client_context()
     for issue in frontier:
         # `br ready` already applied dependency readiness; only role/hydration
         # filtering happens here so we never widen the frontier. Resolve the
@@ -1100,7 +1323,7 @@ def plan_admission(
                 "plan_evidence": view.get("plan_evidence"),
             })
             continue
-        node, rejection = _admit_plan_node(view)
+        node, rejection = _admit_plan_node(view, context=context)
         if rejection is not None:
             result["rejected"].append(rejection)
             continue
@@ -1121,7 +1344,7 @@ def plan_admission(
 
     # Criterion coverage deliberately ignores historical-evidence nodes so a
     # criterion "covered" only by past proof still reads as uncovered.
-    live = [view for view in views if not _is_historical(view)]
+    live = [view for view in views if not _is_historical(view) and view.get("status") != "closed"]
     root_view = result["root"]
     declared: list[str] = []
     if root_view and root_view.get("local_criteria"):
@@ -1824,7 +2047,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     sub.add_parser("status", help="Health summary of br in cwd")
 
     sp = sub.add_parser("ready")
-    sp.add_argument("--limit", type=int, default=20)
+    sp.add_argument("--limit", type=int, default=None)
     sp.add_argument("--label", action="append", default=[])
     sp.add_argument(
         "--plan",
@@ -1963,7 +2186,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                 p.error("--require-handoff-ready and --allow-draft-plan are mutually exclusive")
             admission = plan_admission(
                 args.plan,
-                limit=args.limit,
+                limit=0 if args.limit is None else args.limit,
                 require_handoff_ready=not args.allow_draft_plan,
                 materialize_serialization=args.materialize_serialization,
             )
@@ -1973,7 +2196,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             return 0 if admission["ok"] else 2
         if args.require_handoff_ready or args.allow_draft_plan or args.materialize_serialization:
             p.error("--require-handoff-ready/--allow-draft-plan/--materialize-serialization require --plan")
-        _emit(ready_frontier(limit=args.limit, labels=args.label))
+        _emit(ready_frontier(limit=20 if args.limit is None else args.limit, labels=args.label))
     elif args.cmd == "scheduler":
         _emit(scheduler_ranked(limit=args.limit))
     elif args.cmd == "mint-node":

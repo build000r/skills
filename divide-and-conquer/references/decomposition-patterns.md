@@ -206,21 +206,17 @@ Before finalizing a graph, verify:
       broad read-only evidence bucketing are routed through the `voice-to-text`
       Grok dispatcher when that runtime is available
 - [ ] Bounded task-runner nodes such as mechanical scripting, fixtures/docs
-      cleanup, generated-command cleanup, classification artifacts,
-      deterministic codemods, or scoped `$commit` batching prefer Grok 4.6
-      2.5 when the Bead names exact writes or a read-only artifact, validation,
-      stop rules, Codex `gpt-5.6-sol` review ownership, and final authority
-- [ ] Design-related nodes are routed to Grok 4.6, including UI/UX, visual
-      design, design-system, CSS/token, screenshot, and visual parity work; if
-      the Grok 4.6 design route is unavailable, record the route blocker and
-      use Codex `gpt-5.6-sol` max only for pivotal authority or explicit
-      failed-model triage
-- [ ] Runtime orchestration routes to Grok 4.6. No-ragrets bead composition,
-      domain-planner sessions, decomposition/synthesis, system design,
-      impactful execution, integration review, commit acceptance, and
-      final-say nodes route to Codex `gpt-5.6-sol` at medium by default, max
-      for pivotal planning or another model struggling, and Terra ultra only
-      when SOL is unavailable
+      cleanup, generated-command cleanup, deterministic codemods, or scoped
+      `$commit` batching use the selected `low` route when the Bead names
+      exact writes, validation, stop rules, review owner, and final authority
+- [ ] Ordinary implementation needing judgment uses the selected `med` route;
+      a multi-file node alone does not require `high`
+- [ ] Design-related nodes use the selected design route, with visual proof
+      and `high` tier final acceptance
+- [ ] Runtime orchestration uses the selected `low` route. No-ragrets bead
+      composition, decomposition/synthesis, system design, impactful execution,
+      integration review, commit acceptance, and final-say nodes use `high`
+      through the retained SBP route-v2 decision
 - [ ] Every node has an expected `BR_AGENT_NAME`, and the lead will verify
       `br show` reports `status=in_progress` plus that assignee before edits
       begin

@@ -34,6 +34,9 @@ client:
           release:
             command: make release
             gate: make verify
+            behavior_proof: docs/release.md#behavior-proof
+            state_proof: docs/release.md#state-proof
+            rollback: docs/release.md#rollback
             ref_policy: origin/main
             transport: registryless
             credential_probe: ssh ssh-target-placeholder docker ps
@@ -65,6 +68,9 @@ client:
           release:
             command: make release
             gate: make verify
+            behavior_proof: docs/release.md#behavior-proof
+            state_proof: docs/release.md#state-proof
+            rollback: docs/release.md#rollback
             ref_policy: origin/main
             transport: provider_cli
             credential_probe: npx wrangler whoami
@@ -101,6 +107,9 @@ client:
           release:
             command: make release
             gate: make verify
+            behavior_proof: docs/release.md#behavior-proof
+            state_proof: docs/release.md#state-proof
+            rollback: docs/release.md#rollback
             ref_policy: signed_tag
             transport: registry_cli
             credential_probe: registry-cli whoami
@@ -132,6 +141,9 @@ Common keys:
 - target keys: `mode_name`, `surface`, `repo_root`, `repo_slug`,
   `deploy_root`, `compose_file`, `compose_project`, `compose_service`,
   `health_url`, `ci_workflow`
+- required release-readiness keys: `repo_root`, `target_id` (derived from the
+  selected collection key), `release.command`, `release.gate`,
+  `release.behavior_proof`, `release.state_proof`, `release.rollback`
 - local self-release keys: `release.command`, `release.gate`,
   `release.ref_policy`, `release.transport`, `release.credential_probe`,
   `release.manifest_dir`, `release.remote_manifest_dir`,
@@ -151,5 +163,26 @@ Selection rules:
 - the resolver chooses the overlay with the longest matching `cwd_match`
 - `select_mode.py` then chooses the deploy target whose `repo_root` is the most
   specific prefix match for the current cwd
-- if no overlay matches, the selector prints a legacy-transition probe plus a
-  valid overlay stub instead of falling back to any private legacy config files
+- if no overlay matches, diagnostic selection prints a legacy-transition probe
+  and overlay stub; strict release selection refuses without exports
+
+Release readiness:
+
+- `--require-release` rejects absent/ambiguous context, an unmatched repo root,
+  or missing required fields before emitting any exports. Check its exit status
+  before `eval`; a successful `eval` of empty output does not prove selection.
+- Proof and rollback fields are nonempty commands or document/receipt references
+  owned by the repo. Selection checks presence, never executes them or certifies
+  their results. Rollback must describe eligibility and recovery for this surface;
+  a package that cannot be unpublished must name its forward-fix recovery path.
+- Partial overlays remain useful for diagnostics. Repair the owning overlay and
+  regenerate a derived `context.yaml` before release; do not invent missing values.
+
+For `sbp git deploy plan`, bind this context path in the existing private target
+binding as `deploy_context`; use `--context PATH` for explicit selection. Targets
+also declare `environment` and `release_contract` matching the repo manifest.
+Strict selection emits `MODE_CONTEXT_SOURCE` and rejects a generated context
+whose deploy section differs from its paired owning overlay.
+Release command/proof references stay opaque in strict selection: environment
+variables are not expanded or printed. `--errors-json` emits sanitized missing
+field names and the owning source path on stderr for machine callers.

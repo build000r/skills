@@ -154,8 +154,10 @@ mid-flight steering, or shared-context repair. The tracked headless one-shot
 lane in [Dispatch Substrate Selection](#dispatch-substrate-selection) is a
 sanctioned peer for single-shot artifact nodes, not a silent degrade. Do not
 dispatch leaf work through the orchestrator's in-process Task/subagent UI
-(Claude Code `Task`, Codex subagents, or equivalent): those are untracked extra
-agent processes, not the headless lane. Do not use `/codex:rescue` or other
+(Claude Code `Task`, Codex subagents, or equivalent) except through
+[Availability and Safe Continuation](#availability-and-safe-continuation).
+Otherwise those are untracked extra agent processes, not the headless lane.
+Do not use `/codex:rescue` or other
 untracked local workers as the primary path unless the user explicitly asks.
 
 Before declaring a substrate binary missing, put `$HOME/.local/bin` on `PATH`.
@@ -186,35 +188,23 @@ execution-safety gate, not a live operator-tending concern. See
 
 Use this skill for large-ish, UI-facing, multi-file, naturally parallel, or
 review-sensitive tasks even when the user did not explicitly ask for a swarm.
-When Beads are clearly defined, prefer Grok 4.6 for bounded
-task-runner work: cwd/workflow routing, worker-request cleanup, read-only
-inventories, bounded scripting, fixtures/docs cleanup, generated-command
-cleanup, and scoped commit batching. A Bead is clear enough for Grok 4.6 only
-when it names the exact write scope or read-only artifact, validation commands,
-stop rules, review owner, and final authority. Route through the shared Grok
-lanes in `../_shared/references/orchestration-contract.md`. An NTM-classified
-allocation uses the NTM Grok plugin with the retained decision required by
-[Binding Grok Route-v2 Allocation](#binding-grok-route-v2-allocation).
-`voice-to-text`, Swimmers or a local Grok 4.6 route, and direct headless Grok
-are separately classified non-NTM substrates; they are never quota fallback
-after an NTM Grok no-route decision. If Grok 4.6 stalls, emits no artifact,
-violates scope, or needs a judgment it does not own, allocate Codex
-the `high` work tier through the binding route-v2 contract below, or route
-design/UX work to a Grok 4.6 design lane, and record the route failure in the
-result artifact.
-Design-related execution nodes classified for NTM use the retained Grok
-route-v2 decision and adapter. Nodes independently classified as non-NTM may
-use the Swimmers, local, or direct headless Grok 4.6 substrate. A typed NTM
-Grok no-route stops that allocation; it does not trigger substrate fallback.
-If no Grok 4.6 design route is available, surface the routing blocker rather
-than silently reassigning design work to Codex.
-On NTM-substrate waves, runtime orchestration must run on Grok 4.6 through
-the NTM plugin with the retained route-v2 decision and adapter: it owns
-frontier reads, claims, dispatch, tending, harvest, and convergence, but never
-planning. Headless-only waves keep that same
-split of duties in the lead process (claim, dispatch, PID/artifact harvest,
-convergence); do not spawn an NTM plugin pane solely to host the
-controller. System design, domain-planner quality loops, no-ragrets bead
+When Beads are clearly defined, use the `low` work tier for bounded
+execution and runtime coordination. Its approved order is native Grok 4.7
+`xhigh`, Codex GPT-6 Luna `max`, then Cursor Grok 4.7 `xhigh` when the earlier
+route is unavailable. Retain SBP's exact decision and pass it to the adapter;
+never infer the runner from the tier name. Each Bead still needs exact write
+scope, validation, stop rules, review owner, and final authority. A failed
+worker result is a task failure for repair or tier escalation, not an
+availability fallback. A different worker may continue only after reconciling
+artifacts and fencing the original writer under
+[Safe Continuation](references/safe-continuation.md).
+
+NTM waves use the selected `low` runner for the controller and bounded workers.
+Headless one-shots are eligible only when independently selected for the node
+and supported by that exact runner; a Grok CLI one-shot requires a native Grok
+decision. Design-related nodes keep their separate design review contract and
+high-tier final authority. A typed tier no-route stops that allocation.
+System design, domain-planner quality loops, no-ragrets bead
 composition, decomposition, dependency topology, acceptance-criteria design,
 impactful architecture/code decisions, integration review, commit acceptance,
 and final say must run on the `high` work tier through
@@ -311,10 +301,10 @@ watch, nudge, or reuse context is.
 
 | Node shape | Substrate |
 |------------|-----------|
-| Self-contained, one result artifact, no mid-flight steering, and no `high` tier planning/final-review authority | Direct headless Grok one-shot (`grok -p` or equivalent, fed a prompt-file brief) |
+| Self-contained bounded node, native Grok selected, one result artifact, no mid-flight steering | Direct headless Grok one-shot (`grok -p`, fed a prompt-file brief) |
 | Live attach, marching orders, multi-round repair on shared context, or interactive review dialogue | NTM swarm (default) |
 
-A wave is headless only when **every** node in it matches the first row.
+Route first. A wave is headless only when **every** node in it matches the first row.
 Mixed waves: NTM for the nodes that need steering; headless siblings are
 allowed. Independent verdict-file reviews are headless-eligible; a review
 that must talk back is not.
@@ -365,26 +355,56 @@ fire-and-forget a node whose acceptance depends on interactive review.
 
 ## Model Routing Is Mandatory
 
+Apply [model economics and quality gate](references/model-economics.md)
+before assigning a node. New benchmark releases nominate routes for a
+measured pilot; they do not change the model selected by SBP or relax the
+node's acceptance contract. Record the selected route, runner, model, effort,
+review owner, and any provisional candidate status in the Bead/result.
+Compare total cost per **accepted** node, including retries and review.
+Do not game the comparison by dropping difficult nodes, narrowing criteria,
+counting a worker's self-report as proof, or excluding failed attempts.
+
 ### Work-tier selection
 
 Choose `low`, `med`, or `high` from task complexity, then run
 `sbp route <tier> --refresh --json` once per allocation. Use `high` for planning,
-architecture, integration acceptance, and final review; `med` for ordinary
-implementation needing judgment; `low` for bounded mechanical work and runtime
-coordination. Tier names describe work, not provider reasoning effort.
+architecture, high-impact code, integration acceptance, and final review;
+`med` for ordinary implementation needing judgment; `low` for bounded
+mechanical work and runtime coordination. Tier names describe work, not
+provider reasoning effort. Do not route ordinary implementation to `high`
+merely because it includes backend code, tests, or several files; escalate
+only when its Bead names an actual high-impact or unresolved judgment.
 SBP and the effective operator overlay own the model, effort, and ordered
 transport bindings. Do not duplicate those tuples here or improvise substitutes.
 Explicit user effort requests take precedence; pass supported `--effort` overrides.
 
-### Binding Grok Route-v2 Allocation
+### Availability and Safe Continuation
 
-The examples below use `sbp route low --refresh --json` for bounded runtime
-work. Retain the complete decision, validate it with SBP's `route_ladders.py`,
-and pass it verbatim through `route_ntm_spawn.sh --decision-json` with
-`--project-dir "$PROJECT_DIR"`. The Grok labels describe the default policy;
-never reconstruct runner/model/effort flags from those labels.
-A no-route result stops this new allocation; existing work instead enters the
-safe-continuation procedure below. It never silently grants planning authority.
+SBP's tier ladder owns every approved availability backup. Run
+`sbp route <low|med|high> --refresh --json` once per new allocation and retain
+its exact nine-field decision. For `low`, SBP tries native Grok 4.7 `xhigh`,
+Codex Luna `max`, then Cursor Grok 4.7 `xhigh`; `med` tries Codex GPT-6.1 Sol `high`,
+then Cursor Opus 5.5 `medium`; `high` tries Codex Astra `medium`, then Cursor
+Opus 5.5 `xhigh`. A runnable backup is already authorized by the tier policy.
+Do not request a separate `MODEL_CHANGE` for it, or re-pick a different lane
+outside the tier list.
+
+A typed tier no-route means no approved candidate was runnable. A route
+configuration error is different and must be repaired before selection.
+Failure to validate a worker's output does not advance the backup ladder:
+keep the evidence, repair or escalate the Bead, and preserve its independent
+review. Before any replacement, reconcile artifacts and external receipts,
+stop or fence the old writer, and transfer only remaining work under
+[Safe Continuation](references/safe-continuation.md). A spawn is not proof of
+completion.
+
+### Binding Low Tier Allocation
+
+Use `sbp route low --refresh --json` for bounded runtime work. Retain and
+validate the complete decision; pass it verbatim to `route_ntm_spawn.sh --decision-json` with `--project-dir "$PROJECT_DIR"`. The returned runner may
+be Grok, Codex, or Cursor. A typed no-route stops this allocation. Existing
+work enters [Safe Continuation](references/safe-continuation.md) first.
+The controller never gains planning or final authority.
 
 ### Binding High Tier Allocation
 
@@ -401,8 +421,8 @@ safe-continuation procedure below. It never silently grants planning authority.
 
 A fresh final review selects `high` again. A mid-task failure does not select
 new work: enter `vibing-with-ntm` safe continuation with the retained allocation,
-original task binding, and observed progress. A provider fallback must preserve
-the allocation; availability alone does not authorize a model or effort change.
+original task binding, and observed progress. A new allocation may use SBP's approved availability backup; a running
+allocation preserves its exact decision until safe continuation is complete.
 
 ### Non-default Model-Change Gate
 
@@ -422,13 +442,13 @@ derives a Terra spawn from prose. If the authority does not name the executable
 model-change procedure, or any prerequisite above is absent, stop. Otherwise,
 continue only under that named procedure. A rate limit, worker failure,
 provider name, nonzero fallback depth, or Grok result is not this authority.
-Grok never becomes planning, integration, commit, or final authority.
+The low-tier controller never becomes planning, integration, commit, or final authority.
 
 Route every ready node before spawning workers:
 
-- **Grok 4.6 owns NTM runtime orchestration.** Route root and subgoal controller
-  loops to the NTM Grok plugin using the retained decision required by
-  [Binding Grok Route-v2 Allocation](#binding-grok-route-v2-allocation). Grok
+- **The low tier owns NTM runtime orchestration.** Route root and subgoal controller
+  loops through the retained decision required by
+  [Binding Low Tier Allocation](#binding-low-tier-allocation). The controller
   may census, read the accepted ready
   frontier, claim hydrated leaves for workers, dispatch, observe, unstick,
   harvest, reconcile verified statuses, and detect convergence. It must not
@@ -436,7 +456,7 @@ Route every ready node before spawning workers:
   criteria, resolve architectural ambiguity, synthesize planning branches, or
   make final acceptance decisions. When those needs appear, it dispatches an
   authority node and waits for the accepted result before continuing.
-- **Codex high-tier authority owns planning and final authority.** Route no-ragrets bead
+- **High-tier authority owns planning and final authority.** Route no-ragrets bead
   composition, divide-and-conquer decomposition and root synthesis,
   domain-planner sessions and quality loops, system design, architecture,
   security-sensitive or high-impact code decisions, ambiguous repairs,
@@ -446,53 +466,40 @@ Route every ready node before spawning workers:
   no-route result proceeds only through
   [Non-default Model-Change Gate](#non-default-model-change-gate).
   Planning/authority nodes may author or
-  repair Beads and may overrule task-runner output; the Grok controller may not.
-- **Grok 4.6 owns design/UX and visual review work.** Treat a node as design-related
+  repair Beads and may overrule task-runner output; the low-tier controller may not.
+- **Grok owns design/UX and visual review work.** Treat a node as design-related
   when it touches UI/UX, visual design, design systems, frontend screen or
   component layout, CSS/tokens, responsive behavior, screenshots, visual
   parity, product interaction copy, or fresh-eyes review of those surfaces.
   Dispatch NTM-classified nodes through the NTM Grok plugin with the retained
-  route-v2 decision and adapter. Use an approved sidecar/direct Grok 4.6 route
+  route-v2 decision and adapter. Use an approved sidecar/direct Grok route
   only when the node was independently classified for that non-NTM substrate,
-  never as quota fallback. If no Grok 4.6 design route is available, surface
-  the route blocker and keep Codex as final acceptance authority, not as the
+  never as quota fallback. If no Grok design route is available, surface
+  the route blocker and keep the selected `high` tier as final acceptance authority, not as the
   default design worker.
-- **Grok 4.6 is the preferred bounded task-runner lane for clear
-  Beads.** The `voice-to-text` dispatcher is the preferred cheap router for cwd
-  selection, skill-tag extraction, request cleanup, broad evidence bucketing,
-  and other clerk work. For execution nodes that are task-runner safe, prefer
-  Grok 4.6 through the NTM Grok plugin with the binding retained route-v2
-  decision. The Swimmers hidden-session lane with `spawn_tool: "grok"`, a
-  locally configured Grok 4.6 route, or direct headless Grok with a prompt file
-  is eligible only when independently selected as the node's non-NTM
-  substrate, never as quota fallback. Good candidates are `$commit`/logical commit batching,
-  mechanical scripts, fixtures, narrow docs edits, generated-command cleanup,
-  manifest/file classification, and other "task rabbit" work with explicit
-  files, validation, and revertability. Record `Model route: Grok dispatcher`
-  for pure routing/preflight, `Model route: Grok CLI sidecar` for a
-  Grok-authored read-only evidence artifact, and `Model route: Grok 4.6
-  task-runner` for narrow writer or commit-runner nodes. Do not treat a
-  Grok 4.6 result as authority to bypass Beads hydration, ownership,
-  validation, stronger-model review, or the final review gate. If the result is
-  empty, off-scope, validation-failing, or asks for judgment beyond the Bead,
-  allocate authority questions to the `high` work tier through the
-  binding route-v2 contract or reroute design/UX
-  work to the Grok 4.6 design lane instead of retrying indefinitely. For
-  task-selection heuristics and CASS query examples, see
-  [references/grok-sidecar-selection.md](references/grok-sidecar-selection.md).
+- **Bounded task runners use the selected `low` decision.** Apply the Bead's
+  exact write scope, validation, stop rules, and review owner. The selected
+  runner may be native Grok, Codex Luna at max, or Cursor Grok. Use the NTM
+  adapter for NTM-classified nodes. A direct Grok CLI one-shot is eligible only
+  when separately selected for a self-contained node and the retained route is
+  native Grok. Empty output, scope breach, or failed validation is a task
+  failure, never a reason to advance the availability ladder. Repair or
+  escalate the Bead while preserving review and writer ownership.
 - **Routine non-design execution first checks task-runner safety.** If a
   backend, API, data, test, refactor, validation, ops, or integration node has
-  exact Beads guidance and is cheap to verify/revert, prefer Grok 4.6
-  as the task runner. If the node is broad, high-impact, secret-bearing,
-  architecture-sensitive, integration-heavy, or still fuzzy, route it to Codex
+  exact Beads guidance and is cheap to verify/revert, prefer the selected `low` route
+  as the task runner through the retained route decision. Route ordinary
+  implementation that needs judgment to `med` through the same binding
+  route-v2 contract. If the node is high-impact, secret-bearing,
+  architecture-sensitive, integration-heavy, or still fuzzy, route it to
   the `high` work tier through the binding route-v2 contract.
 - Ambiguous nodes are design-related if visual/product interaction quality is a
   material acceptance criterion; otherwise allocate the `high` work tier through the binding route-v2 contract.
   Split mixed nodes before launch when the model routing would otherwise be
   unclear.
 - Record the selected route in the Beads dispatch contract and worker prompt:
-  `Model route: Grok 4.6 NTM orchestrator`, `Model route: Grok dispatcher`, `Model route: Grok CLI sidecar`,
-  `Model route: Grok 4.6 task-runner`, `Model route: Grok 4.6 design/UX`, or
+  `Model route: low-tier NTM orchestrator`, `Model route: Grok dispatcher`, `Model route: Grok CLI sidecar`,
+  `Model route: low work tier task-runner`, `Model route: selected design lane`, or
   `Model route: high work tier planning/final authority` with the retained
   decision identity and adapter handoff receipt.
 
@@ -591,9 +598,9 @@ auto-generated `context.yaml`.
 
 ## Swarm Runtime (Default)
 
-`divide-and-conquer` uses an external NTM swarm with split authority. The Grok
-4.6 runtime controller at `high` effort owns accepted-frontier selection, claims, dispatch,
-monitoring, collection, and convergence. A Codex planning authority owns
+`divide-and-conquer` uses an external NTM swarm with split authority. The
+selected `low` tier runtime controller owns accepted-frontier selection, claims, dispatch,
+monitoring, collection, and convergence. A high-tier planning authority owns
 decomposition, topology, synthesis, integration acceptance, and final say;
 workers execute the nodes.
 
@@ -610,8 +617,8 @@ unblocks that are explicitly recorded as root-owned.
 | Argument | Default | Description |
 |----------|---------|-------------|
 | `--project=NAME` | derived from cwd + wave id | NTM swarm project name |
-| Grok route-v2 decisions | 1 controller + routed workers | One retained exact native-or-Cursor Grok decision repeated per controller/worker/reviewer pane through `route_ntm_spawn.sh`; never planning or final authority |
-| Grok 4.6 design/UX lanes | auto | UI/UX, visual design, design-system, screenshot, visual parity, interaction-copy, and fresh-eyes review nodes |
+| `low` tier route-v2 decisions | 1 controller + routed workers | One retained exact low-tier decision repeated per controller/worker pane through `route_ntm_spawn.sh`; never planning or final authority |
+| Grok design/UX lanes | auto | UI/UX, visual design, design-system, screenshot, visual parity, interaction-copy, and fresh-eyes review nodes |
 | `high` tier route-v2 decisions | auto | Planning/authority panes; exact retained `high` tier decision, with its selected effort, through `route_ntm_spawn.sh --project-dir "$PROJECT_DIR"` |
 | Model-family change | disabled by default | Only through the binding non-default model-change gate; otherwise stop |
 | `--gmi=N` | 0 | Optional Gemini panes |
@@ -625,22 +632,21 @@ unblocks that are explicitly recorded as root-owned.
 - Size each wave from the current ready frontier, not from the full graph
 - Default to one worker per ready node
 - If the frontier exceeds `--max-workers`, split it into multiple subwaves
-- Prefer Grok 4.6 for task-runner-safe nodes when the Bead gives an
+- Prefer the selected `low` tier for task-runner-safe nodes when the Bead gives an
   exact write scope or read-only artifact, validation, stop rules, and
   stronger-model review owner; keep dispatcher/preflight nodes read-only
 - Route design-related execution nodes and design/fresh-eyes review nodes to
-  Grok 4.6; use the `high` work tier through the binding route-v2
+  Grok; use the `high` work tier through the binding route-v2
   contract for every planning or final-authority allocation, not as the default design worker
-- Route NTM controller/orchestration loops to Grok 4.6. Route no-ragrets bead
+- Route NTM controller/orchestration loops to the selected `low` decision. Route no-ragrets bead
   composition, decomposition/synthesis, domain-planner sessions, system design,
-  impactful execution, integration review, and final-say nodes to Codex
-  the `high` work tier through the retained route-v2 decision and atomic
-  adapter handoff. Every NTM Grok controller or worker allocation follows
-  [Binding Grok Route-v2 Allocation](#binding-grok-route-v2-allocation)
+  impactful execution, integration review, and final-say nodes to the `high` work tier through the retained route-v2 decision and atomic
+  adapter handoff. Every NTM low-tier controller or worker allocation follows
+  [Binding Low Tier Allocation](#binding-low-tier-allocation)
 - A failed or struggling worker does not change `high` tier effort or model identity;
   reallocate `high` tier through the binding route-v2 contract or stop
 - Any model-family change is disabled by default and must pass the binding
-  non-default model-change gate; the Grok controller cannot authorize it
+  non-default model-change gate; the low-tier controller cannot authorize it
 
 ## Subgoal Mode
 
@@ -1024,19 +1030,21 @@ ready node is not launchable until `br show {id} --json` or
 - current dependencies, blocked state, and ready frontier membership
 - `writes`, `done_when`, `validate_cmds`, `risk_gate`, non-goals, and stop rules
 - global constraints: no remote push, no cross-repo edits, no write-scope theft
-- model route per node: Grok 4.6 NTM orchestrator, using the retained Grok
+- model route per node: the selected `low` tier NTM orchestrator, using the retained
   route-v2 decision and adapter, for frontier/claim/dispatch/tending/harvest/
   convergence only; the high work tier for no-ragrets bead
   composition, decomposition/synthesis, domain-planner sessions, architecture,
   impactful execution, integration review, and final say through
   the retained route-v2 decision and atomic adapter handoff; any typed `high` tier
   no-route result stops unless the binding non-default model-change gate was
-  already authorized; Grok 4.6 design/UX for design-related nodes; Grok dispatcher
+  already authorized; the selected design route for design-related nodes; Grok dispatcher
   for read-only router/preflight nodes; Grok CLI sidecar for Grok-authored
-  read-only artifacts; Grok 4.6 task-runner as the preferred runner
+  read-only artifacts; the selected `low` tier task-runner as the preferred runner
   for narrow writer, scripting, fixture/docs cleanup, generated-command cleanup,
   classification, or commit-runner nodes with exact writes, validation, stop
   rules, explicit review ownership, and final authority
+- `med` work tier for ordinary implementation needing judgment, with exact
+  validation and `high` tier final acceptance
 - expected Beads assignee per node (`BR_AGENT_NAME`) and the exact claim
   verification command
 
@@ -1094,27 +1102,50 @@ fi
 printf '%s\n' "$AUTHORITY_ROUTE" | jq \
   '{lane, model_family, quota_surface, runner, runner_model, effort, runnable}'
 
-GROK_ROUTE_STATUS=0
-GROK_ROUTE=$(sbp route low --refresh --json) || GROK_ROUTE_STATUS=$?
-test "$GROK_ROUTE_STATUS" -eq 0 || test "$GROK_ROUTE_STATUS" -eq 1 \
-  || { echo "Grok route probe failed without a decision" >&2; exit 2; }
+LOW_ROUTE_STATUS=0
+LOW_ROUTE=$(sbp route low --refresh --json) || LOW_ROUTE_STATUS=$?
+test "$LOW_ROUTE_STATUS" -eq 0 || test "$LOW_ROUTE_STATUS" -eq 1 \
+  || { echo "low route probe failed without a decision" >&2; exit 2; }
 
 python3 "$(dirname -- "$SBP_BIN")/route_ladders.py" \
-  --validate-decision-json "$GROK_ROUTE" --allow-non-runnable >/dev/null || { echo "malformed Grok route decision" >&2; exit 2; }
+  --validate-decision-json "$LOW_ROUTE" --allow-non-runnable >/dev/null || { echo "malformed low route decision" >&2; exit 2; }
 
-if test "$GROK_ROUTE_STATUS" -eq 0; then
-  printf '%s\n' "$GROK_ROUTE" | jq -e '.runnable == true' >/dev/null || exit 2
+if test "$LOW_ROUTE_STATUS" -eq 0; then
+  printf '%s\n' "$LOW_ROUTE" | jq -e '.runnable == true' >/dev/null || exit 2
 else
   python3 "$(dirname -- "$SBP_BIN")/route_ladders.py" \
-  --validate-decision-json "$GROK_ROUTE" --allow-non-runnable >/dev/null || exit 2
-  printf '%s\n' "$GROK_ROUTE" | jq -e '.runnable == false and .reason == "no-route"' >/dev/null || exit 2
-  printf '%s\n' "$GROK_ROUTE" > "$run_dir/GROK_ROUTE_NO_ROUTE.json"
-  echo "Grok unavailable; retained typed no-route decision; stopping wave" >&2
+  --validate-decision-json "$LOW_ROUTE" --allow-non-runnable >/dev/null || exit 2
+  printf '%s\n' "$LOW_ROUTE" | jq -e '.runnable == false and .reason == "no-route"' >/dev/null || exit 2
+  printf '%s\n' "$LOW_ROUTE" > "$run_dir/LOW_ROUTE_NO_ROUTE.json"
+  echo "low tier unavailable; retain typed no-route decision and stop allocation" >&2
   exit 2
 fi
 
-printf '%s\n' "$GROK_ROUTE" | jq \
+printf '%s\n' "$LOW_ROUTE" | jq \
   '{lane, model_family, quota_surface, runner, runner_model, effort, runnable}'
+
+# Ordinary implementation panes are optional; do not require a med route
+# for a wave with no med-classified node.
+MED_DECISION_ARGS=()
+if test "${NUM_MED:-0}" -gt 0; then
+  MED_ROUTE_STATUS=0
+  MED_ROUTE=$(sbp route med --refresh --json) || MED_ROUTE_STATUS=$?
+  test "$MED_ROUTE_STATUS" -eq 0 || test "$MED_ROUTE_STATUS" -eq 1 \
+    || { echo "med route probe failed without a decision" >&2; exit 2; }
+  python3 "$(dirname -- "$SBP_BIN")/route_ladders.py" \
+    --validate-decision-json "$MED_ROUTE" --allow-non-runnable >/dev/null || exit 2
+  if test "$MED_ROUTE_STATUS" -eq 1; then
+    printf '%s\n' "$MED_ROUTE" | \
+      jq -e '.runnable == false and .reason == "no-route"' >/dev/null || exit 2
+    printf '%s\n' "$MED_ROUTE" > "$run_dir/MED_ROUTE_NO_ROUTE.json"
+    echo "med route unavailable; stop med dispatch with retained no-route decision" >&2
+    exit 2
+  fi
+  printf '%s\n' "$MED_ROUTE" | jq -e '.runnable == true' >/dev/null || exit 2
+  for ((slot = 0; slot < NUM_MED; slot++)); do
+    MED_DECISION_ARGS+=(--decision-json "$MED_ROUTE")
+  done
+fi
 ```
 
 When `runnable:true`, the high-tier allocation is available; use the
@@ -1123,27 +1154,30 @@ selected decision once per planning/authority pane and pass it through
 Skillbox's executable adapter without another pick:
 
 ```bash
-test "$NUM_CODEX" -gt 0 \
+test "$NUM_HIGH" -gt 0 \
   || { echo "planning/final authority requires at least one AUTHORITY pane" >&2; exit 2; }
-test "$NUM_GROK" -ge 0 \
-  || { echo "NUM_GROK must be zero or greater" >&2; exit 2; }
+test "$NUM_LOW" -ge 0 \
+  || { echo "NUM_LOW must be zero or greater" >&2; exit 2; }
+test "${NUM_MED:-0}" -ge 0 \
+  || { echo "NUM_MED must be zero or greater" >&2; exit 2; }
 
 if printf '%s\n' "$AUTHORITY_ROUTE" | jq -e '.runnable == true' >/dev/null; then
   AUTHORITY_DECISION_ARGS=()
-  for ((slot = 0; slot < NUM_CODEX; slot++)); do
+  for ((slot = 0; slot < NUM_HIGH; slot++)); do
     AUTHORITY_DECISION_ARGS+=(--decision-json "$AUTHORITY_ROUTE")
   done
 
-  GROK_PANE_COUNT=$((1 + NUM_GROK))
-  GROK_DECISION_ARGS=()
-  for ((slot = 0; slot < GROK_PANE_COUNT; slot++)); do
-    GROK_DECISION_ARGS+=(--decision-json "$GROK_ROUTE")
+  LOW_PANE_COUNT=$((1 + NUM_LOW))
+  LOW_DECISION_ARGS=()
+  for ((slot = 0; slot < LOW_PANE_COUNT; slot++)); do
+    LOW_DECISION_ARGS+=(--decision-json "$LOW_ROUTE")
   done
 
   "$ROUTE_NTM_SPAWN" \
     --project-dir "$PROJECT_DIR" \
     "${AUTHORITY_DECISION_ARGS[@]}" \
-    "${GROK_DECISION_ARGS[@]}" \
+    "${MED_DECISION_ARGS[@]}" \
+    "${LOW_DECISION_ARGS[@]}" \
     --label "$WAVE_LABEL" \
     -- \
     --no-user --stagger-mode=smart
@@ -1152,16 +1186,19 @@ else
 fi
 ```
 
-The first retained Grok decision is the runtime controller allocation;
-`NUM_GROK` counts additional Grok execution/design workers and may be zero.
+`NUM_MED` counts ordinary implementation panes, each bound to the same
+validated `med` decision. Bind each pane to its claimed Bead and retained
+decision through Step 8; a `med` pane never becomes final authority.
+The first retained low-tier decision is the runtime controller allocation;
+`NUM_LOW` counts additional low-tier execution workers and may be zero.
 The picker runs once for the whole allocation, and the exact retained decision
 is repeated once per controller/worker pane.
 Discover the controller's pane
 by command/title after spawn rather than assuming pane 0 because plugin panes
 may be reported as `user`. If any worker count is zero, omit that worker flag.
-Never satisfy a design-related node by increasing `NUM_CODEX`, and never
-satisfy a Codex planning/authority node by increasing `NUM_GROK`.
-The Grok controller remains runtime-only: frontier reads, claims, dispatch,
+Never satisfy a design-related node by increasing `NUM_HIGH`, and never
+satisfy a high-tier planning/authority node by increasing `NUM_LOW`.
+The low-tier controller remains runtime-only: frontier reads, claims, dispatch,
 tending, harvest, and convergence. It never becomes planning or final
 authority; that belongs to the `high` tier allocation independent of its selected runner.
 
@@ -1171,8 +1208,8 @@ unavailable. Retain that exact decision and stop this spawn. Continue only if
 authorized and its receipt plus executable procedure are complete; otherwise
 stop. The route-v2 adapter never receives a fabricated substitute decision.
 
-Nonzero `fallback_depth` alone never authorizes `MODEL_CHANGE`. In particular,
-Fallback depth describes the configured transport, not permission to change the allocation.
+Nonzero `fallback_depth` records an approved tier backup; it does not
+authorize a model outside the configured tier.
 Provider or quota-surface diversity is not required for planning authority.
 Do not exclude a provider to manufacture diversity.
 
@@ -1180,13 +1217,13 @@ If `sbp`, its sensors, the executable adapter, or valid decision JSON is absent,
 abort. Do not use a static or narrative fallback. A worker failure, validation
 failure, provider name, runner name, or spawn rejection is not typed `high` tier
 no-route evidence.
-Grok 4.6 task-runner nodes are launched after the same Beads claim handshake.
-An NTM-classified node uses the binding retained Grok route-v2 decision and
-adapter. A `voice-to-text`/Swimmers lane, local Grok 4.6 route, or direct
+Grok task-runner nodes are launched after the same Beads claim handshake.
+An NTM-classified bounded node uses the binding retained low-tier decision and
+adapter. A `voice-to-text`/Swimmers lane, local Grok route, or direct
 headless Grok one-shot is used only when independently selected as the node's
 non-NTM substrate, never after an NTM no-route result. All are tracked by issue
-ID plus result artifact. Do not inflate the Codex count to cover a Grok-routed node, and do
-not rely on `ntm --robot-*` alone as proof that a Grok 4.6 runner
+ID plus result artifact. Do not inflate the high-tier count to cover a Grok-routed node, and do
+not rely on `ntm --robot-*` alone as proof that a Grok runner
 completed; verify the artifact, Beads state, validation, and stronger-model
 review.
 
@@ -1371,12 +1408,20 @@ def plain_string(value):
 
 
 def parse_rfc3339(value):
-    if not plain_string(value) or re.fullmatch(
-        r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})",
+    match = re.fullmatch(
+        r"(?P<clock>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})"
+        r"(?:\.(?P<fraction>\d+))?(?P<zone>Z|[+-]\d{2}:\d{2})",
         value,
-    ) is None:
+    ) if plain_string(value) else None
+    if match is None:
         fail("NTM history timestamp is not timezone-aware RFC3339")
-    normalized = value[:-1] + "+00:00" if value.endswith("Z") else value
+    # Python 3.10 rejects NTM nanoseconds; fromisoformat accepts microseconds.
+    fraction = match.group("fraction")
+    zone = match.group("zone")
+    normalized = match.group("clock")
+    if fraction is not None:
+        normalized += "." + fraction[:6]
+    normalized += "+00:00" if zone == "Z" else zone
     try:
         parsed = datetime.datetime.fromisoformat(normalized)
     except ValueError:
@@ -1418,12 +1463,51 @@ if not isinstance(history, dict) or history.get("success") is not True:
 if history.get("session") != session:
     fail("NTM history session mismatch")
 entries = history.get("entries")
-if not isinstance(entries, list):
-    fail("NTM history entries are missing or malformed")
 for count_field in ("total", "filtered"):
     count = history.get(count_field)
     if type(count) is not int or count < 0:
         fail("NTM history count is malformed")
+if "entries" not in history and history["total"] == history["filtered"] == 0:
+    # NTM v1.35.1 omits entries for empty robot history. Corroborate via its
+    # documented session-filtered history interface; counts alone prove nothing.
+    documented_result = subprocess.run(
+        [ntm_bin, "history", "--session", session, "--limit", "100000", "--json"],
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+        encoding="utf-8",
+    )
+    if documented_result.returncode != 0:
+        fail("NTM documented history lookup failed")
+    documented = load_strict_json(documented_result.stdout)
+    if not isinstance(documented, dict) or (
+        "session" in documented and documented["session"] != session
+    ):
+        fail("NTM documented history session mismatch")
+    pagination = documented.get("pagination")
+    if (
+        documented.get("entries") != []
+        or type(documented.get("total_count")) is not int
+        or documented["total_count"] != 0
+        or type(documented.get("showing")) is not int
+        or documented["showing"] != 0
+        or documented.get("has_more") is not False
+        or not isinstance(pagination, dict)
+        or type(pagination.get("limit")) is not int
+        or pagination["limit"] != 100000
+        or type(pagination.get("offset")) is not int
+        or pagination["offset"] != 0
+        or type(pagination.get("count")) is not int
+        or pagination["count"] != 0
+        or type(pagination.get("total")) is not int
+        or pagination["total"] != 0
+        or pagination.get("has_more") is not False
+    ):
+        fail("NTM documented history is nonempty, filtered, or truncated")
+    entries = []
+if not isinstance(entries, list):
+    fail("NTM history entries are missing or malformed")
 if history["total"] != len(entries) or history["filtered"] != len(entries):
     fail("NTM history is filtered or truncated")
 
@@ -1672,15 +1756,17 @@ Validate:
 Risk gate:
 - none | <gate>
 Model route:
-- Grok 4.6 NTM orchestrator for ready-frontier reads, claim/dispatch, tending,
+- Low-tier NTM orchestrator for ready-frontier reads, claim/dispatch, tending,
   harvest, and convergence only; it never plans or makes final decisions
 - Grok dispatcher for read-only router/preflight nodes
 - Grok CLI sidecar for Grok-authored read-only evidence artifacts
-- Grok 4.6 task-runner for narrow scripting, docs, fixtures, or commit
+- Grok task-runner for narrow scripting, docs, fixtures, or commit
   batching nodes with explicit write scope, validation, stop rules,
   stronger-model review, and final authority; allocate the high work tier through the binding route-v2 contract if the runner stalls, drifts, or
   cannot validate
-- Grok 4.6 design/UX for design-related nodes and design/fresh-eyes review;
+- the `med` work tier for ordinary implementation needing judgment and scoped
+  tests, with `high` tier final acceptance
+- Grok design/UX for design-related nodes and design/fresh-eyes review;
   the high work tier owns every planning and final-authority allocation
   through the retained route-v2 decision and atomic adapter handoff
 - the high work tier for planning, decomposition/synthesis, system design,
@@ -1878,8 +1964,8 @@ blocked Beads for a future session. Apply
 verdict-file reviews may stay headless; a review that must talk back uses the
 NTM spawn below. Do not default to `/codex:rescue`.
 
-Spawn a small review swarm: one Grok runtime controller, one independent Grok
-fresh-eyes reviewer, and one Codex final-authority reviewer:
+Spawn a small review swarm: one low-tier runtime controller, one independent Grok
+fresh-eyes reviewer, and one high-tier final-authority reviewer:
 
 ```bash
 PROJECT_DIR="$(realpath "$(git rev-parse --show-toplevel)")"
@@ -1904,60 +1990,31 @@ test "$REVIEW_AUTHORITY_ROUTE_STATUS" -eq 0 \
 python3 "$(dirname -- "$SBP_BIN")/route_ladders.py" \
   --validate-decision-json "$REVIEW_AUTHORITY_ROUTE" >/dev/null || { echo "malformed final-review AUTHORITY decision" >&2; exit 2; }
 
-REVIEW_GROK_ROUTE_STATUS=0
-REVIEW_GROK_ROUTE="$(sbp route low --refresh --json)" \
-  || REVIEW_GROK_ROUTE_STATUS=$?
-test "$REVIEW_GROK_ROUTE_STATUS" -eq 0 || test "$REVIEW_GROK_ROUTE_STATUS" -eq 1 \
-  || { echo "final-review Grok probe failed without a decision" >&2; exit 2; }
-
-python3 "$(dirname -- "$SBP_BIN")/route_ladders.py" \
-  --validate-decision-json "$REVIEW_GROK_ROUTE" --allow-non-runnable >/dev/null || { echo "malformed final-review Grok decision" >&2; exit 2; }
-
-if test "$REVIEW_GROK_ROUTE_STATUS" -eq 0; then
-  printf '%s\n' "$REVIEW_GROK_ROUTE" | \
-    jq -e '.runnable == true' >/dev/null || exit 2
-else
+# The controller uses the low tier. Fresh-eyes Grok review is a separate lane.
+REVIEW_LOW_ROUTE="$(sbp route low --refresh --json)" || exit 2
+REVIEW_GROK_ROUTE="$(sbp route pick grok --refresh --json)" || exit 2
+for decision in "$REVIEW_LOW_ROUTE" "$REVIEW_GROK_ROUTE"; do
   python3 "$(dirname -- "$SBP_BIN")/route_ladders.py" \
-  --validate-decision-json "$REVIEW_GROK_ROUTE" --allow-non-runnable >/dev/null || exit 2
-  printf '%s\n' "$REVIEW_GROK_ROUTE" | jq -e '.runnable == false and .reason == "no-route"' >/dev/null || exit 2
-  printf '%s\n' "$REVIEW_GROK_ROUTE" \
-    > "$run_dir/FINAL_REVIEW_GROK_ROUTE_NO_ROUTE.json"
-  echo "Grok unavailable; retained typed no-route decision; stopping final review" >&2
-  exit 2
-fi
-
-REVIEW_GROK_DECISION_ARGS=()
-for ((slot = 0; slot < 2; slot++)); do
-  REVIEW_GROK_DECISION_ARGS+=(--decision-json "$REVIEW_GROK_ROUTE")
+    --validate-decision-json "$decision" >/dev/null || exit 2
 done
 
 "$ROUTE_NTM_SPAWN" \
   --project-dir "$PROJECT_DIR" \
   --decision-json "$REVIEW_AUTHORITY_ROUTE" \
-  "${REVIEW_GROK_DECISION_ARGS[@]}" \
+  --decision-json "$REVIEW_LOW_ROUTE" \
+  --decision-json "$REVIEW_GROK_ROUTE" \
   --label "$REVIEW_LABEL" \
   -- \
   --no-user --stagger-mode=smart
 ntm --robot-wait="$REVIEW_SESSION" --wait-until=idle --timeout=120s
 ```
 
-Before any review task, controller instruction, or nudge is sent, assign and
-claim one live Bead per review pane and apply Step 8 to all three panes. Use
-`REVIEW_AUTHORITY_ROUTE` as the final-authority pane's retained from-route and
-`REVIEW_GROK_ROUTE` for each Grok pane. The exact bound file must be each
-pane's first successful singleton NTM dispatch and must remain the recovery
-prompt. Missing per-pane Bead/assignee identity or pre-existing successful
-history stops final-review dispatch; do not send an unbound reviewer prompt.
-
-The final-review `high` tier pick and Grok pick are each fresh, exact, retained, and
-handed atomically to the adapter; no second live pick may change either
-transport. The same retained Grok decision is repeated for the runtime
-controller and independent Grok reviewer. If either lane returns typed
-no-route, retain it and stop. A `high` tier no-route may continue only through the already-authorized
-[Non-default Model-Change Gate](#non-default-model-change-gate); never ask the
-Grok controller or fresh-eyes reviewer to make the final acceptance decision.
-Pivotal or failed-model review still uses the `high` tier through this exact
-route-v2 path; prompt prose and static flags do not change authority.
+Before any review task or controller instruction, claim one live Bead per
+pane and apply Step 8. Bind the high decision to final authority, the low
+decision to runtime coordination, and the explicit Grok decision to fresh-eyes
+review. Keep each pane's first successful singleton NTM work binding for
+recovery. A typed no-route stops the affected allocation; it does not grant
+its role to another pane. High-tier final authority remains required.
 
 Reviewer prompt:
 - Read the original task, live Beads state via `br show` / `hydrate-node`, the
@@ -1966,7 +2023,7 @@ Reviewer prompt:
 - Run relevant build, test, lint, and typecheck commands
 - Fix only integration bugs or validation failures
 - For UI, UX, visual, design-system, screenshot, or ambiguous review-heavy work,
-  use Grok 4.6 for the fresh-eyes review of the final diff and validation
+  use Grok for the fresh-eyes review of the final diff and validation
   evidence. If the retained Grok route-v2 decision is typed no-route, record
   that route blocker and stop this final-review allocation. `high` tier retains final
   authority but does not authorize bypassing the required Grok review.
@@ -1978,7 +2035,7 @@ Reviewer prompt:
 - Run `python3 "$DAC_SHARED_ROOT/scripts/br_helpers.py" flush` so
   `.beads/issues.jsonl` reflects current state
 - Commit if there are clean, scoped changes to save (include `.beads/issues.jsonl`,
-  exclude `.beads/*.db*`). Prefer Grok 4.6 for the mechanical
+  exclude `.beads/*.db*`). Prefer Grok for the mechanical
   execution of a `$commit` node when the Bead names the exact commit scope,
   validation, leave-list, and no-wildcard staging rules; the `high` work tier owns acceptance of the commit plan and final review through the
   retained route-v2 decision and atomic adapter handoff.
@@ -2038,9 +2095,9 @@ When the final review result is available:
   before launch
 - Subgoal controller issues are durable delegation boundaries. NTM session
   names and `SUBGOAL_RESULT.md` files are derived evidence, not topology
-- The Codex root planning authority owns subgoal creation, shared files,
+- The root planning authority owns subgoal creation, shared files,
   cross-subgoal graph shape, final integration judgment, and commit acceptance.
-  The Grok runtime controller coordinates final validation, Beads flush, and
+  The low-tier runtime controller coordinates final validation, Beads flush, and
   the accepted commit operation.
 - Child orchestrators may claim/close/block only leaf issues in their assigned
   `slice:{root},subgoal:{slug}` frontier and must propose cross-subgoal changes
@@ -2058,21 +2115,22 @@ When the final review result is available:
 - Cwd/workflow routing, skill-tag extraction, cleaned-request drafting,
   read-only clerk/preflight nodes, bounded scripting, fixture/docs cleanup,
   generated-command cleanup, classification, and scoped commit-runner nodes
-  use the NTM Grok plugin with the binding retained route-v2 decision when
+  use the selected low-tier runner with the retained decision when
   classified for NTM. The `voice-to-text` dispatcher, Swimmers hidden Grok
-  sessions, direct headless Grok, or a local Grok 4.6 task-runner route are
+  sessions, direct headless Grok, or a local Grok task-runner route are
   separately classified non-NTM substrates, never quota fallback; reconcile
   all output through the normal Beads/result-artifact contract, validation,
   and stronger-model review
-- NTM-substrate runtime orchestration must use a Grok 4.6 plugin controller
-  through the binding retained route-v2 decision and adapter.
+- NTM-substrate runtime orchestration uses the selected low-tier controller
+  through the binding retained route-v2 decision and adapter, subject to
+  [Availability and Safe Continuation](#availability-and-safe-continuation).
   Headless-only waves keep the same duties in the lead process. Design-related
-  nodes and design/fresh-eyes review nodes should also use Grok 4.6. Planning,
+  nodes and design/fresh-eyes review nodes should also use Grok. Planning,
   no-ragrets bead composition, decomposition/synthesis, domain-planner sessions,
   system design, impactful execution, integration review, commit acceptance,
   and final-say nodes must use the high work tier through the binding
   route-v2 selector, retained decision, canonical project-dir, and atomic
-  adapter handoff. Typed no-route evidence stops unless the non-default
+  adapter handoff. High-tier typed no-route evidence stops unless the non-default
   model-change gate was already authorized; Grok never inherits authority
 - The lead must claim every dispatched node for the assigned worker and verify
   `status=in_progress` plus assignee before edits begin; unclaimed pane activity

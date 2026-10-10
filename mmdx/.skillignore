@@ -1,0 +1,2 @@
+# Dependencies are installed locally; do not distribute generated modules.
+node_modules/

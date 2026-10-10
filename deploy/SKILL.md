@@ -31,12 +31,13 @@ Start the first progress update with:
 This skill is public and generic. Real topology belongs in
 `skillbox-config/clients/{client}/overlay.yaml`; do not use legacy private modes.
 
-Load the resolved context before deploy/debug work:
+Load release context before execution (diagnostics may omit `--require-release`):
 
 ```bash
-SKILL_DIR="$HOME/.claude/skills/deploy"
-[[ -d "$SKILL_DIR" ]] || SKILL_DIR="$HOME/.codex/skills/deploy"
-eval "$("$SKILL_DIR/scripts/select_mode.py" "$PWD" --format shell)"
+# Set from the actual loaded skill path, including project-scoped installations.
+SKILL_DIR="<directory containing this SKILL.md>"
+mode_exports="$(python3 "$SKILL_DIR/scripts/select_mode.py" "$PWD" --require-release --format shell)" || exit $?
+eval "$mode_exports"
 ```
 
 `select_mode.py` resolves the matching client overlay, then narrows the deploy
@@ -44,8 +45,8 @@ payload to the current repo when the overlay carries a shared `deploy.services`
 or `deploy.packages` portfolio. The emitted `MODE_*` vars should describe the
 repo under the current cwd, not the entire portfolio.
 
-If no client overlay matches, the selector exits non-zero and prints a legacy
-transition message with:
+Strict release selection refuses missing, ambiguous or stale context with no
+exports. Diagnostic selection (omit `--require-release`) can print:
 
 - read-only probe output for inferable values such as `repo_slug`, compose
   services, and CI workflow path
@@ -56,12 +57,6 @@ If you need to bootstrap a new overlay directly:
 
 ```bash
 python3 ~/.claude/skills/skill-issue/scripts/manage_overlays.py create --client-id {CLIENT_ID} --cwd "$PWD" --json
-```
-
-The error starts with:
-
-```text
-Legacy transition: no skillbox-config overlay matches <cwd>.
 ```
 
 Then re-resolve deploy context. Do not guess hosts, repo paths, or deploy
@@ -87,6 +82,9 @@ converting a release lane. Its load-bearing invariants are:
 5. never rebuild on the production host
 6. prove local credentials with a real release before removing the last automatic deploy trigger
 7. close with behavior proof, state proof, a release manifest, retained artifacts, and a compatible rollback path
+
+Preserve the tested inputs when moving from push validation into native release
+setup, as detailed in the canonical-gate guidance in the self-release reference.
 
 Keep `workflow_dispatch` as an optional break-glass fallback. Retain hosted jobs
 when they provide a real boundary, such as untrusted contributor checks or a
@@ -234,16 +232,12 @@ credential before redeploying with a browser-safe publishable/public key.
 
 ## Permission Model
 
-Use these defaults unless the user explicitly changes them:
-
-| Category | Permission | Examples |
-| --- | --- | --- |
-| Local/dev edits | Free | edit app code, dev containers, dev DB |
-| Prod read ops | Ask once per session | `SELECT`, `docker exec ... alembic current`, read-only config inspection |
-| Prod write ops | Ask once per session | `UPDATE`, `INSERT`, `DELETE`, env sync, running migrations |
-| Prod restarts | Ask once per session | `docker compose restart api` |
-| Git push | Ask every time | any push to any branch |
-| Destructive schema ops | Ask per query | `DROP`, `TRUNCATE`, `ALTER ... DROP` |
+Honor authorization already provided in this session for the named target and
+operation. Read-only inspection and reversible local preparation may proceed.
+Ask only when a proposed write, restart, push, release, or destructive operation
+exceeds that scope; explain the concrete new effect. Do not ask again merely
+because a command failed or the workflow advanced to an already authorized step.
+Authorization to deploy does not authorize blind retries after uncertain activation.
 
 ## Default Flow
 
@@ -318,7 +312,12 @@ change:
   not protected application middleware, and production bundles contain no
   server-only secret patterns.
 
-Do not hand the run back until both rerun checks pass.
+Report a terminal failure or unknown outcome promptly; do not loop until green.
+Use `Native`, `Result`, `Evidence`, and `Next` from
+[release outcomes](references/release-outcomes.md). Preserve native exit status
+separately from activation, behavior, state, and recovery evidence. A timeout or
+nonzero exit after possible activation requires inspection of the existing run
+before any retry. HTTP 200 alone never establishes the expected release SHA.
 
 ## Docker / Compose Deploy
 

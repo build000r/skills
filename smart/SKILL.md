@@ -86,6 +86,37 @@ tending panes. When the chosen move requires parallel execution, route it to
   implementation so repo root, model choice, Beads state, and completion proof
   are owned by the execution layer.
 
+## Awareness of Existing Work
+
+Use judgment about when more work-state evidence would change the decision.
+Consult the read-only work collector when ownership is unclear, the task crosses
+repositories, or the local agent landscape may have changed. Reuse recent
+evidence when its scope and age fit the decision; a routine continuation or a
+narrow explanation does not need a fresh scan on every invocation.
+
+Start from the invocation directory and the user's requested scope. In one
+repository, inspect that repository and known dependencies relevant to the
+proposed work. Use a workspace inventory for workspace-wide prioritization.
+A directory alone does not prove relevance: consider the task, shared write
+paths, dependencies, and existing ownership. Read
+[references/work-awareness.md](references/work-awareness.md) for collector
+discovery, scoped commands, and interpretation of incomplete results.
+
+Use relevant Beads, pane locations, and source coverage to inform the move.
+Keep declared task ownership separate from observed sessions; titles, cwd,
+and idle-looking panes do not establish an owner or a handoff. Unavailable or
+out-of-scope sources are unknown, never evidence that work is free. An unrelated
+source failure need not block independent work; unresolved ownership in a
+proposed write scope needs further evidence or a different scope.
+
+Before claiming or dispatching a chosen slice, confirm its owner and write scope
+with evidence current enough for that action. Observing another session does
+not authorize sending it instructions, requesting a handoff, interrupting it,
+or changing its task. Preserve existing owners unless the user has explicitly
+authorized intervention for that work. Mention the observations or material
+coverage gaps that changed the recommendation; do not dump unrelated rows or
+add a ceremonial scan report.
+
 ## The Question
 
 Ground yourself in everything available — the conversation so far, the codebase, recent git history, any active plans or tasks — then answer this:
@@ -149,7 +180,7 @@ For `higher-level goal`, `lofty goal`, hardening loop, or adjacent-concern reque
 
 ## How to Answer
 
-1. **Absorb context first.** Read the conversation history. Resolve the active client context and artifact roots before looking for prior smart or modes state. Then check `git log --oneline -20` and `git diff --stat` for recent momentum. Run a repo-integrity pass over the changed paths, adjacent tests, README/docs, comments, and any active plans or task lists. If the overlay-backed smart chain exists, read the latest link before deciding. If an overlay-backed modes-of-reasoning analysis exists, read its latest output too. Understand what phase the work is in — exploration, building, debugging, shipping.
+1. **Absorb context first.** Read the conversation history. Resolve the active client context and artifact roots before looking for prior smart or modes state. Then check `git log --oneline -20` and `git diff --stat` for recent momentum. Run a repo-integrity pass over the changed paths, adjacent tests, README/docs, comments, and any active plans or task lists. If the overlay-backed smart chain exists, read the latest link before deciding. If an overlay-backed modes-of-reasoning analysis exists, read its latest output too. Understand what phase the work is in — exploration, building, debugging, shipping. Apply [Awareness of Existing Work](#awareness-of-existing-work) when additional ownership or session evidence would affect the choice.
 
 2. **Scope to what matters now.** If the user included a focus area (e.g., `/smart with regard to auth flow`), narrow to that. Otherwise, identify the current bottleneck or highest-value gap yourself.
 

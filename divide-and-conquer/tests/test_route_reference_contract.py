@@ -10,6 +10,7 @@ REFERENCES = (
     ROOT / "references" / "workgraph-synthesis.md",
     ROOT / "references" / "mode-template.md",
     ROOT / "references" / "grok-sidecar-selection.md",
+    ROOT / "references" / "model-economics.md",
 )
 HISTORICAL_MARKER = "HISTORICAL ONLY:"
 
@@ -52,8 +53,20 @@ class RouteReferenceContractTests(unittest.TestCase):
         self.assertIn("high work tier", synthesis)
         self.assertIn("MODEL_CHANGE", synthesis)
         self.assertIn("sbp route <low|med|high> --refresh --json", mode)
-        self.assertIn("the `high` work tier", mode)
-        self.assertIn("the `low` work tier", mode)
+        self.assertIn("`high` for no-ragrets composition", mode)
+        self.assertIn("`med` for ordinary implementation", mode)
+        self.assertIn("`low` for runtime orchestration", mode)
+
+    def test_candidate_models_require_route_and_acceptance_proof(self) -> None:
+        policy = REFERENCES[3].read_text(encoding="utf-8")
+        skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("GPT-6 Luna", policy)
+        self.assertIn("Claude Opus 5.5", policy)
+        self.assertIn("Grok 4.7", policy)
+        self.assertIn("cost per accepted node", policy)
+        self.assertIn("no new blocker/severe review", policy)
+        self.assertIn("New benchmark releases nominate routes for a", skill)
+        self.assertIn("`med` for ordinary implementation", skill)
 
     def test_grok_45_mentions_are_explicitly_historical(self) -> None:
         findings = [

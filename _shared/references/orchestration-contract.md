@@ -143,113 +143,59 @@ work item with the exact root-resolution failure. A successful `ntm spawn`,
 idle pane, or worker self-report is not sufficient proof; verify the node brief
 landed in the intended checkout before counting the node in flight.
 
-When a skill can choose models, record the route and authority separately in
-the Bead or dispatch contract before launch. Route NTM runtime orchestration —
-frontier reads, claims of accepted leaves, dispatch, tending, harvest, and
-convergence — to a Grok 4.6 plugin controller. Runtime orchestration is not
-planning: Grok must escalate decomposition, dependency design, acceptance-
-criteria authorship, plan synthesis, architecture, ambiguity, and final
-acceptance. Route those planning/authority roles, plus no-ragrets bead
-composition, domain-planner sessions and quality loops, system design,
-high-impact code or architecture decisions, ambiguous repairs, integration
-review, commit acceptance, and final-say review to Codex `gpt-5.6-sol` at
-`medium` by default. Use SOL `max` for pivotal/high-consequence planning or
-when Grok/another model is demonstrably struggling. If SOL is unavailable,
-route the same planning/authority roles to Codex
-`gpt-5.6-terra` with `ultra` effort. Route design-related
-execution nodes to Grok 4.6 design/UX through `--grok=N:grok-4.6` and record the
-route. Use Codex `gpt-5.6-sol` with `max` for pivotal route-blocker triage;
-ordinary authority remains SOL medium. Design-related includes UI/UX, visual design, design systems,
-CSS/tokens, responsive behavior, screenshots, visual parity, product
-interaction copy, and fresh-eyes review of those surfaces. For bounded
-task-runner work, prefer Grok 4.6 when the owning Bead names the exact
-write scope or read-only artifact, validation, stop rules, review owner, and
-final authority. Good task-runner work includes cwd/workflow routing, skill-tag
-extraction, cleaned-request drafting, read-only clerk/preflight work,
-mechanical scripting, fixtures/docs cleanup, generated-command cleanup,
-classification into a declared artifact, and scoped commit batching. Use the
-workspace `voice-to-text` Grok dispatcher for cheap routing/preflight, the NTM
-Grok plugin when interactive pane preflight passes, Swimmers or the local
-Grok 4.6 route for maintained task-runner sessions, and direct headless Grok
-with a prompt file for bounded one-shots. If Grok 4.6 stalls, emits no
-artifact, fails validation, leaves scope, or needs judgment it does not own,
-escalate authority questions to Codex `gpt-5.6-sol` max; route design/UX work
-to Grok 4.6 design/UX and record the route failure.
+## Route and authority
 
-### Grok routing — NTM orchestrator/plugin preferred, sidecar backup
+When a skill can choose models, record the work tier, selected model, actual
+effort, runner, and final authority separately in the Bead or dispatch
+contract. Resolve executable NTM routes through
+`sbp route <low|med|high> --refresh --json`; validate and retain the full decision, then pass it
+unchanged to the route adapter. The effective operator overlay owns model and
+effort tuples. Do not infer a configured route from an API launch, CLI default,
+or benchmark table.
 
-**Preferred (interactive swarms):** NTM agent plugin at `~/.config/ntm/agents/grok.toml`.
-Every actively orchestrated NTM swarm should reserve one Grok 4.6 plugin pane
-as its runtime controller. The installed plugin is already Grok 4.6; spawn with
-`ntm spawn <session> --grok=1`
-(alias `--grk`). Send with
-`ntm send <session> --panes=N` — there is no `ntm send --grok`. Agents must
-run the fix-if-broken checklist in `skills-private/ntm/references/GROK-ROUTING.md`
-before treating sidecars as the default.
+- `low`: bounded runtime coordination, clerk work, and mechanical tasks with
+  exact writes, stop rules, and independent validation. A controller may read
+  accepted frontiers, claim, dispatch, tend, harvest, and converge; it does not
+  plan, alter acceptance criteria, or make final decisions.
+- `med`: ordinary implementation that needs judgment and scoped tests. It is
+  the normal next step when `low` task-runner safety does not hold. Backend or
+  multi-file work alone does not require `high`.
+- `high`: no-ragrets bead composition, decomposition, architecture, impactful
+  code, unresolved ambiguity, integration acceptance, commit acceptance, and
+  final review. A failed `high` allocation retains its exact no-route receipt;
+  bounded-worker fallbacks do not inherit this authority.
+- Design and visual review: use the selected design-capable route and keep
+  `high` final acceptance. Record visual proof and review findings.
 
-**Backup (headless, routing, or broken plugin):** sidecar lanes below. Use when
-plugin preflight fails, work is read-only/headless, or automation cannot rely on
-NTM pane typing (plugin Grok panes report as `user` in `--robot-*`).
+New model releases are candidate signals. For a cheaper replacement, compare
+matched Beads with the same acceptance criteria, tools, validation, and
+independent reviewer. Include retries and review in cost per accepted node.
+A scope breach, failed validation, or severe review finding blocks promotion.
+See [model economics](../../divide-and-conquer/references/model-economics.md) for the dated candidate
+comparison and qualification procedure. Existing bound work continues with
+its retained route; reconcile effects and ownership before replacement.
 
-### Grok CLI sidecar lanes (backup)
+For an NTM controller, use the retained runnable `low` decision through the
+adapter and bind its Bead before the first prompt. A direct headless or native
+subagent route is a separately classified tracked allocation. It cannot be
+used as an unrecorded substitute after an NTM no-route result. The local
+`divide-and-conquer` skill owns the exact fallback and recovery procedure.
 
-When the plugin route is unsuitable or failed repair, use one of these explicit
-sidecar/task-runner lanes and reconcile the output back into the owning workflow:
+For Grok work, confirm the configured route and runner before launch. The NTM
+plugin serves interactive panes; direct headless Grok and Swimmers are
+separately classified substrates for bounded one-shots or maintained sidecars.
+Check the actual CLI help and expected artifact path. A successful process
+exit or idle pane alone does not prove task completion. Reconcile Beads state,
+artifact, validation, and final reviewer decision.
 
-- **Availability preflight:** verify `command -v grok` and inspect the current
-  CLI shape with `grok --help` before promising a Grok lane. If the route needs
-  Swimmers, verify the Swimmers service/client path separately; a working Grok
-  binary alone does not prove hidden-session dispatch works.
-- **Dispatcher lane:** use the workspace sibling `voice-to-text` dispatcher for
-  cheap cwd selection, skill-tag extraction, cleaned worker requests, and other
-  read-only routing/preflight decisions. It runs Grok headlessly with
-  `--prompt-file`, JSON output, no subagents, disabled web search, and a
-  read-only sandbox. Treat this as routing evidence, not execution authority.
-- **Swimmers hidden-session lane:** when a Grok worker needs a maintained
-  session or should receive follow-up prompts, spawn it through Swimmers with
-  `spawn_tool: "grok"` (or the `voice-to-text` Swimmers client helper). Swimmers
-  already uses prompt files for the initial request and honors `SWIMMERS_DISPATCHER_GROK_BIN`
-  for the Grok binary override (defaults to `grok` on PATH).
-- **Direct headless lane:** for a bounded one-shot analysis, run Grok CLI
-  directly with a prompt file and capture the response into the caller's normal
-  artifact path. Keep it read-only unless the caller has an explicit write
-  scope and validation contract.
-- **Grok 4.6 task-runner lane:** for narrow writer tasks such as mechanical
-  scripts, fixtures, docs cleanup, generated command cleanup, classification
-  artifacts, deterministic codemods, or `$commit` batching, prefer the locally
-  configured Grok 4.6 route when the Bead names exact writes, validation
-  commands, stop rules, a Codex `gpt-5.6-sol` review owner, and final acceptance
-  authority. Composer/Grok may create a commit in a scoped `$commit` node, but
-  Codex `gpt-5.6-sol` owns acceptance and any amend or follow-up decision.
-
-Direct prompt-file one-shot shape:
-
-```bash
-grok --prompt-file "$PROMPT_FILE" \
-  --cwd "$REPO_ROOT" \
-  --always-approve \
-  --max-turns 20
-```
-
-For read-only work, put the read-only rule, allowed commands, and expected
-artifact path inside `$PROMPT_FILE`. Prefer a declared output file over streamed
-stdout. Recent Grok CLI observations showed top-level `--output-format
-plain|json` can fail silently; use prompt-file plus an expected artifact unless
-the local `grok --help` and a smoke run prove a different shape works.
-
-Record the route in the caller's dispatch contract:
+Model route values in a node should describe work and authority, for example:
 
 ```text
-Model route: Grok NTM plugin       # preferred interactive swarm pane
-Model route: Grok 4.6 NTM orchestrator  # runtime controller; never planning
-Model route: Grok dispatcher       # backup pure routing/preflight
-Model route: Grok CLI sidecar      # backup bounded read-only analysis/ideation
-Model route: Grok CLI writer       # legacy narrow writer; prefer Grok 4.6 task-runner
-Model route: Grok 4.6 task-runner  # narrow writer or commit-runner node
-Model route: Grok 4.6 design/UX    # design/UI/visual/fresh-eyes design work
-Model route: Codex gpt-5.6-sol medium  # ordinary planning and authority
-Model route: Codex gpt-5.6-sol max escalation  # pivotal planning or another model struggling
-Model route: Codex gpt-5.6-terra ultra fallback  # same authority roles when SOL is unavailable
+Model route: low work tier runtime controller
+Model route: low work tier bounded task-runner
+Model route: med work tier implementation
+Model route: selected design lane; high-tier final acceptance
+Model route: high work tier planning/final authority
 ```
 
 Grok NTM plugin panes exist in tmux but are often misclassified as `user` in

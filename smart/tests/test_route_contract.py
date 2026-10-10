@@ -30,7 +30,7 @@ class SmartRouteContractTests(unittest.TestCase):
                 self.assertIsNone(re.search(pattern, self.text, re.IGNORECASE))
 
     def test_model_preserving_route_authority_is_explicit(self) -> None:
-        self.assertIn("SOL route-v2 at `xhigh`", self.text)
+        self.assertIn("SOL route-v2 at `high` (GPT-6.1 Sol)", self.text)
         self.assertIn("Grok route-v2 at `high`", self.text)
         self.assertIn("sbp route pick sol --refresh --json", self.text)
         self.assertIn("sbp route pick <lane> --refresh --json", self.text)

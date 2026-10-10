@@ -1,13 +1,18 @@
 ---
 name: wiki-duel
 description: Run /dueling-idea-wizards on a project or topic after first grounding the agents in the wiki. Thin wrapper that calls /wiki query to build a shared prior, then launches /dueling-idea-wizards with that prior baked into the study phase. Use for "wiki duel", "grounded duel", "duel with wiki context", "duel but check the wiki first", or when an adversarial brainstorm should start from accumulated wiki knowledge rather than a cold read of the repo.
+depends_on:
+  - wiki
+  - dueling-idea-wizards
 ---
 
 # Wiki Duel
 
-Ground the agents in the wiki first, then run a standard adversarial duel. Nothing more.
+Start the first progress update with: `Using wiki-duel`.
 
-The wiki already contains synthesized concept pages, cross-references, and prior research about the project or topic. A cold `/dueling-idea-wizards` run skips all of that and makes both agents rediscover it from source. Wiki-duel removes that waste: both agents start from the same informed baseline, so the duel argues from the frontier instead of from first principles.
+Ground every admitted contender in the wiki first, then delegate the adversarial duel to `dueling-idea-wizards`.
+
+The wiki already contains synthesized concept pages, cross-references, and prior research about the project or topic. A cold `/dueling-idea-wizards` run skips all of that and makes the contenders rediscover it from source. Wiki-duel removes that waste: every contender starts from the same informed baseline, so the duel argues from the frontier instead of from first principles.
 
 ## When to Use
 
@@ -34,7 +39,16 @@ On a machine with no wiki checkout, the vault is still reachable **read-only** t
 
 Capture the brief. Do not edit the wiki during this step — this is a read-only grounding pass. If `/wiki query` produces a novel synthesis that would normally be filed back, note it but defer the write until after the duel so the grounding stays honest.
 
-If the wiki has no coverage, stop and tell the user. Either ingest first or run a plain duel. Do not fabricate grounding.
+Record the concept pages and source references actually read, along with any
+known freshness limits. A reachable wiki synthesis can still ground the duel
+when its underlying sources are stale or unavailable: label those limits in the
+shared brief and leave the uncertain claims for the contenders to verify.
+Successful wiki access does not prove that its sources are current.
+
+If the wiki itself is unreachable or has no relevant coverage, report that
+specific result. Do not describe an access failure as missing coverage, or
+silently call a plain duel wiki-grounded. Stop the grounded branch; a plain
+duel or wiki ingestion is a separate next step.
 
 ### Step 2 — Launch the Duel with the Brief
 
@@ -45,17 +59,25 @@ Invoke `/dueling-idea-wizards`, passing the grounding brief as study context. Tw
 
 Prefer shape 1 by default. Use shape 2 only when the user has asked to focus the duel.
 
-Then let `/dueling-idea-wizards` run its standard phases without modification. Do not override its scoring, reveal, or synthesis logic — wiki-duel's job ends once the grounding is injected.
+Use the canonical duel skill's current roster, routing, fallback, distinct-model,
+launch, and monitoring policy. Do not select contenders from installed CLI names,
+add a sidecar, or copy model preferences into this wrapper. Native and Cursor
+transports are the duel's responsibility.
 
-If Grok CLI is available, let `/dueling-idea-wizards` include it through its
-normal Grok sidecar lane. Wiki-duel should not invent a separate Grok transport;
-it only supplies the grounding brief.
+Give every admitted slot the same captured grounding brief, including source
+limits, before independent ideation. If the duel recovers or replaces a
+contender, ensure it receives that same brief too. Record how each slot received
+it in the duel run's artifacts.
+
+Then let `/dueling-idea-wizards` run its standard phases without modification.
+Do not override its scoring, reveal, or synthesis logic — wiki-duel's job ends
+once the grounding is injected.
 
 ## Output
 
 Report:
-- Which concept pages and sources the wiki grounding pulled from.
-- How the brief was injected (prepended to study vs. `--focus`).
+- Which concept pages and sources the wiki grounding pulled from, and any freshness or reachability limits.
+- How the same brief reached every admitted slot (prepended to study vs. `--focus`).
 - The `/dueling-idea-wizards` report path it produced.
 - Any wiki updates deferred from Step 1 that the user may want to file back now.
 

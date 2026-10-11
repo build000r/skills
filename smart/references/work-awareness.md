@@ -56,6 +56,11 @@ some native `br` read commands can perform database maintenance.
 
 ## Interpret only what matters
 
+- Keep command output bounded to the decision: select relevant IDs, status,
+  ownership, timestamps and coverage before displaying a large JSON result.
+  Do not dump full issue descriptions or an unrelated pending-command queue.
+  Retain a complete receipt only when it serves the task, then show the relevant
+  fields. Truncation is not filtering; preserve errors and unknown coverage.
 - Check scope and per-source coverage before selecting rows. Exit 0 means the
   declared collection completed; exit 1 still contains usable JSON with partial
   or invalid coverage; exit 2 is a usage error. Never discard an exit-1 payload

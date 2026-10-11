@@ -28,6 +28,36 @@ then Edit. This applies to every file modification: skill templates, code,
 config, docs, and generated views. Skipping Read wastes tool calls on retries
 and breaks the edit cycle.
 
+## Continuing an unanswered human decision
+
+Run this entry check before new route allocation, collection, planning or
+review. When the prior link is `waiting-on-human`, first determine whether the new
+message answers its specific decision. Accept an unambiguous answer in context;
+do not require a magic phrase. A repeated skill invocation alone does not answer
+a separate approval question.
+
+Reuse the existing Bead, prepared action, authorization scope and pending
+question. Refresh only evidence that could change readiness, scope or the
+question. Continue independently useful authorized work when it advances the
+same goal; a wait is not a blanket freeze.
+
+If the same human decision is still unanswered and no such work remains, keep
+the current loop waiting and give its exact resume condition. Do not manufacture
+progress with another audit, receipt, Bead, continuation comment, tracker-only
+commit, route allocation or reviewer whose only finding is "still waiting."
+An unchanged wait is not a new execution iteration and does not require a new
+chain entry. Reuse a current structured question; use `ask-cascade` once if the
+decision was only parked in prose or its choices materially changed.
+
+After approval or another answer that unblocks authorized work, resume the
+existing frontier and refresh the action's required preflight. Check expiring
+grants then; a pending command proposal is not an active grant. An expired code
+changes admission readiness, not the existing
+target authorization; never execute an expired grant. A denial, park or keep
+answer preserves the unfinished goal and retained work. Keep that decision until
+the user changes it; do not reopen the same question on another invocation.
+Independent authorized work may continue, but the success criteria remain unmet.
+
 ## Visibility Control Plane
 
 `smart` is the always-global dispatcher. `sbp` is the always-global visibility
@@ -357,6 +387,7 @@ agentic routes attempted or ruled out, and state the exact answer needed to
 resume. Do not call the loop `completed` merely because the next step needs a
 human answer.
 
+
 ## Loop Mode
 
 ### Loop Contract
@@ -647,8 +678,11 @@ python3 skill-issue/scripts/quick_validate.py path/to/smart
 
 ## Recommendation Chain Artifact
 
-After each `/smart` run, update the repo-local Beads chain issue using
+After each `/smart` run with a material decision, action or readiness change,
+update the repo-local Beads chain issue using
 [references/beads-recommendation-chain.md](references/beads-recommendation-chain.md).
+For an unchanged unanswered human decision, retain the existing entry as
+described above; no tracker mutation or commit is required.
 Only render markdown when requested or required by a legacy handoff. Rendered
 views must be generated from `br`, clearly marked as generated, and never edited
 by hand.

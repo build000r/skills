@@ -77,6 +77,32 @@ class RouteReferenceContractTests(unittest.TestCase):
         ]
         self.assertEqual([], findings)
 
+    def test_grok_fallback_preserves_claims_review_and_external_route(self) -> None:
+        skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+        fallback = skill.split("### Standing Grok-to-Codex Fallback", 1)[1].split(
+            "### Binding Low Tier Allocation", 1
+        )[0]
+        compact = " ".join(fallback.split())
+        for required in (
+            "without asking for permission",
+            "no separate `MODEL_CHANGE` approval",
+            "current Codex session and native Codex subagents",
+            "named write scopes, claims, validation",
+            "reviewer who did not implement",
+            "`runnable: true` and `runner: codex`",
+            "account binding",
+            "stop or fence any original writer",
+            "If neither",
+            "takes precedence over Grok-only",
+        ):
+            with self.subTest(required=required):
+                self.assertIn(required, compact)
+        for name in ("workgraph-synthesis.md", "failure-mode-contracts.md"):
+            with self.subTest(reference=name):
+                text = (ROOT / "references" / name).read_text(encoding="utf-8")
+                self.assertIn("../SKILL.md#standing-grok-to-codex-fallback", text)
+        self.assertNotIn("stop this final-review allocation", skill)
+
 
 if __name__ == "__main__":
     unittest.main()

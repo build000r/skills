@@ -71,7 +71,8 @@ For each design-related node or final visual review:
   rerun validation/screenshots, and restart the consecutive-review count at
   zero.
 
-Use the normal design route for this lane: Grok 4.6 design/UX, with Codex
-`gpt-5.6-sol` medium for ordinary authority and max reserved for pivotal
-planning or explicit failed-model triage. Terra ultra applies only when SOL is
-unavailable.
+Prefer Grok for this lane. When unavailable, use
+[Standing Grok-to-Codex Fallback](../SKILL.md#standing-grok-to-codex-fallback)
+without another permission question. A separate Codex reviewer qualifies;
+the implementer's own review does not. Preserve the same original-question,
+severity, screenshot, and consecutive-review requirements under the fallback.

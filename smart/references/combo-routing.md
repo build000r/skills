@@ -43,16 +43,23 @@ If any combo uses a swarm, NTM session, parallel worker wave, or NTM-backed
 review loop, include `vibing-with-ntm`. If the task is large-ish, UI-facing,
 multi-file, naturally parallel, or review-sensitive, use `divide-and-conquer`
 before parallel execution. For UI, visual, design/UX, or ambiguous review-heavy
-work, use the Grok lane; use the SOL lane for planning and final authority.
+work, prefer the Grok lane; use the SOL lane for planning and final authority.
 Resolve lanes with `sbp route pick <lane> --refresh --json`. When it reports
 `runnable: true`, follow the complete decision through the execution skill and
 shared adapter: returned model, runner, quota surface, account binding, and
 returned effort, including selector-chosen fallbacks. Do not block or ask for approval
 over an effort difference from examples or older instructions; that difference
 alone does not require `MODEL_CHANGE`. Do not replace the returned fields to
-satisfy prose defaults. A typed same-lane no-route stops that dispatch unless
-an explicit `MODEL_CHANGE` gate and receipt already permit another model.
-Finish with a fresh-eyes reviewer pass.
+satisfy prose defaults. A typed same-lane no-route stops that allocation; apply
+[Standing Grok-to-Codex Fallback](../SKILL.md#standing-grok-to-codex-fallback)
+for Grok unavailability. Continue with Codex without asking for permission or
+a separate `MODEL_CHANGE` approval: current/native Codex is allowed for bounded
+work, while an external Codex launch requires a runnable, complete retained
+route with account binding. Stop if neither Codex path is available. Other
+model-family changes retain their explicit `MODEL_CHANGE` gate.
+Reconcile and fence any previous writer before transferring remaining work.
+Finish with an independent fresh-eyes reviewer who did not implement the change;
+a separate Codex agent qualifies.
 
 ## When `cass` Should Open The Combo
 

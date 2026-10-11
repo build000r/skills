@@ -90,7 +90,7 @@ Rules per node:
 - Set `--model-route`, `--repo-path`, `--branch`, and `--run-dir` before dispatch so
   `br_helpers.py hydrate-node` can prove the node is dispatch-ready
 - Route runtime root/subgoal controller loops to
-  `--model-route 'Grok route-v2 high NTM orchestrator'`; they may dispatch and
+  `--model-route 'low work tier NTM orchestrator'`; they may dispatch and
   tend only accepted, hydrated leaves and must escalate planning.
 - Route no-ragrets bead composition, decomposition/synthesis, domain-planner
   sessions, system design, impactful execution, integration review, commit
@@ -101,10 +101,13 @@ Rules per node:
   pre-authorized `MODEL_CHANGE` authority and its receipt; availability alone
   never authorizes substitution.
 - Route design work, UI/UX, visual systems, CSS/tokens, screenshot parity, and
-  design/fresh-eyes review to `--model-route 'Grok route-v2 high design/UX'`.
-  Resolve the Grok lane through the same shared selector and adapter. A typed
-  Grok no-route is a blocker unless a separate model-change gate was already
-  authorized.
+  design/fresh-eyes review to `--model-route 'Grok design/UX'` when available.
+  Resolve the Grok lane through the same shared selector and adapter. When
+  unavailable, apply [Standing Grok-to-Codex Fallback](../SKILL.md#standing-grok-to-codex-fallback)
+  without a separate `MODEL_CHANGE` approval. Record the actual Codex path;
+  current/native agents are allowed for bounded work, and external launches
+  require the complete runnable Codex decision and account binding. Preserve
+  writer handoff safety and an independent reviewer.
 - Use `--model-route 'Grok dispatcher'` only for read-only router/preflight
   nodes such as cwd selection, skill-tag extraction, cleaned-request drafting,
   and broad evidence bucketing.
@@ -230,9 +233,8 @@ The minimum Beads-backed node brief must carry:
   only; the `high` work tier for planning, no-ragrets bead composition,
   decomposition/synthesis, domain-planner sessions, system design, impactful
   execution, integration review, commit acceptance, and final say; Grok
-  route-v2 at `high` for design-related nodes; any same-lane no-route stops
-  unless a separate, pre-authorized `MODEL_CHANGE` gate and receipt permit a
-  different model;
+  for design-related nodes, with Standing Grok-to-Codex Fallback when unavailable;
+  other model-family changes require a separately authorized `MODEL_CHANGE` gate;
   Grok dispatcher for read-only router/preflight nodes; Grok CLI sidecar
   for read-only evidence artifacts; the selected `low` tier task-runner for narrow
   scripting, docs/fixtures, or commit batching with stronger-model review

@@ -60,6 +60,36 @@ class SmartRouteContractTests(unittest.TestCase):
                 with self.subTest(document=document.name, required=required):
                     self.assertTrue(required in text, f"Missing {required!r}")
 
+    def test_grok_failure_has_standing_codex_fallback(self) -> None:
+        skill = self.documents[ROOT / "SKILL.md"]
+        fallback = skill.split("### Standing Grok-to-Codex Fallback", 1)[1].split(
+            "`smart` chooses the next move", 1
+        )[0]
+        compact = " ".join(fallback.split())
+        for required in (
+            "without asking for permission",
+            "no separate `MODEL_CHANGE` approval",
+            "current Codex session and native Codex subagents",
+            "`runnable: true` and `runner: codex`",
+            "account binding",
+            "stop or fence the original writer",
+            "transfer only the remaining work",
+            "independent fresh-eyes reviewer who did not implement",
+            "If neither",
+            "stop the affected work",
+            "takes precedence over Grok-only",
+            "does not change the global SBP route ladder",
+        ):
+            with self.subTest(required=required):
+                self.assertIn(required, compact)
+
+    def test_combo_cannot_restore_permission_loop(self) -> None:
+        reference = self.documents[ROOT / "references" / "combo-routing.md"]
+        self.assertIn("../SKILL.md#standing-grok-to-codex-fallback", reference)
+        self.assertIn("without asking for permission", reference)
+        self.assertIn("who did not implement the change", reference)
+        self.assertNotIn("no-route stops that dispatch unless", self.text)
+
 
 if __name__ == "__main__":
     unittest.main()

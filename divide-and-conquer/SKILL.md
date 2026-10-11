@@ -155,7 +155,7 @@ lane in [Dispatch Substrate Selection](#dispatch-substrate-selection) is a
 sanctioned peer for single-shot artifact nodes, not a silent degrade. Do not
 dispatch leaf work through the orchestrator's in-process Task/subagent UI
 (Claude Code `Task`, Codex subagents, or equivalent) except through
-[Availability and Safe Continuation](#availability-and-safe-continuation).
+[Standing Grok-to-Codex Fallback](#standing-grok-to-codex-fallback).
 Otherwise those are untracked extra agent processes, not the headless lane.
 Do not use `/codex:rescue` or other
 untracked local workers as the primary path unless the user explicitly asks.
@@ -398,6 +398,36 @@ stop or fence the old writer, and transfer only remaining work under
 [Safe Continuation](references/safe-continuation.md). A spawn is not proof of
 completion.
 
+### Standing Grok-to-Codex Fallback
+
+When Grok has a fresh typed `no-route` or an observed auth, quota, runner, or
+transport failure, continue with Codex without asking for permission. Standing
+operator authority covers Grok-to-Codex implementation, orchestration, and
+independent review; no separate `MODEL_CHANGE` approval is required.
+
+For bounded work, use the current Codex session and native Codex subagents.
+Keep the accepted Bead, named write scopes, claims, validation, and a separate
+fresh-eyes reviewer who did not implement the change. The lead may implement
+an explicitly root-owned slice; root self-review alone cannot satisfy review.
+Native agents use the host's supported model configuration, not a fabricated
+SBP decision, and do not need an NTM controller. For a new external Codex launch,
+resolve `sbp route pick sol --refresh --json`, require `runnable: true` and
+`runner: codex`, and retain the complete decision, returned effort, and account
+binding through the supported adapter. Do not fabricate quota headroom or
+substitute a different provider when that route is unavailable.
+
+Record the Grok failure, Codex execution path, assigned scopes, and reviewer on
+the existing Bead. Reconcile artifacts and effects, stop or fence any original
+writer, and hand off only remaining work before replacing it. This is a new
+checkpoint handoff, not same-lane recovery or permission to replay side effects.
+If neither a working current/native Codex path nor a runnable external Codex
+route exists, stop the affected work with that exact blocker.
+
+This exception takes precedence over Grok-only design, controller, reviewer,
+and in-process-subagent restrictions elsewhere in this skill and its references.
+It does not change the SBP tier ladder, permit arbitrary provider substitution,
+or waive independent review, validation, ownership, and safe handoff.
+
 ### Binding Low Tier Allocation
 
 Use `sbp route low --refresh --json` for bounded runtime work. Retain and
@@ -467,16 +497,16 @@ Route every ready node before spawning workers:
   [Non-default Model-Change Gate](#non-default-model-change-gate).
   Planning/authority nodes may author or
   repair Beads and may overrule task-runner output; the low-tier controller may not.
-- **Grok owns design/UX and visual review work.** Treat a node as design-related
+- **Prefer Grok for design/UX and visual review work.** Treat a node as design-related
   when it touches UI/UX, visual design, design systems, frontend screen or
   component layout, CSS/tokens, responsive behavior, screenshots, visual
   parity, product interaction copy, or fresh-eyes review of those surfaces.
   Dispatch NTM-classified nodes through the NTM Grok plugin with the retained
   route-v2 decision and adapter. Use an approved sidecar/direct Grok route
   only when the node was independently classified for that non-NTM substrate,
-  never as quota fallback. If no Grok design route is available, surface
-  the route blocker and keep the selected `high` tier as final acceptance authority, not as the
-  default design worker.
+  never as quota fallback. If no Grok design route is available, apply
+  [Standing Grok-to-Codex Fallback](#standing-grok-to-codex-fallback) and continue
+  with Codex, including a separate fresh-eyes reviewer.
 - **Bounded task runners use the selected `low` decision.** Apply the Bead's
   exact write scope, validation, stop rules, and review owner. The selected
   runner may be native Grok, Codex Luna at max, or Cursor Grok. Use the NTM
@@ -618,9 +648,9 @@ unblocks that are explicitly recorded as root-owned.
 |----------|---------|-------------|
 | `--project=NAME` | derived from cwd + wave id | NTM swarm project name |
 | `low` tier route-v2 decisions | 1 controller + routed workers | One retained exact low-tier decision repeated per controller/worker pane through `route_ntm_spawn.sh`; never planning or final authority |
-| Grok design/UX lanes | auto | UI/UX, visual design, design-system, screenshot, visual parity, interaction-copy, and fresh-eyes review nodes |
+| Grok design/UX lanes | preferred | UI/UX, visual design, design-system, screenshot, visual parity, interaction-copy, and fresh-eyes review nodes; standing Codex fallback when Grok is unavailable |
 | `high` tier route-v2 decisions | auto | Planning/authority panes; exact retained `high` tier decision, with its selected effort, through `route_ntm_spawn.sh --project-dir "$PROJECT_DIR"` |
-| Model-family change | disabled by default | Only through the binding non-default model-change gate; otherwise stop |
+| Model-family change | disabled by default | Standing Grok-to-Codex fallback is authorized; other changes require the binding non-default model-change gate |
 | `--gmi=N` | 0 | Optional Gemini panes |
 | Non-NTM Grok substrates | eligible clear Beads | Independently classified `voice-to-text`, Swimmers, local, or direct-headless task-runner routes; never fallback from an NTM no-route decision |
 | `--max-workers=N` | 10 | Hard cap per wave |
@@ -1766,7 +1796,8 @@ Model route:
   cannot validate
 - the `med` work tier for ordinary implementation needing judgment and scoped
   tests, with `high` tier final acceptance
-- Grok design/UX for design-related nodes and design/fresh-eyes review;
+- Grok design/UX for design-related nodes and design/fresh-eyes review, with
+  Standing Grok-to-Codex Fallback when unavailable;
   the high work tier owns every planning and final-authority allocation
   through the retained route-v2 decision and atomic adapter handoff
 - the high work tier for planning, decomposition/synthesis, system design,
@@ -1964,8 +1995,11 @@ blocked Beads for a future session. Apply
 verdict-file reviews may stay headless; a review that must talk back uses the
 NTM spawn below. Do not default to `/codex:rescue`.
 
-Spawn a small review swarm: one low-tier runtime controller, one independent Grok
-fresh-eyes reviewer, and one high-tier final-authority reviewer:
+Prefer a small review swarm: one low-tier runtime controller, one independent
+Grok fresh-eyes reviewer, and one high-tier final-authority reviewer. The recipe
+below is for available Grok. If Grok is unavailable, use
+[Standing Grok-to-Codex Fallback](#standing-grok-to-codex-fallback) instead:
+a separate native Codex reviewer may review bounded work without an NTM swarm.
 
 ```bash
 PROJECT_DIR="$(realpath "$(git rev-parse --show-toplevel)")"
@@ -2013,8 +2047,9 @@ Before any review task or controller instruction, claim one live Bead per
 pane and apply Step 8. Bind the high decision to final authority, the low
 decision to runtime coordination, and the explicit Grok decision to fresh-eyes
 review. Keep each pane's first successful singleton NTM work binding for
-recovery. A typed no-route stops the affected allocation; it does not grant
-its role to another pane. High-tier final authority remains required.
+recovery. A typed no-route stops the affected allocation; the standing
+Grok-to-Codex fallback permits a new Codex allocation with an independent
+reviewer. It does not transfer a live writer's scope without a safe handoff.
 
 Reviewer prompt:
 - Read the original task, live Beads state via `br show` / `hydrate-node`, the
@@ -2023,10 +2058,9 @@ Reviewer prompt:
 - Run relevant build, test, lint, and typecheck commands
 - Fix only integration bugs or validation failures
 - For UI, UX, visual, design-system, screenshot, or ambiguous review-heavy work,
-  use Grok for the fresh-eyes review of the final diff and validation
-  evidence. If the retained Grok route-v2 decision is typed no-route, record
-  that route blocker and stop this final-review allocation. `high` tier retains final
-  authority but does not authorize bypassing the required Grok review.
+  prefer Grok for the fresh-eyes review of the final diff and validation
+  evidence. When unavailable, use a separate Codex reviewer under the standing
+  fallback. The implementer cannot provide their own independent review.
 - For visual parity, ask independent fresh-context reviewers the ORIGINAL
   question and require severity-classified findings until two consecutive
   reviews report no blocker or material shortfall.
@@ -2111,7 +2145,7 @@ When the final review result is available:
   Selection (claim handshake, prompt-file brief, pid/log/exit wrapper, turn
   cap or wave timeout, non-empty artifact, lead `validate_cmds`). Width is
   not the gate. Do not substitute untracked local ad hoc workers or
-  in-process Task/subagent UIs
+  in-process Task/subagent UIs except under Standing Grok-to-Codex Fallback
 - Cwd/workflow routing, skill-tag extraction, cleaned-request drafting,
   read-only clerk/preflight nodes, bounded scripting, fixture/docs cleanup,
   generated-command cleanup, classification, and scoped commit-runner nodes
@@ -2125,7 +2159,8 @@ When the final review result is available:
   through the binding retained route-v2 decision and adapter, subject to
   [Availability and Safe Continuation](#availability-and-safe-continuation).
   Headless-only waves keep the same duties in the lead process. Design-related
-  nodes and design/fresh-eyes review nodes should also use Grok. Planning,
+  nodes and design/fresh-eyes review nodes prefer Grok, with the standing Codex
+  fallback when unavailable. Planning,
   no-ragrets bead composition, decomposition/synthesis, domain-planner sessions,
   system design, impactful execution, integration review, commit acceptance,
   and final-say nodes must use the high work tier through the binding

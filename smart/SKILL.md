@@ -48,8 +48,9 @@ until then, activate individual skills through `sbp`.
 Any swarm or NTM-coordinated work must route through `vibing-with-ntm`. Any
 large-ish, UI-facing, multi-file, naturally parallel, or review-sensitive task
 must route through `divide-and-conquer` before parallel execution. For UI,
-design/UX, visual, or ambiguous review-heavy work, include the Grok lane in the
-worker or reviewer mix and use it for NTM runtime orchestration. Use the SOL
+design/UX, visual, or ambiguous review-heavy work, prefer the Grok lane in the
+worker or reviewer mix and for NTM runtime orchestration. Apply the standing
+Codex fallback below when Grok is unavailable. Use the SOL
 lane for goal selection, no-ragrets planning, decomposition, architecture,
 route-blocker review, and final authority.
 
@@ -63,9 +64,41 @@ example, remembered default, or older skill instruction. An effort mismatch
 alone is neither a no-route result nor a `MODEL_CHANGE` gate. Do not override
 the decision or rewrite global routing policy to satisfy stale prose.
 
-A typed same-lane no-route stops that dispatch unless separately pre-authorized
-`MODEL_CHANGE` authority and its receipt already permit a different model.
-Require a final fresh-eyes reviewer pass before completion.
+A typed same-lane no-route stops that allocation. For Grok, automatically
+continue under the standing Codex fallback below; other model-family changes
+still require separately pre-authorized `MODEL_CHANGE` authority and its receipt.
+Require a final independent fresh-eyes reviewer pass before completion.
+
+### Standing Grok-to-Codex Fallback
+
+Grok is preferred, not a prerequisite. When a fresh route reports Grok
+`no-route`, or observed auth, quota, runner, or transport failure prevents Grok
+from doing the work, continue with Codex without asking for permission. This
+is standing operator authority for Grok-to-Codex implementation, orchestration,
+and review; no separate `MODEL_CHANGE` approval is required for this fallback.
+
+- Record the Grok failure and the chosen Codex execution path on the existing
+  Bead. Do not repeat permission questions or route probes with no new evidence.
+- For bounded work, the current Codex session and native Codex subagents may
+  implement, orchestrate, and review through the Beads-backed
+  `divide-and-conquer` handoff. A native subagent uses the host session's
+  supported model configuration; do not fabricate an SBP decision for it.
+- For a new external Codex launch, resolve `sbp route pick sol --refresh --json`;
+  require `runnable: true` and `runner: codex`. Preserve the complete decision,
+  returned effort, and account binding through the supported adapter. Never
+  turn unknown quota into headroom or substitute another provider from prose.
+- Before replacing an existing worker, reconcile its artifacts and effects,
+  stop or fence the original writer, and transfer only the remaining work.
+  Fallback does not authorize concurrent writers or blind replay.
+- Require an independent fresh-eyes reviewer who did not implement the change;
+  a separate Codex agent qualifies. Root self-review alone does not.
+- If neither a working current/native Codex path nor a runnable external Codex
+  route exists, stop the affected work with that exact blocker.
+
+This fallback takes precedence over Grok-only worker, reviewer, controller,
+and in-process-subagent restrictions in subordinate execution skills. It does
+not waive Beads ownership, validation, safe handoff, or final review, and does
+not change the global SBP route ladder or authorize other provider substitutions.
 
 `smart` chooses the next move; `divide-and-conquer` turns substantial execution
 into Beads and runs the ready frontier. When a recommendation becomes
@@ -386,17 +419,17 @@ For every `/smart` invocation:
   implementation slice that benefits from a Beads-backed ready frontier.
 - Use `vibing-with-ntm` for every swarm or NTM-coordinated run, including
   divide-and-conquer execution, operator tending, review loops, and transport
-  recovery. Resolve the live NTM controller through the Grok lane, use the
-  complete returned decision, and escalate planning to the SOL lane.
+  recovery. Prefer the Grok controller; apply Standing Grok-to-Codex Fallback
+  when unavailable, and escalate planning to the SOL lane.
 - Use `ntm` directly only when orchestration itself is the task. For ordinary
   execution waves, route through `/divide-and-conquer` so Beads remain
   authoritative.
-- Include the Grok lane for UI, visual, design/UX, or ambiguous review-heavy
+- Prefer the Grok lane for UI, visual, design/UX, or ambiguous review-heavy
   work; use the SOL lane for planning and final authority. Follow each runnable
   selector decision, including its returned effort and fallback, as specified
-  in Visibility Control Plane. A typed same-lane no-route stops that dispatch
-  unless an explicit `MODEL_CHANGE` gate and receipt already permit a different
-  model. Do not call the loop complete until a fresh-eyes reviewer pass has
+  in Visibility Control Plane. Apply Standing Grok-to-Codex Fallback for Grok
+  unavailability; other model-family changes retain their `MODEL_CHANGE` gate.
+  Do not call the loop complete until an independent fresh-eyes reviewer pass has
   checked the final diff and validation evidence.
 - Do not recurse lazily by repeatedly wrapping `/smart` around itself with no new artifact or verification. Each loop must either sharpen the goal, produce a concrete repo or artifact delta, route an unresolved question, or prove that the success criteria have been met.
 

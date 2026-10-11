@@ -98,7 +98,7 @@ Surface selection rules:
 6. Ask the user only if the surface is still genuinely ambiguous.
 
 Use the backend surface for server/domain/migration/router work.
-Use the frontend surface for types/API/hooks/components/widget work.
+Use the frontend surface for types, API clients, the overlay's data-access module, components, and widget work.
 
 Greenfield direct-invocation examples:
 
@@ -220,6 +220,14 @@ Frontend requires:
 - `frontend.md`
 - `flows.md` (preferred; require it when the plan says the surface is flow-heavy)
 
+Extract from those accepted files before generating code. `shared.md` is the API contract.
+
+- Backend from `shared.md`: endpoints, request/response shapes, and error codes. Derive schemas, models, and routes from them.
+- Backend from `backend.md`: business rules, permissions matrix, access-control strategy, edge cases, and algorithms.
+- Backend from `schema.mmd`: entity relationships. Derive models, foreign keys, and table structure from them.
+- Frontend from `frontend.md`: screens per role, key interactions, loading/empty/error/populated states, and inline versus page decisions.
+- Frontend from `flows.md` when the file is present or the plan says the surface is flow-heavy: journeys per role, decision points, error paths, and state transitions.
+
 If the plan is missing, stop and tell the user to use `domain-planner` first.
 
 ### Auth Service Reuse
@@ -250,6 +258,37 @@ If both generic and legacy keys appear, prefer the generic `auth_*` values.
 2. Do not add legacy compatibility bridges unless the plan explicitly requires them
 3. If production data is impacted, keep DB transition requirements in backend artifacts instead of inventing frontend compatibility paths
 
+### Contract-Shaped Generation
+
+`shared.md` and the client overlay decide shapes. Blanket CRUD, extra timestamp fields, a static-method client, React-only hooks, and one universal status table are examples for contracts and stacks that match them.
+
+`references/test-templates.md` is the starter when the overlay has no stronger test guidance. `references/example-patterns.md` is the patterns reference when the overlay has none. When example-patterns is the active reference, apply its existing rules in place: error UI offers retry (ErrorState and the validation checklist), no `any` (Type Conventions and the Type Safety checklist), and query-cache settings (hierarchical `all` / `list(filters)` / `detail(id)` keys, mutation invalidation, stale time, and `enabled`). An overlay reference replaces one of those rules by stating its own equivalent.
+
+Backend:
+
+- Service tests cover the happy path for each behavior `backend.md` assigns, the not-found, validation, and permission cases `shared.md` or `backend.md` name, and the edge cases `backend.md` lists. Include a case when those files name it. The permission block in `test-templates.md` is for an applicable permission case.
+- Route tests cover every `shared.md` endpoint, the success and error statuses that contract and the overlay error map declare, and auth failure when the endpoint requires auth. The 200/201/204 and 400/403/404/409/401 examples in `test-templates.md` apply to contracts that use those codes.
+- Models take columns from `shared.md` response shapes and `schema.mmd` entities, indexes from query patterns those sources state, and ORM plus base classes from the overlay (`mode-template.md` model base classes).
+- Schema fields match `shared.md` exactly and use the overlay's serialization. Emit base, create, update, and response variants when `shared.md` defines those shapes.
+- Repository operations and filters come from `shared.md` endpoints and `backend.md`, through the overlay ORM. A CRUD contract uses get-by-id, filtered list, create, update, and delete.
+- Service implements `backend.md` validation and domain permission checks and returns `shared.md` responses from repository calls. Error codes match `shared.md`. Auth, payments, and identity stay on auth-service packages.
+- Router maps each `shared.md` endpoint to a handler and wires dependency injection from the overlay framework. Map error codes with the overlay error-handling pattern. The suffix table in `test-templates.md` (Error Code HTTP Status Mapping) applies when `shared.md` uses those suffixes and the overlay does not define another map.
+- Migration columns come from `shared.md` and `schema.mmd`. Indexes come from stated query patterns. Permissions and the overlay access-control pattern stay required.
+
+Frontend:
+
+- Types match `shared.md` exactly, with an error-code union of the codes it lists and props interfaces on components. Add `{Item}`, `{Item}CreateRequest`, `{Item}UpdateRequest`, `created_at`, and `updated_at` when `shared.md` includes those shapes. When example-patterns or an overlay rule bans `any`, follow that ban.
+- The API client exposes one operation per `shared.md` endpoint in the overlay's HTTP client shape, plus user-facing text for error codes the surface shows. Static list, getById, create, update, and delete methods are the class-based CRUD example.
+- Data access follows the overlay. The generation-order data-access step is that module. Query-cache stacks use the active reference's hierarchical keys, invalidation, stale time, and `enabled` guard. Push-first and non-hook stacks use the overlay's data client.
+- Split a component that exceeds the overlay's size limit. When example-patterns is active and the overlay sets no limit, split above that file's thresholds.
+- Loading, error, and empty states stay required. Retry follows the active error primitive. example-patterns ErrorState already requires retry.
+
+### Surface Order And Slice Audit
+
+Scaffold the surface this Bead owns. Declared Beads dependencies set order. A frontend Bead with no dependency on backend work proceeds from `shared.md` and `frontend.md`. A backend Bead owns backend validation and generates frontend code only when that Bead assigns the frontend surface. `domain-reviewer` may run ready backend and frontend workers in parallel when their write scopes are disjoint.
+
+This surface may validate and hand off alone. When the accepted plan includes both surfaces, full slice completion also needs one cross-surface audit after both exist. That audit checks `backend.md`, `frontend.md` plus the active patterns reference, and `shared.md`, including the journeys `flows.md` states.
+
 ### Completion Contract
 
 Every scaffolding run ends with a structured handoff:
@@ -271,6 +310,9 @@ The `audit handoff` must be ready to run without extra interpretation. It should
 - the exact `plan path`
 - the validation commands already run
 - any known risk areas the audit should verify first
+- `audit scope`: `surface` for this Bead, or `slice` for the joint audit once both surfaces exist
+
+A `surface` handoff closes this Bead's validation. A `slice` handoff is the cross-surface audit under Surface Order And Slice Audit.
 
 If the implementation is incomplete, say exactly which artifact is still missing.
 
@@ -320,14 +362,15 @@ If the client overlay does not include stronger project-specific test guidance, 
 - Route handlers must delegate auth/payments/identity behavior to auth-service-backed packages
 - Register the router before closeout
 - Use the client overlay's inline model/schema/auth examples when present instead of inventing fresh patterns
+- Apply Contract-Shaped Generation to tests, models, schemas, repository, service, router, and migration
 
 ### Backend Validation
 
 Before marking complete:
 
 - tests were written first
-- service tests pass
-- route tests pass
+- service tests pass and include the Contract-Shaped Generation branches for this plan
+- route tests pass and cover each `shared.md` endpoint under that section
 - standard backend domain files exist
 - migration exists and follows the client overlay's access-control pattern
 - router registration is complete
@@ -360,7 +403,7 @@ If the client overlay does not provide a project-specific patterns reference yet
 1. load frontend reference context (`patterns_reference` or the client overlay's inlined equivalent)
 2. types
 3. API/service layer
-4. data hooks
+4. data-access module (hooks when the overlay uses hooks)
 5. components using library primitives
 6. widget/page wrapper
 7. run validation commands
@@ -376,6 +419,7 @@ If the client overlay does not provide a project-specific patterns reference yet
 - Extend existing components/widgets before creating new siblings when the client overlay
   or patterns reference indicates an established surface
 - Respect the client overlay's design tokens, icon package, and component-size limits when provided
+- Apply Contract-Shaped Generation to types, the API client, data access, component splits, and states
 
 ### Frontend Validation
 
@@ -385,8 +429,8 @@ Before marking complete:
 - type/build/lint commands pass
 - types match `shared.md`
 - loading/error/empty states are handled
-- component size limits from the client overlay are respected
-- data-fetching and mutation patterns follow the client overlay
+- component size limits from the client overlay are respected, and oversized components are split as Contract-Shaped Generation requires
+- data-fetching and mutation patterns follow the client overlay and the Contract-Shaped Generation data-access rule
 - existing component/library patterns were reused instead of reimplemented
 
 ## Related Skills

@@ -27,8 +27,10 @@ Links repo skills into ~/.claude/skills and ~/.codex/skills.
 
 Options:
   --skill NAME        Link only one skill.
-  --replace-copies   Move existing non-symlink installs to .bak.TIMESTAMP,
-                     then create symlinks to the source repo.
+  --replace-copies   Move existing non-symlink installs to NAME.bak.TIMESTAMP,
+                     then create symlinks to the source repo. If that backup
+                     path already exists, append .2, .3, ... instead of
+                     nesting or overwriting it.
 USAGE
       exit 0
       ;;
@@ -76,12 +78,17 @@ for skill_md in "$repo_root"/*/SKILL.md; do
     if [[ -e "$dest" && ! -L "$dest" ]]; then
       if [[ "$replace_copies" -eq 1 ]]; then
         backup="$dest.bak.$backup_suffix"
+        disambiguator=2
+        while [[ -e "$backup" || -L "$backup" ]]; do
+          backup="$dest.bak.$backup_suffix.$disambiguator"
+          disambiguator=$((disambiguator + 1))
+        done
         mv "$dest" "$backup"
         printf 'moved %s -> %s\n' "$dest" "$backup"
       else
-      printf 'skip: %s exists and is not a symlink\n' "$dest" >&2
-      skipped=$((skipped + 1))
-      continue
+        printf 'skip: %s exists and is not a symlink\n' "$dest" >&2
+        skipped=$((skipped + 1))
+        continue
       fi
     fi
 
@@ -91,18 +98,4 @@ for skill_md in "$repo_root"/*/SKILL.md; do
   done
 done
 
-# Clean up .bak dirs that have a symlinked replacement
-cleaned=0
-for target in "${targets[@]}"; do
-  for bak in "$target"/*.bak; do
-    [[ -d "$bak" ]] || continue
-    base="${bak%.bak}"
-    if [[ -L "$base" ]]; then
-      rm -rf "$bak"
-      printf 'cleaned %s (replaced by symlink)\n' "$bak"
-      cleaned=$((cleaned + 1))
-    fi
-  done
-done
-
-printf '\nDone. %d links created/updated, %d skipped, %d .bak dirs cleaned.\n' "$linked" "$skipped" "$cleaned"
+printf '\nDone. %d links created/updated, %d skipped.\n' "$linked" "$skipped"

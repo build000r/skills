@@ -43,13 +43,16 @@ If any combo uses a swarm, NTM session, parallel worker wave, or NTM-backed
 review loop, include `vibing-with-ntm`. If the task is large-ish, UI-facing,
 multi-file, naturally parallel, or review-sensitive, use `divide-and-conquer`
 before parallel execution. For UI, visual, design/UX, or ambiguous review-heavy
-work, use Grok route-v2 at `high`; use SOL route-v2 at `high` (GPT-6.1 Sol) for planning and
-final authority. Resolve lanes with `sbp route pick <lane> --refresh --json`
-and preserve the retained decision through the shared execution adapter.
-Native exhaustion may change only runner/quota surface to the same-family
-Cursor rung. A typed same-lane no-route stops unless an explicit
-`MODEL_CHANGE` gate and receipt already permit another model. Finish with a
-fresh-eyes reviewer pass.
+work, use the Grok lane; use the SOL lane for planning and final authority.
+Resolve lanes with `sbp route pick <lane> --refresh --json`. When it reports
+`runnable: true`, follow the complete decision through the execution skill and
+shared adapter: returned model, runner, quota surface, account binding, and
+returned effort, including selector-chosen fallbacks. Do not block or ask for approval
+over an effort difference from examples or older instructions; that difference
+alone does not require `MODEL_CHANGE`. Do not replace the returned fields to
+satisfy prose defaults. A typed same-lane no-route stops that dispatch unless
+an explicit `MODEL_CHANGE` gate and receipt already permit another model.
+Finish with a fresh-eyes reviewer pass.
 
 ## When `cass` Should Open The Combo
 

@@ -207,6 +207,50 @@ counting work done.
 
 ## Fresh-Eyes Review Gates
 
+### Available Subagent Fallback
+
+If the preferred provider, model, route, or execution harness is unavailable,
+continue the authorized task with a suitable available native subagent (for
+example, a Codex subagent). Provider preference is not a completion gate. This
+rule takes precedence over provider-only stop rules and default NTM-only
+dispatch guidance in consuming skills. An explicit user restriction on the
+provider or data boundary still applies; honor an explicit request to use a
+subagent directly without first probing the unavailable provider again.
+
+1. Retain the observed failure or typed no-route receipt. A missing tool or
+   harness needs only its actual availability evidence; never invent route
+   JSON. A malformed decision or failed test is not provider unavailability.
+2. For work already started, inspect changes and external effects, preserve
+   completed work, and stop or fence the prior writer before transferring its
+   scope. Unknown external effects must be reconciled before retrying them.
+3. Choose an available subagent with the tools and reasoning capability needed
+   for the role. Pass the original request, accepted scope, exact write bounds,
+   evidence paths, remaining work, and acceptance criteria. Independent review
+   requires a fresh reviewer other than the implementation author. Visual
+   review requires actual image or browser inspection.
+4. Record the task/Bead, unavailable route and reason, actual selected provider
+   and model when exposed, agent ID, assigned role, and expected report path.
+   Use the native spawn tool rather than the NTM adapter. Do not fabricate an
+   NTM binding or describe the substitute as the unavailable provider. A
+   controller does not inherit planning or final authority; retain a capable
+   independent reviewer and the lead's acceptance responsibility.
+5. Collect the actual report, run the required validation, and resolve material
+   findings before acceptance. A successful spawn alone is not review proof.
+
+No separate model-change confirmation is needed for this fallback within the
+authorized task. It changes execution capacity only: write ownership, review
+independence, credentials, financial actions, deployment authorization, and
+other safety boundaries remain in force. If no suitable subagent can perform
+the necessary inspection, state that precise capability gap and continue any
+independent safe work. Do not stop solely because a preferred brand is missing.
+
+Cold-start checks: unavailable visual provider -> a fresh image-capable
+subagent produces findings; provider fails after a write -> reconcile and
+fence before continuation; failed validation -> repair rather than swap for
+an easier verdict; explicit provider-only restriction -> honor it and report
+the affected action's gap; no image-capable substitute -> do not claim visual
+acceptance from a text-only review.
+
 Fresh-context review is mandatory. At minimum, the initial implementation audit
 and each post-fix re-review run as a worker that reads the plan, code,
 standards, and prior report from scratch. For high risk or cross-repo slices,

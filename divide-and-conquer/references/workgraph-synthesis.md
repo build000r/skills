@@ -97,14 +97,15 @@ Rules per node:
   acceptance, and final-say nodes to `--model-route 'high work tier'`.
   Resolve that lane with `sbp route high --refresh --json`, retain the exact
   runnable decision, and hand it to `route_ntm_spawn.sh --decision-json`.
-  A typed `high` tier no-route stops execution. A different model requires separately
-  pre-authorized `MODEL_CHANGE` authority and its receipt; availability alone
-  never authorizes substitution.
+  A typed `high` tier no-route stops that NTM allocation; continue through the
+  shared [Available Subagent Fallback](../../_shared/references/orchestration-contract.md#available-subagent-fallback)
+  with a capable reviewer and actual agent identity. The separate `MODEL_CHANGE`
+  gate still applies to non-default routed allocations outside that fallback.
 - Route design work, UI/UX, visual systems, CSS/tokens, screenshot parity, and
   design/fresh-eyes review to `--model-route 'Grok route-v2 high design/UX'`.
-  Resolve the Grok lane through the same shared selector and adapter. A typed
-  Grok no-route is a blocker unless a separate model-change gate was already
-  authorized.
+  Resolve the Grok lane through the same shared selector and adapter. If it is
+  unavailable, use a fresh image-capable native subagent under the shared
+  fallback contract; keep the same visual evidence and independent review.
 - Use `--model-route 'Grok dispatcher'` only for read-only router/preflight
   nodes such as cwd selection, skill-tag extraction, cleaned-request drafting,
   and broad evidence bucketing.
@@ -230,9 +231,8 @@ The minimum Beads-backed node brief must carry:
   only; the `high` work tier for planning, no-ragrets bead composition,
   decomposition/synthesis, domain-planner sessions, system design, impactful
   execution, integration review, commit acceptance, and final say; Grok
-  route-v2 at `high` for design-related nodes; any same-lane no-route stops
-  unless a separate, pre-authorized `MODEL_CHANGE` gate and receipt permit a
-  different model;
+  route-v2 at `high` for design-related nodes; unavailable routes use the
+  shared available-subagent fallback, retaining capability and independence;
   Grok dispatcher for read-only router/preflight nodes; Grok CLI sidecar
   for read-only evidence artifacts; the selected `low` tier task-runner for narrow
   scripting, docs/fixtures, or commit batching with stronger-model review

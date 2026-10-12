@@ -71,7 +71,9 @@ For each design-related node or final visual review:
   rerun validation/screenshots, and restart the consecutive-review count at
   zero.
 
-Use the normal design route for this lane: Grok 4.6 design/UX, with Codex
-`gpt-5.6-sol` medium for ordinary authority and max reserved for pivotal
-planning or explicit failed-model triage. Terra ultra applies only when SOL is
-unavailable.
+Use the currently configured design route for this lane, with independent
+final acceptance. If that provider is unavailable, apply the shared
+[Available Subagent Fallback](../../_shared/references/orchestration-contract.md#available-subagent-fallback):
+an available image-capable Codex or other native subagent performs the same
+visual inspection and severity-classified review. The evidence and consecutive
+review requirements still apply; provider branding is not an acceptance gate.

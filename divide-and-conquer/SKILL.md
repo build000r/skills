@@ -169,9 +169,10 @@ command -v ntm >/dev/null 2>&1 || test -x "$HOME/.local/bin/ntm"
 command -v grok >/dev/null 2>&1 || test -x "$HOME/.local/bin/grok"
 ```
 
-If the **chosen** substrate's binary is still missing, stop and surface that
-prerequisite. `ntm` missing does not block a wave already classified as
-headless; `grok` missing does not block an NTM-only wave.
+If the **chosen** substrate's binary is still missing, retain that evidence and
+use [Availability and Safe Continuation](#availability-and-safe-continuation).
+`ntm` missing does not block a wave already classified as headless; `grok`
+missing does not block an NTM-only wave.
 
 `vibing-with-ntm` is mandatory for every NTM-substrate wave. Headless-only
 waves monitor PID, exit file, and result artifacts instead; do not invent a
@@ -203,15 +204,16 @@ NTM waves use the selected `low` runner for the controller and bounded workers.
 Headless one-shots are eligible only when independently selected for the node
 and supported by that exact runner; a Grok CLI one-shot requires a native Grok
 decision. Design-related nodes keep their separate design review contract and
-high-tier final authority. A typed tier no-route stops that allocation.
+high-tier final authority. A typed tier no-route stops that allocation, then
+uses the available-subagent fallback below for the remaining task.
 System design, domain-planner quality loops, no-ragrets bead
 composition, decomposition, dependency topology, acceptance-criteria design,
 impactful architecture/code decisions, integration review, commit acceptance,
 and final say must run on the `high` work tier through
 [Binding High Tier Allocation](#binding-high-tier-allocation). If that
 lane returns typed no-route evidence, apply
-[Non-default Model-Change Gate](#non-default-model-change-gate); otherwise
-stop. Require a final fresh-eyes reviewer pass before completion.
+[Availability and Safe Continuation](#availability-and-safe-continuation).
+Require a final fresh-eyes reviewer pass before completion.
 
 ## Accepted No-Ragrets Plan Intake
 
@@ -380,14 +382,32 @@ Explicit user effort requests take precedence; pass supported `--effort` overrid
 
 ### Availability and Safe Continuation
 
-SBP's tier ladder owns every approved availability backup. Run
+Use the shared [Available Subagent Fallback](../_shared/references/orchestration-contract.md#available-subagent-fallback)
+when a preferred provider, model, route, or harness is unavailable. Continue
+with a suitable available native subagent, including Codex; do not stop or ask
+for another model-change confirmation solely because the preferred provider
+is missing. This applies to implementation, design/UX, visual review, and
+planning/final-review roles while preserving each role's capability and
+independence requirements. It takes precedence over provider-only stop rules
+and NTM-only defaults elsewhere in this skill and its references. An explicit
+user request for a subagent may select this path directly.
+
+The commands below describe the normal NTM route. Availability failures stop
+that spawn, not the whole task: retain the failure evidence and dispatch the
+remaining task using the native subagent tool and shared fallback contract.
+Repair usage/configuration errors and failed validation rather than treating
+every nonzero command exit as an availability failure.
+Never feed invented route JSON to the adapter or label a native agent as an
+NTM allocation. Preserve actual agent identity and its report in the run.
+
+SBP's tier ladder owns the normal routed availability backups. Run
 `sbp route <low|med|high> --refresh --json` once per new allocation and retain
 its exact nine-field decision. For `low`, SBP tries native Grok 4.7 `xhigh`,
 Codex Luna `max`, then Cursor Grok 4.7 `xhigh`; `med` tries Codex GPT-6.1 Sol `high`,
 then Cursor Opus 5.5 `medium`; `high` tries Codex Astra `medium`, then Cursor
 Opus 5.5 `xhigh`. A runnable backup is already authorized by the tier policy.
 Do not request a separate `MODEL_CHANGE` for it, or re-pick a different lane
-outside the tier list.
+outside the tier list while using that routed allocation.
 
 A typed tier no-route means no approved candidate was runnable. A route
 configuration error is different and must be repaired before selection.
@@ -402,7 +422,8 @@ completion.
 
 Use `sbp route low --refresh --json` for bounded runtime work. Retain and
 validate the complete decision; pass it verbatim to `route_ntm_spawn.sh --decision-json` with `--project-dir "$PROJECT_DIR"`. The returned runner may
-be Grok, Codex, or Cursor. A typed no-route stops this allocation. Existing
+be Grok, Codex, or Cursor. A typed no-route stops this allocation and invokes
+the available-subagent fallback. Existing
 work enters [Safe Continuation](references/safe-continuation.md) first.
 The controller never gains planning or final authority.
 
@@ -463,20 +484,21 @@ Route every ready node before spawning workers:
   integration review, commit acceptance, and any final-say review node to
   the `high` work tier through
   [Binding High Tier Allocation](#binding-high-tier-allocation). A typed
-  no-route result proceeds only through
-  [Non-default Model-Change Gate](#non-default-model-change-gate).
+  no-route result uses
+  [Availability and Safe Continuation](#availability-and-safe-continuation).
   Planning/authority nodes may author or
   repair Beads and may overrule task-runner output; the low-tier controller may not.
-- **Grok owns design/UX and visual review work.** Treat a node as design-related
+- **Prefer Grok for design/UX and visual review work when available.** Treat a node as design-related
   when it touches UI/UX, visual design, design systems, frontend screen or
   component layout, CSS/tokens, responsive behavior, screenshots, visual
   parity, product interaction copy, or fresh-eyes review of those surfaces.
   Dispatch NTM-classified nodes through the NTM Grok plugin with the retained
   route-v2 decision and adapter. Use an approved sidecar/direct Grok route
   only when the node was independently classified for that non-NTM substrate,
-  never as quota fallback. If no Grok design route is available, surface
-  the route blocker and keep the selected `high` tier as final acceptance authority, not as the
-  default design worker.
+  never as an unrecorded quota fallback. If no Grok design route is available,
+  use a fresh, image-capable Codex or other available subagent under the shared
+  fallback contract. Retain independent visual findings and final acceptance;
+  do not require Grok branding for the review to count.
 - **Bounded task runners use the selected `low` decision.** Apply the Bead's
   exact write scope, validation, stop rules, and review owner. The selected
   runner may be native Grok, Codex Luna at max, or Cursor Grok. Use the NTM
@@ -1036,8 +1058,8 @@ ready node is not launchable until `br show {id} --json` or
   composition, decomposition/synthesis, domain-planner sessions, architecture,
   impactful execution, integration review, and final say through
   the retained route-v2 decision and atomic adapter handoff; any typed `high` tier
-  no-route result stops unless the binding non-default model-change gate was
-  already authorized; the selected design route for design-related nodes; Grok dispatcher
+  no-route result uses the available-subagent fallback; the selected design
+  route for design-related nodes; Grok dispatcher
   for read-only router/preflight nodes; Grok CLI sidecar for Grok-authored
   read-only artifacts; the selected `low` tier task-runner as the preferred runner
   for narrow writer, scripting, fixture/docs cleanup, generated-command cleanup,
@@ -1203,18 +1225,19 @@ tending, harvest, and convergence. It never becomes planning or final
 authority; that belongs to the `high` tier allocation independent of its selected runner.
 
 A valid `runnable:false`, `reason:"no-route"` `high` tier decision means `high` tier is
-unavailable. Retain that exact decision and stop this spawn. Continue only if
-[Non-default Model-Change Gate](#non-default-model-change-gate) was already
-authorized and its receipt plus executable procedure are complete; otherwise
-stop. The route-v2 adapter never receives a fabricated substitute decision.
+unavailable. Retain that exact decision and stop this spawn. Continue through
+[Availability and Safe Continuation](#availability-and-safe-continuation).
+The route-v2 adapter never receives a fabricated substitute decision.
 
 Nonzero `fallback_depth` records an approved tier backup; it does not
 authorize a model outside the configured tier.
 Provider or quota-surface diversity is not required for planning authority.
 Do not exclude a provider to manufacture diversity.
 
-If `sbp`, its sensors, the executable adapter, or valid decision JSON is absent,
-abort. Do not use a static or narrative fallback. A worker failure, validation
+If `sbp`, its sensors, or the executable adapter is unavailable, stop that spawn
+and use the available-subagent fallback with the actual failure evidence. If
+decision JSON is malformed, repair that contract error; do not reinterpret it
+as a valid no-route decision. A worker failure, validation
 failure, provider name, runner name, or spawn rejection is not typed `high` tier
 no-route evidence.
 Grok task-runner nodes are launched after the same Beads claim handshake.
@@ -1964,8 +1987,11 @@ blocked Beads for a future session. Apply
 verdict-file reviews may stay headless; a review that must talk back uses the
 NTM spawn below. Do not default to `/codex:rescue`.
 
-Spawn a small review swarm: one low-tier runtime controller, one independent Grok
-fresh-eyes reviewer, and one high-tier final-authority reviewer:
+When those routes are available, spawn a small review swarm: one low-tier
+runtime controller, one independent Grok fresh-eyes reviewer, and one high-tier
+final-authority reviewer. If a provider or harness is unavailable, use the
+available-subagent fallback for the affected role. The native fallback does
+not require creating a separate NTM controller solely to run one review:
 
 ```bash
 PROJECT_DIR="$(realpath "$(git rev-parse --show-toplevel)")"
@@ -2013,8 +2039,9 @@ Before any review task or controller instruction, claim one live Bead per
 pane and apply Step 8. Bind the high decision to final authority, the low
 decision to runtime coordination, and the explicit Grok decision to fresh-eyes
 review. Keep each pane's first successful singleton NTM work binding for
-recovery. A typed no-route stops the affected allocation; it does not grant
-its role to another pane. High-tier final authority remains required.
+recovery. A typed no-route stops the affected NTM allocation; dispatch its role
+through the available-subagent fallback instead of silently assigning it to
+another pane. Independent, capable final review remains required.
 
 Reviewer prompt:
 - Read the original task, live Beads state via `br show` / `hydrate-node`, the
@@ -2023,10 +2050,11 @@ Reviewer prompt:
 - Run relevant build, test, lint, and typecheck commands
 - Fix only integration bugs or validation failures
 - For UI, UX, visual, design-system, screenshot, or ambiguous review-heavy work,
-  use Grok for the fresh-eyes review of the final diff and validation
-  evidence. If the retained Grok route-v2 decision is typed no-route, record
-  that route blocker and stop this final-review allocation. `high` tier retains final
-  authority but does not authorize bypassing the required Grok review.
+  prefer Grok for the fresh-eyes review of the final diff and validation
+  evidence. If Grok is unavailable, use a fresh image-capable Codex or other
+  available subagent. Require the same actual screenshot/browser inspection,
+  severity-classified findings, and final acceptance. Record the real reviewer;
+  unavailable Grok alone must not leave the review or release blocked.
 - For visual parity, ask independent fresh-context reviewers the ORIGINAL
   question and require severity-classified findings until two consecutive
   reviews report no blocker or material shortfall.
@@ -2111,7 +2139,7 @@ When the final review result is available:
   Selection (claim handshake, prompt-file brief, pid/log/exit wrapper, turn
   cap or wave timeout, non-empty artifact, lead `validate_cmds`). Width is
   not the gate. Do not substitute untracked local ad hoc workers or
-  in-process Task/subagent UIs
+  in-process Task/subagent UIs outside the tracked available-subagent fallback
 - Cwd/workflow routing, skill-tag extraction, cleaned-request drafting,
   read-only clerk/preflight nodes, bounded scripting, fixture/docs cleanup,
   generated-command cleanup, classification, and scoped commit-runner nodes
@@ -2130,8 +2158,8 @@ When the final review result is available:
   system design, impactful execution, integration review, commit acceptance,
   and final-say nodes must use the high work tier through the binding
   route-v2 selector, retained decision, canonical project-dir, and atomic
-  adapter handoff. High-tier typed no-route evidence stops unless the non-default
-  model-change gate was already authorized; Grok never inherits authority
+  adapter handoff. High-tier typed no-route evidence uses the available-subagent
+  fallback with a capable reviewer; the runtime controller never inherits authority
 - The lead must claim every dispatched node for the assigned worker and verify
   `status=in_progress` plus assignee before edits begin; unclaimed pane activity
   does not count as in-flight work
@@ -2158,5 +2186,6 @@ When the final review result is available:
 - Independently run `validate_cmds` and reconcile `br` state before treating any node `done`
 - If `br` is missing or broken, stop. If the chosen substrate's binary
   (`ntm` for NTM waves, `grok` for headless waves) is missing
-  after `$HOME/.local/bin` is on `PATH`, stop and surface that gap
+  after `$HOME/.local/bin` is on `PATH`, retain that evidence and use the
+  available-subagent fallback
 - Sequential waves are fine; fake parallelism is not

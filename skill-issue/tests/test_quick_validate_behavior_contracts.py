@@ -79,6 +79,20 @@ class QuickValidateBehaviorContractTests(unittest.TestCase):
         self.assertTrue(valid)
         self.assertEqual(message, "Skill is valid!")
 
+    def test_explicit_invocation_metadata_accepts_booleans_only(self) -> None:
+        for value, expected in [('true', True), ('false', True), ('"true"', False), ('null', False), ('1', False)]:
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as tmpdir:
+                skill_dir = Path(tmpdir) / "sample-skill"
+                skill_dir.mkdir()
+                (skill_dir / "SKILL.md").write_text(
+                    '---\nname: sample-skill\ndescription: Explicit invocation fixture\n'
+                    f'disable-model-invocation: {value}\n---\n# Sample Skill\n',
+                )
+                valid, message = VALIDATE_MODULE.validate_skill(skill_dir)
+                self.assertEqual(valid, expected, message)
+                if not expected:
+                    self.assertIn("YAML boolean", message)
+
     def test_depends_on_entries_must_be_skill_ids(self) -> None:
         cases = {
             "empty": '  - ""',

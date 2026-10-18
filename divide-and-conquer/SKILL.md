@@ -1669,16 +1669,26 @@ pathlib.Path(bound_name).write_bytes(payload)
 PY
 test -s "$BOUND_PROMPT_FILE" || exit 2
 
-ntm send "$WAVE_SESSION" \
-  --pane="$PANE_INDEX" \
-  --file="$BOUND_PROMPT_FILE" \
-  --no-cass-check \
-  --force-non-interactive \
-  --json \
-  | jq -e --argjson pane "$PANE_INDEX" '
-      .success == true and .delivered == 1 and .failed == 0 and
-      .targets == [$pane]
-    ' >/dev/null || exit 2
+(
+  set -o pipefail
+  ntm send "$WAVE_SESSION" \
+    --pane="$PANE_INDEX" \
+    --file="$BOUND_PROMPT_FILE" \
+    --no-cass-check \
+    --force-non-interactive \
+    --json \
+    | jq -es --arg pane "$PANE_INDEX" --arg session "$WAVE_SESSION" '
+        length == 1 and (.[0] |
+          type == "object" and
+          .success == true and .session == $session and
+          .delivered == 1 and .failed == 0 and .targets == [$pane] and
+          (if has("blocked") then .blocked == false else true end) and
+          (if has("error") then .error == "" else true end) and
+          (if has("error_code") then .error_code == "" else true end) and
+          (has("dry_run") | not)
+        )
+      ' >/dev/null 2>/dev/null
+) || exit 2
 
 FROM_RUNNER="$(printf '%s\n' "$RETAINED_FROM_ROUTE" | jq -er '.runner')" \
   || exit 2
@@ -1697,6 +1707,16 @@ through argv, or persist the response in the run directory. The pre-dispatch
 check emits nothing on success. The post-dispatch check emits only canonical
 secret-free proof fields: history id, history timestamp, and prompt SHA-256.
 Its strict timezone-aware RFC3339 parser accepts whole or fractional seconds.
+
+NTM 1.35.1's [send result](https://github.com/Dicklesworthstone/ntm/blob/74ceb3236416f503797344a5a8a8d94ee061f584/internal/cli/send.go#L55)
+uses string targets: [single-window pane keys](https://github.com/Dicklesworthstone/ntm/blob/74ceb3236416f503797344a5a8a8d94ee061f584/internal/tmux/session.go#L320)
+are bare indices such as `"0"`. Require one JSON object, the exact session and
+singleton string target, boolean success, and numeric delivered/failed counts
+of 1/0. Both counts are mandatory. Optional refusal fields must be absent or
+their exact typed false/empty values; dry-run receipts are refused. The
+acknowledgment has no pane-ID field: the retained stable pane ID stays in the
+binding envelope and the complete-history proof remains required. Never retain
+the raw acknowledgment, which can include a prompt preview.
 
 The central validator must accept the full retained runnable decision before
 envelope construction or send. The envelope preserves that decision unchanged,

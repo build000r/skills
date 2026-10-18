@@ -537,7 +537,8 @@ class BindingProducerTests(unittest.TestCase):
             dispatch, re.DOTALL,
         ).group(1)
 
-    def run_producer(self, decision, *, validator_status=0, approved=None):
+    def run_producer(self, decision, *, validator_status=0, approved=None,
+                     acknowledgment=None, pane_index=2, send_status=0):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             approved = approved if approved is not None else [
@@ -563,13 +564,20 @@ class BindingProducerTests(unittest.TestCase):
                 encoding="utf-8",
             )
             ntm = root / "ntm"
+            acknowledgment = acknowledgment if acknowledgment is not None else {
+                "success": True, "session": "fixture-session", "delivered": 1,
+                "failed": 0, "targets": [str(pane_index)],
+            }
+            ack_text = (acknowledgment if isinstance(acknowledgment, str)
+                        else json.dumps(acknowledgment))
+            (root / "ack.json").write_text(ack_text)
             ntm.write_text(
                 f"#!{sys.executable}\n"
                 "import json, pathlib, sys\n"
                 "root = pathlib.Path(__file__).parent\n"
                 "(root / 'send.json').write_text(json.dumps(sys.argv[1:]))\n"
-                "print(json.dumps({'success': True, 'delivered': 1, "
-                "'failed': 0, 'targets': [2]}))\n",
+                "sys.stdout.write((root / 'ack.json').read_text())\n"
+                f"sys.exit({send_status})\n",
                 encoding="utf-8",
             )
             ntm.chmod(0o700)
@@ -581,12 +589,13 @@ class BindingProducerTests(unittest.TestCase):
                 **os.environ, "PATH": f"{root}{os.pathsep}{os.environ['PATH']}",
                 "SBP_BIN": str(root / "sbp"), "PYTHON_BIN": sys.executable,
                 "RETAINED_FROM_ROUTE": raw, "WAVE_SESSION": "fixture-session",
-                "PANE_INDEX": "2", "PANE_ID": "%42", "ISSUE_ID": "fixture-1",
+                "PANE_INDEX": str(pane_index), "PANE_ID": "%42", "ISSUE_ID": "fixture-1",
                 "EXPECTED_ASSIGNEE": "fixture-worker", "BASE_PROMPT_FILE": str(base),
                 "BOUND_PROMPT_FILE": str(bound),
+                "ACK_ACCEPTED": str(root / "ack-accepted"),
             }
             result = subprocess.run(
-                ["bash"], input=self.producer, env=env, text=True,
+                ["bash"], input=self.producer + '\nprintf accepted > "$ACK_ACCEPTED"\n', env=env, text=True,
                 capture_output=True, check=False,
             )
             read_json = lambda name: (
@@ -598,6 +607,7 @@ class BindingProducerTests(unittest.TestCase):
                 "bound": bound.read_bytes() if bound.exists() else None,
                 "raw": raw,
                 "bound_path": str(bound),
+                "ack_accepted": (root / "ack-accepted").exists(),
             }
 
     def test_complete_account_and_legacy_decisions_survive_actual_producer(self) -> None:
@@ -624,6 +634,56 @@ class BindingProducerTests(unittest.TestCase):
                     "--force-non-interactive", "--json",
                 ], observed["send"])
                 self.assertNotIn("private fixture task body", result.stdout + result.stderr)
+
+    def test_official_string_recipient_acknowledgments_include_pane_zero(self) -> None:
+        for pane in (0, 2):
+            for optional in ({}, {"blocked": False, "error": "", "error_code": "",
+                                  "prompt_preview": "private acknowledgment preview"}):
+                with self.subTest(pane=pane, optional=bool(optional)):
+                    result, observed = self.run_producer(
+                        {**self.LEGACY, "account": self.ACCOUNT}, pane_index=pane,
+                        acknowledgment={"success": True, "session": "fixture-session",
+                                        "targets": [str(pane)], "delivered": 1, "failed": 0,
+                                        **optional},
+                    )
+                    self.assertEqual(0, result.returncode, result.stderr)
+                    self.assertTrue(observed["ack_accepted"])
+                    self.assertNotIn("private acknowledgment preview", result.stdout + result.stderr)
+
+    def test_malformed_or_refused_acknowledgment_stops_after_single_send(self) -> None:
+        good = {"success": True, "session": "fixture-session", "targets": ["2"],
+                "delivered": 1, "failed": 0}
+        cases = {"invalid JSON": "not-json", "scalar": "true", "array": [good],
+                 "multiple documents": json.dumps(good) + "\n" + json.dumps(good),
+                 "dry run": {**good, "dry_run": True}}
+        for key in good:
+            cases["missing " + key] = {k: v for k, v in good.items() if k != key}
+        for key, values in {
+            "success": [False, "true", 1, None],
+            "session": ["other-session", 2, None],
+            "delivered": [0, 2, "1", True, None],
+            "failed": [1, -1, "0", False, None],
+            "targets": [[], [2], ["0"], ["%42"], ["1.2"], ["2", "3"],
+                        ["2", "2"], [{"pane": 2}], "2", None],
+            "blocked": [True, "false", 0, None],
+            "error": ["refused", 0, None],
+            "error_code": ["SEND_FAILED", 0, None],
+        }.items():
+            for value in values:
+                cases[f"{key}={value!r}"] = {**good, key: value}
+        for name, ack in cases.items():
+            with self.subTest(case=name):
+                result, observed = self.run_producer(self.LEGACY, acknowledgment=ack)
+                self.assertNotEqual(0, result.returncode)
+                self.assertIsNotNone(observed["send"])
+                self.assertFalse(observed["ack_accepted"])
+                self.assertNotIn("private fixture task body", result.stdout + result.stderr)
+
+    def test_nonzero_send_status_cannot_be_hidden_by_valid_acknowledgment(self) -> None:
+        result, observed = self.run_producer(self.LEGACY, send_status=2)
+        self.assertNotEqual(0, result.returncode)
+        self.assertIsNotNone(observed["send"])
+        self.assertFalse(observed["ack_accepted"])
 
     def test_invalid_complete_decisions_fail_before_envelope_or_send(self) -> None:
         bound = {**self.LEGACY, "account": self.ACCOUNT}

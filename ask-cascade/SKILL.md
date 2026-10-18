@@ -87,6 +87,19 @@ When evidence cannot prefer an option because the answer is taste, private conte
 
 A recommendation is advice, not a guessed answer or consent.
 
+Lead with the concrete action, exact target, expected effect and tradeoff.
+Translate internal terms such as admission, grant and nonce into what the user
+is allowing. Keep command identity and codes in supporting detail after the
+plain-language decision; never make decoding them the user's task. If an action
+was already approved but a tool blocked it, explain that only allowing that
+one blocked action remains to be decided.
+
+Label deferral as "Leave it for now" and explain what stays untouched and what
+would resume the work. Do not use "park" without that explanation or offer both
+defer and permanent keep choices unless their different outcomes matter now.
+When the user says a question is unclear, explain and rephrase the same decision;
+do not treat confusion as consent or add another approval layer.
+
 ## Assumptions and Resolution
 
 Before each round, internally name the assumption that acting without asking would encode. Surface it only when it materially affects the branch, explains why the question is needed, exposes conflicting sources, changes risk or scope, or lets the user redirect a costly resolution route.

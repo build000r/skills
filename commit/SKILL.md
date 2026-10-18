@@ -188,17 +188,6 @@ Good batch shapes:
 - repo hygiene such as `.gitignore`, formatting, or generated-noise cleanup
 - one independent subsystem per commit when the dirty tree clearly spans multiple unrelated changes
 
-For each batch, express the staging and commit operations as `--step-json` argv arrays
-in one writer-fence invocation. The underlying protected operations remain:
-
-```bash
-git -C <repo> add <file1> <file2> ...
-git -C <repo> commit -m "$(cat <<'EOF'
-<message>
-EOF
-)"
-```
-
 If `.gitignore` changes are purely supportive for other work, include them with the relevant batch.
 If the ignore cleanup is large and stands on its own, a separate `chore(...)` commit is acceptable.
 

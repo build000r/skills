@@ -140,8 +140,10 @@ invoke the `ask-cascade` skill and interview the operator through them:
 - One question per remaining ask, dependency-ordered: decisions that unblock,
   reshape, or invalidate other asks come first.
 - Offer concrete executable options with a recommended default, never an
-  open-ended "what do you want?"; "leave it parked" is always a valid option
-  and must be listed when parking is safe.
+  open-ended "what do you want?". Include "Leave it for now" when deferral is
+  safe, explaining what stays untouched and what would resume the work. Lead
+  with the actual action and consequence, rather than internal admission terms
+  or unexplained parking labels.
 - Execute whatever each answer unlocks in the same session, appending the new
   actions and their verifications to the closeout.
 

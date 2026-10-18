@@ -1183,6 +1183,13 @@ decision's exact `runner`, `runner_model`, and `effort`. Repeat the already
 selected decision once per planning/authority pane and pass it through
 Skillbox's executable adapter without another pick:
 
+Use the combined call below only for adapter-compatible allocations. Distinct
+account-bound Codex decisions, including the same profile with different model
+or effort, require separate uniquely labeled sessions. Bound and unbound Codex
+decisions also require separate sessions. Preserve each full retained decision,
+record its actual session/pane tuple, and apply Step 8 independently; never
+strip `account`, re-pick, or weaken the adapter's refusal to combine them.
+
 ```bash
 test "$NUM_HIGH" -gt 0 \
   || { echo "planning/final authority requires at least one AUTHORITY pane" >&2; exit 2; }
@@ -1210,7 +1217,7 @@ if printf '%s\n' "$AUTHORITY_ROUTE" | jq -e '.runnable == true' >/dev/null; then
     "${LOW_DECISION_ARGS[@]}" \
     --label "$WAVE_LABEL" \
     -- \
-    --no-user --stagger-mode=smart
+    --no-user
 else
   echo "AUTHORITY unavailable; retain typed no-route decision and stop this spawn" >&2
 fi
@@ -1301,6 +1308,9 @@ change, but it resends the original prompt. Its binding receipt proves task
 ownership, not effect idempotency. Use it only when replay is proven safe from
 current state. Otherwise use a fresh checkpoint handoff with new dispatch
 provenance; do not alter the old bound prompt to force the helper to accept it.
+The helper explicitly refuses account-bound replay and requires the CAAM
+live-account continuation runbook. A valid account-bound first dispatch does
+not authorize that replay; never strip `account` to bypass the refusal.
 Consult its actual `--help`, dry-run the exact candidate, then apply only after
 the safe-continuation procedure proves the previous worker is no longer writing.
 
@@ -1646,6 +1656,10 @@ then
   exit 2
 fi
 
+# Validate the complete retained decision before constructing its envelope.
+"$PYTHON_BIN" "$(dirname -- "$SBP_BIN")/route_ladders.py" \
+  --validate-decision-json "$RETAINED_FROM_ROUTE" >/dev/null || exit 2
+
 BINDING_JSON="$(
   printf '%s\n' "$RETAINED_FROM_ROUTE" | jq -ceS \
     --arg session "$WAVE_SESSION" \
@@ -1653,7 +1667,7 @@ BINDING_JSON="$(
     --arg pane_id "$PANE_ID" \
     --arg bead "$ISSUE_ID" \
     --arg assignee "$EXPECTED_ASSIGNEE" '
-      if (keys | sort) != [
+      if (keys - ["account"] | sort) != [
         "effort", "fallback_depth", "lane", "model_family",
         "quota_surface", "reason", "runnable", "runner", "runner_model"
       ] then error("noncanonical retained from-route")
@@ -1685,16 +1699,26 @@ pathlib.Path(bound_name).write_bytes(payload)
 PY
 test -s "$BOUND_PROMPT_FILE" || exit 2
 
-ntm send "$WAVE_SESSION" \
-  --pane="$PANE_INDEX" \
-  --file="$BOUND_PROMPT_FILE" \
-  --no-cass-check \
-  --force-non-interactive \
-  --json \
-  | jq -e --argjson pane "$PANE_INDEX" '
-      .success == true and .delivered == 1 and .failed == 0 and
-      .targets == [$pane]
-    ' >/dev/null || exit 2
+(
+  set -o pipefail
+  ntm send "$WAVE_SESSION" \
+    --pane="$PANE_INDEX" \
+    --file="$BOUND_PROMPT_FILE" \
+    --no-cass-check \
+    --force-non-interactive \
+    --json \
+    | jq -es --arg pane "$PANE_INDEX" --arg session "$WAVE_SESSION" '
+        length == 1 and (.[0] |
+          type == "object" and
+          .success == true and .session == $session and
+          .delivered == 1 and .failed == 0 and .targets == [$pane] and
+          (if has("blocked") then .blocked == false else true end) and
+          (if has("error") then .error == "" else true end) and
+          (if has("error_code") then .error_code == "" else true end) and
+          (has("dry_run") | not)
+        )
+      ' >/dev/null 2>/dev/null
+) || exit 2
 
 FROM_RUNNER="$(printf '%s\n' "$RETAINED_FROM_ROUTE" | jq -er '.runner')" \
   || exit 2
@@ -1713,6 +1737,25 @@ through argv, or persist the response in the run directory. The pre-dispatch
 check emits nothing on success. The post-dispatch check emits only canonical
 secret-free proof fields: history id, history timestamp, and prompt SHA-256.
 Its strict timezone-aware RFC3339 parser accepts whole or fractional seconds.
+
+NTM 1.35.1's [send result](https://github.com/Dicklesworthstone/ntm/blob/74ceb3236416f503797344a5a8a8d94ee061f584/internal/cli/send.go#L55)
+uses string targets: [single-window pane keys](https://github.com/Dicklesworthstone/ntm/blob/74ceb3236416f503797344a5a8a8d94ee061f584/internal/tmux/session.go#L320)
+are bare indices such as `"0"`. Require one JSON object, the exact session and
+singleton string target, boolean success, and numeric delivered/failed counts
+of 1/0. Both counts are mandatory. Optional refusal fields must be absent or
+their exact typed false/empty values; dry-run receipts are refused. The
+acknowledgment has no pane-ID field: the retained stable pane ID stays in the
+binding envelope and the complete-history proof remains required. Never retain
+the raw acknowledgment, which can include a prompt preview.
+
+The central validator must accept the full retained runnable decision before
+envelope construction or send. The envelope preserves that decision unchanged,
+including the optional complete `account` binding; legacy nine-field decisions
+remain valid. The jq shape check allows only those nine fields plus `account`;
+account schema, runner compatibility, and effective ladder authority belong to
+`route_ladders.py`. Missing or failing validation stops dispatch. Never remove
+`account`, reconstruct route fields, or use validator output as a replacement
+for the retained allocation.
 
 This post-send typed proof is evidence, not a second schema or recovery authority.
 Retain `BOUND_PROMPT_FILE` byte-for-byte for the pane's lifetime. At recovery,
@@ -1988,6 +2031,11 @@ next wave instead of forcing the old split.
 
 ### 12. Run a Final Integration and Review Wave
 
+High-tier final authority remains required, including when using an available
+subagent fallback. A typed no-route stops the affected allocation; any supported
+fallback is a separate allocation and keeps the actual failure evidence.
+
+
 After all execution nodes are complete, the root runs final integration in this
 same invocation. Final integration and closeout are never left as open or
 blocked Beads for a future session. Apply
@@ -2000,6 +2048,12 @@ Grok fresh-eyes reviewer, and one high-tier final-authority reviewer. The recipe
 below is for available Grok. If Grok is unavailable, use
 [Standing Grok-to-Codex Fallback](#standing-grok-to-codex-fallback) instead:
 a separate native Codex reviewer may review bounded work without an NTM swarm.
+
+The combined example requires adapter-compatible allocations. Distinct
+account-bound Codex decisions, or bound and unbound Codex decisions, require
+separate uniquely labeled sessions. Preserve each full retained decision and
+its actual session/pane tuple for Step 8; never strip `account` or re-pick to
+make the combined call pass.
 
 ```bash
 PROJECT_DIR="$(realpath "$(git rev-parse --show-toplevel)")"
@@ -2039,7 +2093,7 @@ done
   --decision-json "$REVIEW_GROK_ROUTE" \
   --label "$REVIEW_LABEL" \
   -- \
-  --no-user --stagger-mode=smart
+  --no-user
 ntm --robot-wait="$REVIEW_SESSION" --wait-until=idle --timeout=120s
 ```
 

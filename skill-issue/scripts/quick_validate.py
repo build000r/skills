@@ -151,6 +151,7 @@ def validate_skill(skill_path, strict=False):
         'allowed-tools',
         'metadata',
         'depends_on',
+        'disable-model-invocation',
     }
 
     # Check for unexpected properties (excluding nested keys under metadata)
@@ -166,6 +167,10 @@ def validate_skill(skill_path, strict=False):
         return False, "Missing 'name' in frontmatter"
     if 'description' not in frontmatter:
         return False, "Missing 'description' in frontmatter"
+
+    if ('disable-model-invocation' in frontmatter
+            and not isinstance(frontmatter['disable-model-invocation'], bool)):
+        return False, "'disable-model-invocation' must be a YAML boolean"
 
     depends_on = frontmatter.get('depends_on', [])
     if depends_on is not None:

@@ -66,8 +66,8 @@ finding by reading the cited files.
    `README.md`, `AGENTS.md` or equivalent, `skill-repos.yaml`, overlay files,
    Skillbox manifests, `skill-scope.yaml`, `.mcp.json`, and
    `.codex/config.toml`.
-2. Run the scanner in dry-run mode and save the JSON when a durable report is
-   needed.
+2. Run the scanner in dry-run mode; inspect stdout or use temporary JSON unless
+   a requested deliverable or identified maintained consumer needs the file.
 3. Run SBP read-only checks when available:
    ```bash
    sbp
@@ -77,9 +77,12 @@ finding by reading the cited files.
 4. Confirm high-severity candidates by opening the registry source and the
    downstream repo that is supposed to consume it.
 5. Classify the issue using `references/audit-rubric.md`.
-6. Create or update the MMDX map from
-   `assets/templates/usage-audit-stack.mmdx`.
-7. Write the report from `assets/templates/USAGE_AUDIT_REPORT.md`.
+6. Update an existing maintained map when dependencies need a diagram. Use
+   `assets/templates/usage-audit-stack.mmdx` if a new map is requested.
+7. Return findings in the conversation and update existing issues for actionable
+   work. Save a report only for a requested deliverable or an identified
+   maintained consumer; `assets/templates/USAGE_AUDIT_REPORT.md` is an optional
+   format, not a requirement to create a new packet or invocation directory.
 8. Recommend narrow dry-run commands before any sync, unlink, prune, overlay, or
    MCP config change.
 
@@ -145,7 +148,7 @@ Return:
 - ranked findings with exact file evidence
 - SBP/Skillbox/MCP visibility table
 - placement decision for each affected surface
-- MMDX map path
+- MMDX map path, if created or updated
 - dry-run commands to review
 - verification commands and degraded evidence
 

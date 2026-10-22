@@ -75,8 +75,9 @@ preflight commands that should be run for candidate stacks.
    ```bash
    python3 "$MMDX_INDEX_SCRIPT"
    ```
-2. Run the scanner against the repo or portfolio root and save JSON for durable
-   reports.
+2. Run the scanner against the repo or portfolio root; inspect stdout or use
+   temporary JSON unless a requested deliverable or identified maintained
+   consumer needs the file.
 3. Confirm the active plan/diagram contract from README, AGENTS, plan docs,
    skill templates, or Skillbox config.
 4. Validate high-value MMDX files with the real parser:
@@ -86,8 +87,13 @@ preflight commands that should be run for candidate stacks.
 5. Confirm link problems by reading the MMDX metadata, chart ids, visible labels,
    and any linked local files.
 6. Classify findings with `references/audit-rubric.md`.
-7. Update the MMDX map from `assets/templates/usage-audit-stack.mmdx`.
-8. Write the report from `assets/templates/USAGE_AUDIT_REPORT.md`.
+7. Repair the affected maintained maps and indexes within the authorized scope.
+   Use `assets/templates/usage-audit-stack.mmdx` only when a new audit map is
+   requested; auditing diagrams does not itself require another diagram.
+8. Return findings in the conversation and update existing issues for actionable
+   work. Save a report only for a requested deliverable or an identified
+   maintained consumer; `assets/templates/USAGE_AUDIT_REPORT.md` is an optional
+   format, not a requirement to create a new packet or invocation directory.
 
 If `mmd.py` cannot run, continue with metadata and link checks, but mark
 preflight evidence as degraded. Do not present structural MMDX parsing as proof
@@ -142,7 +148,7 @@ Return:
 - preflight results or degraded reason
 - tracker placement decisions
 - broken link or stale-plan table
-- MMDX map path
+- MMDX map path, if created or updated
 - verification commands
 
 ## Required Verification

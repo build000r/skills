@@ -39,6 +39,8 @@ in the owning overlay, never in this public skill.
   SSH server merely to reuse remote delivery.
 - Restart or replace only application runtimes within the authorized scope. Keep
   tmux/agent sessions, user configuration, data, and unrelated services intact.
+  Verify the actual installed helpers and protocol compatibility required by the
+  new application; an up-to-date helper checkout does not prove its binary is current.
   Inventory old TUI/client processes separately: replacing an executable does not
   update an already running process. Use a supported safe handoff, or report that
   process as pending. Do not kill active work to make the table green.
@@ -70,6 +72,10 @@ client behind an install-only label.
 For resource/status features, inspect newly sampled values from the target itself.
 A green health endpoint or another machine's cached response does not prove the
 new behavior. For browser clients, verify the target serves the selected assets.
+Compare required dependency health with the recorded baseline as well as checking
+the changed feature. A newly broken dependency fails acceptance. Repair the
+application's required dependency within the authorized scope, or restore the
+compatible previous release and report that target as pending.
 
 Before closing the rollout, repeat per-target behavior and state checks after
 the final mutation. Save one fleet receipt with the exact SHA, expected target

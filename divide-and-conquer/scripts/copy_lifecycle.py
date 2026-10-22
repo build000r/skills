@@ -165,7 +165,13 @@ def consumers(copy_path: Path) -> dict:
                 continue
             for name in ("cwd", "exe"):
                 targets.append(os.readlink(process / name))
-            targets.extend(os.readlink(fd) for fd in (process / "fd").iterdir())
+            for fd in (process / "fd").iterdir():
+                try:
+                    targets.append(os.readlink(fd))
+                except (FileNotFoundError, ProcessLookupError):
+                    # Includes the descriptor used to enumerate /proc/self/fd.
+                    # Continue this process; its other FDs/maps can still pin it.
+                    continue
             mappings = (process / "maps").read_text()
             targets.extend(line.split(None, 5)[5] for line in mappings.splitlines()
                            if len(line.split(None, 5)) == 6)

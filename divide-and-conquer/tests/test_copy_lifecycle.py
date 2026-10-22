@@ -4,6 +4,7 @@ import datetime as dt
 import hashlib
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -185,6 +186,50 @@ class CopyLifecycleTests(unittest.TestCase):
             process.terminate()
             process.wait(timeout=10)
             process.stdout.close()
+
+    def test_consumer_preflight_scans_real_proc_self(self):
+        process = Path("/proc") / str(os.getpid())
+        original_iter = Path.iterdir
+
+        def only_self(path):
+            return iter([process]) if path == Path("/proc") else original_iter(path)
+
+        with mock.patch.object(Path, "iterdir", only_self):
+            self.assertEqual(MODULE.consumers(self.copy), {"active": [], "unknown": []})
+
+    def test_vanished_fd_preserves_remaining_maps_and_unknown_permissions(self):
+        process = Path("/proc") / str(os.getpid())
+        original_iter, original_read, original_link = Path.iterdir, Path.read_text, MODULE.os.readlink
+
+        def descriptors(path):
+            if path == Path("/proc"):
+                return iter([process])
+            if path == process / "fd":
+                return iter([process / "fd/999999"])
+            return original_iter(path)
+
+        def vanished(path, *args, **kwargs):
+            if path == process / "fd/999999":
+                raise FileNotFoundError("fixture closed descriptor")
+            return original_link(path, *args, **kwargs)
+
+        for condition in ("active-maps", "missing-maps", "denied-maps"):
+            with self.subTest(condition=condition):
+                def mappings(path, *args, **kwargs):
+                    if path == process / "maps":
+                        if condition == "active-maps":
+                            return f"0000-1000 r--p 0000 00:00 0 {self.copy / 'proof'}\n"
+                        if condition == "missing-maps":
+                            raise FileNotFoundError("fixture missing maps of live process")
+                        raise PermissionError("fixture inaccessible maps")
+                    return original_read(path, *args, **kwargs)
+
+                with mock.patch.object(Path, "iterdir", descriptors), \
+                        mock.patch.object(MODULE.os, "readlink", vanished), \
+                        mock.patch.object(Path, "read_text", mappings):
+                    activity = MODULE.consumers(self.copy)
+                self.assertEqual(activity["active"], [os.getpid()] if condition == "active-maps" else [])
+                self.assertEqual(activity["unknown"], [] if condition == "active-maps" else [os.getpid()])
 
     def test_artifacts_must_be_external_and_retirement_without_admission_stays_open(self):
         with self.assertRaisesRegex(ValueError, "external artifacts"):

@@ -1,12 +1,12 @@
 ---
 name: drift-detector
-description: Detect UI drift across a frontend codebase — ad-hoc color/spacing/typography values vs design tokens, duplicate component variants, Tailwind arbitrary values, className soup, orphan primitives — then produce a ranked consolidation plan. When variants are consolidated, the old code is moved to a numbered per-family archive (single-page index) so no archetype is lost. Use when the user asks about "UI drift", "inconsistent UI", "poorly modularized UI", "too many button variants", "clean up the design system", or "consolidate components across projects".
+description: Detect UI drift across a frontend codebase — ad-hoc color/spacing/typography values vs design tokens, duplicate component variants, Tailwind arbitrary values, className soup, orphan primitives — then rank useful consolidations in the existing review or issue tracker. Preserve meaningful component behavior and use Git history for superseded source. Use when the user asks about "UI drift", "inconsistent UI", "poorly modularized UI", "too many button variants", "clean up the design system", or "consolidate components across projects".
 license: MIT
 ---
 
 # Drift Detector
 
-Find UI inconsistency across a frontend codebase, propose a consolidation plan, and never lose an archetype on the way to consistency.
+Find UI inconsistency across a frontend codebase, rank consolidations, and preserve meaningful behavior while removing redundant variants.
 
 ## On Trigger
 
@@ -78,7 +78,7 @@ The TSX/web adapter also suppresses noisy false-positive classes before writing 
 - prompt-content hexes in `image_prompt` / `video_prompt` / `keyPrompt` fields and Tailwind `data-[...]` variants such as Radix state selectors
 - common generated or preserved-output folders: `node_modules`, `dist`, `dist-ssr`, `build`, `coverage`, `.next`, `.nuxt`, `storybook-static`, `.drift`, and the drift archive folder `archive`
 
-`scan.json` is a generated local artifact. It may include source-line snippets for scanner evidence, so do not commit it by default in public repos. Commit the human plan (`.drift/plan.md`) and keep `scan*.json` ignored unless the operator explicitly wants raw findings versioned. Clone-cluster findings strip full duplicate fragments and retain locations/counts only.
+`scan.json` is generated evidence and may contain source-line snippets. Keep `<repo>/.drift/scan.json` when an existing downstream gate consumes that path; do not commit raw findings by default. For an ad-hoc review with no later consumer, use `--output` in owned temporary scratch and remove it after consuming the findings. Put decisions in the existing Bead or review, not a new `.drift/plan.md` by default. Clone-cluster findings strip full duplicate fragments and retain locations/counts only.
 
 Stack-agnostic drift signals always present:
 - raw color literals
@@ -159,15 +159,13 @@ For each family, record:
 - canonical candidate (file path + reason it's the best starting point)
 - variant list with `file:line` and a short "what makes this one different" note
 - impact score: `variants × call_sites × loc_churn`
-- a restore hint: the archive path each variant will land in
+- source custody: the existing commit and path for superseded tracked variants; identify any unique uncommitted behavior that still needs a decision
 
-### 3. Rank and emit the plan
+### 3. Rank and record decisions
 
-Write `<repo>/.drift/plan.md`:
+Use the existing Bead, review, or response for the ranked families and their decisions. A compact table and the details needed to assess each consolidation are enough. Create a standalone plan only when requested or required by an existing consumer, using that consumer's established location.
 
 ```markdown
-# Drift Consolidation Plan — <repo> — <date>
-
 ## Top families by impact
 
 | # | family | variants | call sites | impact | canonical |
@@ -184,48 +182,29 @@ Write `<repo>/.drift/plan.md`:
 - token deltas needed: one new `--accent-gradient`; all other variants fold into `variant` prop
 ```
 
-### 4. Archive on consolidation
+### 4. Consolidate and retire superseded source
 
-**Never delete a variant.** When the user (or a downstream `simplify` run) accepts a merge, call:
+For an authorized consolidation, preserve useful differences in the canonical component, update its callers, and verify the relevant behavior and visual states. Then remove the superseded variant. Git history retains committed source; record the existing commit/path when recovery context matters. Do not create numbered copies, archive sidecars, or index pages as a routine consequence of consolidation.
+
+Git history does not preserve unique uncommitted changes. Keep those in place until their useful behavior is integrated or explicitly rejected. An unresolved design decision is not permission to delete its only implementation.
+
+### 5. Optional archive compatibility
+
+Use a separate archive only for an explicit request or a concrete unresolved need for a separate retained copy. Name its consumer and retention condition first; do not duplicate source already adequately retained in Git or its existing working location. The existing helper remains available for that deliberate choice:
 
 ```bash
 scripts/archive.sh <repo> <family> <source-file> --reason "<short description>"
 ```
 
-This:
-1. Copies the source file to `<repo>/archive/<family>/NN-<basename>` where `NN` is the next zero-padded number in the family
-2. Appends an entry to `<repo>/.drift/archive.json` with `{family, number, from, reason, date, sha, canonical_at_time}`
-3. Re-renders the archive index (see 5)
-4. Removes the original file (caller handles call-site rewrites via `simplify-and-refactor-code-isomorphically`)
+It moves the source to `<repo>/archive/<family>/NN-<basename>`, records metadata in `.drift/archive.json`, and renders `archive/INDEX.md`. The original path is removed, so caller rewrites and behavior verification still belong to the consolidation. Existing retained archives keep their current schema and validation.
 
-### 5. Single-page archive index
+If an existing archive index needs regeneration:
 
 ```bash
 scripts/render_archive_index.sh <repo>
 ```
 
-Rebuilds `<repo>/archive/INDEX.md` — one page, per-family sections, numbered, with the **current canonical** shown in each family heading:
-
-```markdown
-# Design Archive
-
-> Numbered per family. The canonical component is listed in each family heading.
-> To restore: `cp archive/<family>/NN-* src/... && git status` to review.
-
-## button — canonical: `src/components/ui/Button.tsx`
-| #  | archived from                      | reason                    | archived  |
-|----|------------------------------------|---------------------------|-----------|
-| 01 | src/pages/marketing/HeroCTA.tsx    | gradient bg, oversized    | 2026-04-17 |
-| 02 | src/pages/pricing/BuyButton.tsx    | accent color only         | 2026-04-17 |
-| 03 | src/components/legacy/GhostBtn.tsx | ghost variant pre-tokens  | 2026-04-17 |
-
-## card — canonical: `src/components/ui/Card.tsx`
-| #  | archived from          | reason              | archived   |
-|----|------------------------|---------------------|------------|
-| 01 | ...                    | ...                 | ...        |
-```
-
-The index is the safety net: if a user scans it and realizes archetype `button/03` was the one they actually wanted, they copy it back and rerun the plan.
+The index describes only that retained archive. It is not a completion requirement for ordinary consolidation.
 
 ## Non-Goals
 
@@ -238,19 +217,19 @@ The index is the safety net: if a user scans it and realizes archetype `button/0
 
 - Scripts produce byte-identical `scan.json` on the same SHA with the same flags. No LLM, no network, no timestamps *inside* findings (only at the top level).
 - All LLM reasoning happens on top of scanner JSON + source reads. If the agent claims a family exists, it must point to at least one `file:line` from `scan.json`.
-- Archive moves are never done by the LLM directly — always via `scripts/archive.sh` so numbering and sidecars stay consistent.
+- When an optional archive is justified, use `scripts/archive.sh` so its existing numbering and sidecars remain consistent.
 
 ## Required Verification
 
-Before handing the run back, independently run `scripts/check.sh <repo>` and confirm it exits zero. Do not mark the task complete if it fails — fix the reported inconsistency first (usually: rerun `scripts/scan.sh` or `scripts/render_archive_index.sh`).
+Before handing the run back, run `scripts/check.sh <repo>` for artifacts retained at its standard paths and resolve any reported inconsistency. It validates existing artifacts and creates nothing; it does not require a plan, archive, or index to exist. If the scan used a temporary `--output`, inspect that JSON's required keys and findings directly before removing it. Verify relevant source/tests and visual behavior separately; artifact structure alone does not prove a successful consolidation.
 
 ```bash
 scripts/check.sh <repo>
 ```
 
-The script verifies:
-- `.drift/scan.json` has `meta`, `findings`, `summary` keys
-- `.drift/archive.json` has `families` and every `archived_path` resolves on disk
+For artifacts that exist, the script verifies:
+- `.drift/scan.json` has `meta.stacks`, `findings`, and `summary` keys
+- `.drift/archive.json` has `families` and its archived and canonical paths resolve on disk
 - `archive/INDEX.md` is not orphaned (exists only if `archive.json` exists)
 
 Additional ad-hoc checks during iteration:

@@ -78,17 +78,45 @@ until then, activate individual skills through `sbp`.
 Any swarm or NTM-coordinated work must route through `vibing-with-ntm`. Any
 large-ish, UI-facing, multi-file, naturally parallel, or review-sensitive task
 must route through `divide-and-conquer` before parallel execution. For UI,
-design/UX, visual, or ambiguous review-heavy work, include Grok route-v2 at
-`high` in the worker or reviewer mix. Use that same Grok lane as the NTM
-runtime orchestrator,
-but keep this skill's goal selection, no-ragrets planning, decomposition,
-architecture, route-blocker review, and final authority on SOL route-v2 at
-`xhigh`. Resolve it through
-`sbp route pick sol --refresh --json`, retain the complete decision, and let
-native-to-Cursor fallback change only runner/quota surface. A typed SOL
-same-lane no-route stops execution unless separately pre-authorized
-`MODEL_CHANGE` authority and its receipt already permit a different model.
-Require a final fresh-eyes reviewer pass before completion.
+design/UX, visual, or ambiguous review-heavy work, use the explicit Grok lane
+when an external visual worker is needed, subject to the user's provider
+selection. Use `high` for planning and final authority, `med` for ordinary
+implementation, and `low` for bounded runtime coordination.
+
+For external workers resolve `sbp route <low|med|high> --refresh --json` through
+`divide-and-conquer`. The complete decision is authoritative:
+when it reports `runnable: true`, use its returned model, runner, quota surface,
+account binding, and returned effort verbatim. Retain and pass that complete
+decision to the execution skill and adapter, including selector-chosen fallbacks.
+Do not block or ask for approval because the returned effort differs from an
+example, remembered default, or older skill instruction. An effort mismatch
+alone is neither a no-route result nor a `MODEL_CHANGE` gate. Do not override
+the decision or rewrite global routing policy to satisfy stale prose.
+
+A runnable tier backup is already authorized; no separate `MODEL_CHANGE`
+approval is required. A typed tier no-route stops that external allocation.
+Do not re-pick another lane or invent availability to bypass the configured
+ladder. A failed validation is a work-quality issue, not provider unavailability.
+
+### Native Selection And Safe Continuation
+
+Honor explicit user model/substrate instructions first. When the user selects
+Codex agents or the current harness already supplies tracked native agents,
+use the current Codex session and native Codex subagents through
+`divide-and-conquer`, without asking for permission again. Do not manufacture
+an external route prerequisite or a synthetic SBP decision for native agents.
+Keep named Bead ownership, disjoint write scopes, and an independent fresh-eyes
+reviewer who did not implement the change. For external launches preserve the
+complete runnable decision, returned effort, and account binding through the
+supported adapter.
+
+Before replacing an existing worker, reconcile its artifacts and effects,
+stop or fence the original writer, and transfer only the remaining work.
+Record the actual selected execution path and material failure on the existing
+Bead. Do not repeat permission questions or probes without new evidence. If no
+suitable native path is selected and the external tier has no runnable route,
+stop the affected work with that exact blocker. Preserve user provider limits,
+ownership, validation and final review throughout the handoff.
 
 `smart` chooses the next move; `divide-and-conquer` turns substantial execution
 into Beads and runs the ready frontier. When a recommendation becomes
@@ -408,20 +436,19 @@ For every `/smart` invocation:
 - Use `/divide-and-conquer` when an iteration is large-ish, UI-facing,
   multi-file, naturally parallel, review-sensitive, or expands into a multi-node
   implementation slice that benefits from a Beads-backed ready frontier.
-- Use `vibing-with-ntm` for every swarm or NTM-coordinated run, including
-  divide-and-conquer execution, operator tending, review loops, and transport
-  recovery. The live NTM controller is Grok route-v2 at `high` and must
-  escalate planning.
+- Use `vibing-with-ntm` when external NTM panes need tending or recovery.
+  Selected native agents use their tracked harness. External coordination uses
+  `low`; planning and final authority use `high`, with each returned route intact.
 - Use `ntm` directly only when orchestration itself is the task. For ordinary
   execution waves, route through `/divide-and-conquer` so Beads remain
   authoritative.
-- Include Grok route-v2 at `high` for UI, visual, design/UX, or ambiguous
-  review-heavy work; use SOL route-v2 at
-  `xhigh` for planning and final authority. Native exhaustion may move either
-  lane to its same-family Cursor runner, but a typed same-lane no-route stops
-  unless an explicit `MODEL_CHANGE` gate and receipt already permit a
-  different model. Do not call the loop complete until a fresh-eyes reviewer
-  pass has checked the final diff and validation evidence.
+- Honor explicit native-agent selection and retain capable visual review for
+  UI/design work. External workers follow the configured `low`/`med`/`high`
+  decision, including returned effort and approved backups, as specified in
+  Visibility Control Plane. Do not add a model-change approval for an approved
+  tier backup or re-pick a different lane after a typed tier no-route.
+  Do not call the loop complete until an independent fresh-eyes reviewer pass has
+  checked the final diff and validation evidence.
 - Do not recurse lazily by repeatedly wrapping `/smart` around itself with no new artifact or verification. Each loop must either sharpen the goal, produce a concrete repo or artifact delta, route an unresolved question, or prove that the success criteria have been met.
 
 ### Completion Gate

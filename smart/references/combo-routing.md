@@ -29,9 +29,8 @@ commit or the dirty worktree makes a clean scoped commit unsafe. If commit is
 not authorized, say that the completion gate is pending rather than pretending
 the work is fully closed out.
 
-If a combo includes a long-running implementation step, prefer an NTM-backed
-execution skill such as `/divide-and-conquer` rather than a detached transport
-wrapper.
+If a combo includes a long-running implementation step, use `/divide-and-conquer`
+with tracked native agents or an NTM swarm as the task requires.
 
 For any substantial implementation, `/smart` may identify the move, but
 `/divide-and-conquer` owns the execution conversion into Beads: epic/child issue
@@ -43,13 +42,24 @@ If any combo uses a swarm, NTM session, parallel worker wave, or NTM-backed
 review loop, include `vibing-with-ntm`. If the task is large-ish, UI-facing,
 multi-file, naturally parallel, or review-sensitive, use `divide-and-conquer`
 before parallel execution. For UI, visual, design/UX, or ambiguous review-heavy
-work, use Grok route-v2 at `high`; use SOL route-v2 at `high` (GPT-6.1 Sol) for planning and
-final authority. Resolve lanes with `sbp route pick <lane> --refresh --json`
-and preserve the retained decision through the shared execution adapter.
-Native exhaustion may change only runner/quota surface to the same-family
-Cursor rung. A typed same-lane no-route stops unless an explicit
-`MODEL_CHANGE` gate and receipt already permit another model. Finish with a
-fresh-eyes reviewer pass.
+work, honor the user's provider selection and retain capable visual review.
+Use `high` for planning and final authority, `med` for implementation and `low`
+for bounded coordination. Resolve external allocations with
+`sbp route <low|med|high> --refresh --json`. When it reports
+`runnable: true`, follow the complete decision through the execution skill and
+shared adapter: returned model, runner, quota surface, account binding, and
+returned effort, including selector-chosen fallbacks. Do not block or ask for approval
+over an effort difference from examples or older instructions; that difference
+alone does not require `MODEL_CHANGE`. Do not replace the returned fields to
+satisfy prose defaults. A runnable tier backup is already authorized; no separate
+`MODEL_CHANGE` approval is required. A typed tier no-route stops that external
+allocation; do not re-pick another lane to bypass it. Apply
+[Native Selection And Safe Continuation](../SKILL.md#native-selection-and-safe-continuation)
+when the user selects native Codex agents or the current harness supplies them;
+continue without asking for permission again or fabricating a route decision.
+Reconcile and fence any previous writer before transferring remaining work.
+Finish with an independent fresh-eyes reviewer who did not implement the change;
+a separate Codex agent qualifies.
 
 ## When `cass` Should Open The Combo
 

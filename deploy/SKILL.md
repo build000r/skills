@@ -1,6 +1,6 @@
 ---
 name: deploy
-description: Deploy, rollback, debug, and operate Docker or VPS stacks, Pages or edge frontends, packages, and app-store releases using a skillbox client overlay. Also design or migrate repo-owned local self-test and self-release paths that move avoidable build, test, and deploy work off paid GitHub Actions. Use when deploying code, reducing Actions spend, creating a self-deploy or self-test path, checking health, reviewing logs, comparing env rollout plans, validating package publishing, or working in SSH dev environments where production constraints matter.
+description: Deploy, rollback, debug, and operate Docker or VPS stacks, Pages or edge frontends, packages, and app-store releases using a skillbox client overlay. Complete project deployments across all declared machines unless the user narrows the target scope. Also design or migrate repo-owned local self-test and self-release paths that move avoidable build, test, and deploy work off paid GitHub Actions. Use when deploying code, updating all machines to the latest release, reducing Actions spend, creating a self-deploy or self-test path, checking health, reviewing logs, comparing env rollout plans, validating package publishing, or working in SSH dev environments where production constraints matter.
 ---
 
 # Deploy
@@ -105,7 +105,7 @@ Anti-gaming: reject boilerplate compliance and false precision. Use workflow min
 
 Run this checklist before any irreversible step:
 
-1. Load overlay values and confirm the target environment.
+1. Load overlay values and confirm the target environment. Before building or changing a target, read [all-target rollout](references/all-target-rollout.md) and record the complete declared target set, roles, platforms, and runtime expectations. Apply any explicit user target restriction.
 2. Identify the deploy surface:
    - Docker/Compose service
    - package publish
@@ -247,16 +247,9 @@ Resolve the client overlay first. Use overlay vars instead of hardcoded literals
 everywhere. For release design or execution, read the self-release reference
 and require the `MODE_RELEASE_*` contract described by the mode template.
 
-Typical vars:
-
-- repo roots and repo slugs
-- SSH host/user
-- deploy root paths
-- health URLs
-- compose project names
-- Pages/edge project names
-- reverse-proxy or frontdoor paths
-- canonical release gate, command, ref policy, transport, and manifest locations
+Overlay variables include repo roots/slugs, SSH identity, deploy roots, health
+URLs, Compose/edge project names, frontdoor paths, and the canonical release
+gate, command, ref policy, transport, and manifest locations.
 
 ### 2. Run the smallest credible diagnostic
 
@@ -298,6 +291,10 @@ Examples:
 - State: running container/image tag/commit hash matches expected version
 
 ## Required Closeout Verification Contract
+
+Default a project deployment to every declared installation/runtime target unless the user narrows the scope. Include development/build hosts declared to consume the application. Resolve "latest" to one tested protected-ref SHA and keep that identity fixed during delivery.
+Follow [all-target rollout](references/all-target-rollout.md): inventory each target, install the matching checked artifact, update active managed runtimes, and verify the changed behavior on each machine. A source push, one upgraded host, or an install-only receipt cannot establish fleet completion.
+Report every target and any incomplete phase. An unreachable or unverified target keeps the overall result incomplete; preserve its evidence and continue independent authorized work. Do not omit targets or terminate active work to manufacture convergence.
 
 Before handing the run back, rerun both checks after the final deploy/debug
 change:

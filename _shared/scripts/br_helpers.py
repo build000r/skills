@@ -1025,7 +1025,28 @@ def _run_dir_rejection(issue_id: str, contract: dict, context: dict) -> Optional
                           "hydrate run_dir with an absolute path under @client/invocations")
     source_parts = path.parts
     client_id = context.get("client_id")
-    if not path.exists() and isinstance(client_id, str):
+    # A repository/host storage policy may provide a canonical artifacts root.
+    # Respect it at admission as well as in the skill's creation instructions.
+    workflow = context.get("workflow_builder") or {}
+    policy_root = os.environ.get("SKILLBOX_ARTIFACTS_ROOT")
+    configured_root = policy_root or (
+        workflow.get("invocation_root") if isinstance(workflow, dict) else None
+    )
+    if configured_root is not None and not isinstance(configured_root, str):
+        return _rejection(issue_id, "run_dir_unsafe", "configured artifact root is not a path",
+                          "configure one absolute external artifact root")
+    if policy_root and not Path(policy_root).is_absolute():
+        return _rejection(issue_id, "run_dir_unsafe", "host artifact root must be absolute",
+                          "export the policy's normalized absolute artifact root")
+    root_path = Path(configured_root) if isinstance(configured_root, str) and configured_root else (
+        Path(client_dir) / "invocations"
+    )
+    if not root_path.is_absolute():
+        root_path = Path(client_dir) / root_path
+    if ".." in root_path.parts:
+        return _rejection(issue_id, "run_dir_unsafe", "artifact root contains path traversal",
+                          "configure a normalized external artifact root")
+    if not configured_root and not path.exists() and isinstance(client_id, str):
         anchor = ("skillbox-config", "clients", client_id, "invocations")
         for index in range(len(source_parts) - len(anchor) + 1):
             if source_parts[index:index + len(anchor)] == anchor and "repos" in source_parts[:index]:
@@ -1033,7 +1054,7 @@ def _run_dir_rejection(issue_id: str, contract: dict, context: dict) -> Optional
                 break
     try:
         repo = Path(repo_raw).resolve(strict=True)
-        root = (Path(client_dir) / "invocations").resolve(strict=True)
+        root = root_path.resolve(strict=True)
         run = path.resolve(strict=True)
     except (OSError, RuntimeError):
         return _rejection(issue_id, "run_dir_unresolvable",

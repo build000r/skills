@@ -550,8 +550,11 @@ Route every ready node before spawning workers:
 
 ## Artifact Storage
 
-Execution artifacts belong alongside the active client overlay in
-`skillbox-config`, not in the repo root and not in `/tmp`.
+Execution artifacts belong under the declared external artifact root. Respect
+the repository/host storage policy before overlay defaults: when that policy
+names a canonical root, export it as `SKILLBOX_ARTIFACTS_ROOT`. Do not leave new
+run output or source copies inside a checkout collection or client overlay tree
+when the local policy assigns them an external artifacts root.
 
 Repo hygiene is a hard requirement. New divide-and-conquer waves MUST NOT write
 or ask workers to write `WORKGRAPH.md`, `EXECUTION_CONTEXT.md`,
@@ -568,9 +571,11 @@ python3 "$DAC_SHARED_ROOT/scripts/resolve_context.py" "$PWD" --format json
 
 Then resolve the invocation artifact root using this order:
 
-1. `workflow_builder.invocation_root` from the resolved context
-2. `client_dir + /invocations` when `client_dir` is present
-3. Stop and surface the missing overlay/artifact-root prerequisite
+1. `SKILLBOX_ARTIFACTS_ROOT` when a user/repository/host policy selects it
+2. `workflow_builder.invocation_root` from the resolved context
+3. `client_dir + /invocations` when `client_dir` is present and no local storage
+   policy overrides it
+4. Stop and surface the missing overlay/artifact-root prerequisite
 
 Treat relative roots as relative to `client_dir`. If the resolver returns
 absolute paths, use them directly.
@@ -585,6 +590,34 @@ Where:
 - `repo_slug` = matched repo id from the overlay when available, otherwise the
   basename of the working repo
 - `run_id` = timestamped execution id such as `2026-04-09T16-22-31Z`
+
+Initialize the run's source-copy ledger before creating isolation copies. The
+controller's live Bead owns the ledger; purpose and release condition come from
+the accepted graph, never a generic age or "clean later" rule:
+
+`PROJECT_DIR` must be the actual Git root assigned to that controller, verified
+with `git -C <path> rev-parse --show-toplevel`. A portfolio collection is not a
+project: use a separate ledger for each owning Git repo.
+
+```bash
+COPY_LIFECYCLE="$DAC_SKILL_ROOT/scripts/copy_lifecycle.py"
+COPY_LEDGER="$run_dir/COPY_LIFECYCLE.json"
+python3 "$COPY_LIFECYCLE" --ledger "$COPY_LEDGER" init \
+  --artifacts-root "$invocation_root" --repo "$PROJECT_DIR" \
+  --owner "$CONTROLLER_BEAD" --purpose "$SLICE_PURPOSE" \
+  --release-condition "$SLICE_RELEASE_CONDITION"
+```
+
+Resume an existing ledger instead of replacing it. Every extra worktree, clone
+or retained source directory needs an owner Bead, specific purpose and observable
+release condition. Prefer linked worktrees outside the artifact root; do not
+copy `node_modules`, virtual environments or build trees into recovery archives.
+Use the native creation wrapper in
+[source-copy lifecycle](references/source-copy-lifecycle.md). Before dispatch,
+run `copy_lifecycle.py --ledger "$COPY_LEDGER" dispatch-check` and retain its
+JSON output. Exit 2 blocks dispatch for missing/dirty/unknown registered copies
+or new worktrees that bypassed registration. The ledger records the owning
+repo's baseline worktrees so existing unrelated work is not claimed by this run.
 
 Store these optional/generated artifacts in the run directory:
 - `EPIC_ID.txt` — the `br` epic ID for this run; sole pointer back to the source-of-truth state in `.beads/`
@@ -757,6 +790,9 @@ Optional isolation:
   the subgoal is large. Worktrees move overlap risk to a loud merge/integration
   step; they do not make overlapping edits impossible. Define a single
   root-owned `.beads/` mutation policy before using worktrees.
+- Create isolation through `copy_lifecycle.py worktree-add`, with the worker Bead
+  as owner and its integration/proof criterion as release condition. Register
+  independently required clones with `register`; cloning is not proof custody.
 
 ### Subgoal Completion
 
@@ -1812,7 +1848,7 @@ You own one divide-and-conquer node inside an execution swarm.
 
 Source of truth: br (run `br show <issue-id>` for the live contract)
 Issue ID: <prefix>-wg-001-<slug>-<hash>
-Run directory: <absolute path under skillbox-config invocation root>
+Run directory: <absolute path under the declared external artifact root>
 Concern: <concern>
 Depends on: <ids already satisfied, or None>
 Writes: <expected paths/globs, or None>
@@ -2043,6 +2079,17 @@ blocked Beads for a future session. Apply
 verdict-file reviews may stay headless; a review that must talk back uses the
 NTM spawn below. Do not default to `/codex:rescue`.
 
+Before closing the run, reconcile every registered source copy using
+[source-copy lifecycle](references/source-copy-lifecycle.md), then run
+`copy_lifecycle.py --ledger "$COPY_LEDGER" closeout --decisions "$COPY_DECISIONS"`
+and retain the JSON receipt. A useful patch must reach the owning main branch
+and pass its gates before its source copy is retired. Proof needs separate,
+verified custody. Clean status, age, cached origin containment, an archive or
+a filed Bead cannot substitute for a semantic content decision. Active, dirty,
+unknown or unadmitted copies remain intact and appear in `unresolved_copies`
+with owner, purpose and release condition; exit 2 keeps their closeout node open
+and must be surfaced in the final result. Continue independent admitted work.
+
 Prefer a small review swarm: one low-tier runtime controller, one independent
 Grok fresh-eyes reviewer, and one high-tier final-authority reviewer. The recipe
 below is for available Grok. If Grok is unavailable, use
@@ -2154,7 +2201,7 @@ When the final review result is available:
 - `br` (the slice's epic + child issues in `.beads/`) is the execution source of truth
 - `WORKGRAPH.md` is a generated view; never hand-edit it — re-render with `br_helpers.py render-workgraph`
 - State changes flow through `br update`/`br close`, not markdown rewrites
-- Invocation artifacts (`EXECUTION_CONTEXT.md`, `WG-*_RESULT.md`, `DAC_FINAL_RESULT.md`, `EPIC_ID.txt`) still live under the overlay-backed invocation root in `skillbox-config`, but only `EPIC_ID.txt` is a pointer to source-of-truth Beads state; the rest are generated views or evidence attachments
+- Invocation artifacts (`EXECUTION_CONTEXT.md`, `WG-*_RESULT.md`, `DAC_FINAL_RESULT.md`, `EPIC_ID.txt`) live under the declared external artifact root; only `EPIC_ID.txt` points to source-of-truth Beads state. The rest are generated views or evidence attachments. Source copies have separate owner/purpose/release-condition custody in `COPY_LIFECYCLE.json`.
 - Never create new repo-local `.dac/`, `.ntm/`, repo-root `WG-*_RESULT.md`,
   repo-root `WORKGRAPH.md`, repo-root `EXECUTION_CONTEXT.md`, or repo-root
   `DAC_FINAL_RESULT.md` files. Existing legacy files may be read as historical

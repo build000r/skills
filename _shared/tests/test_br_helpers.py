@@ -1805,6 +1805,26 @@ class PlanArtifactBoundaryTests(unittest.TestCase):
             )
             self.assertEqual(internal["reason"], "run_dir_unsafe")
 
+    def test_configured_artifact_root_is_used_for_creation_and_admission(self) -> None:
+        with tempfile.TemporaryDirectory(dir="/var/tmp") as tmpdir:
+            root = Path(tmpdir)
+            repo, client, artifacts = root / "repo", root / "client", root / "artifacts"
+            repo.mkdir()
+            client.mkdir()
+            run = artifacts / "orchestration" / "run"
+            run.mkdir(parents=True)
+            context = {"client_dir": str(client), "workflow_builder": {"invocation_root": str(artifacts)}}
+            with mock.patch.dict(MODULE.os.environ, {}, clear=True):
+                self.assertIsNone(MODULE._run_dir_rejection(
+                    "leaf", {"repo_path": str(repo), "run_dir": str(run)}, context))
+            context["workflow_builder"]["invocation_root"] = "/stale/other-host/invocations"
+            with mock.patch.dict(MODULE.os.environ, {"SKILLBOX_ARTIFACTS_ROOT": str(artifacts)}, clear=True):
+                self.assertIsNone(MODULE._run_dir_rejection(
+                    "leaf", {"repo_path": str(repo), "run_dir": str(run)}, context))
+                rejected = MODULE._run_dir_rejection(
+                    "leaf", {"repo_path": str(repo), "run_dir": str(client)}, context)
+                self.assertEqual(rejected["reason"], "run_dir_unsafe")
+
     def test_tmp_run_directory_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory(dir="/tmp") as tmpdir, tempfile.TemporaryDirectory(dir="/var/tmp") as repo_tmp:
             client = Path(tmpdir) / "clients" / "personal"

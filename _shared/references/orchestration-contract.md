@@ -348,10 +348,18 @@ When a workflow emits or consumes handoff artifacts, keep ownership explicit:
 
 Each artifact should have one clear owner at each phase.
 
-Swarm runtime evidence belongs in the overlay-backed invocation root or the NTM
-runtime, not in product repo roots. New domain/DAC waves should not create
+Swarm runtime evidence belongs in the declared external artifact root or the NTM
+runtime, not in product repo roots. A user/repository/host canonical storage
+policy takes precedence over overlay invocation-root defaults; export that root
+as `SKILLBOX_ARTIFACTS_ROOT` so creation and Beads admission agree. New domain/DAC waves should not create
 repo-local `.dac/`, `.ntm/`, loose `WG-*_RESULT.md`, `EXECUTION_CONTEXT.md`,
 `WORKGRAPH.md`, or `DAC_FINAL_RESULT.md` files unless the user explicitly asks
 for a repo-local proof artifact. Use `vibing-with-ntm` for live pane state,
 operator ticks, stuck-pane recovery, queue-dry checks, and concise session
 exports.
+
+Extra source copies require explicit owner, purpose and release condition;
+semantic source disposition and independent proof custody precede retirement.
+DAC's [source-copy lifecycle](../../divide-and-conquer/references/source-copy-lifecycle.md)
+provides the creation/dispatch and closeout gates. Dirty, active, unknown or
+unadmitted copies remain visible and intact; age alone never authorizes deletion.

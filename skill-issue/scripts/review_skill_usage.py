@@ -68,10 +68,16 @@ def main() -> None:
         default=[],
         help="Additional case-insensitive regex that marks a command as validation (repeatable)",
     )
-    parser.add_argument(
+    marker_options = parser.add_mutually_exclusive_group()
+    marker_options.add_argument(
+        "--write-marker",
+        action="store_true",
+        help="Update the single latest review cursor for an explicitly requested recurring review",
+    )
+    marker_options.add_argument(
         "--no-marker",
         action="store_true",
-        help="Do not update ~/.claude/skill-markers/<skill>.json",
+        help="Do not update the review cursor (default; retained for compatibility)",
     )
     args = parser.parse_args()
 
@@ -89,7 +95,7 @@ def main() -> None:
     report["since_source"] = since_source
     report["evidence_packets"] = generate_evidence_report(report)
 
-    if args.no_marker:
+    if not args.write_marker:
         report["marker_file"] = None
     else:
         report["marker_file"] = str(write_marker(report))

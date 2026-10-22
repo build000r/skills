@@ -174,13 +174,18 @@ An accepted plan is written before any swarm exists, so `run_dir` and
 (`<absolute-run-dir>`, `TBD`, `none`, `worker-id`, `${VAR}`, relative paths) are
 rejected rather than dispatched.
 
-The run directory boundary follows the declared route. External routes use an
-existing descendant of the active client's `@client/invocations` directory.
+Use a private temporary run directory outside the repository by default; plan
+admission does not require a client overlay. Reject a temp root itself,
+traversal, symlink escapes, repository descendants and `.dac`/`.ntm` paths.
+Temporary storage does not relax model-route validation. For explicitly retained
+evidence, external routes can use an existing descendant of the active client's
+`@client/invocations` directory.
 `route:internal-astra-medium` plus the matching operator-authorized internal
 model route may use an existing descendant of `/srv/skillbox/artifacts` for
 local Codex review evidence. A label without the matching model route, or the
-model route without the label, is rejected. Both branches reject repository and
-temporary directories, traversal, symlink escapes, and `.dac`/`.ntm` paths.
+model route without the label, is rejected. Permanent roots retain their
+existing containment checks. All branches reject repository directories,
+traversal, symlink escapes, and `.dac`/`.ntm` paths.
 Admitting a scratch path does not authorize a source edit or external action;
 the node's own dependencies, write scope, and operator gates still apply.
 

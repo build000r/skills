@@ -1,8 +1,10 @@
 import json
+import io
+import sys
 import tempfile
 import unittest
 import unittest.mock
-from contextlib import contextmanager
+from contextlib import contextmanager, redirect_stdout
 from datetime import datetime, timedelta, timezone
 from importlib.machinery import SourceFileLoader
 from pathlib import Path
@@ -15,6 +17,23 @@ MODULE = SourceFileLoader(
 
 
 class SkillReviewSignalTests(unittest.TestCase):
+    def test_review_cursor_writes_are_opt_in(self) -> None:
+        scripts = Path(__file__).resolve().parent.parent / "scripts"
+        with unittest.mock.patch.object(sys, "path", [str(scripts), *sys.path]):
+            cli = SourceFileLoader("review_cli_cursor", str(scripts / "review_skill_usage.py")).load_module()
+        for flags, writes in (([], False), (["--no-marker"], False), (["--write-marker"], True)):
+            with self.subTest(flags=flags), unittest.mock.patch.object(
+                sys, "argv", ["review_skill_usage.py", "--skill", "fixture", *flags]
+            ), unittest.mock.patch.object(cli, "resolve_since", return_value=(
+                datetime.now(timezone.utc), "marker"
+            )), unittest.mock.patch.object(cli, "scan_skill_invocations", return_value={}), \
+                unittest.mock.patch.object(cli, "generate_evidence_report", return_value={}), \
+                unittest.mock.patch.object(cli, "write_marker", return_value=Path("cursor.json")) as write, \
+                redirect_stdout(io.StringIO()) as output:
+                cli.main()
+                self.assertEqual(write.call_count, int(writes))
+                self.assertEqual(json.loads(output.getvalue())["marker_file"], "cursor.json" if writes else None)
+
     @contextmanager
     def patch_session_dirs(self, codex_dir: Path, claude_dir: Path):
         original_codex = MODULE.CODEX_SESSIONS_DIR

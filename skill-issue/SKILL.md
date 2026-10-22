@@ -99,13 +99,13 @@ Do **not** use `eval "$(resolve_overlay_config.py ...)"`: command substitution d
 2. Each overlay has a `cwd_match` field — a path prefix to match against cwd
 3. Prefer the most specific `cwd_match`; when specificity ties, prefer the closest repo-local `.buildooor/` overlay over shared fallback overlays
 4. If cwd still matches multiple overlays at the same priority, ask the user which overlay to use
-5. **If no overlay matches or none exist, ask before creating one.** Default to read-only diagnostics (`list`, `match`, `validate`) until the user confirms creation. Do not fall back to generic defaults.
+5. **If no overlay matches, continue generic skill work using the repository instructions and current request.** Create an overlay only for requested persistent configuration or a concrete operation that needs missing client settings; it is not a prerequisite for edits, validation, or temporary scratch.
 
 ### Overlay Miss → Create Flow
 
-When no overlay matches the current working directory:
+When persistent client configuration is actually needed and no overlay matches:
 
-1. Tell the user: no matching client overlay found for `{cwd}` and ask whether to create one now
+1. State which concrete settings are missing. Use existing authorization to create the requested overlay; otherwise ask before adding persistent configuration
 2. If the user approves, infer a `CLIENT_ID` from the cwd (repo name, project name, or ask)
 3. Run the skillbox-quickstart scan + generate flow to create the overlay:
 
@@ -124,9 +124,9 @@ cp /tmp/overlay.yaml .buildooor/skillbox-config/clients/{CLIENT_ID}/overlay.yaml
 
 5. Re-run Step 0 — the new overlay should now match
 
-If the user does not approve creation, keep the run read-only and report that overlay-backed execution is blocked until creation is authorized.
-
-This keeps every skill invocation overlay-backed. Generic/manual fallbacks mask configuration gaps that compound across sessions.
+If creation is not authorized, defer only the operation requiring those settings.
+Continue independent skill edits and validation. Do not create an overlay or
+invocation directory merely to store evidence.
 
 Client overlays are managed outside reusable skill contracts. Repo-local overlays may be committed when sanitized and useful for project history; shared fallback overlays remain outside project repos for private/operator-wide defaults.
 
@@ -187,7 +187,8 @@ authority and lifetime.
 | Stable repository fact, architecture contract, build rule, or project-specific runbook | Tracked repository documentation, tests, configuration, or agent instructions in the owning repo. Link to it from a skill only when a reusable workflow needs the fact. |
 | Live task status, current blocker, claim, SHA, deployment result, or runtime observation | Beads and/or direct runtime evidence. Do not freeze changing state into a skill or durable memory. |
 | Secret, credential value, token, password, private key, or recoverable secret fragment | Nowhere in skills, tracked docs, Beads, memory, examples, logs, or receipts. Keep only a non-secret reference to the approved credential mechanism when needed. |
-| Episodic recall after canonicalization | At most a thin, timestamped pointer containing the event/result, canonical owner path or ID, `verified_at`, and recall keywords. Do not duplicate commands, procedures, access details, secrets, or live-state claims. |
+| Reusable explanatory concepts and cross-project relationships | Update the existing canonical wiki concept. Do not copy a session report, invocation history, or command transcript into the wiki. |
+| Episodic recall after canonicalization | CASS/session history by default. Write a thin timestamped memory pointer only when explicitly requested by the user; do not duplicate procedures or live-state claims. |
 
 Never create or treat a `SKILL.md` under a Claude or Codex memory root (including
 any `memory/` or `memories/` subtree in an agent home) as canonical. A skill
@@ -212,9 +213,9 @@ after canonicalization and must be validated against the pointer fields above.
    secret, copies live state into a durable contract, or creates a second owner.
    Name the correct destination and continue there when it is within scope;
    otherwise report the exact blocked write and required owner.
-4. Update the canonical artifact first. Only after it validates may a memory
-   entry be replaced with a thin pointer. Do not claim promotion when only the
-   pointer or memory copy changed.
+4. Update the canonical artifact first. Only an explicit user request permits
+   a memory write; canonicalization does not imply that authority. Do not claim
+   promotion when only a pointer or memory copy changed.
 5. Check sibling skill dependencies and references when the promoted contract
    changes commands, phases, paths, or policy.
 
@@ -247,7 +248,7 @@ Use this mode when the user wants to manage client overlays directly: "create an
 | "check overlays", "validate overlays" | `validate` |
 | "which overlay matches", "what client am I" | `match` |
 | "migrate overlays", "update overlay format" | `migrate` |
-| Another skill hits an overlay miss | `create` (ask-first; no auto-write) |
+| Another skill hits an overlay miss | Continue generic work; use `create` only for actually needed persistent settings |
 
 ### Actions
 
@@ -255,7 +256,9 @@ Use this mode when the user wants to manage client overlays directly: "create an
 
 Create a new client overlay. Two paths depending on context:
 
-Before running either create path, ask for explicit confirmation to write `.buildooor/skillbox-config/clients/{CLIENT_ID}/overlay.yaml` unless an explicit `--config-root` is being used for a shared/private fallback overlay.
+Before either create path, establish authorization for persistent configuration.
+An explicit request to create/configure this overlay already supplies it; do
+not ask again. Otherwise prepare the concrete diff and explain why it is needed.
 
 **Quick create** (minimal — when the miss is blocking another skill):
 
@@ -263,7 +266,8 @@ Before running either create path, ask for explicit confirmation to write `.buil
 scripts/manage_overlays.py create --client-id {CLIENT_ID} --cwd {CWD} --json
 ```
 
-This writes a minimal `overlay.yaml` with just the `cwd_match` set. Enough to unblock the calling skill. Enrich later.
+This writes a minimal `overlay.yaml` with `cwd_match`. Use it for a requested
+configuration, not to satisfy an artificial prerequisite for ordinary skill work.
 
 **Full create** (scan-backed — when the user explicitly asks to set up an overlay):
 
@@ -337,15 +341,12 @@ Reports which overlays need migration. Does not auto-migrate — presents the li
 
 ### Sibling Skill Delegation
 
-When any skill hits an overlay miss, it should delegate to skill-issue's overlay mode rather than implementing its own creation flow. The contract:
-
-1. Skill detects no overlay matches cwd
-2. Skill tells the user: "No matching client overlay for `{cwd}`. Do you want me to create one?"
-3. If the user confirms, skill runs the quick create path (or invokes skill-issue if available)
-4. If the user does not confirm, skill stays in read-only mode and reports the block
-5. If created, skill re-runs overlay selection — should now match
-
-Skills that already stop on miss (deploy, ssh-info, dev-sanity) should add this ask-first create step before stopping.
+On an overlay miss, determine which concrete operation requires client-specific
+settings. Generic edits, tests, decomposition and temporary scratch continue.
+For deployment/access operations requiring a destination or account, resolve
+existing configuration first, then use this skill to create requested persistent
+settings within the current authorization. Ask only for a missing material choice
+or unapproved persistent configuration; do not park the entire task on a miss.
 
 ### Missing Skill Visibility
 
@@ -481,7 +482,8 @@ Use this mode when the user wants to improve a skill from real transcript eviden
 This mode reads from the configured transcript evidence surface first, then uses
 local Claude/Codex JSONL scanning as a fallback or complement. It writes a
 lightweight last-seen marker, builds operator evidence packets from repeated
-transcript failures, and saves review snapshots for trend reporting.
+transcript failures. Persistent markers and review snapshots are opt-in trend
+infrastructure; ordinary fixes use temporary analysis and the existing tracker.
 
 Treat real user-triggered skill invocations as the experiment corpus. Do not fabricate synthetic reruns by default. Patch from live traces, ship once, then watch the next real invocation window.
 
@@ -525,12 +527,15 @@ fi
 1. Scan transcript history for a target skill with the local scanner:
 
 ```bash
-scripts/review_skill_usage.py --skill skill-issue --source both --limit 50 > /tmp/skill-issue-review.json
+scripts/review_skill_usage.py --skill skill-issue --source both --limit 50 --no-marker > /tmp/skill-issue-review.json
 ```
 
 By default, this resumes from `~/.claude/skill-markers/<skill>.json` using the previous review's `reviewed_until` timestamp. On the first run for a skill, it falls back to `--since month`. Pass an explicit `--since ...` to override, or `--since marker` to force marker-resume behavior.
 
-This writes `~/.claude/skill-markers/<skill>.json` by default with the latest detected invocation date plus the review window cursor. Use `--no-marker` only when you explicitly need read-only behavior.
+Marker writes are off by default; `--no-marker` remains compatible. Enable
+`--write-marker` only for a requested
+recurring trend workflow. Keep review inputs/packets temporary; CASS already
+owns session history. Record the fix and validation in the existing Bead.
 
 Optional, when you need deterministic raw tool tallies for evals, count the underlying tool calls directly:
 
@@ -682,7 +687,7 @@ Read [references/operator-evidence-loop.md](references/operator-evidence-loop.md
 - `output_corrected`: user correction after `task_complete` — fold the recurring correction into defaults or validation
 - `wrong_skill_invoked`: user redirected to a different slash-command — add non-goals referencing the sibling skill and tighten the description
 
-5. If you ship a packet-driven change, ask before writing to the packet ledger. If approved, log the shipment and expected watch window:
+5. Only for explicitly requested trend tracking, log the shipment and watch window:
 
 ```bash
 scripts/log_skill_packet_decision.py \
@@ -712,11 +717,12 @@ scripts/quick_validate.py <path/to/skill-folder>
 scripts/generate_skill_evidence_packets.py --input /tmp/<skill>-review.json --json > /tmp/<skill>-packets.verify.json
 ```
 
-3. If ledger logging was explicitly approved, verify the packet id in `~/.claude/skill-packet-ledger.jsonl` matches the shipped change; otherwise state that logging was intentionally skipped.
+3. If trend logging was requested, verify its packet ID matches the shipped
+change. Ordinary fixes need no ledger, history snapshot, or skipped-logging report.
 
 Do not hand the run back until these checks are complete and passing.
 
-6. Save the review for trend tracking:
+6. Only for explicitly requested trend tracking, save the review:
 
 ```bash
 scripts/save_skill_review.py --input /tmp/skill-issue-review.json
@@ -724,7 +730,7 @@ scripts/save_skill_review.py --input /tmp/skill-issue-review.json
 
 This appends to `~/.claude/skill-review-history.jsonl`.
 
-7. Show the trend when history exists:
+7. When a trend comparison is requested and history exists:
 
 ```bash
 scripts/show_skill_trend.py --skill skill-issue --weeks 8
@@ -1083,8 +1089,13 @@ Every proposed SKILL.md edit gets a risk tier before review. Classify with
 | Tier | What changed | Gate |
 |------|--------------|------|
 | **low** | Prose, examples, reference files | `quick_validate.py` must pass; low-risk edits may be applied without an explicit ask |
-| **medium** | `description` field, phase/step ordering, script logic | LLM self-review + one human confirm before apply |
-| **high** | `allowed-tools`, destructive commands (`rm -rf`, `sudo`, `git push`, etc.), safety rules, hooks config, or cross-skill interface drift | Mandatory human approval; never auto-apply |
+| **medium** | `description` field, phase/step ordering, script logic | Self-review and current user authorization; ask only when the intended change is outside that authorization |
+| **high** | `allowed-tools`, destructive commands (`rm -rf`, `sudo`, `git push`, etc.), safety rules, hooks config, or cross-skill interface drift | Independent review, focused behavioral validation and explicit user authorization for the affected scope; existing authorization counts |
+
+The current user request can already authorize these changes. When it explicitly
+directs investigation and source fixes, apply relevant reviewed fixes and validate
+them without a second permission loop. This does not expand scope to unrelated
+destruction, publishing, or changes the user expressly held back.
 
 Do not lower the tier to keep flow. If review capacity is saturated, pause
 the proposal queue rather than relaxing the gate.

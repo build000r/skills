@@ -134,6 +134,39 @@ class RouteContractTests(unittest.TestCase):
                         self.review.index('\n"$ROUTE_NTM_SPAWN" \\'))
         self.assertNotRegex(self.review, r"(?m)^\s*ntm spawn\b")
 
+    def test_helper_discovery_handles_installed_wrappers(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            checkout = root / "repos" / "opensource" / "skillbox"
+            scripts = checkout / "scripts"
+            scripts.mkdir(parents=True)
+            (checkout / ".env-manager").mkdir()
+            (checkout / ".env-manager" / "manage.py").write_text("")
+            (scripts / "route_ladders.py").write_text("")
+            adapter = scripts / "route_ntm_spawn.sh"
+            adapter.write_text("#!/bin/sh\nexit 99\n")
+            adapter.chmod(0o700)
+            wrapper_dir = root / "wrapper"
+            wrapper_dir.mkdir()
+            wrapper = wrapper_dir / "sbp"
+            wrapper.write_text("#!/bin/sh\nexit 99\n")
+            wrapper.chmod(0o700)
+            for section in (self.spawn, self.review):
+                discovery = "SBP_BIN=" + section.split("SBP_BIN=", 1)[1]
+                discovery = discovery.split('ROUTE_NTM_SPAWN="$SBP_HELPER_DIR/route_ntm_spawn.sh"', 1)[0]
+                for setting in ("SKILLBOX_ROOT", "SKILLBOX_OPERATOR_REPOS_ROOT"):
+                    with self.subTest(section=section[:35], setting=setting):
+                        env = {key: value for key, value in os.environ.items()
+                               if key not in {"SKILLBOX_ROOT", "SKILLBOX_OPERATOR_REPOS_ROOT"}}
+                        env["PATH"] = str(wrapper_dir) + os.pathsep + env.get("PATH", "")
+                        env[setting] = str(checkout if setting == "SKILLBOX_ROOT" else root / "repos")
+                        result = subprocess.run(
+                            ["bash", "-eu", "-c", discovery + '\nprintf "%s" "$SBP_HELPER_DIR"'],
+                            capture_output=True, text=True, env=env,
+                        )
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        self.assertEqual(result.stdout, str(scripts.resolve()))
+
     def test_direct_model_spawns_cannot_recur_in_any_bash_block(self) -> None:
         offenders = [
             block
@@ -587,7 +620,8 @@ class BindingProducerTests(unittest.TestCase):
             raw = decision if isinstance(decision, str) else json.dumps(decision)
             env = {
                 **os.environ, "PATH": f"{root}{os.pathsep}{os.environ['PATH']}",
-                "SBP_BIN": str(root / "sbp"), "PYTHON_BIN": sys.executable,
+                "SBP_BIN": str(root / "sbp"), "SBP_HELPER_DIR": str(root),
+                "PYTHON_BIN": sys.executable,
                 "RETAINED_FROM_ROUTE": raw, "WAVE_SESSION": "fixture-session",
                 "PANE_INDEX": str(pane_index), "PANE_ID": "%42", "ISSUE_ID": "fixture-1",
                 "EXPECTED_ASSIGNEE": "fixture-worker", "BASE_PROMPT_FILE": str(base),

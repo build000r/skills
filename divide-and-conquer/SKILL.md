@@ -1,6 +1,6 @@
 ---
 name: divide-and-conquer
-description: Decompose complex work into a Beads-backed execution graph with generated `WORKGRAPH.md` views, then run an NTM-style swarm by ready frontier with no write overlap. Use before parallel execution for large-ish, UI-facing, multi-file, multi-domain, naturally parallel, naturally orchestrated, subgoal-oriented, or review-sensitive tasks.
+description: Decompose complex work into a Beads-backed execution graph, then run tracked native agents or an NTM swarm by ready frontier with no write overlap. Use before parallel execution for multi-file, multi-domain, naturally parallel, subgoal-oriented, or review-sensitive tasks. Render temporary views only when needed.
 license: MIT
 metadata:
   requires_beads: true
@@ -9,14 +9,14 @@ metadata:
 # Divide and Conquer
 
 Decompose a task into a `br` epic with child issues, then execute that graph
-through an NTM-managed swarm. Autonomous: analyze -> load or mint the epic
+through tracked native agents or an NTM-managed swarm. Autonomous: analyze -> load or mint the epic
 in `br` -> write/tighten the full node contract in Beads -> spawn a wave swarm
 using `br ready`/`br scheduler` -> dispatch Beads-rendered node briefs (each
-carrying a `br` issue ID) -> monitor -> collect evidence attachments ->
+carrying a `br` issue ID) -> monitor -> collect tracked results ->
 reconcile `br` state -> advance waves -> run final integration review
 (close-eligible epic, flush JSONL) -> commit `.beads/issues.jsonl` with the
-slice changes -> report. Markdown files are generated views or evidence
-attachments only. No approval gates.
+slice changes -> report. Markdown files are optional temporary transport aids.
+No approval gates.
 
 For massive runs, this skill can add a subgoal tier between the root slice and
 leaf execution nodes. A subgoal is a Beads-backed delegation boundary over a
@@ -149,14 +149,15 @@ stale mental model. Use labels/external refs for epic grouping, remove or avoid
 the blocking parent-child edge for actionable nodes, or use a scheduler mode
 that explicitly understands non-blocking hierarchy before spawning workers.
 
-This skill defaults to an external NTM swarm when nodes need live attach,
-mid-flight steering, or shared-context repair. The tracked headless one-shot
+Use tracked native Codex agents when the user requests Codex agents or the
+current harness already supplies ownership, messaging and result collection.
+Use an external NTM swarm when external live attach or persistent panes are
+actually needed. The tracked headless one-shot
 lane in [Dispatch Substrate Selection](#dispatch-substrate-selection) is a
 sanctioned peer for single-shot artifact nodes, not a silent degrade. Do not
-dispatch leaf work through the orchestrator's in-process Task/subagent UI
-(Claude Code `Task`, Codex subagents, or equivalent) except through
-[Availability and Safe Continuation](#availability-and-safe-continuation).
-Otherwise those are untracked extra agent processes, not the headless lane.
+dispatch untracked workers. Native agents are tracked by agent ID and claimed
+Bead, with the same write scopes, independent validation and final review.
+They do not need NTM history, a separate controller, or synthetic result files.
 Do not use `/codex:rescue` or other
 untracked local workers as the primary path unless the user explicitly asks.
 
@@ -238,7 +239,7 @@ The gate is fail-closed and enforces all of the following:
    issue labeled `plan-role:root` and `plan-state:handoff-ready`. Zero roots,
    several roots, or a `draft`/`synthesized` root rejects the whole plan.
 2. **Reuse the epic.** Intake is a read path. It never creates, closes,
-   relabels, or reparents plan nodes. `EPIC_ID.txt` points at the accepted root.
+   relabels, or reparents plan nodes. The dispatch references the accepted root.
 3. **Only executable roles dispatch.** `plan-role:execution-leaf`,
    `plan-role:integration`, and `plan-role:review` may enter a wave.
    `plan-role:root` and `plan-role:branch` are grouping nodes and must never be
@@ -294,6 +295,11 @@ Plan intake:
 
 ## Dispatch Substrate Selection
 
+Honor explicit user model/substrate instructions first, including "all Codex
+agents". That is original allocation authority, not quota fallback. Do not
+probe an unwanted provider or demand a no-route receipt for it. The SBP routing
+and NTM binding rules below apply to allocations using those substrates.
+
 Classify each **node**, then the wave, before spawning. Record the choice in
 the dispatch contract. Width (how many nodes are concurrent) is not the
 discriminator: four single-shot artifact nodes may still be headless. Need to
@@ -301,16 +307,18 @@ watch, nudge, or reuse context is.
 
 | Node shape | Substrate |
 |------------|-----------|
+| User requests Codex agents, or native collaboration already supplies ownership and results | Tracked native Codex agents; one Bead and agent ID per node |
 | Self-contained bounded node, native Grok selected, one result artifact, no mid-flight steering | Direct headless Grok one-shot (`grok -p`, fed a prompt-file brief) |
 | Live attach, marching orders, multi-round repair on shared context, or interactive review dialogue | NTM swarm (default) |
 
-Route first. A wave is headless only when **every** node in it matches the first row.
+Route first. A wave is headless only when **every** node in it matches the headless row.
 Mixed waves: NTM for the nodes that need steering; headless siblings are
 allowed. Independent verdict-file reviews are headless-eligible; a review
 that must talk back is not.
 
-`high` tier planning, integration acceptance, commit acceptance, and final-review
-authority are never direct headless allocations. They use the retained `high` tier
+For SBP-managed external waves, `high` tier planning, integration acceptance,
+commit acceptance, and final-review authority are never direct headless
+allocations. They use the retained `high` tier
 route-v2 decision and `route_ntm_spawn.sh`, even when the work product is only
 a verdict file.
 
@@ -355,8 +363,11 @@ fire-and-forget a node whose acceptance depends on interactive review.
 
 ## Model Routing Is Mandatory
 
-Apply [model economics and quality gate](references/model-economics.md)
-before assigning a node. New benchmark releases nominate routes for a
+For SBP-managed external allocations, apply
+[model economics and quality gate](references/model-economics.md) before
+assigning a node. For selected native Codex agents, retain the user selection
+and actual model/effort in the Bead; no extra provider allocation is required.
+New benchmark releases nominate routes for a
 measured pilot; they do not change the model selected by SBP or relax the
 node's acceptance contract. Record the selected route, runner, model, effort,
 review owner, and any provisional candidate status in the Bead/result.
@@ -518,63 +529,39 @@ Route every ready node before spawning workers:
 - `modes-of-reasoning-project-analysis` and `dueling-idea-wizards` as sibling
   swarm-heavy skills with stronger NTM operator patterns worth borrowing
 
-## Artifact Storage
+## Artifact Storage and Lifetime
 
-Execution artifacts belong alongside the active client overlay in
-`skillbox-config`, not in the repo root and not in `/tmp`.
+Beads holds task contracts, decisions, blockers, validation summaries and final
+status. CASS holds session history. Update an existing skill for reusable
+procedure and the existing wiki for reusable concepts. Do not create permanent
+invocation histories, duplicate summaries or per-run documentation by default.
 
-Repo hygiene is a hard requirement. New divide-and-conquer waves MUST NOT write
-or ask workers to write `WORKGRAPH.md`, `EXECUTION_CONTEXT.md`,
-`WG-*_RESULT.md`, `DAC_FINAL_RESULT.md`, `.dac/`, or `.ntm/` inside the product
-repo unless the user explicitly asks for a repo-local proof artifact. Product
-repos should receive product changes and intentional `.beads/issues.jsonl`
-updates only.
-
-Resolve client context with the shared helper first:
+Use tracked worker results plus concise Beads comments for evidence. Files are
+optional transport aids, except exact NTM bound prompts required for safe
+continuation. When a helper requires `run_dir`, create one private temporary
+directory outside the repository; no client overlay is required:
 
 ```bash
-python3 "$DAC_SHARED_ROOT/scripts/resolve_context.py" "$PWD" --format json
+run_dir="$(mktemp -d "${TMPDIR:-/tmp}/dac-XXXXXXXX")"
 ```
 
-Then resolve the invocation artifact root using this order:
+Keep exact bound prompts, route decisions, PID/exit files and necessary logs
+there for the worker's lifetime. Generate `WORKGRAPH.md`, `EPIC_ID.txt`,
+`EXECUTION_CONTEXT.md` or result files only when an actual consumer needs them.
+An explicit durable evidence requirement may use an existing configured root,
+with a named consumer and retention condition. Do not create an overlay merely
+to obtain storage. Reuse existing Beads instead of reminting a graph.
 
-1. `workflow_builder.invocation_root` from the resolved context
-2. `client_dir + /invocations` when `client_dir` is present
-3. Stop and surface the missing overlay/artifact-root prerequisite
+After workers stop and results validate, record the concise outcome and commit
+IDs in Beads, then remove this run's obsolete scratch through normal guarded
+cleanup. Never delete the only copy of unmerged source or required recovery
+bytes. Retain only unresolved payloads with an owner and release condition.
+A cleanup denial needs repair; it is not a reason to make another archive.
 
-Treat relative roots as relative to `client_dir`. If the resolver returns
-absolute paths, use them directly.
-
-Create one run directory per execution:
-
-```text
-{invocation_root}/{repo_slug}/divide-and-conquer/{run_id}/
-```
-
-Where:
-- `repo_slug` = matched repo id from the overlay when available, otherwise the
-  basename of the working repo
-- `run_id` = timestamped execution id such as `2026-04-09T16-22-31Z`
-
-Store these optional/generated artifacts in the run directory:
-- `EPIC_ID.txt` — the `br` epic ID for this run; sole pointer back to the source-of-truth state in `.beads/`
-- `WORKGRAPH.md` — generated view (regenerate with `br_helpers.py render-workgraph --epic {id} --out <absolute-run-dir>/WORKGRAPH.md`); never edit by hand
-- `EXECUTION_CONTEXT.md` — optional generated dispatch summary rendered from Beads; never the authoritative worker contract
-- `WG-*_RESULT.md` — per-node worker evidence attachments (changed files, validation output, blockers); status and contract remain in `br`
-- `DAC_FINAL_RESULT.md` — final integration evidence summary
-- any copied monitor notes or wave summaries
-
-If the slice already has a `br` epic with open children, treat that epic as the
-durable graph: list its children with `br_helpers.py ready --label slice:{name}`
-and skip re-minting nodes. Always create a fresh invocation run directory for
-this execution's artifacts and write `EPIC_ID.txt` pointing at the reused
-epic.
-
-Live pane state, transcript tails, attention-feed output, restarts, rate-limit
-status, queue-dry checks, and swarm tending notes belong to `vibing-with-ntm`
-and the NTM runtime. Export only the concise evidence needed for reconciliation
-into this run directory. Do not mirror the full NTM session into the product
-repo.
+Disjoint file scopes need no new worktree, checkout, per-wave project directory
+or symlink. Product repos receive product changes and intentional
+`.beads/issues.jsonl` updates. User-requested deliverables are separate from
+orchestration scratch. NTM owns live pane state; do not mirror its history.
 
 ## Modes
 
@@ -593,13 +580,14 @@ auto-generated `context.yaml`.
 
 1. Look for `context.yaml` in the working tree (generated from the client overlay)
 2. If found, load project-specific settings automatically
-3. If not found, tell the user no overlay matches and create one using the skillbox-quickstart scan + generate flow before proceeding
-4. If no `skillbox-config/` exists, create one; do not fall back to generic decomposition
+3. If absent, use repository instructions and the explicit task contract; continue with temporary scratch
+4. Create an overlay only for requested persistent configuration or concrete missing deployment/account settings; scratch storage is never that requirement
 
-## Swarm Runtime (Default)
+## Swarm Runtime
 
-`divide-and-conquer` uses an external NTM swarm with split authority. The
-selected `low` tier runtime controller owns accepted-frontier selection, claims, dispatch,
+Use the substrate selected above. Native-agent waves keep runtime coordination
+in the lead and use fresh workers for independent review. For external NTM waves,
+the selected `low` tier runtime controller owns frontier selection, claims, dispatch,
 monitoring, collection, and convergence. A high-tier planning authority owns
 decomposition, topology, synthesis, integration acceptance, and final say;
 workers execute the nodes.
@@ -717,16 +705,18 @@ Escalation mode is **delegated child orchestration**:
   dispatch and verifies the claim with `br show`.
 - The child orchestrator may claim, block, and close only leaf issues matching
   both `slice:{root}` and its assigned `subgoal:{slug}`.
-- The child writes `SUBGOAL_RESULT.md` inside `subgoal_run_dir:` and proposes
-  any cross-subgoal graph change there instead of mutating topology directly.
+- The child returns its result through the tracked channel and Beads comment;
+  use temporary `SUBGOAL_RESULT.md` only for a file consumer. Propose cross-subgoal
+  graph changes to the root instead of mutating topology directly.
 
 Optional isolation:
 
 - `isolation: checkout` is the default.
-- `isolation: worktree` is appropriate when static write-scope proof is weak or
-  the subgoal is large. Worktrees move overlap risk to a loud merge/integration
-  step; they do not make overlapping edits impossible. Define a single
-  root-owned `.beads/` mutation policy before using worktrees.
+- `isolation: worktree` requires a concrete isolation need and a named integration
+  and cleanup owner. Prefer serialized writes in the existing checkout. If a
+  worktree is necessary, integrate accepted work onto the primary branch and
+  retire the redundant worktree during this run; archiving it is not completion.
+  Define a single root-owned `.beads/` mutation policy first.
 
 ### Subgoal Completion
 
@@ -737,7 +727,7 @@ gate proves:
 ```text
 br ready --label slice:{root} --label subgoal:{slug} is empty
 AND no in-flight leaf set changed for at least two operator ticks
-AND expected validation and SUBGOAL_RESULT.md evidence exist
+AND expected validation and tracked child result evidence exist
 AND the latest child output has no unresolved blocker or convergence-warning language
 ```
 
@@ -964,8 +954,8 @@ python3 "$DAC_SHARED_ROOT/scripts/br_helpers.py" \
 admission_exit=$?
 ```
 
-- Exit `0`: the `admitted` array is wave 1. Write the accepted root id to
-  `EPIC_ID.txt`, honor `serialization_edges`, and skip minting entirely.
+- Exit `0`: the `admitted` array is wave 1. Retain the accepted root ID in the
+  dispatch, honor `serialization_edges`, and skip minting entirely.
 - Exit `2`: apply each rejection's `repair` in place, re-run the gate, and only
   then dispatch. Never remint or flatten the plan to route around a rejection.
 
@@ -986,7 +976,7 @@ If the epic exists and the ready frontier is non-empty:
 - Do not pull blocked or deferred issues into the same wave
 
 If no epic exists and orchestration is still relevant:
-- Create an invocation run directory under the resolved invocation root
+- Create private temporary scratch only if a helper or transport needs it
 - Apply the `no-ragrets` bead authoring gate: name the desired outcome,
   evidence, and failure avoided for the slice, then encode those facts into the
   epic and each child issue instead of leaving them in chat or a markdown-only
@@ -999,8 +989,8 @@ If no epic exists and orchestration is still relevant:
   [references/workgraph-synthesis.md](references/workgraph-synthesis.md);
   treat it as guidance for what *content* each node carries, not where state lives.
 - Keep the slice focused on this execution, usually 2-8 nodes
-- Write `EPIC_ID.txt` to the run directory, then regenerate `WORKGRAPH.md` as a
-  view: `br_helpers.py render-workgraph --epic $(cat <absolute-run-dir>/EPIC_ID.txt) --out <absolute-run-dir>/WORKGRAPH.md`
+- Keep the epic ID in the dispatch. If a rendered view has an actual consumer,
+  use `br_helpers.py render-workgraph --epic <id> --out <temporary-run-dir>/WORKGRAPH.md`
 - Immediately run `br_helpers.py ready --label slice:{slug}` and treat the
   result as wave 1
 
@@ -1080,16 +1070,29 @@ frontier_json="$(python3 "$DAC_SHARED_ROOT/scripts/br_helpers.py" ready --label 
 command -v sbp >/dev/null 2>&1 \
   || { echo "sbp route unavailable; refusing static model fallback" >&2; exit 2; }
 SBP_BIN=$(realpath "$(command -v sbp)") || exit 2
-ROUTE_NTM_SPAWN="$(dirname -- "$SBP_BIN")/route_ntm_spawn.sh"
-test -x "$ROUTE_NTM_SPAWN" \
-  || { echo "route_ntm_spawn adapter unavailable" >&2; exit 2; }
+SBP_HELPER_DIR=
+# The installed sbp may be a wrapper without adjacent helper scripts.
+for candidate in "${SKILLBOX_ROOT:-}" \
+  "${SKILLBOX_OPERATOR_REPOS_ROOT:+$SKILLBOX_OPERATOR_REPOS_ROOT/opensource/skillbox}" \
+  "$(dirname -- "$SBP_BIN")/.." /srv/skillbox/repos/opensource/skillbox \
+  "$HOME/repos/opensource/skillbox" "$HOME/skillbox"; do
+  if test -n "$candidate" && test -f "$candidate/.env-manager/manage.py" \
+    && test -x "$candidate/scripts/route_ntm_spawn.sh" \
+    && test -f "$candidate/scripts/route_ladders.py"; then
+    SBP_HELPER_DIR="$(realpath "$candidate/scripts")" || exit 2
+    break
+  fi
+done
+test -n "$SBP_HELPER_DIR" \
+  || { echo "Skillbox routing helpers unavailable; set SKILLBOX_ROOT" >&2; exit 2; }
+ROUTE_NTM_SPAWN="$SBP_HELPER_DIR/route_ntm_spawn.sh"
 
 AUTHORITY_ROUTE_STATUS=0
 AUTHORITY_ROUTE=$(sbp route high --refresh --json) || AUTHORITY_ROUTE_STATUS=$?
 test "$AUTHORITY_ROUTE_STATUS" -eq 0 || test "$AUTHORITY_ROUTE_STATUS" -eq 1 \
   || { echo "AUTHORITY route probe failed without a decision" >&2; exit 2; }
 
-python3 "$(dirname -- "$SBP_BIN")/route_ladders.py" \
+python3 "$SBP_HELPER_DIR/route_ladders.py" \
   --validate-decision-json "$AUTHORITY_ROUTE" --allow-non-runnable >/dev/null || { echo "malformed AUTHORITY route decision" >&2; exit 2; }
 
 if test "$AUTHORITY_ROUTE_STATUS" -eq 0; then
@@ -1107,13 +1110,13 @@ LOW_ROUTE=$(sbp route low --refresh --json) || LOW_ROUTE_STATUS=$?
 test "$LOW_ROUTE_STATUS" -eq 0 || test "$LOW_ROUTE_STATUS" -eq 1 \
   || { echo "low route probe failed without a decision" >&2; exit 2; }
 
-python3 "$(dirname -- "$SBP_BIN")/route_ladders.py" \
+python3 "$SBP_HELPER_DIR/route_ladders.py" \
   --validate-decision-json "$LOW_ROUTE" --allow-non-runnable >/dev/null || { echo "malformed low route decision" >&2; exit 2; }
 
 if test "$LOW_ROUTE_STATUS" -eq 0; then
   printf '%s\n' "$LOW_ROUTE" | jq -e '.runnable == true' >/dev/null || exit 2
 else
-  python3 "$(dirname -- "$SBP_BIN")/route_ladders.py" \
+  python3 "$SBP_HELPER_DIR/route_ladders.py" \
   --validate-decision-json "$LOW_ROUTE" --allow-non-runnable >/dev/null || exit 2
   printf '%s\n' "$LOW_ROUTE" | jq -e '.runnable == false and .reason == "no-route"' >/dev/null || exit 2
   printf '%s\n' "$LOW_ROUTE" > "$run_dir/LOW_ROUTE_NO_ROUTE.json"
@@ -1132,7 +1135,7 @@ if test "${NUM_MED:-0}" -gt 0; then
   MED_ROUTE=$(sbp route med --refresh --json) || MED_ROUTE_STATUS=$?
   test "$MED_ROUTE_STATUS" -eq 0 || test "$MED_ROUTE_STATUS" -eq 1 \
     || { echo "med route probe failed without a decision" >&2; exit 2; }
-  python3 "$(dirname -- "$SBP_BIN")/route_ladders.py" \
+  python3 "$SBP_HELPER_DIR/route_ladders.py" \
     --validate-decision-json "$MED_ROUTE" --allow-non-runnable >/dev/null || exit 2
   if test "$MED_ROUTE_STATUS" -eq 1; then
     printf '%s\n' "$MED_ROUTE" | \
@@ -1249,10 +1252,10 @@ Optionally render `EXECUTION_CONTEXT.md` inside the run directory after the
 Beads contract is complete. Treat it as a cached view for humans and transport
 debugging. Never hand-edit it to add worker-only context.
 
-Before dispatch, verify the run directory is outside the product repo root and
-under the resolved invocation root. If it resolves to the repo root, `.dac/`,
-`.ntm/`, `/tmp`, or any untracked repo-local scratch directory, stop and repair
-the artifact root before spawning workers.
+Before dispatch, verify scratch is an existing private temporary directory
+outside the product repo, or an explicitly retained external evidence root.
+Reject repo-local `.dac/`, `.ntm/` or other orchestration directories.
+An absent overlay is not a launch blocker.
 
 ### Transport Hygiene
 
@@ -1627,7 +1630,7 @@ then
 fi
 
 # Validate the complete retained decision before constructing its envelope.
-"$PYTHON_BIN" "$(dirname -- "$SBP_BIN")/route_ladders.py" \
+"$PYTHON_BIN" "$SBP_HELPER_DIR/route_ladders.py" \
   --validate-decision-json "$RETAINED_FROM_ROUTE" >/dev/null || exit 2
 
 BINDING_JSON="$(
@@ -1768,10 +1771,11 @@ Every worker base prompt MUST include:
    - On blocked: `br update {id} -s blocked --notes "{reason}"`
    - On done: `br close {id} --reason "{summary}" --suggest-next --json`
 6. The attribution preamble: `export BR_AGENT_NAME=<role> BR_HARNESS=<harness> BR_MODEL=<model>` before any `br` mutation
-7. The artifact boundary: write evidence only to the absolute run directory,
-   never to the product repo root, `.dac/`, `.ntm/`, or `/tmp`
-8. The stop rule: if required edits escape `writes`, leave the issue in_progress, write the smallest Beads graph change proposal in the result artifact, and do NOT close the issue
-9. The result artifact contract below
+7. The artifact boundary: use tracked results and Beads; any needed transport
+   files go to assigned temporary scratch, never the product repo or `.dac/`/`.ntm/`
+8. The stop rule: if required edits escape `writes`, leave the issue in_progress,
+   return the smallest graph change proposal to the lead, and do NOT close the issue
+9. The result contract below
 
 ### Node Worker Prompt Contract
 
@@ -1782,7 +1786,7 @@ You own one divide-and-conquer node inside an execution swarm.
 
 Source of truth: br (run `br show <issue-id>` for the live contract)
 Issue ID: <prefix>-wg-001-<slug>-<hash>
-Run directory: <absolute path under skillbox-config invocation root>
+Run directory: <absolute private temporary path, if needed>
 Concern: <concern>
 Depends on: <ids already satisfied, or None>
 Writes: <expected paths/globs, or None>
@@ -1834,18 +1838,18 @@ Rules:
 - If you need edits outside `writes`, do NOT close the issue. Report the
   smallest Beads graph update needed and leave status=in_progress for the orchestrator
 - Run your validate commands before declaring success
-- On done: `br close <id> --reason "<summary>" --suggest-next --json` and write
-  `<absolute-run-dir>/WG-001_RESULT.md` with the required sections
-- On blocked: `br update <id> -s blocked --notes "<reason>"` and write the
-  blocker section in `<absolute-run-dir>/WG-001_RESULT.md`
+- On done: return changed files and validation to the lead, record the concise
+  proof in Beads, and close only after the lead's required validation passes
+- On blocked: `br update <id> -s blocked --notes "<reason>"` and return the exact
+  blocker. A result file is optional unless the transport needs one.
 ```
 
 ### Node Result Artifact
 
-Every worker MUST write `<NODE_ID>_RESULT.md` such as `WG-001_RESULT.md` in the
-absolute invocation run directory. If the worker cannot write there, it must
-stop and report the artifact-root blocker instead of writing a fallback file in
-the product repo, `.dac/`, `.ntm/`, or `/tmp`:
+Every worker returns status, changed files, validation and remaining blockers
+through the tracked result and concise Beads comment. When a file-consuming
+transport needs it, use one temporary `<NODE_ID>_RESULT.md` with the fields
+below. Missing an optional markdown file is not a blocker:
 
 ```markdown
 # WG-001 Result
@@ -1883,19 +1887,19 @@ CronCreate(
     1. ntm --robot-is-working=$WAVE_SESSION
     2. ntm --robot-tail=$WAVE_SESSION --lines=80
     3. test <absolute-run-dir> -ef \"$(git rev-parse --show-toplevel)\" && echo BAD_RUN_DIR || true
-    4. ls -la <absolute-run-dir>/WG-*_RESULT.md 2>/dev/null
+    4. Read the assigned result channel; inspect temporary files only if used
     5. br show <each-active-issue-id> --json
 
   For each active node, determine:
   (a) working / idle / stuck / rate-limited?
-  (b) has it produced its WG-*_RESULT.md file?
+  (b) has it returned useful evidence through its assigned result channel?
   (c) if output exists, is validation explicit or hand-wavy?
   (d) does br show status=in_progress with the expected assignee?
 
   ACTIONS:
   - If a node is open/unassigned after dispatch: stop/nudge the pane, repair
     the claim, and do not count the node as in-flight until br confirms it
-  - If worker idle + no result: remind it of its node and result file
+  - If worker idle + no result: remind it of its node and expected evidence
   - If worker stuck for 2 checks: send an unblock prompt tied to the node
   - If result is superficial: demand explicit validation and file list
   - If all nodes in the wave are done, blocked, or timed out: cancel this cron and report
@@ -1904,8 +1908,9 @@ CronCreate(
 )
 ```
 
-This CronCreate block is NTM-only. Headless waves use process/artifact probes
-instead; pane idle/stuck nudges do not apply to a `-p` process.
+This CronCreate block is NTM-only. Native Codex waves use tracked agent updates,
+messages and results; do not create a tmux session or cron for them. Headless
+waves use process/artifact probes; idle nudges do not apply to a `-p` process.
 
 **Headless probes (substitute for the NTM cron body):**
 
@@ -1936,7 +1941,7 @@ missing binding, and an unbound pane receives no nudge.
 **Generic nudge (idle, no result):**
 
 ```bash
-ntm send "$WAVE_SESSION" --pane="$N" "You own node WG-00N. Finish the node, run its validate commands, and write WG-00N_RESULT.md only at <absolute-run-dir>/WG-00N_RESULT.md. Do not create repo-root, .dac, .ntm, or /tmp fallback artifacts. Stay inside the declared write scope."
+ntm send "$WAVE_SESSION" --pane="$N" "You own node WG-00N. Finish within its write scope, validate, and return the evidence through Beads and the assigned result channel. Use the assigned temporary result file only if this transport requires it."
 ```
 
 **Depth nudge (result lacks proof):**
@@ -1960,9 +1965,9 @@ Once the wave has produced results, or the timeout is reached:
    `ntm --robot-tail="$WAVE_SESSION" --lines=200`. Headless waves copy
    `$RD/logs/$lane.log` and `$RD/logs/$lane.exit` into the harvest notes
    instead.
-3. Read every `<absolute-run-dir>/WG-*_RESULT.md` for the active wave completely.
-   Treat repo-root, `.dac/`, `.ntm/`, or `/tmp` result files as misplaced
-   evidence that must be moved to the run directory before reconciliation.
+3. Read each tracked result and Beads comment, plus temporary result files when
+   used. Capture useful facts from misplaced repo-local scratch in Beads and
+   retire obsolete files; do not move them into permanent invocation history.
 4. Cross-reference each issue's current state with `br show {id}`. The lead
    should already have claimed each issue before dispatch; never trust worker
    prose, pane activity, or file changes alone.
@@ -1980,8 +1985,7 @@ Once the wave has produced results, or the timeout is reached:
      `references/failure-mode-contracts.md`; carve any model-solvable prep or
      proof child before blocking the smallest affected node
    - Needs rework: `br reopen {id}` — the issue returns to the ready frontier
-7. Re-render the view:
-   `python3 "$DAC_SHARED_ROOT/scripts/br_helpers.py" render-workgraph --epic $(cat <absolute-run-dir>/EPIC_ID.txt) --out <absolute-run-dir>/WORKGRAPH.md`
+7. Re-render a temporary workgraph only if its consumer still needs it.
 8. Re-query the frontier: `python3 "$DAC_SHARED_ROOT/scripts/br_helpers.py" ready --label slice:{slug}`
 9. Launch the next ready wave
 
@@ -2003,12 +2007,17 @@ next wave instead of forcing the old split.
 After all execution nodes are complete, the root runs final integration in this
 same invocation. Final integration and closeout are never left as open or
 blocked Beads for a future session. Apply
-[Dispatch Substrate Selection](#dispatch-substrate-selection): independent
-verdict-file reviews may stay headless; a review that must talk back uses the
-NTM spawn below. Do not default to `/codex:rescue`.
+[Dispatch Substrate Selection](#dispatch-substrate-selection). A selected native
+Codex wave uses an independent tracked Codex reviewer and its existing root for
+final acceptance. Native messaging supports review dialogue; it does not require
+another controller or provider. Reuse a completed independent review that covers
+the final diff and acceptance criteria. Re-review only material changes or
+unresolved findings. Do not default to `/codex:rescue`.
 
-Spawn a small review swarm: one low-tier runtime controller, one independent Grok
-fresh-eyes reviewer, and one high-tier final-authority reviewer:
+The following example applies only when an external SBP/NTM review is selected
+and needs a controller, an explicitly selected Grok fresh-eyes lane and a separate
+high-tier final-authority reviewer. Skip this recipe for native review or when
+the accepted reviewer already covers the final work.
 
 The combined example requires adapter-compatible allocations. Distinct
 account-bound Codex decisions, or bound and unbound Codex decisions, require
@@ -2022,8 +2031,21 @@ PROJECT="$(basename "$PROJECT_DIR")"
 export NTM_PROJECTS_BASE="$(dirname "$PROJECT_DIR")"
 NTM_PROJECT="$PROJECT"
 SBP_BIN="$(realpath "$(command -v sbp)")" || exit 2
-ROUTE_NTM_SPAWN="$(dirname -- "$SBP_BIN")/route_ntm_spawn.sh"
-test -x "$ROUTE_NTM_SPAWN" || exit 2
+SBP_HELPER_DIR=
+for candidate in "${SKILLBOX_ROOT:-}" \
+  "${SKILLBOX_OPERATOR_REPOS_ROOT:+$SKILLBOX_OPERATOR_REPOS_ROOT/opensource/skillbox}" \
+  "$(dirname -- "$SBP_BIN")/.." /srv/skillbox/repos/opensource/skillbox \
+  "$HOME/repos/opensource/skillbox" "$HOME/skillbox"; do
+  if test -n "$candidate" && test -f "$candidate/.env-manager/manage.py" \
+    && test -x "$candidate/scripts/route_ntm_spawn.sh" \
+    && test -f "$candidate/scripts/route_ladders.py"; then
+    SBP_HELPER_DIR="$(realpath "$candidate/scripts")" || exit 2
+    break
+  fi
+done
+test -n "$SBP_HELPER_DIR" \
+  || { echo "Skillbox routing helpers unavailable; set SKILLBOX_ROOT" >&2; exit 2; }
+ROUTE_NTM_SPAWN="$SBP_HELPER_DIR/route_ntm_spawn.sh"
 
 REVIEW_LABEL="dac-${SLICE_SLUG}-review"
 REVIEW_SESSION="${NTM_PROJECT}--${REVIEW_LABEL}"
@@ -2032,18 +2054,18 @@ REVIEW_AUTHORITY_ROUTE_STATUS=0
 REVIEW_AUTHORITY_ROUTE="$(sbp route high --refresh --json)" \
   || REVIEW_AUTHORITY_ROUTE_STATUS=$?
 test "$REVIEW_AUTHORITY_ROUTE_STATUS" -eq 0 \
-  || { python3 "$(dirname -- "$SBP_BIN")/route_ladders.py" \
+  || { python3 "$SBP_HELPER_DIR/route_ladders.py" \
   --validate-decision-json "$REVIEW_AUTHORITY_ROUTE" --allow-non-runnable >/dev/null;
        echo "final review requires runnable AUTHORITY authority" >&2; exit 2; }
 
-python3 "$(dirname -- "$SBP_BIN")/route_ladders.py" \
+python3 "$SBP_HELPER_DIR/route_ladders.py" \
   --validate-decision-json "$REVIEW_AUTHORITY_ROUTE" >/dev/null || { echo "malformed final-review AUTHORITY decision" >&2; exit 2; }
 
 # The controller uses the low tier. Fresh-eyes Grok review is a separate lane.
 REVIEW_LOW_ROUTE="$(sbp route low --refresh --json)" || exit 2
 REVIEW_GROK_ROUTE="$(sbp route pick grok --refresh --json)" || exit 2
 for decision in "$REVIEW_LOW_ROUTE" "$REVIEW_GROK_ROUTE"; do
-  python3 "$(dirname -- "$SBP_BIN")/route_ladders.py" \
+  python3 "$SBP_HELPER_DIR/route_ladders.py" \
     --validate-decision-json "$decision" >/dev/null || exit 2
 done
 
@@ -2072,13 +2094,12 @@ Reviewer prompt:
 - Run relevant build, test, lint, and typecheck commands
 - Fix only integration bugs or validation failures
 - For UI, UX, visual, design-system, screenshot, or ambiguous review-heavy work,
-  use Grok for the fresh-eyes review of the final diff and validation
-  evidence. If the retained Grok route-v2 decision is typed no-route, record
-  that route blocker and stop this final-review allocation. `high` tier retains final
-  authority but does not authorize bypassing the required Grok review.
-- For visual parity, ask independent fresh-context reviewers the ORIGINAL
-  question and require severity-classified findings until two consecutive
-  reviews report no blocker or material shortfall.
+  use an independent reviewer on the selected substrate with the original task,
+  final diff, visible result and validation evidence. Honor explicit model choice;
+  native Codex review does not require an additional provider allocation.
+- For visual parity, report severity-classified findings against the original
+  reference. Re-review material fixes or unresolved concerns; stop when acceptance
+  is demonstrated, without a fixed count of repeated clean reviews.
 - Run `br epic close-eligible --json` to retire the slice's epic if every child
   is closed; surface any leftover open child as the blocker
 - Run `python3 "$DAC_SHARED_ROOT/scripts/br_helpers.py" flush` so
@@ -2088,9 +2109,10 @@ Reviewer prompt:
   execution of a `$commit` node when the Bead names the exact commit scope,
   validation, leave-list, and no-wildcard staging rules; the `high` work tier owns acceptance of the commit plan and final review through the
   retained route-v2 decision and atomic adapter handoff.
-- Write `<absolute-run-dir>/DAC_FINAL_RESULT.md`
+- Record final validation, commit IDs and blockers in Beads; create temporary
+  `DAC_FINAL_RESULT.md` only for an actual file consumer
 
-`DAC_FINAL_RESULT.md` MUST end with:
+If a transport consumes `DAC_FINAL_RESULT.md`, its temporary file ends with:
 
 ```json
 {
@@ -2115,11 +2137,13 @@ When the final review result is available:
 - `br` (the slice's epic + child issues in `.beads/`) is the execution source of truth
 - `WORKGRAPH.md` is a generated view; never hand-edit it — re-render with `br_helpers.py render-workgraph`
 - State changes flow through `br update`/`br close`, not markdown rewrites
-- Invocation artifacts (`EXECUTION_CONTEXT.md`, `WG-*_RESULT.md`, `DAC_FINAL_RESULT.md`, `EPIC_ID.txt`) still live under the overlay-backed invocation root in `skillbox-config`, but only `EPIC_ID.txt` is a pointer to source-of-truth Beads state; the rest are generated views or evidence attachments
+- Invocation files are optional temporary transport aids. Beads holds durable
+  status and validation; CASS holds session history. No permanent run directory
+  is created by default.
 - Never create new repo-local `.dac/`, `.ntm/`, repo-root `WG-*_RESULT.md`,
   repo-root `WORKGRAPH.md`, repo-root `EXECUTION_CONTEXT.md`, or repo-root
   `DAC_FINAL_RESULT.md` files. Existing legacy files may be read as historical
-  evidence, but new waves use the overlay-backed invocation root.
+  evidence, but new waves use temporary scratch when files are needed.
 - Ready frontier comes from `br_helpers.py ready` or `scheduler`; do not pre-dispatch blocked nodes
 - An accepted `no-ragrets` plan is consumed, never reminted or flattened. Intake
   runs before minting via `ready --plan {slug} --require-handoff-ready`, requires
@@ -2159,8 +2183,8 @@ When the final review result is available:
   self-contained single-shot artifact nodes that pass Dispatch Substrate
   Selection (claim handshake, prompt-file brief, pid/log/exit wrapper, turn
   cap or wave timeout, non-empty artifact, lead `validate_cmds`). Width is
-  not the gate. Do not substitute untracked local ad hoc workers or
-  in-process Task/subagent UIs
+  not the gate. Tracked native Codex agents are supported when selected, with
+  agent IDs, claimed Beads and independent validation; no synthetic NTM proof.
 - Cwd/workflow routing, skill-tag extraction, cleaned-request drafting,
   read-only clerk/preflight nodes, bounded scripting, fixture/docs cleanup,
   generated-command cleanup, classification, and scoped commit-runner nodes

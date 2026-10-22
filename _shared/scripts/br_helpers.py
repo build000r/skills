@@ -50,6 +50,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
@@ -946,6 +947,41 @@ def _project_repo_path(contract: dict, context: dict) -> None:
         contract["source_repo_path"] = raw
 
 
+def _temporary_run_dir_rejection(issue_id: str, contract: dict) -> tuple[bool, Optional[dict]]:
+    """Admit bounded scratch without requiring an overlay or permanent history.
+
+    Keep system temp aliases (macOS /tmp -> /private/tmp) usable, but reject
+    symlinks below that root, traversal, and repository-local scratch. This
+    only admits storage; it never grants cleanup or worker write authority.
+    """
+    raw, repo_raw = contract.get("run_dir"), contract.get("repo_path")
+    if not isinstance(raw, str) or not isinstance(repo_raw, str):
+        return False, None
+    path, repo_path = Path(raw), Path(repo_raw)
+    roots = {Path(tempfile.gettempdir()), Path("/tmp"), Path("/var/tmp")}
+    roots |= {root.resolve() for root in roots}
+    matching = [root for root in roots if path.is_relative_to(root)]
+    if not matching:
+        return False, None
+    if (not path.is_absolute() or ".." in path.parts
+            or not repo_path.is_absolute() or ".." in repo_path.parts):
+        return True, _rejection(issue_id, "run_dir_unsafe", "scratch paths must be normalized and absolute",
+                                "hydrate an existing absolute temporary run directory and repo_path")
+    try:
+        run, repo = path.resolve(strict=True), repo_path.resolve(strict=True)
+    except (OSError, RuntimeError):
+        return True, _rejection(issue_id, "run_dir_unresolvable", "scratch run or repo does not exist",
+                                "create a private temporary run directory outside the repository")
+    if (not run.is_dir() or not repo.is_dir() or run.is_relative_to(repo)
+            or any(part in {".dac", ".ntm"} for part in path.parts + run.parts)
+            or not any(path != root and run == root.resolve() / path.relative_to(root)
+                       for root in matching)):
+        return True, _rejection(issue_id, "run_dir_unsafe", "scratch path is a root, repository path, or symlink escape",
+                                "use a fresh mktemp directory outside the repository")
+    contract["run_dir"], contract["source_run_dir"] = str(run), raw
+    return True, None
+
+
 def _internal_run_dir_rejection(issue_id: str, contract: dict) -> Optional[dict]:
     """Keep an internal Codex review's scratch path inside the local artifact root."""
     raw, repo_raw = contract.get("run_dir"), contract.get("repo_path")
@@ -1011,14 +1047,26 @@ def _run_dir_rejection(issue_id: str, contract: dict, context: dict) -> Optional
             return _rejection(issue_id, "route_contract_mismatch",
                               "internal route label and model route disagree",
                               "bind one exact internal route label and matching model route")
-        return _internal_run_dir_rejection(issue_id, contract)
+        raw = contract.get("run_dir")
+        if isinstance(raw, str) and Path(raw).is_relative_to(INTERNAL_ARTIFACT_ROOT):
+            return _internal_run_dir_rejection(issue_id, contract)
+        temporary, rejection = _temporary_run_dir_rejection(issue_id, contract)
+        return rejection if temporary else _internal_run_dir_rejection(issue_id, contract)
+
+    raw, client_dir = contract.get("run_dir"), context.get("client_dir")
+    retained_path = (isinstance(raw, str) and isinstance(client_dir, str)
+                     and Path(raw).is_relative_to(Path(client_dir) / "invocations"))
+    if not retained_path:
+        temporary, rejection = _temporary_run_dir_rejection(issue_id, contract)
+        if temporary:
+            return rejection
 
     raw, repo_raw = contract.get("run_dir"), contract.get("repo_path")
     client_dir = context.get("client_dir")
     if not isinstance(raw, str) or not isinstance(repo_raw, str) or not isinstance(client_dir, str):
         return _rejection(issue_id, "invocation_root_unresolved",
                           "active client invocation root could not be resolved",
-                          "resolve the active @client context before plan admission")
+                          "use an existing temporary run directory, or resolve an explicitly retained @client root")
     path = Path(raw)
     if not path.is_absolute() or ".." in path.parts:
         return _rejection(issue_id, "run_dir_unsafe", "run_dir is not a normalized absolute path",
@@ -1136,7 +1184,7 @@ def _admit_plan_node(view: dict, *, context: Optional[dict] = None) -> tuple[Opt
             "run_dir_placeholder",
             f"run_dir is not an invocation-specific absolute path: {contract.get('run_dir')!r}",
             f"python3 br_helpers.py update-node {issue_id} --run-dir "
-            "{invocation_root}/{repo_slug}/divide-and-conquer/{run_id}",
+            "<existing-private-temporary-run-directory>",
         )
     if _is_placeholder(contract.get("expected_assignee")):
         return None, _rejection(

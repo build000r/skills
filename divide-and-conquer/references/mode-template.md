@@ -20,7 +20,7 @@ cwd_match: ~/repos/{project-name}
 - **Default model strategy**: resolve logical lanes through `sbp route <low|med|high> --refresh --json`, retain each exact runnable decision, and hand it to `route_ntm_spawn.sh --decision-json`; use `low` for runtime orchestration and bounded task-runner work, `med` for ordinary implementation needing judgment, and `high` for no-ragrets composition, architecture, impactful execution, integration, commit acceptance, and final say; use the selected design route for visual work with `high` final acceptance; a typed same-lane no-route stops execution unless separately pre-authorized `MODEL_CHANGE` authority and its receipt already permit a different model; availability and fallback depth never authorize model substitution
 - **Wave naming**: `dac-{project}-wave-{nn}`
 - **Review wave**: 1 worker | 2 workers
-- **Artifact root override**: `workflow_builder.invocation_root` | `client_dir/invocations` | leave unset to use the shared default resolution
+- **Evidence retention override**: private temporary scratch by default; use an existing configured root only for an explicit durable consumer and retention condition. A legacy `workflow_builder.invocation_root` alone does not opt in.
 
 ## Repo Structure
 

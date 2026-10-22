@@ -15,14 +15,12 @@ success contract and its criterion traceability.
 
 ## Run Directory
 
-Still required for generated views and evidence attachments (`EPIC_ID.txt`,
-optional rendered `WORKGRAPH.md`, optional generated `EXECUTION_CONTEXT.md`,
-`WG-*_RESULT.md`, `DAC_FINAL_RESULT.md`). Do not use `/tmp` when an overlay is
-available.
+Use tracked results and Beads comments by default. Generate files only when a
+helper or transport consumes them. Helper admission can use private temporary
+scratch outside the repository without an overlay:
 
 ```bash
-run_dir="{invocation_root}/{repo_slug}/divide-and-conquer/{run_id}"
-mkdir -p "$run_dir"
+run_dir="$(mktemp -d "${TMPDIR:-/tmp}/dac-XXXXXXXX")"
 ```
 
 `WORKGRAPH.md` and `EXECUTION_CONTEXT.md` inside the run directory are generated
@@ -35,8 +33,8 @@ python3 "$DAC_SHARED_ROOT/scripts/br_helpers.py" render-workgraph \
 
 If a `br` epic already exists for the slice (typically minted by
 `domain-planner` Phase 6e), reuse it. Read its ID from upstream artifacts or
-`br list --label slice:{slug} --type epic --json`. Write `EPIC_ID.txt` into
-the new run directory instead of duplicating the epic. Before dispatch, audit
+`br list --label slice:{slug} --type epic --json`. Retain its ID in the dispatch
+instead of creating a duplicate graph or pointer file. Before dispatch, audit
 the existing children for no-ragrets completeness: outcome, evidence, failure
 avoided, write scope, validation, dependencies, stop rules, model route, review
 owner, and final authority.
@@ -51,7 +49,6 @@ runner or orchestrator should use.
 ```bash
 EPIC=$(br create "{slice}: {one-line value}" --slug epic-{slice} \
   --type epic --priority 1 --json | jq -r .id)
-echo "$EPIC" > "$run_dir/EPIC_ID.txt"
 
 python3 "$DAC_SHARED_ROOT/scripts/br_helpers.py" mint-node \
   wg-001-{kebab-title} '{Title}' \
@@ -223,7 +220,7 @@ hand-editing `EXECUTION_CONTEXT.md`.
 
 The minimum Beads-backed node brief must carry:
 - `br` issue ID
-- run directory path (for the `WG-*_RESULT.md` artifact)
+- temporary scratch path only when the helper or transport needs files
 - the node's concern, depends_on, writes, done_when, validate, risk_gate
 - attribution preamble: `export BR_AGENT_NAME=… BR_HARNESS=… BR_MODEL=…`
 - model route: the `low` work tier for frontier/dispatch/tending/harvest
@@ -244,9 +241,9 @@ The minimum Beads-backed node brief must carry:
 
 ## Result Artifact
 
-Each worker still writes `<NODE_ID>_RESULT.md` (e.g. `WG-001_RESULT.md`) for
-prose evidence and validation output. It is an evidence attachment, not the
-source of status, write scope, or acceptance criteria. Required sections:
+Each worker returns evidence through its tracked result channel and a concise
+Beads comment. A temporary `<NODE_ID>_RESULT.md` is optional for file-consuming
+transports. When used, it includes:
 - `Status`: `done | blocked | needs_rework` (mirrors the `br` state but acts
   as belt-and-suspenders if the worker forgot the `br close`)
 - `Summary`: what changed
@@ -259,7 +256,7 @@ source of status, write scope, or acceptance criteria. Required sections:
 The orchestrator independently re-runs `validate_cmds` and reconciles `br`
 state before treating the node `done`.
 
-These node result files belong in the same invocation run directory as
+These optional node result files belong in the same temporary run directory as
 `EPIC_ID.txt` and any rendered views, not in the repo root.
 
 ## Mini Example

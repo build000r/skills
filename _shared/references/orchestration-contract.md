@@ -85,11 +85,11 @@ Default completion means:
 
 1. accepted plan or plan-quality pass
 2. implementation/scaffolding across every in-scope repo
-3. fresh-context audit and re-review loops to `100/100`
-4. post-audit hardening for the touched code paths when configured
-5. retirement/closeout artifacts
+3. independent review against concrete acceptance criteria and relevant checks
+4. targeted follow-up for changed code, failures, or unresolved material findings
+5. concise closeout evidence in Beads and the tracked result channel
 6. clean commit batching across touched repos
-7. final report with scores, validation, commits, and leftovers
+7. final reply with validation, commits, and unresolved findings
 
 Pause only for materially ambiguous ownership, external blockers, missing
 canonical dependencies, destructive operations, or an explicit user override.
@@ -207,11 +207,12 @@ counting work done.
 
 ## Fresh-Eyes Review Gates
 
-Fresh-context review is mandatory. At minimum, the initial implementation audit
-and each post-fix re-review run as a worker that reads the plan, code,
-standards, and prior report from scratch. For high risk or cross-repo slices,
-add an independent hardening/review worker after `100/100` plan compliance and
-before retirement.
+Use an independent reviewer for substantive implementation or higher-risk
+changes. Give it the task, code and validation evidence. Re-review fixes where
+they affect the findings or introduce new risks; reuse the reviewer when useful.
+Add a further independent review only for a concrete unresolved concern or an
+explicit task requirement. A completed review does not automatically trigger
+another audit or hardening phase.
 
 Skill-local docs may name concrete tools, but should not redefine the shared
 role model or success criteria.
@@ -315,19 +316,15 @@ Nested restart ownership:
 
 ## Scoring And Convergence
 
-For the domain suite, the canonical pass target is:
+Completion means the requested behavior is implemented, required checks pass,
+and no material acceptance finding remains unresolved. Use severity and concrete
+evidence; an invented score is not an additional gate. Honor an explicitly
+requested scoring rubric, but do not start a generic `100/100` improvement loop.
 
-- Plan quality loop: `100/100`
-- Implementation audit loop: `100/100`
-
-Implications:
-
-- Do not mark a slice `DONE` below `100/100`
-- Do not auto-retire below `100/100`
-- Stall triage below `100/100` may retarget workers or escalate, but it must
-  not silently convert remaining findings into a pass
-- If a user explicitly accepts a sub-100 result, document that as an override;
-  do not present it as normal convergence
+After acceptance, stop. Repeat review or broaden testing only when new changes,
+failures or unresolved concerns justify it. State real blockers and residual
+risks without relabeling them as success; optional improvements belong in the
+existing backlog and do not automatically expand this task.
 
 ## Handoff Artifacts
 
@@ -348,8 +345,13 @@ When a workflow emits or consumes handoff artifacts, keep ownership explicit:
 
 Each artifact should have one clear owner at each phase.
 
-Swarm runtime evidence belongs in the overlay-backed invocation root or the NTM
-runtime, not in product repo roots. New domain/DAC waves should not create
+Swarm runtime evidence belongs in the native runtime or private temporary
+scratch, not permanent invocation history or product repo roots. A client
+overlay is not required for scratch. Files listed above are optional unless a
+real consumer requires them; record decisions and validation in Beads, reuse
+skills/wiki for durable knowledge, and leave session history to CASS. Retain
+exact recovery bindings for the worker lifetime, then clean obsolete scratch
+after validation. New domain/DAC waves should not create
 repo-local `.dac/`, `.ntm/`, loose `WG-*_RESULT.md`, `EXECUTION_CONTEXT.md`,
 `WORKGRAPH.md`, or `DAC_FINAL_RESULT.md` files unless the user explicitly asks
 for a repo-local proof artifact. Use `vibing-with-ntm` for live pane state,

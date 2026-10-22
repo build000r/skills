@@ -1660,7 +1660,7 @@ class PlanArtifactBoundaryTests(unittest.TestCase):
             }
             with mock.patch.object(MODULE, "INTERNAL_ARTIFACT_ROOT", root, create=True):
                 self.assertIsNone(MODULE._run_dir_rejection("review", contract, {}))
-            self.assertEqual(contract["run_dir"], str(run))
+            self.assertEqual(contract["run_dir"], str(run.resolve()))
 
     def test_internal_codex_route_rejects_wrong_authority_and_path_escape(self) -> None:
         with tempfile.TemporaryDirectory(dir="/var/tmp") as tmpdir:
@@ -1752,9 +1752,9 @@ class PlanArtifactBoundaryTests(unittest.TestCase):
                            "invocations/sweet-potato/divide-and-conquer/run",
             }
             MODULE._project_repo_path(contract, context)
-            self.assertEqual(contract["repo_path"], str(repo))
+            self.assertEqual(contract["repo_path"], str(repo.resolve()))
             self.assertIsNone(MODULE._run_dir_rejection("leaf", contract, context))
-            self.assertEqual(contract["run_dir"], str(run))
+            self.assertEqual(contract["run_dir"], str(run.resolve()))
             self.assertEqual(contract["source_repo_path"], "/Users/example/repos/opensource/skills")
             wrong_repo = {"repo": "other", "repo_path": "/Users/example/repos/opensource/skills"}
             MODULE._project_repo_path(wrong_repo, context)
@@ -1784,7 +1784,7 @@ class PlanArtifactBoundaryTests(unittest.TestCase):
             cases = {
                 "valid": (good, None),
                 "root": (root, "run_dir_unsafe"),
-                "outside": (outside, "run_dir_unsafe"),
+                "outside_temporary_scratch": (outside, None),
                 "symlink": (root / "escape", "run_dir_unsafe"),
                 "dotdot": (good / ".." / "run", "run_dir_unsafe"),
                 "dac": (root / ".dac" / "run", "run_dir_unsafe"),
@@ -1805,16 +1805,37 @@ class PlanArtifactBoundaryTests(unittest.TestCase):
             )
             self.assertEqual(internal["reason"], "run_dir_unsafe")
 
-    def test_tmp_run_directory_is_rejected(self) -> None:
+    def test_tmp_run_directory_needs_no_client_overlay(self) -> None:
         with tempfile.TemporaryDirectory(dir="/tmp") as tmpdir, tempfile.TemporaryDirectory(dir="/var/tmp") as repo_tmp:
             client = Path(tmpdir) / "clients" / "personal"
             run = client / "invocations" / "run"
             run.mkdir(parents=True)
             rejection = MODULE._run_dir_rejection(
                 "leaf", {"repo_path": repo_tmp, "run_dir": str(run)},
-                {"client_id": "personal", "client_dir": str(client)},
+                {},
             )
-            self.assertEqual(rejection["reason"], "run_dir_unsafe")
+            self.assertIsNone(rejection)
+
+    def test_temporary_scratch_rejects_root_repo_traversal_and_symlink(self) -> None:
+        with tempfile.TemporaryDirectory() as scratch, tempfile.TemporaryDirectory() as repo_tmp:
+            run, repo = Path(scratch), Path(repo_tmp)
+            (run / "escape").symlink_to(repo, target_is_directory=True)
+            for path in (Path(tempfile.gettempdir()), repo, run / ".." / run.name,
+                         run / "escape"):
+                with self.subTest(path=path):
+                    rejection = MODULE._run_dir_rejection(
+                        "leaf", {"repo_path": str(repo), "run_dir": str(path)}, {})
+                    self.assertEqual(rejection["reason"], "run_dir_unsafe")
+
+    def test_internal_authority_is_still_required_for_temporary_scratch(self) -> None:
+        with tempfile.TemporaryDirectory() as scratch, tempfile.TemporaryDirectory() as repo_tmp:
+            contract = {"repo_path": repo_tmp, "run_dir": scratch,
+                        "labels": ["route:internal-astra-medium"],
+                        "model_route": "operator-authorized internal gpt-6-astra medium priority"}
+            self.assertIsNone(MODULE._run_dir_rejection("review", dict(contract), {}))
+            contract["model_route"] = "wrong-authority"
+            self.assertEqual(MODULE._run_dir_rejection("review", contract, {})["reason"],
+                             "route_contract_mismatch")
 
 
 class ReadyCliPlanModeTests(unittest.TestCase):

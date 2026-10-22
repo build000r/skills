@@ -45,8 +45,9 @@ root must execute the closeout lane before reporting:
   exact node with the gate and record the proof that all model-solvable prep has
   already been completed.
 
-`DAC_FINAL_RESULT.md` is the closeout evidence attachment. Its absence means the
-root has not completed final integration.
+Record closeout proof and commit IDs in Beads and the tracked final result.
+`DAC_FINAL_RESULT.md` is optional temporary transport evidence; its absence
+does not invalidate independently verified integration.
 
 ## Visual-Parity Lane
 
@@ -71,7 +72,5 @@ For each design-related node or final visual review:
   rerun validation/screenshots, and restart the consecutive-review count at
   zero.
 
-Use the normal design route for this lane: Grok 4.6 design/UX, with Codex
-`gpt-5.6-sol` medium for ordinary authority and max reserved for pivotal
-planning or explicit failed-model triage. Terra ultra applies only when SOL is
-unavailable.
+Honor the user's selected model/substrate. Otherwise use the current route
+contract in SKILL.md; this reference does not pin or override model versions.

@@ -38,7 +38,10 @@ Use the current session as evidence, then choose the smallest sufficient respons
    - Check for an official CLI, API, or SDK when repeated browser/manual service work caused friction.
    - Add or improve a script when stable mechanics and observed reuse or a precise error contract repay upkeep.
    - Add a checklist, test, or repo doc when the prevention belongs next to the code.
-4. Execute safe local fixes immediately. Ask only for secrets, paid external actions, destructive changes, or ambiguous policy decisions.
+4. Execute fixes within the user's authorized scope immediately. Prior
+   authorization remains valid; do not ask again for an already approved
+   cleanup or decision. Ask only for missing secrets, authority, or a material
+   unresolved policy choice, after preparing the concrete change for review.
 5. Before closeout, run at least one concrete verification command for every
    material fix. Use the owning workflow's validator for a skill change; the
    narrowest relevant test, syntax check, or smoke command for code; and the
@@ -50,7 +53,8 @@ Use the current session as evidence, then choose the smallest sufficient respons
    secret, external gate, paid action, or unavailable tool, do not call the fix
    verified; put the blocker and the command that remains under `Remaining ask`.
 7. Run the Closeout Cascade below: in an interactive session, every
-   `Remaining ask` becomes an `ask-cascade` question, not parked prose.
+   unresolved operator decision becomes an `ask-cascade` question. Honor an
+   existing answer or deferral without asking again.
 
 ## Evidence Miner
 
@@ -84,9 +88,12 @@ or `LUBE_CASS_COMMAND` (used by tests to mock the backend).
 The miner enforces a process-level kill per search (`--timeout-seconds` + 15s
 grace) and opens a circuit breaker after 2 consecutive process timeouts,
 skipping remaining searches and emitting partial JSON. Exit 2 means every
-search errored with zero sessions found — treat that as backend-down, check
-`sbp cass status`, and fall back to grepping local transcripts under
-`~/.claude/projects/*/*.jsonl` directly. Progress streams on stderr
+search errored with zero sessions found. Preserve that evidence limit and
+any partial results; one bounded `sbp cass status --json --timeout-seconds 15`
+may identify the failing stage. Follow the current Cass skill's central route;
+do not substitute local transcript scans or rebuild the index because a query
+failed or returned no hits. Continue fixes supported by the current session
+and report which historical evidence remains unavailable. Progress streams on stderr
 (`[lube-miner] N/M searching: <pattern>`), so a backgrounded run shows
 liveness.
 
@@ -134,8 +141,9 @@ Do not turn this into a blame postmortem. Do not stop at advice when a safe conc
 
 A written `Remaining ask` list is not a closeout in an interactive session —
 it is where operator-owned blockers go to rot. After printing the output
-shape, if one or more remaining asks need an operator decision or action,
-invoke the `ask-cascade` skill and interview the operator through them:
+shape, if an unresolved operator decision or action is still required,
+invoke the `ask-cascade` skill. Reuse prior answers and keep explicitly
+deferred work pending; neither calls for another permission loop:
 
 - One question per remaining ask, dependency-ordered: decisions that unblock,
   reshape, or invalidate other asks come first.

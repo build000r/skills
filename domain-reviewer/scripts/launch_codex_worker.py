@@ -29,7 +29,7 @@ DEFAULT_SESSION_PLAN_INDEX = None  # Set via --session-plan-index or mode config
 
 # Default model + reasoning effort per worker type.
 # Override with --model and/or --reasoning-effort on the CLI.
-DEFAULT_MODEL = "gpt-5.6-sol"
+DEFAULT_MODEL = ""  # Inherit the configured Codex model unless explicitly selected.
 DEFAULT_REASONING_EFFORT = "medium"
 WORKER_DEFAULTS: dict[str, dict[str, str]] = {
     "audit":        {"model": DEFAULT_MODEL, "reasoning_effort": DEFAULT_REASONING_EFFORT},
@@ -211,38 +211,27 @@ def build_prompt(args: argparse.Namespace, mode: ModeContext, skill_root: Path) 
         """
     ).strip()
 
-    if args.worker == "audit":
+    if args.worker in {"audit", "re-review"}:
+        report_path = getattr(args, "report_path", None)
+        output = (f"Replace the latest report at `{report_path}`; do not append history."
+                  if report_path else "Return the review through the tracked result channel; create no report file.")
+        scoring = ("A numerical score is not required." if getattr(args, "score_threshold", None) is None else
+                   f"Explicit score threshold: {args.score_threshold}/100. Include `### Overall Compliance Score: **XX/100**`.")
+        phase = ("Review the implementation against the accepted plan."
+                 if args.worker == "audit" else
+                 "Recheck prior material findings and the changes made to address them; inspect new risks from those changes.")
         return (
-            f"Audit the `{args.slice}` slice implementation against its plan.\n"
-            "You are the AUDIT worker phase in domain-reviewer.\n\n"
-            "Context:\n"
-            f"{context_block}\n\n"
-            f"{common_guardrails}\n\n"
-            "Instructions:\n"
-            "1. Follow `references/audit-workflow.md` end-to-end.\n"
-            f"2. Write/update `{_expand(args.plan_root)}/{args.slice}/AUDIT_REPORT.md`.\n"
-            f"3. Update `{_expand(args.plan_index)}` status based on verdict.\n"
-            "4. Include parseable score line: `### Overall Compliance Score: **XX/100**`.\n"
-            "5. Include `## Agent Handoffs` blocks for remaining issues.\n"
-            f"6. Commit with: `audit({args.slice}): {{verdict}} - score {{XX}}/100`."
-        )
-
-    if args.worker == "re-review":
-        return (
-            f"Re-review the `{args.slice}` slice after fixes were applied (re-review #{args.iteration}).\n"
-            "You are the RE-REVIEW worker phase in domain-reviewer.\n\n"
-            "Context:\n"
-            f"{context_block}\n\n"
-            f"{common_guardrails}\n\n"
-            "Instructions:\n"
-            "1. Read plan files and current `AUDIT_REPORT.md`.\n"
-            "2. Compare changes since baseline using a guarded `git -C \"$repo_root\" diff` after `git -C \"$target_repo\" rev-parse --git-dir >/dev/null 2>&1` succeeds; otherwise record a clear skip message.\n"
-            "3. Mark each previous issue as FIXED / PARTIALLY FIXED / NOT ADDRESSED.\n"
-            "4. Add new issues introduced by fixes.\n"
-            f"5. Append `Re-Review #{args.iteration}` section to `AUDIT_REPORT.md`.\n"
-            "6. Recalculate score and keep parseable score format.\n"
-            f"7. Update `{_expand(args.plan_index)}` if verdict/status changed.\n"
-            f"8. Commit with: `audit({args.slice}): re-review #{args.iteration} - score {{XX}}/100`."
+            f"Review slice `{args.slice}`. {phase}\n\n"
+            f"Context:\n{context_block}\n\n{common_guardrails}\n\n"
+            "Use references/audit-workflow.md for the relevant checks.\n"
+            "Lead with concise acceptance evidence, named required checks and their results, then unresolved material findings.\n"
+            "Include exactly one current `Acceptance: PASS` or `Acceptance: FAIL` line and\n"
+            "one `Required checks: PASS` or `Required checks: FAIL` line.\n"
+            "PASS requires the accepted behavior, passing required checks and no material finding.\n"
+            "Include `## Agent Handoffs` with actionable Backend/Frontend blocks only for real remaining fixes.\n"
+            f"{scoring}\n"
+            f"{output}\n"
+            "Do not create or update an index, append review history, or commit an audit baseline.\n"
         )
 
     if args.worker == "fix-backend":
@@ -309,10 +298,11 @@ def _build_codex_command(
     """Build the full codex exec command with model and reasoning effort."""
     cmd = [
         codex_bin, "exec",
-        "-m", model,
         "-c", f'model_reasoning_effort="{reasoning_effort}"',
         "--cd", str(repo),
     ]
+    if model:
+        cmd[2:2] = ["-m", model]
     for d in (extra_writable_dirs or []):
         cmd.extend(["--add-dir", d])
     cmd.append(prompt)
@@ -586,6 +576,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--handoff-file", help="Path to handoff block markdown file (fix workers)")
     parser.add_argument("--handoff-text", help="Inline handoff block text (fix workers)")
     parser.add_argument("--output", help="Write prompt to file")
+    parser.add_argument("--report-path", help="Optional report file for a named consumer; otherwise return the review")
     parser.add_argument("--execute", action="store_true", help="Run prompt via `codex exec` (blocks until done)")
     parser.add_argument("--bg", action="store_true", help="Launch worker in background and return immediately")
     parser.add_argument("--codex-bin", default="codex", help="Codex CLI binary name/path")
@@ -656,8 +647,8 @@ def main(argv: list[str]) -> int:
 
     # Plan root is often outside the --cd repo — make it writable
     extra_dirs = []
-    if args.plan_root:
-        extra_dirs.append(str(Path(args.plan_root).expanduser()))
+    if args.report_path:
+        extra_dirs.append(str(Path(args.report_path).expanduser().resolve().parent))
 
     if not args.execute and not args.bg:
         print("\n--- Prefilled Worker Prompt ---\n")

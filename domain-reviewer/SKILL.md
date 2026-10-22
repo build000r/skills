@@ -33,7 +33,7 @@ Do not change or omit that prefix.
 **Shared orchestration rules:** Use
 [references/orchestration-contract.md](~/.claude/skills/domain-reviewer/references/orchestration-contract.md)
 for the cross-skill contract on worker ownership, background-task handling,
-public retirement naming, and the domain suite's `100/100` convergence rule.
+public retirement naming, and evidence-based acceptance and targeted re-review.
 
 ## Operator Companion Gates
 
@@ -71,23 +71,17 @@ The shared auth/payments/identity service (`{auth_packages_root}` from the clien
 2. Flag unrequested compatibility mechanics (legacy endpoints, dual routing, adapter layers, shadow write/read paths) as scope violations.
 3. If production data is affected, require a dedicated DB transition section with backup, raw `psql` execution plan, transactional/idempotent safety, verification, and rollback.
 
-- **Audit:** Autonomous audit→fix→retire loop — runs worker phases through `/divide-and-conquer`/NTM, converges to 100/100, then retires
+- **Audit:** Autonomous audit→fix→retire loop — runs worker phases through `/divide-and-conquer`/NTM, repairs material findings, then closes accepted work
 - **Retire:** Investigate completed slices, categorize user stories, clean up bloat
 - **Retire-Session:** Roll DONE session plans into domain COMPLETED.md files, archive originals
 
-## Fresh-Eyes Review Contract
+## Independent Review
 
-Audit mode is not a one-shot review. The initial audit, every post-fix
-re-review, and any high-risk hardening review must run with fresh context. The
-worker must read the plan, implementation, standards, and prior report from
-disk instead of relying on the orchestrator's memory.
-
-The default worker substrate is `divide-and-conquer` backed by
-`vibing-with-ntm`. If no worker substrate is available, stop and surface the
-missing prerequisite instead of replacing review gates with local self-review.
-When audit findings require fixes, convert them into `br` issues and route the
-ready fix frontier through `/divide-and-conquer`; do not launch bespoke fix
-subagents directly from this skill.
+Use an independent reviewer for material implementation work. Give it the accepted
+plan/task, actual diff and validation evidence through the tracked channel or
+existing files. Native agents are valid. Reuse a completed review covering the
+final work and recheck only material fixes or new risks. Read required evidence;
+no new report file or mandatory repeated review is implied.
 
 ## Execution Runtime
 
@@ -263,18 +257,14 @@ The client overlay specifies:
 
 ### Audit Mode: Orchestrator Behavior
 
-In audit mode, **you are the orchestrator**. Use worker phases for heavy work
-through NTM/divide-and-conquer or another named worker transport:
-
-1. Read client overlay context + reference files (audit-workflow.md, audit-template.md, convention files)
-2. Enter the autonomous loop (see orchestration-workflow.md)
-3. Run audit/re-review worker phase with full instructions and clean inputs
-4. Parse scores from AUDIT_REPORT.md after each cycle
-5. Dispatch fix worker phase(s) when score < 100, using canonical `domain-scaffolder` handoffs with explicit `surface=backend` or `surface=frontend`
-6. Enforce auth service compliance in auth/payments/identity scope: no local replacement layer, gaps captured as auth-scope proposals, local-link flow finalized on published/live packages
-7. Enforce delivery strategy compliance: no unrequested legacy compatibility code; DB-transition runbook required when production data is impacted
-8. On convergence (= 100/100): transition to retirement — **you do this yourself** (you have context budget)
-9. On max iterations (5): escalate to user with current score + remaining issues
+Read the accepted plan, conventions and actual implementation. Use one independent
+reviewer on the selected substrate and record concrete acceptance/check results.
+Repair material findings through owned `domain-scaffolder` tasks where useful,
+then recheck affected behavior and new risks. Stop after acceptance; preserve an
+explicitly requested score rubric but do not impose perfect scores or clean
+repeat reviews. Repeated no-progress fixes need diagnosis and a concrete blocker.
+Auth/identity package reuse, data-transition safety and required delivery checks
+remain part of acceptance when relevant. See [orchestration-workflow.md](references/orchestration-workflow.md).
 
 ## Concurrency Contract
 
@@ -296,16 +286,14 @@ When running multiple workers in parallel in the same repository:
 | Medium | Notable gap | Signature changed without docs update |
 | Low | Minor issue | Inline loading state vs shared component |
 
-## Centralized Plan Tracking
+## Review Storage
 
-Plans, COMPLETED.md, AUDIT_REPORT.md, and INDEX.md all live under the client overlay's `plan_root`:
-```
-{plan_root}/{slice}/
-```
-
-Implementation code lives in context-specific repos, but plan artifacts remain centralized by client overlay.
-
-**If the released folder for a slice doesn't exist yet** (e.g., slice was built ad-hoc without formal planning), create it before writing COMPLETED.md or AUDIT_REPORT.md.
+Use the existing plan/task store and tracked worker results. Do not create a plan
+folder for ad hoc work merely to save AUDIT_REPORT.md or COMPLETED.md. A named
+parser may consume a temporary latest report; remove obsolete scratch once
+workers finish and evidence is collected. Explicit retained deliverables use the
+requested location. Reusable procedure belongs in skills, concepts in the wiki,
+and session recall in CASS.
 
 ## Automated Handoffs (Audit Mode)
 

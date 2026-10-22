@@ -163,11 +163,9 @@ For EACH item in shared.md/backend.md/frontend.md/flows.md:
 | Legacy compatibility code | Deviation | Added old endpoint adapter not required by plan |
 | Tests for service | Missing | 0% coverage |
 
-**Compliance scoring:**
-- 100%: Exact match to plan
-- 90-99%: Close to plan, but still open because some work remains
-- 70-89%: Significant deviations or incomplete
-- <70%: Major gaps or missing functionality
+**Acceptance:** Distinguish missing required behavior from optional improvements.
+Report material findings and concrete validation. Apply a numeric rubric only
+when explicitly requested; its score does not replace evidence.
 
 ### Step 6: Identify Unfinished Work
 
@@ -178,108 +176,24 @@ Create a checklist of:
 - [ ] Deferred phases (Phase 3, offline support, etc.)
 - [ ] Documentation not updated
 
-### Step 7: Write AUDIT_REPORT.md
+### Step 7: Return the Current Review
 
-Output to: `{plan_root}/{slice}/AUDIT_REPORT.md`
+Return acceptance, required-check results and material findings through the
+tracked result channel. Use `Acceptance: PASS|FAIL` and
+`Required checks: PASS|FAIL` for the optional orchestration helper. Each finding
+needs a location, user impact and smallest repair; actionable Backend/Frontend
+handoff blocks allow targeted fix dispatch.
 
-**See [audit-template.md](audit-template.md) for full template.**
+Write a report only when an actual consumer names its path. Replace the latest
+report; do not append review histories or create a baseline commit. The optional
+[audit-template.md](audit-template.md) is a presentation aid, not a requirement
+to create every section or file. Honor requested scoring as an additional gate.
 
-Key sections:
-1. **Executive Summary** - Overall score, agent/auditor, date
-2. **Compliance Scorecard** - Table by category
-3. **What Was Implemented Correctly** - Celebrate wins
-4. **What Was NOT Implemented** - Missing items
-5. **Deviations** - Both problematic and positive
-6. **Recommendations** - Prioritized action items
-7. **Checklist** - Plan compliance checklist
-8. **Agent Handoffs** - Copy-paste blocks for implementor agents
+### Step 8: Close Accepted Work
 
-### Step 8: Update INDEX.md Status
-
-Based on the audit verdict, update the slice's status in the client overlay's `plan_index`.
-
-**Status mapping:**
-
-| Audit Verdict | INDEX.md Status | When |
-|---------------|-----------------|------|
-| COMPLIANT | `DONE` | Score =100, no critical issues |
-| MOSTLY COMPLIANT | `IN_PROGRESS` | Score 90-99%, minor issues remain |
-| NEEDS WORK | `IN_PROGRESS` | Score 70-89%, significant gaps remain |
-| CRITICAL ISSUES | `DEVIATED` | Blocking issues, security holes, or major deviation from plan |
-
-**INDEX.md row format:**
-```markdown
-| Date | Feature | Status | Priority | Description |
-|------|---------|--------|----------|-------------|
-| YYYY-MM-DD | [slice_name](./slice_name/) | STATUS | N | Short description |
-```
-
-**If row exists:** Update the Date and Status columns, preserve Priority and Description.
-
-**If row doesn't exist:** Add new row after the header, with:
-- Date: Today (YYYY-MM-DD)
-- Feature: `[{slice}](./{slice}/)`
-- Status: Based on verdict
-- Priority: Leave blank (unranked) unless user specifies
-- Description: Brief description from plan.md
-
-**Example - updating existing row:**
-
-Before:
-```markdown
-| 2026-01-05 | [chatroom](./chatroom/) | IN_PROGRESS | 1 | Real-time messaging |
-```
-
-After (COMPLIANT verdict):
-```markdown
-| 2026-01-11 | [chatroom](./chatroom/) | DONE | 1 | Real-time messaging |
-```
-
-**Example - adding new row:**
-```markdown
-| 2026-01-11 | [chatroom](./chatroom/) | DONE | | Real-time user messaging |
-```
-
-**Note:** On re-review, update status to `DONE` only when the score reaches `100/100`.
-
-### Step 9: Commit Baseline
-
-After writing the audit report and updating INDEX.md, commit to create a baseline for diff comparison:
-
-```bash
-# In plan repo - commit audit report AND index update
-target_repo="{plan_root}"
-if git -C "$target_repo" rev-parse --git-dir >/dev/null 2>&1; then
-  repo_root="$(git -C "$target_repo" rev-parse --show-toplevel 2>/dev/null || printf '%s\n' "$target_repo")"
-  git -C "$repo_root" add {plan_root}/{slice}/AUDIT_REPORT.md
-  git -C "$repo_root" add {plan_index}
-  git -C "$repo_root" commit -m "audit({slice}): {verdict} - score {XX}/100"
-else
-  printf 'Skipping audit baseline commit: %s is not a git repository.\n' "$target_repo"
-fi
-```
-
-If backend was audited and has uncommitted implementation:
-```bash
-# In backend repo - commit current state as baseline
-target_repo="{backend_repo}"
-if git -C "$target_repo" rev-parse --git-dir >/dev/null 2>&1; then
-  repo_root="$(git -C "$target_repo" rev-parse --show-toplevel 2>/dev/null || printf '%s\n' "$target_repo")"
-  git -C "$repo_root" add -A
-  git -C "$repo_root" commit -m "audit({slice}): baseline for re-review"
-else
-  printf 'Skipping backend baseline commit: %s is not a git repository.\n' "$target_repo"
-fi
-```
-
-This baseline enables guarded `git -C "$repo_root" diff` to show exactly what
-implementors changed after the `rev-parse --git-dir` guard succeeds.
-
-### Step 10: Output Handoffs
-
-After committing, ensure the AUDIT_REPORT.md contains:
-1. The overall compliance score (parseable as `### Overall Compliance Score: **XX/100**`)
-2. The `## Agent Handoffs` section with copy-paste blocks for each layer with issues
-3. The `## Final Verdict` with status
-
-The orchestrator reads the report, parses the score, and decides whether to run fix worker phases or proceed to retirement. See `references/orchestration-workflow.md`.
+Mark accepted tasks done in the existing canonical tracker. If an existing plan
+index is the canonical store, update its current status without creating another
+index. Completion requires accepted behavior, passing required checks and no
+unresolved material finding. Do not stage implementation or commit an audit
+baseline automatically. The owning integration task commits scoped validated
+changes. Report unresolved findings honestly.

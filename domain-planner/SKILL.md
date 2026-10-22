@@ -35,7 +35,7 @@ Do not change or omit that prefix.
 **Shared orchestration rules:** Use
 [references/orchestration-contract.md](~/.claude/skills/domain-planner/references/orchestration-contract.md)
 for the cross-skill contract on worker ownership, background-task handling, and
-the domain suite's `100/100` convergence rule.
+evidence-based acceptance and targeted re-review.
 
 Accepted slice execution routes through `/divide-and-conquer`. `domain-planner`
 may define the slice, mint the accepted `br` epic/child issues, and name the
@@ -155,7 +155,7 @@ The shared auth/payments/identity service (`{auth_packages_root}` from the clien
 
    **Question:** "Plan exists for {slice}. What do you want to do?"
    **Options:**
-   - Implement it (Recommended) — Orchestrate scaffolding + audit until 100/100 COMPLIANT
+   - Implement it (Recommended) — Implement the accepted scope and verify material acceptance
    - Continue planning — Edit existing plan files
    - Check plan quality — Assess and fix plan files against the quality rubric
    - Check status — Show what's implemented vs planned
@@ -291,7 +291,7 @@ Routing rules:
 10. **Default delivery strategy is big-bang** — Plan the target-state contract directly. Do not add dual routes, backward-compatibility shims, deprecation windows, or legacy endpoint support unless the user explicitly asks.
 11. **Separate DB transition planning from API planning** — Only add a DB transition section when production data is at risk. Keep it operationally focused: backup, transactional/idempotent raw SQL execution, verification, and rollback.
 12. **Core Value Gate is binding** — Before Phase 1 Discovery, define the primary actor, single user-visible outcome, minimum winning slice, explicit non-goals, and debt avoided by deferring them. If a story does not materially improve that outcome, defer it unless it is required for safety/risk containment or the user explicitly widens scope.
-13. **The `br` epic replaces WORKGRAPH as the execution graph** — After the 6 plan files pass Phase 5.5 deep review, reach Phase 6b `100/100` through a fresh worker, and are accepted, mint a `br` epic for the slice with one child issue per execution node (writes, deps, validation, model route, risk live there as `--design`/`--notes`/`--acceptance-criteria`/labels per [`_shared/references/beads-contract.md`](../_shared/references/beads-contract.md)). Do not create, edit, or consume `WORKGRAPH.md` as source state. If a human-readable `WORKGRAPH.md` is useful, render it from `br` after the epic exists and treat it as disposable. Hand execution to `/divide-and-conquer` against that epic instead of launching ad hoc parallel workers from this skill.
+13. **The `br` epic replaces WORKGRAPH as the execution graph** — After the 6 plan files pass Phase 5.5 deep review, pass the independent acceptance review, and are accepted, mint a `br` epic for the slice with one child issue per execution node (writes, deps, validation, model route, risk live there as `--design`/`--notes`/`--acceptance-criteria`/labels per [`_shared/references/beads-contract.md`](../_shared/references/beads-contract.md)). Do not create, edit, or consume `WORKGRAPH.md` as source state. If a human-readable `WORKGRAPH.md` is useful, render it from `br` after the epic exists and treat it as disposable. Hand execution to `/divide-and-conquer` against that epic instead of launching ad hoc parallel workers from this skill.
 14. **`review.mmdx` is the human checkpoint surface** — Before any human sign-off, build/update `review.mmdx` from all current plan files using the `mmdx` skill's chart-stacking contract and the opinionated structure in [references/mmdx-review-checkpoint.md](~/.claude/skills/domain-planner/references/mmdx-review-checkpoint.md). The MMDX must expose every decision-grade detail through linked charts: core value, stories, endpoints, errors, schema, backend rules, frontend states, flows, decisions, non-goals, risks, open questions, performance envelopes, and the post-sign-off `br` epic/child-issue handoff when present.
 
 ## Questioning Strategy
@@ -517,107 +517,14 @@ A thin Phase 5 that says "we chose X" without saying "because Y, not Z" is incom
 
 ---
 
-### Phase 5.5: Deep Review (`apr` or Fresh Worker)
+### Phase 5.5: Independent Plan Review
 
-**Goal:** Iterative architectural refinement using GPT Pro Extended Reasoning via `apr` or a fresh-context review worker, until suggestions converge to steady-state.
-
-**Why this phase exists:** The Phase 6b quality loop checks rubric compliance (are all fields present? do contracts match?). This phase checks *architectural quality* — are the contracts well-designed? Are there better patterns? Did we miss failure modes? These are different concerns; rubric compliance does not imply good architecture.
-
-**Prerequisites:** `apr` CLI installed (`apr --version`) or `/divide-and-conquer`
-with a fresh-worker substrate. Use runtime-native subagents or `/codex:rescue`
-only when selected as the worker transport behind that orchestration path. If no
-fresh-worker substrate is available, stop and surface the missing prerequisite.
-Do not replace this phase with in-process self-review.
-
-**Gate:** Phase 5.5 must finish before Phase 6b. Phase 6e must not mint a `br` epic, and no optional `WORKGRAPH.md` view may be rendered, until Phase 5.5 has either reached steady-state or the user explicitly records an override. An override can save a draft but must not silently start execution.
-
-**Steps:**
-
-1. **Set up the workflow** (first time only):
-   ```
-   apr robot init   # creates .apr/ if it doesn't exist
-   ```
-   APR supports exactly 3 document slots: `readme`, `spec`, and `implementation`. To include the project README/vision and all slice files, bundle them before configuring:
-   ```bash
-   # Bundle project context: vision + README into one readme doc
-   cat {project_repo}/docs/vision.md {project_repo}/README.md > {plan_root}/{slice}/.apr-readme.md
-   # Bundle all slice files into a single spec for APR
-   cat {plan_root}/{slice}/*.md > {plan_root}/{slice}/.apr-bundle.md
-   ```
-   Then write the workflow YAML directly (no interactive wizard needed):
-   ```yaml
-   # .apr/workflows/{slice}.yaml
-   name: {slice}
-   description: "One-line description of what this slice does"
-   documents:
-     readme: "{plan_root}/{slice}/.apr-readme.md"  # docs/vision.md + README.md concatenated
-     spec: "{plan_root}/{slice}/.apr-bundle.md"    # all slice files concatenated
-   oracle:
-     model: gpt-5.6-sol
-     thinking_time: heavy
-   rounds:
-     output_dir: ".apr/rounds/{slice}"
-   ```
-   Set the default workflow in `.apr/config.yaml`:
-   ```yaml
-   default_workflow: {slice}
-   ```
-   Create the rounds output directory: `mkdir -p .apr/rounds/{slice}`
-
-   **Before each `apr run`**, re-bundle to pick up any changes:
-   ```bash
-   cat {project_repo}/docs/vision.md {project_repo}/README.md > {plan_root}/{slice}/.apr-readme.md
-   cat {plan_root}/{slice}/*.md > {plan_root}/{slice}/.apr-bundle.md
-   ```
-
-2. **Run revision rounds:**
-   ```
-   apr run 1
-   apr run 2
-   ...
-   ```
-   Each round sends the current plan to GPT Pro Extended Reasoning for deep review. GPT Pro returns architectural improvements, missing edge cases, better API shapes, and performance concerns as git-diff-style changes.
-
-3. **Check convergence:**
-   ```
-   apr stats -w {slice}
-   ```
-   Look for diminishing delta between rounds. When suggestions become incremental (cosmetic, stylistic, or repeat prior suggestions), you've reached steady-state. Typical: 3-5 rounds for focused slices, 5-7 for complex cross-cutting ones.
-
-4. **Integrate revisions** after each round:
-   ```
-   apr integrate {round} --copy
-   ```
-   This generates a Claude Code integration prompt. Paste it and apply the revisions to the plan files in-place. For each proposed change, state whether you agree, partially agree, or disagree with rationale.
-
-5. **Coding agents can use `apr robot`** for machine-friendly JSON output:
-   ```
-   apr robot stats -w {slice}    # convergence check
-   apr robot integrate {round}   # get integration prompt
-   ```
-
-**Exit criteria:** Steady-state reached (apr stats shows <5% delta between rounds or the fresh worker reports no material architectural changes), OR user explicitly records an override and the plan remains draft-only.
-
-**What this phase is NOT:** It is not a replacement for Phase 6b's rubric-based quality loop. `apr` reviews improve the *substance* of the plan; the quality loop ensures *structural completeness*. Run both.
-
-#### Fresh-Worker Fallback (when `apr` is not installed)
-
-If `apr` is unavailable, launch a fresh reviewer through the active worker substrate. Use `/codex:rescue` when the `codex-plugin-cc` plugin is loaded:
-
-```
-/codex:rescue --background --model gpt-5.6-sol --effort medium \
-  Review the {slice} plan files in {plan_root}/{slice}/ for architectural quality. \
-  Focus on: API contract design, failure modes, entity relationships, missing edge cases, \
-  and whether better patterns exist. Read all 6 plan files. \
-  Write suggestions as a numbered list with file, section, and proposed change. \
-  Do NOT modify plan files. Do NOT score against the rubric (Phase 6b handles that).
-```
-
-Check progress with `/codex:status`, retrieve output with `/codex:result`. Integrate suggestions manually, then proceed to Phase 6.
-
-For other worker substrates, use the same prompt and require a file/section-specific suggestions list. The reviewer must not modify plan files and must not score the rubric; Phase 6b handles rubric scoring separately.
-
----
+Review architecture, failure modes, contracts and completeness with one
+independent reviewer on the selected substrate. Combine this with Phase 6b when
+one review covers both concerns. Native Codex agents are valid. Use `apr` or
+additional rounds only when explicitly requested or a concrete unresolved risk
+needs them. Fix material findings; recheck affected decisions without seeking
+repeated clean reviews or a generic convergence score.
 
 ### Phase 6: Sign-off
 
@@ -631,60 +538,29 @@ Populate **all 6 required files** from planning session:
 - `flows.md` — User journeys and state transitions
 - `schema.mmd` — **REQUIRED** conceptual ERD
 
-#### 6b. Quality Loop
+#### 6b. Quality Review
 
-Run the automated assess→fix→re-assess loop against the [plan quality rubric](~/.claude/skills/domain-planner/references/plan-quality-rubric.md). See [quality-loop-workflow.md](~/.claude/skills/domain-planner/references/quality-loop-workflow.md) for the full workflow.
+Use [quality-loop-workflow.md](references/quality-loop-workflow.md) to check the
+plan against its acceptance criteria and applicable rubric dimensions. Reuse
+the independent Phase 5.5 review when it already covers these checks. Fix material
+findings and recheck affected decisions; no automatic 100/100 gate or repeated
+clean assessment. Honor an explicitly requested scoring contract. Proceed when
+acceptance is demonstrated and required user direction is already clear.
 
-```
-Assess (fresh worker) → Parse score
-├── 100/100 → skip to 6c
-└── < 100 → fix issues → re-assess (max 3 rounds)
-```
+#### 6c. Decision Checkpoint When Needed
 
-**Assessor:** Fresh-context worker launched through `/divide-and-conquer`/NTM. If
-no worker substrate is available, stop and surface the missing prerequisite
-instead of assessing in-process. The assessor
-scores all 6 files against the 10-dimension rubric (10 pts each, 100 total) and
-returns a structured issues table with file, location, and fix instruction per
-deduction.
-
-**Fixer:** The orchestrator itself — has full domain context from the planning session. Applies targeted fixes from the issues table, then re-launches the assessor.
-
-**Loop exit:** Score = 100. If 3 iterations are reached below 100, run stall triage and escalate the remaining issues to the user; do not proceed to Phase 6c/6d/6e until a fresh worker returns `100/100` or the user explicitly records a sub-100 override. A sub-100 override may save a draft, but it must not mint the execution epic.
-
-After the loop, report the final score before proceeding. Phase 6e is blocked unless the score is `100/100`.
-
-#### 6c. Human Checkpoint MMDX Review
-
-Before asking a human to approve, revise, block, or choose the save location,
-create/update `{plan_root}/{slice}/review.mmdx` as the review surface. Use the
-`mmdx` skill, specifically its chart-stacking guidance,
-`references/diagram-selection.md`, and `references/visual-grammar.md`.
-
-Use [references/mmdx-review-checkpoint.md](~/.claude/skills/domain-planner/references/mmdx-review-checkpoint.md)
-as the required structure. The MMDX entry chart must be a decision surface
-with a visible `READY`, `REVISE`, or `BLOCKED` conclusion; linked child charts
-must carry every decision-grade detail from the six plan files; and the visual
-grammar must preserve chart-crimes-style honesty with source disclosure,
-status labels, visible caveats, and no color-only meaning.
-
-```bash
-cp ~/.claude/skills/domain-planner/assets/templates/review.mmdx {plan_root}/{slice}/review.mmdx
-python3 ~/.claude/skills/mmdx/scripts/mmd.py {plan_root}/{slice}/review.mmdx --preflight-only
-python3 ~/.claude/skills/mmdx/scripts/mmd.py {plan_root}/{slice}/review.mmdx --open
-```
-
-Do not continue to save-location sign-off until the MMDX preflight passes and
-the human checkpoint is presented with the path/URL.
+Ask only for unresolved user decisions. Existing explicit direction counts as
+approval. Present the concrete choice and evidence; create or update a diagram
+only when it helps that decision or the user requested it. Do not require a new
+review.mmdx merely to proceed with already authorized work.
 
 #### 6d. Save Location
 
-Ask: "Save to released/ (locked) or planned/ (draft)?"
+Use the requested or existing plan location. Ask only when an unresolved storage choice materially affects the task.
 
 #### 6e. Mint the `br` Epic and Child Issues
 
-After Phase 5.5 deep review is complete, Phase 6b returns `100/100` from a fresh
-worker, and the 6 plan files are accepted and saved, mint the slice's execution
+After Phase 5.5 deep review is complete, Phase 6b demonstrates acceptance, and the 6 plan files are accepted and saved, mint the slice's execution
 graph in `br` (beads_rust). The epic + child issues are the durable source of
 truth for downstream orchestration; an optional `WORKGRAPH.md` is only a
 regenerable view.
@@ -783,15 +659,9 @@ issue fields.
 
 Handoff: "Ready to implement? Run `/divide-and-conquer` for the minted `{slice}` `br` epic and follow its ready frontier."
 
-> **External review (optional):** Use `/codex:rescue` to get an independent second opinion after the quality loop passes:
-> ```
-> /codex:rescue --background --model gpt-5.6-sol --effort medium \
->   Review the {slice_name} plan in {plan_root}/{slice_name}/ against \
->   the rubric at ~/.claude/skills/domain-planner/references/plan-quality-rubric.md. \
->   Score all 10 dimensions (10 pts each, 100 total). \
->   Write REVIEW.md in the plan directory. Do not modify plan files.
-> ```
-> Check with `/codex:status`, retrieve with `/codex:result`. The `review_plan.py` script remains available as a standalone diagnostic (`python3 ~/.claude/skills/domain-planner/scripts/review_plan.py --slice {slice_name} --execute`), but it does not replace the fresh-worker Phase 6b gate.
+Additional independent review is optional when a specific unresolved concern
+needs it. Honor the selected model and return findings through the tracked result
+channel. Do not create REVIEW.md or run a second score pass by default.
 
 ---
 
@@ -808,111 +678,18 @@ Auth service checks are mandatory in quality assessment mode for auth/payments/i
 
 ## Orchestration Mode
 
-When user selects "Implement it" for an existing plan, hand the accepted plan's
-`br` epic to `/divide-and-conquer`. This skill supplies the slice contract and
-domain-specific worker prompts; `/divide-and-conquer` is the orchestrator for
-Beads frontier selection, worker dispatch, claims, fix waves, hardening issues,
-and status updates.
+When asked to implement an accepted plan, reuse its execution tasks and hand the
+ready frontier to divide-and-conquer. Honor native Codex or other explicit model
+choices. Give each worker a concern, disjoint write scope and concrete validation.
+Carry implementation through acceptance and scoped commits, without another
+planning artifact or automatic hardening loop.
 
-Implementation mode is an end-to-end delivery run. Do not one-shot the first
-implementation pass and return a partial plan or partial progress report. Carry
-the accepted slice through scaffolding, fresh-context audit/re-review loops,
-hardening, retirement, and commit batching unless a blocker requires a human
-decision.
-
-Use fresh eyes through `/divide-and-conquer`/NTM:
-- initial domain-reviewer audit runs in a fresh worker
-- each post-fix re-review runs in a fresh worker
-- high-risk or cross-repo slices get a separate hardening/review worker before retirement
-
-If the worker substrate is unavailable, stop and surface that missing
-prerequisite. Do not replace these review gates with local self-review.
-
-Auth service enforcement is mandatory in orchestration mode:
-1. Treat `{auth_packages_root}` as the auth/payments/identity source of truth.
-2. Require scaffolder agents to reuse existing auth service packages before writing custom auth/payments/identity logic.
-3. If an auth service gap is discovered, pause custom replacements and return an auth-scope proposal to the user.
-4. If unpublished auth service changes are needed locally, use temporary symlink/link workflow first, then re-validate with published/live auth service packages before marking DONE.
-
-See [references/orchestration-workflow.md](~/.claude/skills/domain-planner/references/orchestration-workflow.md) for the full workflow.
-
-### Overview
-
-```
-┌─────────────────────────────────────────────────────────┐
-│  ORCHESTRATOR (/divide-and-conquer)                      │
-│  Owns: br frontier, claims, worker waves, status         │
-├─────────────────────────────────────────────────────────┤
-│                                                          │
-│  1. Analyze plan to determine scope (which repos)        │
-│  2. Claim ready br issues and launch scoped workers      │
-│  3. Wait for completion                                  │
-│  4. Claim audit issue (domain-reviewer)                  │
-│  5. If issues: mint/claim fix Beads, re-audit            │
-│  6. Loop until COMPLIANT (100/100)                       │
-│  6b. Hardening gate: /crap → /mutate (score ≤ 30)       │
-│  7. Retire slice, batch commits, report validation        │
-│                                                          │
-└─────────────────────────────────────────────────────────┘
-```
-
-### Agent Coordination
-
-1. **Analyze plan scope** — Read plan.md and the client overlay's repo configuration to determine which repos need work.
-
-2. **Initialize progress tracking** — Use the slice's `br` epic and child
-   issues as the durable tracker. A checklist is only a rendered view.
-
-3. **Route parallel work through `/divide-and-conquer`:**
-   - Backend repos → each agent uses the `domain-scaffolder` skill with `surface=backend`
-   - Frontend repos → each agent uses the `domain-scaffolder` skill with `surface=frontend`
-   - Each agent works in its own repo with its own conventions
-   - Scope by concern, not files; `/divide-and-conquer` verifies disjoint
-     `writes` before launching a ready wave
-
-4. **After scaffolding completes, route the audit issue through `/divide-and-conquer`** using the domain-reviewer skill in audit mode.
-
-5. **Handle audit results:**
-   - COMPLIANT (score = 100/100) → proceed to hardening gate (step 6b)
-   - Issues found → extract handoffs from AUDIT_REPORT.md and mint each finding as a `br` issue under the slice's epic:
-     ```bash
-     python3 ~/.claude/skills/_shared/scripts/br_helpers.py mint-node \
-       finding-{kebab-summary} '{Finding title}' \
-       --epic "$EPIC" --type bug --priority 1 \
-       --concern audit-fix --repo {repo} \
-       --depends-on {parent-node-id} \
-       --done-when '{verification step from AUDIT_REPORT.md}'
-     ```
-     Then let `/divide-and-conquer` claim and dispatch the ready fix issues
-     only for repos with issues; each fix worker uses the standard `--claim` /
-     `--close --suggest-next` lifecycle.
-
-6. **Re-audit loop** — Max 5 attempts with stall triage, then escalate with a specific blocker report.
-
-6b. **Hardening gate (`/crap` score check)** — After audit convergence (100/100 COMPLIANT), mint or claim a hardening issue and route it through `/divide-and-conquer` to assess structural quality before retirement:
-
-   ```
-   Audit 100/100 → /crap hardening gate → retire
-   ```
-
-   **Subagent prompt:**
-   > Run `/crap` against the files touched by this slice across all repos involved.
-   > If FINAL_SCORE > 30, run `/mutate` on the top 3 hotspots and add tests
-   > until FINAL_SCORE drops to 30 or below.
-   > Report: pass (score ≤ 30) or fail (score > 30 after hardening) with
-   > the final score and any surviving hotspots.
-
-   **Gate rules:**
-   - **Pass (FINAL_SCORE ≤ 30):** Proceed to step 7 (completion/retirement).
-   - **Fail after hardening (FINAL_SCORE > 30):** Report surviving hotspots to the user with the score and file list. Ask whether to (a) accept current score and proceed to retirement, or (b) launch targeted fix agents for the hotspots.
-   - **Scope:** Only score files that were created or modified by this slice's scaffolding — do not score the entire repo. Use the `writes` globs from the slice's `br` child issues plus a guarded git diff after `git -C "$target_repo" rev-parse --git-dir >/dev/null 2>&1` succeeds; if the repo cannot be resolved, report the skip clearly.
-   - **Skip condition:** If the user passed `--skip-hardening` or explicitly says to skip, proceed directly to step 7.
-
-   This gate catches high-complexity/low-coverage code before it gets retired and forgotten. The `/crap` + `/mutate` combination targets the riskiest code paths with mutation testing, ensuring test coverage is meaningful (not just line coverage).
-
-7. **Completion** — Retire the slice via domain-reviewer, verify INDEX.md is DONE, run the commit skill for every touched repo, and report results to the user (including final audit score, final CRAP score if hardening ran, validation commands, commit SHAs, and any explicit leftovers).
-
----
+Obtain one independent review against the plan and required checks. Fix material
+findings and recheck affected behavior/new risks. Reuse a completed review that
+covers the final diff. Additional review needs a concrete concern; explicit
+scoring requests remain binding. Record completion in the existing task store,
+retire obsolete scratch, and report validation, commits and real blockers.
+See [orchestration-workflow.md](references/orchestration-workflow.md).
 
 ## Templates
 

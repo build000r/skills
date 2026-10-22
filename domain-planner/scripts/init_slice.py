@@ -472,7 +472,7 @@ def init_slice(
     print("Next steps:")
     print(f"  1. Fill in templates in {target_dir}")
     print("  2. Use domain-planner skill to refine and lock the 6 plan files")
-    print("  3. After deep review + 100/100 quality, mint the br epic for execution")
+    print("  3. After acceptance review, reuse or mint the execution tasks")
 
 
 def main():

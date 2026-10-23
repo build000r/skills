@@ -40,6 +40,38 @@ After drafting or patching the skill, run the retroactive realism check:
 
 If the check fails, patch the skill again before validation or report the exact blocker.
 
+## Tracking and output lifecycle for every authored skill
+
+Beads owns task status, findings, decisions, measurements, validation results and
+blockers. New or revised skills must not require a parallel tree of receipts,
+reports, inventories, workgraphs, completion notes or run history by default.
+Use stdout or memory first; file inputs needed by a helper go in one private
+temporary directory and are removed after consumption, on success or failure.
+Do not keep a last summary file when the result already belongs in Beads.
+
+Persistent output requires either an explicit user-requested deliverable or a
+specific continuing executable, release, rollback or recovery consumer. Record
+the exact path, consumer/owner and deletion condition in the owning Bead. A
+validator that has already read a file does not justify retaining it. Do not
+rename reports as "proof" or archive them to evade cleanup. Preserve actual
+native tracker history, credentials, required data and still-consumed artifacts.
+When revising a producer, check examples, templates, wrappers and closeout rules
+for contradictory permanent writes. Review existing ad hoc receipts in scope;
+keep useful facts in Beads and remove settled files through guarded cleanup.
+Validation must check actual consumers and leftover files, not only prose.
+
+When a selected example below needs file input, initialize one private directory
+for that operation and keep producers/consumers in the same bounded shell run:
+
+```bash
+SKILL_ISSUE_TMP="$(mktemp -d "${TMPDIR:-/tmp}/skill-issue-XXXXXXXX")"
+trap 'rm -r -- "$SKILL_ISSUE_TMP"' EXIT
+```
+
+Do not run this setup for stdout-only commands. No shared `/tmp/review.json`
+names or permanent per-invocation directories; print the result before cleanup
+and put the durable finding in Beads.
+
 ## Mode Selection
 
 Pick the branch before editing:
@@ -110,16 +142,16 @@ When persistent client configuration is actually needed and no overlay matches:
 3. Run the skillbox-quickstart scan + generate flow to create the overlay:
 
 ```bash
-python3 ~/.claude/skills/skillbox-quickstart/scripts/scan_environment.py --json > /tmp/skillbox-scan.json
-cat /tmp/skillbox-scan.json | python3 ~/.claude/skills/skillbox-quickstart/scripts/generate_overlay.py \
-  --client-id {CLIENT_ID} --json > /tmp/skillbox-recommendation.json
+python3 ~/.claude/skills/skillbox-quickstart/scripts/scan_environment.py --json > "$SKILL_ISSUE_TMP/skillbox-scan.json"
+python3 ~/.claude/skills/skillbox-quickstart/scripts/generate_overlay.py \
+  --client-id {CLIENT_ID} --output "$SKILL_ISSUE_TMP/overlay-draft" < "$SKILL_ISSUE_TMP/skillbox-scan.json"
 ```
 
 4. Review the generated overlay with the user, then install it in the repo-local root unless the user explicitly wants a shared/private fallback overlay:
 
 ```bash
 mkdir -p .buildooor/skillbox-config/clients/{CLIENT_ID}
-cp /tmp/overlay.yaml .buildooor/skillbox-config/clients/{CLIENT_ID}/overlay.yaml
+cp "$SKILL_ISSUE_TMP/overlay-draft/overlay.yaml" .buildooor/skillbox-config/clients/{CLIENT_ID}/overlay.yaml
 ```
 
 5. Re-run Step 0 — the new overlay should now match
@@ -272,16 +304,16 @@ configuration, not to satisfy an artificial prerequisite for ordinary skill work
 **Full create** (scan-backed — when the user explicitly asks to set up an overlay):
 
 ```bash
-python3 ~/.claude/skills/skillbox-quickstart/scripts/scan_environment.py --json > /tmp/skillbox-scan.json
-cat /tmp/skillbox-scan.json | python3 ~/.claude/skills/skillbox-quickstart/scripts/generate_overlay.py \
-  --client-id {CLIENT_ID} --output /tmp/overlay-draft
+python3 ~/.claude/skills/skillbox-quickstart/scripts/scan_environment.py --json > "$SKILL_ISSUE_TMP/skillbox-scan.json"
+python3 ~/.claude/skills/skillbox-quickstart/scripts/generate_overlay.py \
+  --client-id {CLIENT_ID} --output "$SKILL_ISSUE_TMP/overlay-draft" < "$SKILL_ISSUE_TMP/skillbox-scan.json"
 ```
 
 Review the draft with the user, then install:
 
 ```bash
 mkdir -p .buildooor/skillbox-config/clients/{CLIENT_ID}
-cp /tmp/overlay-draft/overlay.yaml .buildooor/skillbox-config/clients/{CLIENT_ID}/overlay.yaml
+cp "$SKILL_ISSUE_TMP/overlay-draft/overlay.yaml" .buildooor/skillbox-config/clients/{CLIENT_ID}/overlay.yaml
 ```
 
 After either path, verify:
@@ -480,8 +512,8 @@ Follow these steps in order, skipping only if clearly not applicable.
 Use this mode when the user wants to improve a skill from real transcript evidence instead of intuition: "review this skill", "how is this skill doing", "when did we last use this skill", "look at past invocations", or "reduce unnecessary checkpoints."
 
 This mode reads from the configured transcript evidence surface first, then uses
-local Claude/Codex JSONL scanning as a fallback or complement. It writes a
-lightweight last-seen marker, builds operator evidence packets from repeated
+local Claude/Codex JSONL scanning as a fallback or complement. It builds
+temporary operator evidence packets from repeated
 transcript failures. Persistent markers and review snapshots are opt-in trend
 infrastructure; ordinary fixes use temporary analysis and the existing tracker.
 
@@ -527,7 +559,7 @@ fi
 1. Scan transcript history for a target skill with the local scanner:
 
 ```bash
-scripts/review_skill_usage.py --skill skill-issue --source both --limit 50 --no-marker > /tmp/skill-issue-review.json
+scripts/review_skill_usage.py --skill skill-issue --source both --limit 50 --no-marker > "$SKILL_ISSUE_TMP/skill-review.json"
 ```
 
 By default, this resumes from `~/.claude/skill-markers/<skill>.json` using the previous review's `reviewed_until` timestamp. On the first run for a skill, it falls back to `--since month`. Pass an explicit `--since ...` to override, or `--since marker` to force marker-resume behavior.
@@ -627,13 +659,13 @@ availability.
 transcript evidence; it does not replace it.
 
 ```bash
-scripts/score_skill_contract.py <path/to/skill-folder> --json > /tmp/<skill>-soft-score.json
+scripts/score_skill_contract.py <path/to/skill-folder> --json
 ```
 
 For catalog-wide audits, run:
 
 ```bash
-scripts/score_skill_contract.py . --catalog --json > /tmp/skill-soft-score-catalog.json
+scripts/score_skill_contract.py . --catalog --json
 ```
 
 Read [references/soft-score-rubric.md](references/soft-score-rubric.md) and
@@ -661,7 +693,7 @@ mechanical exemption must have a reason and validator in
 3. Build operator evidence packets before patching the skill:
 
 ```bash
-scripts/generate_skill_evidence_packets.py --input /tmp/skill-issue-review.json --json > /tmp/skill-issue-packets.json
+scripts/generate_skill_evidence_packets.py --input "$SKILL_ISSUE_TMP/skill-review.json" --json > "$SKILL_ISSUE_TMP/skill-packets.json"
 ```
 
 This turns repeated transcript failures into packetized review artifacts with:
@@ -691,9 +723,9 @@ Read [references/operator-evidence-loop.md](references/operator-evidence-loop.md
 
 ```bash
 scripts/log_skill_packet_decision.py \
-  --input /tmp/skill-issue-packets.json \
+  --input "$SKILL_ISSUE_TMP/skill-packets.json" \
   --packet-id verification-gap-global \
-  --review /tmp/skill-issue-review.json \
+  --review "$SKILL_ISSUE_TMP/skill-review.json" \
   --notes "tightened verification block in closeout"
 ```
 
@@ -714,7 +746,7 @@ scripts/quick_validate.py <path/to/skill-folder>
 2. Regenerate evidence packets from the current review input and confirm packet generation still succeeds:
 
 ```bash
-scripts/generate_skill_evidence_packets.py --input /tmp/<skill>-review.json --json > /tmp/<skill>-packets.verify.json
+scripts/generate_skill_evidence_packets.py --input "$SKILL_ISSUE_TMP/skill-review.json" --json > "$SKILL_ISSUE_TMP/skill-packets.verify.json"
 ```
 
 3. If trend logging was requested, verify its packet ID matches the shipped
@@ -725,7 +757,7 @@ Do not hand the run back until these checks are complete and passing.
 6. Only for explicitly requested trend tracking, save the review:
 
 ```bash
-scripts/save_skill_review.py --input /tmp/skill-issue-review.json
+scripts/save_skill_review.py --input "$SKILL_ISSUE_TMP/skill-review.json"
 ```
 
 This appends to `~/.claude/skill-review-history.jsonl`.
@@ -739,7 +771,7 @@ scripts/show_skill_trend.py --skill skill-issue --weeks 8
 8. Mine deterministic opportunity cards from the post-invocation review:
 
 ```bash
-scripts/generate_skill_opportunities.py --input /tmp/skill-issue-review.json
+scripts/generate_skill_opportunities.py --input "$SKILL_ISSUE_TMP/skill-review.json"
 ```
 
 This ranks concrete improvement ideas such as verification gaps, over-checkpointing,
@@ -914,7 +946,7 @@ Recommended shell-script sanity checks:
 for f in <skill>/scripts/*.sh; do bash -n "$f"; done
 
 # No-arg UX should return usage text and non-zero
-for f in <skill>/scripts/*.sh; do "$f" >/tmp/out 2>/tmp/err || true; head -n1 /tmp/out /tmp/err; done
+for f in <skill>/scripts/*.sh; do "$f" 2>&1 | head -n1; done
 ```
 
 #### Open-Source Readiness (Privacy Gate)
@@ -1152,20 +1184,22 @@ Beyond individual skills, skill-issue can audit your entire Claude environment.
 
 ### Audit
 
-Scan `~/.claude/` and project directories, generate a context registry, and produce a health report:
+Scan `~/.claude/` and project directories read-only. Print health findings and
+record actionable work in Beads; persistent registry creation is explicit:
 
 ```bash
-scripts/audit_context.py                                 # Scan ~/repos, write to ~/.claude/context/
-scripts/audit_context.py --scan-root ~/projects          # Custom scan root
-scripts/audit_context.py --report-only                   # Print report without writing registry
-scripts/audit_context.py --scan-root ~/repos --scan-root ~/work  # Multiple roots
+scripts/audit_context.py --report-only                   # Default: no registry writes
+scripts/audit_context.py --scan-root ~/projects --report-only
+scripts/audit_context.py --scan-root ~/repos --scan-root ~/work --report-only
 ```
 
 The audit discovers: projects with `.claude/` config, CLAUDE.md files, MCP servers, project-level hooks and skills, global skills (symlinked, packaged, local), and client overlays.
 
 Issues detected: secrets in MCP configs, broken skill symlinks, stale empty `.claude/` directories, duplicate MCP definitions across projects, client overlays targeting nonexistent paths, parent CLAUDE.md inheritance.
 
-Registry output goes to `~/.claude/context/` with `manifest.yaml`, `projects/*.yaml`, `mcps/*.yaml`, and `machines/*.yaml`.
+Only an explicitly requested maintained registry uses the writing mode and its
+`~/.claude/context/` output. Name that consumer and retention owner first; an
+ordinary skill audit must not create this registry or modify agent state.
 
 ### Init
 

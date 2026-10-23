@@ -233,7 +233,11 @@ fabrication smell catalog.
 
 ### 6. Produce a ranked cleanup queue
 
-Use [references/report-template.md](references/report-template.md).
+Record actionable cleanup in Beads and present the ranked queue in the response.
+Use [references/report-template.md](references/report-template.md) as an optional
+format, not a required file. Clean temporary scans after use, including failed
+runs. A saved report requires an explicit requested deliverable or a named
+continuing consumer, owner and deletion condition recorded in Beads.
 
 Rank by impact on OSS readers:
 
@@ -277,8 +281,11 @@ the cleanup done, sweep for dangling references.
 3. Edit each broken link. Remove the list item rather than leaving a dead
    anchor. Do not "archive" the deleted file by leaving a tombstone.
 
-4. Leave audit trackers (`OSS_HYGIENE_INVENTORY.md`, audit reports) alone —
-   they reference historical state, not live links.
+4. Review old audit trackers (`OSS_HYGIENE_INVENTORY.md`, audit reports) too.
+   Move useful findings into Beads and delete settled duplicates after consumer
+   checks. Preserve a requested historical document or still-consumed artifact
+   with an identified owner and deletion condition; history alone is not a
+   blanket exemption from cleanup.
 
 This step is non-optional when deleting more than a handful of files.
 Stakeholders will find broken links before they find the cleanup PR.
@@ -296,7 +303,7 @@ Deleted N files (~M lines) across K categories. Largest categories:
 - <category>: <n> files (worst offender: <file>)
 - <category>: <n> files (worst offender: <file>)
 Edited E files to fix broken index links. Repo now has F docs, all of which
-are either verified useful or tracked in audit files.
+are either verified useful or tracked in Beads.
 ```
 
 Example from a real run:

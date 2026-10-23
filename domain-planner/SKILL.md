@@ -239,13 +239,14 @@ Routing rules:
    facts.
 4. If `escalate` returns `route: web-check`, answer the bounded question with a
    short current-source check and cite the result in the plan.
-5. If `escalate` returns `skip`, record the skip reason under pre-planning
-   artifacts and continue. If it returns `too-broad`, narrow the external
+5. If `escalate` returns `skip`, record the reason in the existing plan or
+   owning Bead and continue. If it returns `too-broad`, narrow the external
    question before Phase 0.
-6. If a wiki vault exists and the gate did not already file through
-   `thesis-gtm`, distill the result to
-   `_sources/notes/domain-planner-<slice>-<date>.md` and run `/wiki ingest`
-   before Phase 0.
+6. Put durable findings and their sources in the existing owning wiki page,
+   plan, or Bead. Reuse findings already filed through `thesis-gtm`. Use
+   temporary scratch only for an actual research or ingestion consumer, then
+   remove it when consumed. Do not create a dated invocation note or session
+   history merely because the gate ran.
 
 **Wait for Subagent C before proceeding** when it runs. If it invalidates the slice premise, halt planning and surface the contradiction to the user.
 
@@ -253,7 +254,7 @@ Routing rules:
 
 - If build-vs-clone changed the plan (adopt/clone/extract), surface to user and halt until they confirm or redirect.
 - If README was rewritten, note this in the slice's `plan.md` under a "Pre-planning artifacts" section so the plan reflects the current documented state.
-- If the external reality gate ran, record the note/session artifact under "Pre-planning artifacts" and carry any newly surfaced constraints or invalidated assumptions into Phase 0 and Phase 0.5.
+- If the external reality gate ran, carry its findings, source references, newly surfaced constraints, and invalidated assumptions into the existing plan or owning Bead and apply them in Phase 0 and Phase 0.5. Link the owning wiki page when it holds the durable explanation.
 - If the new slice materially changes the project's competitive positioning or feature set, carry a **README update issue requirement** into Phase 6e so the post-sign-off `br` epic gets a final-wave documentation issue (invoke `readme-writing` again after the slice ships). This ensures the README stays accurate after implementation, not just before planning.
 
 ---

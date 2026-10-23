@@ -153,18 +153,6 @@ surface sections, convention references, required plan-file presence, and
 workflow artifacts. Only fall back to freehand shell inspection for concrete
 files the snapshot surfaces as relevant.
 
-Before manual `rg`/`sed`/`find` inspection, capture the active overlay and
-slice-plan state with the shared context snapshot helper:
-
-```bash
-python3 ~/.claude/skills/_shared/scripts/domain_context_snapshot.py --cwd "$PWD" --slice {slice_name} --pretty
-```
-
-Use the JSON output to identify the matched plan roots, implementation repos,
-surface sections, convention references, required plan-file presence, and
-workflow artifacts. Only fall back to freehand shell inspection for concrete
-files the snapshot surfaces as relevant.
-
 ## Git Step Guard
 
 If a scaffolding run or upstream handoff asks for git status, diff, or commit

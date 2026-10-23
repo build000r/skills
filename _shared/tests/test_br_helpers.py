@@ -1838,6 +1838,184 @@ class PlanArtifactBoundaryTests(unittest.TestCase):
                              "route_contract_mismatch")
 
 
+class RetainedPlanPolicyTests(unittest.TestCase):
+    """Root storage policy reaches real path checks through plan admission."""
+
+    def setUp(self) -> None:
+        workspace = tempfile.TemporaryDirectory(dir="/var/tmp")
+        self.addCleanup(workspace.cleanup)
+        self.base = Path(workspace.name)
+        self.repo = self.base / "repos" / "skills"
+        (self.repo / ".git").mkdir(parents=True)
+        self.client = self.base / "repos" / "skillbox-config" / "clients" / "personal"
+        self.root = self.client / "invocations"
+        self.retained = self.root / "skills" / "divide-and-conquer" / "run"
+        self.retained.mkdir(parents=True)
+        self.outside = self.base / "outside"
+        self.outside.mkdir()
+        self.internal_root = self.base / "artifacts"
+        self.internal = self.internal_root / "review"
+        self.internal.mkdir(parents=True)
+        temporary = tempfile.TemporaryDirectory(dir="/tmp")
+        self.addCleanup(temporary.cleanup)
+        self.temporary = Path(temporary.name)
+        self.context = {"client_id": "personal", "client_dir": str(self.client)}
+
+    def admission(self, run, *, policy="run_dir_policy: retained-client",
+                  strict=True, internal=False, child_policy=None, context=None):
+        root = plan_node("plan-root", ["root"], writes=(),
+                         plan_state="handoff-ready" if strict else "draft")
+        if policy is not None:
+            root["notes"] += "\n" + policy
+        leaf = plan_node("plan-leaf", ["execution-leaf"],
+                         repo_path=str(self.repo), run_dir=str(run))
+        if child_policy is not None:
+            leaf["notes"] += "\nrun_dir_policy: " + child_policy
+        if internal:
+            leaf["labels"].append("route:internal-astra-medium")
+            leaf["notes"] = leaf["notes"].replace(
+                "model_route: Codex gpt-5.6-sol medium",
+                "model_route: operator-authorized internal gpt-6-astra medium priority",
+            )
+        with plan_graph([root, leaf], ["plan-leaf"]), \
+             mock.patch.object(MODULE, "_host_client_context",
+                               return_value=self.context if context is None else context), \
+             mock.patch.object(MODULE, "INTERNAL_ARTIFACT_ROOT", self.internal_root), \
+             mock.patch.object(MODULE, "_run", side_effect=AssertionError("unexpected br call")):
+            status, output = run_cli([
+                "ready", "--plan", PLAN,
+                "--require-handoff-ready" if strict else "--allow-draft-plan",
+            ])
+        return status, json.loads(output)
+
+    def test_retained_policy_inherits_in_strict_and_draft_without_child_override(self) -> None:
+        for strict in (True, False):
+            for internal in (False, True):
+                with self.subTest(strict=strict, internal=internal):
+                    status, result = self.admission(
+                        self.retained, strict=strict, internal=internal,
+                        child_policy="temporary",
+                    )
+                    self.assertEqual(status, 0)
+                    self.assertEqual(result["run_dir_policy"], "retained-client")
+                    self.assertEqual([node["id"] for node in result["admitted"]], ["plan-leaf"])
+                    self.assertEqual(result["admitted"][0]["run_dir_policy"], "retained-client")
+                    self.assertEqual(result["admitted"][0]["run_dir"], str(self.retained.resolve()))
+                    status, result = self.admission(
+                        self.temporary, strict=strict, internal=internal,
+                        child_policy="temporary",
+                    )
+                    self.assertEqual(status, 2)
+                    self.assertEqual(result["admitted"], [])
+                    self.assertEqual(reasons(result), ["run_dir_unsafe"])
+
+    def test_retained_policy_rejects_all_existing_boundary_escapes(self) -> None:
+        (self.root / "escape").symlink_to(self.outside, target_is_directory=True)
+        for hidden in (".dac", ".ntm"):
+            (self.root / hidden / "run").mkdir(parents=True)
+        cases = {
+            "outside": self.outside,
+            "temporary": self.temporary,
+            "internal_artifact": self.internal,
+            "repository": self.repo,
+            "root": self.root,
+            "symlink": self.root / "escape",
+            "traversal": self.retained / ".." / "run",
+            "dac": self.root / ".dac" / "run",
+            "ntm": self.root / ".ntm" / "run",
+        }
+        for strict in (True, False):
+            for name, run in cases.items():
+                with self.subTest(strict=strict, path=name):
+                    status, result = self.admission(run, strict=strict, internal=True)
+                    self.assertEqual(status, 2)
+                    self.assertEqual(result["admitted"], [])
+                    self.assertEqual(reasons(result), ["run_dir_unsafe"])
+            status, result = self.admission(self.root / "missing", strict=strict)
+            self.assertEqual(status, 2)
+            self.assertEqual(reasons(result), ["run_dir_unresolvable"])
+            status, result = self.admission(self.retained, strict=strict, context={})
+            self.assertEqual(status, 2)
+            self.assertEqual(reasons(result), ["invocation_root_unresolved"])
+
+    def test_retained_policy_preserves_host_projection_and_route_authority(self) -> None:
+        foreign = "/Users/example/repos/skillbox-config/clients/personal/invocations/skills/divide-and-conquer/run"
+        status, result = self.admission(foreign)
+        self.assertEqual(status, 0)
+        self.assertEqual(result["admitted"][0]["run_dir"], str(self.retained.resolve()))
+        status, result = self.admission(foreign.replace("clients/personal", "clients/other"))
+        self.assertEqual(status, 2)
+        self.assertEqual(reasons(result), ["run_dir_unresolvable"])
+        contract = {
+            "repo_path": str(self.repo), "run_dir": str(self.retained),
+            "labels": ["route:internal-astra-medium"], "model_route": "wrong-authority",
+        }
+        rejection = MODULE._run_dir_rejection(
+            "leaf", contract, self.context, require_retained_client=True,
+        )
+        self.assertEqual(rejection["reason"], "route_contract_mismatch")
+
+    def test_retained_policy_rejects_hidden_foreign_prefix_before_projection(self) -> None:
+        for strict in (True, False):
+            for hidden in (".dac", ".ntm"):
+                with self.subTest(strict=strict, hidden=hidden):
+                    foreign = (
+                        f"/Users/example/{hidden}/repos/skillbox-config/clients/personal/"
+                        "invocations/skills/divide-and-conquer/run"
+                    )
+                    status, result = self.admission(foreign, strict=strict)
+                    self.assertEqual(status, 2)
+                    self.assertEqual(result["admitted"], [])
+                    self.assertEqual(reasons(result), ["run_dir_unsafe"])
+
+    def test_absent_root_policy_preserves_temporary_and_internal_defaults(self) -> None:
+        for strict in (True, False):
+            for run, internal in ((self.temporary, False), (self.temporary, True),
+                                  (self.internal, True)):
+                with self.subTest(strict=strict, run=run, internal=internal):
+                    status, result = self.admission(
+                        run, policy=None, strict=strict, internal=internal,
+                        context={}, child_policy="retained-client",
+                    )
+                    self.assertEqual(status, 0)
+                    self.assertIsNone(result["run_dir_policy"])
+                    self.assertEqual([node["id"] for node in result["admitted"]], ["plan-leaf"])
+
+    def test_invalid_root_policy_refuses_before_frontier_in_both_modes(self) -> None:
+        policies = [
+            "run_dir_policy: temporary",
+            "run_dir_policy:",
+            "run_dir_policy: null",
+            "run_dir_policy: [retained-client]",
+            "run_dir_policy: |\n  retained-client",
+            "run_dir_policy: retained-client # ambiguous suffix",
+            "run_dir_policy: retained-client\nrun_dir_policy: retained-client",
+            "run_dir_policy: retained-client\nrun_dir_policy: temporary",
+            "run_dir_policy = retained-client",
+            "run_dir_policy : retained-client",
+            '"run_dir_policy": retained-client',
+            "- run_dir_policy: retained-client",
+            "  run_dir_policy: retained-client",
+            "run_dir_policy: retained-client\n  unexpected-continuation",
+        ]
+        for strict in (True, False):
+            for policy in policies:
+                with self.subTest(strict=strict, policy=policy):
+                    root = plan_node("plan-root", ["root"], writes=(),
+                                     plan_state="handoff-ready" if strict else "draft")
+                    root["notes"] += "\n" + policy
+                    with plan_graph([root], []), \
+                         mock.patch.object(MODULE, "ready_frontier") as frontier, \
+                         mock.patch.object(MODULE, "_host_client_context") as context, \
+                         mock.patch.object(MODULE, "_run", side_effect=AssertionError("unexpected br call")):
+                        result = MODULE.plan_admission(PLAN, require_handoff_ready=strict)
+                    self.assertFalse(result["ok"])
+                    self.assertEqual(result["admitted"], [])
+                    self.assertEqual(reasons(result), ["run_dir_policy_invalid"])
+                    frontier.assert_not_called()
+                    context.assert_not_called()
+
+
 class ReadyCliPlanModeTests(unittest.TestCase):
     def test_generic_ready_slice_behavior_is_unchanged(self) -> None:
         ready = [{"id": "skills-exec-001"}]

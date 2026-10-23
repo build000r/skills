@@ -189,6 +189,16 @@ traversal, symlink escapes, and `.dac`/`.ntm` paths.
 Admitting a scratch path does not authorize a source edit or external action;
 the node's own dependencies, write scope, and operator gates still apply.
 
+A plan that requires retained evidence sets exactly one unindented root notes
+line, `run_dir_policy: retained-client`. Every admitted node then needs an existing
+external descendant of the active client's `@client/invocations`, after host
+projection and realpath containment; temporary paths and internal artifact roots
+cannot substitute. Child fields and model routes cannot override this policy.
+Duplicate, malformed or unknown values reject admission before frontier lookup in
+both strict and draft modes (`run_dir_policy_invalid`). The admission result and
+accepted node contracts report the enforced policy. Omitting the root field keeps
+the default storage rules above.
+
 Plan roles and subgoal roles are different axes. `plan-role:branch` is a
 *recursive planning* grouping node produced by `no-ragrets`;
 `subgoal-role:controller` is a *divide-and-conquer execution* delegation

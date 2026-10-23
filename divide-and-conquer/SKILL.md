@@ -323,7 +323,7 @@ route-v2 decision and `route_ntm_spawn.sh`, even when the work product is only
 a verdict file.
 
 Why headless wins on that first row: the worker is a real PID that is
-supposed to exit; completion is typed (PID dead + exit file + artifact +
+supposed to exit; completion is typed (PID dead + exit file + useful result +
 lead `validate_cmds`) instead of pane scraping; there is no NTM tending
 loop for lanes that cannot be nudged anyway. RAM vs a Grok/Codex **tmux
 pane** is small (~15 MB). The large save is vs in-process Claude/Codex
@@ -337,7 +337,8 @@ stdout — exit code alone is not success.
 Headless one-shot rules (everything else in this skill still applies):
 
 - Same lead-owned Beads claim handshake before launch; track each node by
-  issue ID, PID, exit-file path, and expected absolute result-artifact path.
+  issue ID, PID, exit-file path, and assigned result channel. Name an absolute
+  temporary result path only if this transport requires one.
 - Resolve the CLI with `PATH="$HOME/.local/bin:$PATH"` and `command -v`.
   Do not hardcode `/opt/homebrew/bin/grok`.
 - Every brief must be fully self-contained: embed the `br show` contract in
@@ -348,11 +349,12 @@ Headless one-shot rules (everything else in this skill still applies):
 - Launch through a wrapper that writes pid, log, and exit code. Detached
   `nohup` without an exit file drops the status:
   `( "$cli" -p "$(cat "$brief")" … ; echo $? > "$lane.exit" ) >"$lane.log" 2>&1 & echo $! > "$lane.pid"`
-- Completion = process exited AND exit file present AND result artifact
-  exists and is non-empty AND the lead independently re-ran
-  `validate_cmds`. Dead PID + no artifact, or exit 0 + empty stdout and
-  no artifact, is a failed node, never a quiet success.
-- Monitor with PID liveness, the exit file, and artifact existence (see
+- Completion = process exited AND exit file present AND the assigned channel
+  contains the actual outcome AND the lead independently re-ran
+  `validate_cmds`. Dead PID with no usable result, or exit 0 with empty stdout
+  and no other assigned result, is a failed node. A nonempty file alone never
+  proves completion; an optional file's absence is not a failure.
+- Monitor with PID liveness, the exit file, and the actual result (see
   Step 9 headless probes). Do not `ntm send` a dead process. Do not
   treat pane-idle nudges as applicable.
 - Record `Dispatch substrate: NTM swarm` or `Dispatch substrate: headless
@@ -1316,10 +1318,10 @@ historical provenance never permits inventing old evidence.
   accepted original history proof; otherwise the pane is deliberately
   unrecoverable through this helper. Use the safe-continuation procedure to
   establish a fresh checkpoint handoff after quiescing the old writer.
-- Prefer artifact-aware checks over coarse activity labels: a node is not
-  meaningfully in flight until its expected absolute
-  `<absolute-run-dir>/WG-*_RESULT.md` path is plausible and the pane output matches the
-  assigned node.
+- Verify the claimed node, bound dispatch, and actual worker response rather
+  than coarse activity labels. Inspect an absolute temporary result path only
+  when the assigned transport requires that file; file creation is not a
+  prerequisite for a worker using the normal result channel.
 - When the failure surface is NTM itself rather than decomposition or prompt
   quality, consult `vibing-with-ntm` or `ntm` if available instead of
   improvising ad hoc transport rituals.
@@ -1910,7 +1912,7 @@ CronCreate(
 
 This CronCreate block is NTM-only. Native Codex waves use tracked agent updates,
 messages and results; do not create a tmux session or cron for them. Headless
-waves use process/artifact probes; idle nudges do not apply to a `-p` process.
+waves use process/result probes; idle nudges do not apply to a `-p` process.
 
 **Headless probes (substitute for the NTM cron body):**
 
@@ -1918,15 +1920,17 @@ waves use process/artifact probes; idle nudges do not apply to a `-p` process.
 For each in-flight lane:
   1. pid=$(cat $RD/logs/$lane.pid)
   2. kill -0 $pid ? still running : read $RD/logs/$lane.exit
-  3. test -s $RD/<issue>_RESULT.md
+  3. Read the assigned captured result channel; inspect a temporary result
+     file only when that transport requires one
   4. br show <issue-id> --json  (in_progress + expected assignee)
   5. if elapsed > wave-timeout-min and pid still alive: fail the node
      (kill the process, treat as blocked/needs_rework). Do not ntm send.
 
 ACTIONS:
-  - PID dead + non-empty artifact: harvest; independently run validate_cmds
-  - PID dead + no/empty artifact: failed node, not quiet success
-  - PID alive + no artifact + under timeout: wait
+  - PID dead + completed result: inspect the actual outcome and independently
+    run validate_cmds; output existence alone is not success
+  - PID dead + missing/incomplete result: failed node, not quiet success
+  - PID alive + no result + under timeout: wait
   - PID alive + over timeout: fail closed
   - Do not nudge a headless worker. Relaunch with a tighter brief, or
     reroute the node to NTM if it needed steering.
@@ -1947,7 +1951,7 @@ ntm send "$WAVE_SESSION" --pane="$N" "You own node WG-00N. Finish within its wri
 **Depth nudge (result lacks proof):**
 
 ```bash
-ntm send "$WAVE_SESSION" --pane="$N" "<absolute-run-dir>/WG-00N_RESULT.md is not sufficient yet. Add the exact files changed, explicit validation commands, and whether the node is done, blocked, or needs_rework. Do not write evidence files in the product repo."
+ntm send "$WAVE_SESSION" --pane="$N" "Your result for WG-00N needs the exact files changed, executed validation and its outcome, and whether the node is done, blocked, or needs_rework. Return it through the assigned result channel; use a temporary file only when that transport requires it."
 ```
 
 **Boundary nudge (scope drift):**

@@ -10,6 +10,17 @@ When a skill needs to model "the work the swarm/loop is doing," the work lives
 in `br` issues. Markdown artifacts (`WORKGRAPH.md`, `SMART_RECOMMENDATION_CHAIN.md`,
 audit reports) become **rendered views** of `br` state, not the source of truth.
 
+Rendered views are optional and disposable, not default deliverables. Put task
+findings, decisions, identities, command outcomes and blockers in Beads comments
+or fields. Do not create per-run receipts, inventories, report folders or
+completion documents as a second tracker. Helpers may use private temporary
+files, cleaned after consumption on success, failure or blocked exit.
+Retain a file only for an explicit requested deliverable or a named continuing
+machine/gate, rollback or recovery consumer; record its path, owner and deletion
+condition in the Bead. A completed validator is not an ongoing consumer. Review
+settled ad hoc reports found during reconciliation and delete them after useful
+facts are in Beads; preserve native history and genuinely required artifacts.
+
 ## Install + Bootstrap
 
 ```bash

@@ -658,9 +658,11 @@ Represent each subgoal with:
 - leaf execution issues labeled `slice:{root}`, `subgoal:{slug}`, and
   `subgoal-role:leaf`
 - controller notes fields for `subgoal_id:`, `frontier_filter:`,
-  `parent_run_dir:`, `subgoal_run_dir:`, `child_orchestrator:`,
-  `ntm_project:`, `max_workers:`, `max_subgoal_depth:`, `isolation:`, and
-  `status_artifact:`
+  `child_orchestrator:`, `ntm_project:`, `max_workers:`,
+  `max_subgoal_depth:`, and `isolation:`
+- optional `parent_run_dir:`, `subgoal_run_dir:`, and `status_artifact:` only
+  when an actual file consumer needs scratch or an evidence attachment;
+  native controller state and tracked child results are the default
 - controller design blocks for `writes:`, `shared_files:`, `stop_rules:`, and
   `escalation:`
 
@@ -1080,7 +1082,8 @@ for candidate in "${SKILLBOX_ROOT:-}" \
   "$HOME/repos/opensource/skillbox" "$HOME/skillbox"; do
   if test -n "$candidate" && test -f "$candidate/.env-manager/manage.py" \
     && test -x "$candidate/scripts/route_ntm_spawn.sh" \
-    && test -f "$candidate/scripts/route_ladders.py"; then
+    && test -f "$candidate/scripts/route_ladders.py" \
+    && test -f "$candidate/scripts/route_ntm_ready.py"; then
     SBP_HELPER_DIR="$(realpath "$candidate/scripts")" || exit 2
     break
   fi
@@ -1674,9 +1677,15 @@ pathlib.Path(bound_name).write_bytes(payload)
 PY
 test -s "$BOUND_PROMPT_FILE" || exit 2
 
+# Prove the retained route is live immediately before the first send.
+ROUTE_NTM_NTM_BIN="$NTM_BIN" "$PYTHON_BIN" "$SBP_HELPER_DIR/route_ntm_ready.py" \
+  --decision-json "$RETAINED_FROM_ROUTE" \
+  --session "$WAVE_SESSION" --pane "$PANE_INDEX" --pane-id "$PANE_ID" \
+  --session-created "$SESSION_CREATED" >/dev/null || exit 2
+
 (
   set -o pipefail
-  ntm send "$WAVE_SESSION" \
+  "$NTM_BIN" send "$WAVE_SESSION" \
     --pane="$PANE_INDEX" \
     --file="$BOUND_PROMPT_FILE" \
     --no-cass-check \
@@ -1695,6 +1704,7 @@ test -s "$BOUND_PROMPT_FILE" || exit 2
       ' >/dev/null 2>/dev/null
 ) || exit 2
 
+# First-send readiness and delivery end here; retain the history proof below.
 FROM_RUNNER="$(printf '%s\n' "$RETAINED_FROM_ROUTE" | jq -er '.runner')" \
   || exit 2
 if ! verify_ntm_binding_history \
@@ -1712,6 +1722,23 @@ through argv, or persist the response in the run directory. The pre-dispatch
 check emits nothing on success. The post-dispatch check emits only canonical
 secret-free proof fields: history id, history timestamp, and prompt SHA-256.
 Its strict timezone-aware RFC3339 parser accepts whole or fractional seconds.
+
+Immediately before delivery, `route_ntm_ready.py` independently proves the
+retained pane/session tuple, NTM process state, and a single live same-TTY
+descendant in the foreground process group with an executable matching the
+selected installation and exact model/effort argv. It rechecks ancestry,
+process start identity, foreground group, and pane identity before
+returning. Shell text, a launcher without its native runner, duplicate route
+options, and ambiguous inspection all refuse delivery. The helper reads no
+credentials and does not claim account authentication or future availability.
+Use the same qualified helper root for spawn, route validation, and readiness;
+if it is unavailable, stop before dispatch and update that helper installation.
+Unknown installation layouts also refuse; qualified native installs, the
+Codex npm `vendor/<target>/bin/codex` layout, and Cursor's installed
+`node`/`index.js` pair are supported. A different launcher needs qualification,
+not a basename-only executable match or bypass.
+NTM's own dead-shell/composer guards still apply at delivery, alongside this
+route proof; no read-only preflight can make a later process exit impossible.
 
 NTM 1.35.1's [send result](https://github.com/Dicklesworthstone/ntm/blob/74ceb3236416f503797344a5a8a8d94ee061f584/internal/cli/send.go#L55)
 uses string targets: [single-window pane keys](https://github.com/Dicklesworthstone/ntm/blob/74ceb3236416f503797344a5a8a8d94ee061f584/internal/tmux/session.go#L320)

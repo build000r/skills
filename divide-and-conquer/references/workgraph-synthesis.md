@@ -143,12 +143,9 @@ python3 "$DAC_SHARED_ROOT/scripts/br_helpers.py" mint-subgoal \
   --slice "$SLICE_SLUG" \
   --writes 'backend/auth/**' \
   --shared-file 'backend/migrations/**' \
-  --parent-run-dir "$run_dir" \
-  --subgoal-run-dir "$run_dir/subgoals/auth" \
   --frontier-filter "slice:${SLICE_SLUG},subgoal:auth" \
   --max-workers 3 \
-  --isolation checkout \
-  --status-artifact "$run_dir/subgoals/auth/SUBGOAL_RESULT.md"
+  --isolation checkout
 ```
 
 The positional slug is the `subgoal:{slug}` value; the issue is created as
@@ -158,6 +155,10 @@ controller is a delegation boundary, not an executable leaf: it carries
 `--writes` (the subgoal's outer bound), `--shared-file` (root-owned, never
 child-owned), `--stop-rule`, and `--escalation`, and it is not hydrated or
 dispatched as a worker node. Leaves below it are ordinary `mint-node` calls.
+Use native controller state and tracked child results by default. Add
+`--parent-run-dir`, `--subgoal-run-dir`, or `--status-artifact` only when a
+specific file consumer needs temporary scratch or a retained evidence attachment;
+minting a controller does not require a new directory or Markdown report.
 
 Subgoal leaf nodes are normal execution nodes plus the subgoal labels:
 

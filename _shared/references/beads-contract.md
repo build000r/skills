@@ -266,15 +266,15 @@ following fields, and are minted with
 |---|---|
 | Subgoal id | `notes: subgoal_id:` matching `subgoal:{slug}` |
 | Parent/root slice | root `slice:{slug}` label and `notes: parent_slice:` when useful |
-| Parent invocation run dir | `notes: parent_run_dir:` |
-| Subgoal run dir | `notes: subgoal_run_dir:`; usually under `<parent-run-dir>/subgoals/<slug>` |
+| Parent invocation run dir | Optional `notes: parent_run_dir:` only for a file consumer |
+| Subgoal run dir | Optional `notes: subgoal_run_dir:` only when consumed scratch is needed |
 | Frontier filter | `notes: frontier_filter:` such as `slice:{root},subgoal:{slug}` |
 | Child orchestrator identity | `notes: child_orchestrator:` when delegated; blank in multiplexed mode |
 | NTM project/session | `notes: ntm_project:` after launch |
 | Worker budget | `notes: max_workers:` for this subgoal |
 | Recursion/depth cap | `notes: max_subgoal_depth:` when overriding the default depth of `1` |
 | Isolation mode | `notes: isolation:` such as `checkout` or `worktree` |
-| Status artifact | `notes: status_artifact:` pointing at `SUBGOAL_RESULT.md` |
+| Status artifact | Optional `notes: status_artifact:` for an actual evidence-file consumer; native controller state and tracked child results are the default |
 | Subgoal write scope | `design` block headed `writes:`; outer bound for every leaf in the subgoal |
 | Root-owned shared files | `design` block headed `shared_files:`; never child-owned |
 | Stop rules and escalation | `design` blocks headed `stop_rules:` and `escalation:` |

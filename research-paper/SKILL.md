@@ -1,6 +1,6 @@
 ---
 name: research-paper
-description: Generate dense research-paper-style pages on any topic plus companion X and LinkedIn drafts that keep the same thesis. Also has a discover mode that mines recent session activity (via cass) and existing paper coverage to propose accretive topics rooted in actual work. Use for "research paper", "write a paper on", "research page", "/research-paper", "discover topics", "what should I write about", "find me something I'd like", "find a strong angle", "surprise me with a research topic", or internal write-ups on a topic, especially when the paper should be grounded in existing wiki concepts, pressure-tested with wiki duels when needed, externally validated with GPT-5 Pro / Deep Research, and then fed back into the wiki as a new source note.
+description: Generate dense research-paper-style pages on any topic plus companion X and LinkedIn drafts that keep the same thesis. Also has a discover mode that mines recent session activity (via cass) and existing paper coverage to propose accretive topics rooted in actual work. Use for "research paper", "write a paper on", "research page", "/research-paper", "discover topics", "what should I write about", "find me something I'd like", "find a strong angle", "surprise me with a research topic", or internal write-ups on a topic, especially when the paper should be grounded in existing wiki concepts, pressure-tested with wiki duels when needed, externally validated with GPT-5 Pro / Deep Research, and then reconciled into the owning wiki concepts with source provenance.
 license: Complete terms in LICENSE
 depends_on:
   - deep-research-prompt
@@ -135,12 +135,14 @@ Research-paper follows a fixed order. Do not invert it:
    or `too-broad`.
 5. **Write the paper from the grounded evidence base** — only draft after the
    source-variety gate has passed or a skip/block reason has been recorded.
-6. **Feed the result back into the wiki** — distill the paper's durable
-   findings to `_sources/notes/research-paper-<slug>-<date>.md` and run
-   `/wiki ingest` before marking the run complete.
+6. **Feed the result back into the wiki** — reconcile durable findings into
+   the existing owning concept pages with links to the paper and its sources.
+   Follow the vault's source-provenance contract; use temporary scratch if an
+   ingestion consumer needs a file, then remove it after consumption.
 
-The paper itself is the published artifact. The wiki ingest artifact is the
-distilled note, not the full paper body.
+The paper itself is the published artifact. Wiki feedback is a concise synthesis
+in its canonical home; do not copy the full paper or create a dated invocation
+note merely to record that this workflow ran.
 
 Deep Research can be skipped only with an explicit reason: the run is a narrow
 internal reflection, the evidence already comes from a bounded source note or
@@ -637,12 +639,13 @@ Append the row after the latest-dated existing row, matching the date-ascending 
 
 After that, rebuild/redeploy. If the client overlay specifies additional tasks (social drafts ledger, `llms.txt` update), execute those too.
 
-If a wiki vault exists, also write a distilled note to
-`_sources/notes/research-paper-<slug>-<date>.md` capturing the thesis, top
-findings, external sources, source-variety matrix, counterevidence, gaps, any
-Oracle prompt file/session slug (or skip/block reason), and the concept pages or
-published papers affected. Then run `/wiki ingest` on that note. Do not make the
-wiki ingest the full published paper directly.
+If a wiki vault exists, reconcile the thesis, durable findings, source-family
+coverage, counterevidence, and gaps into the existing owning concept pages.
+Cite the published paper and external sources, retaining any required Oracle
+session reference or skip/block reason in that canonical home. Use the vault's
+ingestion route when it is needed to register genuinely new source provenance;
+temporary input files may serve that consumer and should be removed afterward.
+Do not add a dated note, full-paper copy, or invocation report by default.
 
 **Client overlay projects**: Check the client overlay for a "Post-Creation" section. If present, execute every step — these are required, not optional. Common post-creation tasks include adding the paper to a homepage link array, updating a navigation component, registering the paper in a manifest, or appending the X article / LinkedIn drafts to a social/content drafts ledger. **Do not skip this step.** Also update the overlay's "Existing Papers" list with the new paper.
 
@@ -661,8 +664,8 @@ Report to the user:
 - Whether wiki grounding, wiki-duel/wiki-forge, `deep-research-prompt` / Oracle
   Deep Research, normal web verification, and any `escalate` route were used or
   intentionally skipped
-- The `_sources/notes/` path used for wiki feedback and the `/wiki ingest`
-  status
+- The canonical wiki pages updated and source provenance retained; report
+  `/wiki ingest` status when that route was needed
 - The inferred companion briefs (reader, surface, CTA) when they materially shaped the X or LinkedIn drafts
 - The chosen X article angle and LinkedIn angle
 - Reminder that the paper is noindex / not publicly linked unless the client overlay says otherwise
@@ -690,8 +693,9 @@ Before returning, confirm all of the following:
    source-thin concept papers, skipping Deep Research is a blocker unless the
    user requested light/speed mode or Oracle was unavailable and fallback was
    declined.
-4. If a wiki vault exists, the distilled note in `_sources/notes/` was written
-   with source-family coverage, counterevidence, gaps, and `/wiki ingest` was
-   run before closeout.
+4. If a wiki vault exists, its owning concept pages reflect the durable
+   findings, source-family coverage, counterevidence, and gaps, with source
+   provenance retained. Any required ingestion completed and consumed scratch
+   was removed.
 5. Validation/post-creation work is reported: type-check or file verification,
    index/registry updates, and any rebuild/redeploy requirement.

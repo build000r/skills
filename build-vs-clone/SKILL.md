@@ -719,9 +719,11 @@ When triggered:
    researching.
 5. Treat any external result as discovery/triage, not as final evidence.
    Re-rank the shortlist, then inspect the actual code for the finalists.
-6. If a wiki vault exists and the run surfaced durable market or placement
-   knowledge, distill it to `_sources/notes/build-vs-clone-<topic>-<date>.md`
-   and run `/wiki ingest` before finalizing any follow-on strategy docs.
+6. Put durable market or placement findings and their sources in the existing
+   owning wiki page, plan, or Bead before finalizing follow-on strategy docs.
+   Reuse existing source provenance. Use temporary scratch only when an actual
+   research or ingestion consumer needs it, then remove it after consumption;
+   do not create a dated note or invocation history merely because this ran.
 
 ### 5. Inspect the code, not just metadata
 
@@ -956,8 +958,8 @@ Before returning, confirm all of the following:
 4. If Deep Research was used, the response includes the prompt/session details
    and confirms the finalists were still code-inspected afterward.
 5. If a wiki vault existed and the run produced durable market/placement
-   knowledge, the response says whether `_sources/notes/` + `/wiki ingest`
-   were completed or intentionally skipped.
+   knowledge, the response identifies its canonical home and source provenance,
+   plus any required ingestion result and consumed-scratch cleanup.
 6. The final `ADOPT` / `BORROW` / `BUILD`, placement, extraction, and
    destination decisions are stated plainly.
 

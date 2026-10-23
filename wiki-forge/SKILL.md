@@ -40,7 +40,7 @@ Do not change or omit that prefix.
   `gemini`, or Grok CLI as a sidecar through Swimmers/direct headless Grok
 - Target vault must have a `CLAUDE.md` schema and 10+ concept pages in `_concepts/`
 - **A local checkout of the target vault.** Forging writes back into the vault
-  (concept pages, exclusion ledger, `_sources/notes/`, wizard artifacts), so it
+  (concept pages, source provenance, and the exclusion ledger), so it
   cannot run from a checkout-less machine. The `sbp wiki` central front door
   (contract `wiki-central-sbp-v1` in the wiki skill) is read-only — use it only
   for preliminary reads such as checking a vault's concept count or freshness
@@ -114,9 +114,8 @@ ntm --robot-wait={PROJECT} --condition=idle --timeout=120s
 
 If Grok is part of the forge, do not pass `--grok` to NTM. Launch one Grok CLI
 sidecar in the vault cwd through Swimmers `spawn_tool: "grok"` or a direct
-headless prompt-file run. Track it by Swimmers session id/process output and
-the expected `WIZARD_*_GROK.md` artifacts; NTM idleness does not prove Grok
-completion.
+headless prompt-file run. Track its session id, process result, and actual
+response; NTM idleness or an output file alone does not prove Grok completion.
 
 Send the study prompt to all agents:
 
@@ -136,15 +135,13 @@ Send the ideation prompt to all agents. The prompt must include:
 2. Both /smart questions (amplifier + stress test)
 3. Instructions to generate 15 ideas covering BOTH directions
 4. Instructions to winnow to top 5 with full rationale
-5. Instructions to write to `WIZARD_IDEAS_{TYPE}.md`
+5. Instructions to return the ideas and rationale through the worker's normal
+   response channel. Use a temporary handoff file only if the next worker's
+   transport requires one, and name that consumer.
 
-Poll for output files:
-```bash
-ls {vault_path}/WIZARD_IDEAS_*.md
-```
-
-Read ALL output files completely, including `WIZARD_IDEAS_GROK.md` when a Grok
-sidecar participates. You need the full text for cross-scoring.
+Read every completed response fully, including a Grok sidecar's response when
+one participates. Pass the complete ideas to the cross-scoring workers; do not
+create vault-root wizard files as completion markers.
 
 ## Phase 5: Cross-Scoring
 
@@ -157,9 +154,10 @@ Each agent scores the opponent's ideas 0-1000 on:
 - Evidence survivability against specific wiki content
 - Utility-to-complexity ratio
 
-Output: `WIZARD_SCORES_{SCORER}_ON_{SCORED}.md`
+Return scores and their reasoning through the normal response channel, or the
+same temporary handoff route when a named worker needs a file.
 
-Read ALL scoring files. Note the score matrix and any asymmetry.
+Read all scoring responses. Note the score matrix and any asymmetry.
 
 ## Phase 6: The Reveal
 
@@ -170,15 +168,21 @@ Ask for honest reactions:
 - Where are they wrong, and why?
 - Did they make a point that changes your evaluation?
 
-Output: `WIZARD_REACTIONS_{TYPE}.md`
+Return the reactions through the normal response or temporary handoff route.
 
-The reveal is where genuine concessions happen. Don't skip it — the reaction files contain the most honest assessments.
+The reveal captures concessions and unresolved disagreements. Read the actual
+reactions before synthesizing them.
 
 ## Phase 7: Synthesize
 
-Kill the swarm: `echo "y" | ntm kill {PROJECT}`
+After collecting the actual results, retire only this forge's owned workers
+through `vibing-with-ntm` binding and ownership checks, including any headless
+sidecar. Preserve unrelated panes and processes; do not kill a project by name
+without proving that it belongs to this forge.
 
-Compile the final report to `{vault_path}/DUELING_WIZARDS_REPORT.md`:
+Synthesize the findings for the response and the owning concept pages below.
+Create a separate full report only when explicitly requested or required by a
+named consumer; do not create or overwrite a vault-root report by default.
 
 ### Score Matrix
 
@@ -194,7 +198,7 @@ Ideas where the opponent scored below 400 AND the originator conceded post-revea
 
 For each killed idea, append one row to `{vault_path}/_ops/exclusion-ledger.md`
 (create the file with the header from `/wiki` if absent) so the duel's
-anti-knowledge is durable, not buried in a moved wizard artifact:
+rejected premise and its reason remain available for future decisions:
 
 ```
 | {concept}:{idea_slug} | {today} | forge_kill | {concession text, ≤120 chars} | {+90d} | active |
@@ -233,12 +237,13 @@ Rules:
 4. If `escalate` returns `skip`, cite the skip reason. If it returns
    `too-broad`, narrow the premise before filing changes. If Oracle execution
    is unavailable for a selected route, mark the forge as externally-unverified.
-5. Distill any routed result to
-   `{vault_path}/_sources/notes/wiki-forge-<concept>-<date>.md`, including the
-   Oracle session ID if any, verdict, confirming/disconfirming evidence, and
-   affected concepts/articles.
-6. Run `/wiki ingest` on that note before finalizing the concept updates so
-   the concept layer can cite the note as a source.
+5. Reconcile the verdict, confirming/disconfirming evidence, affected concepts,
+   and any required Oracle session reference into the existing owning concept
+   or source page, with citations to the actual sources.
+6. Follow the vault's source-provenance contract. Use `/wiki ingest` when
+   genuinely new sources need that route; use temporary input if its consumer
+   requires a file, then remove it after consumption. Do not create a dated
+   note merely because the forge ran.
 
 ## Phase 8: File Back to Wiki
 
@@ -266,11 +271,19 @@ This is what makes wiki-forge different from a standalone duel. The synthesis fi
    - Classify each candidate as `research discrepancy` or `research improvement opportunity`
    - Prepare a concise patch plan, but do not edit published articles yet
 
-5. **Append to log.md** — record the forge operation, which concept was targeted, what was updated, and any article drift discovered.
+5. **Keep meaningful decisions with the updated concepts.** Update an existing
+   content changelog only when the vault's content contract requires it; do
+   not add duplicate invocation history.
 
-6. **Move wizard artifacts** to `{vault_path}/` so they're part of the vault but not concept pages. They're evidence, not synthesis.
+6. **Remove consumed scratch** after the worker handoffs, synthesis, and
+   required source ingestion complete. Retain only source provenance or a
+   requested deliverable with an actual canonical consumer; do not move wizard
+   responses into the vault as an invocation archive.
 
-Present the proposed wiki updates to the user before applying. The duel produces recommendations; the human decides what enters the wiki. This is especially strict for published root-level `/research/*.md` articles: concept updates may be auto-filed, but article edits require explicit human confirmation in the current turn.
+Apply concept edits already authorized by the current task. Present concrete
+changes for review when product or publication changes fall outside that
+authorization. Preserve required approvals for published `/research/*.md`
+articles; an existing explicit approval counts and need not be requested again.
 
 ## Output
 
@@ -281,7 +294,7 @@ After forging, report:
 - What was killed and why
 - The combined program (the synthesis)
 - Which final `escalate` route was selected, what it changed, and the
-  `_sources/notes/` path + Oracle session ID if any
+  canonical source/concept references + Oracle session ID if required
 - What wiki pages were updated or created
 - Whether the active `focus-sweep` was updated, replaced, or intentionally left alone
 - Which published articles now appear stale or improvable, and why
@@ -296,7 +309,7 @@ After forging, report:
 | Both agents generate identical ideas | Strong independent convergence. Note it. Re-run with --focus on a different angle. |
 | Reveal produces no concessions | Agents were too polite. Nudge: "The other model scored your #1 idea at 280. Defend it or concede." |
 | Synthesis doesn't produce anything the wiki didn't already know | The concept was already well-articulated. Pick a different lever. |
-| Stopping at the duel when the concept is externally gated | Run the final `escalate` route and file any resulting note to `_sources/notes/` before calling the forge complete. |
+| Stopping at the duel when the concept is externally gated | Run the final `escalate` route and reconcile its findings and sources into the owning concepts before calling the forge complete. |
 
 ## Relationship to Other Skills
 
@@ -311,13 +324,15 @@ Before returning, confirm all of the following:
 
 1. The highest-lever concept was identified with explicit reasoning and the
    user had a chance to redirect before the duel proceeded.
-2. Duel artifacts were produced, read, and synthesized into a final report.
+2. Actual worker responses were read, cross-scored, and synthesized; a file's
+   existence or worker idleness alone was not treated as completion.
 3. If the concept was externally gated, the final `escalate` route either ran
-   and was filed to `_sources/notes/`, returned `skip` / `too-broad`, or was
+   and informed the owning concepts with source provenance, returned `skip` / `too-broad`, or was
    explicitly marked externally-unverified.
-4. Wiki updates are explicit: concept pages, new concepts, log updates,
+4. Wiki updates are explicit: concept pages, new concepts, required changelog updates,
    focus-sweep changes, and article-drift findings.
-5. `/wiki ingest` status is reported for any note filed from the run.
+5. Any required `/wiki ingest` status is reported, source provenance is
+   retained, and temporary handoff/ingestion files have been consumed and removed.
 
 ## Related
 

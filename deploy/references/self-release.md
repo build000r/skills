@@ -80,12 +80,33 @@ the production execution path supports it and that the owning prerequisite is
 complete. Fixture receipts and empty-database passes do not establish readiness
 to migrate production data.
 
+Check the production dependencies used by the changed flow before the expensive
+gate too. Use their documented readiness/capability checks, not only liveness:
+identity reservation can require an encryption key even when health and package
+versions look correct. Resolve a failed prerequisite through its existing
+configuration owner within the authorized scope, then recheck readiness before
+testing or building. Do not send customer email or submit payment merely to
+discover missing configuration.
+
+A saved admin login returning invalid credentials blocks that credential, not
+every configuration route. Check the operation's actual authority requirements
+and documented application-key or production-operator path. When already
+authorized, retain its canonical validation and audit behavior; do not ask for
+another admin password if that path suffices. Credential resets and fabricated
+privileged sessions are not substitutes.
+
 For Docker capacity, measure free bytes on the filesystem backing its data root
 and use native image-store accounting (`docker system df -v` or `/system/df`).
 Keep total, shared and unique sizes distinct; `docker image inspect` size alone
 does not establish build headroom. Allow for intermediate build storage and
 measure an archive destination on its own filesystem. Reuse unchanged image
 inventory evidence; refresh volatile free space, actors and locks before launch.
+For a coupled backend/frontend release, include later dependency volumes, browser
+optimization output and retained images in that budget. Recheck before each
+stage; fitting the image build alone does not establish room for the browser
+gate. Do not lower the reserve merely to start an earlier stage. Retire only
+owned completed resources after preserving their still-needed artifacts and
+authenticated test evidence; never use a global prune to make room.
 
 At the source-validation to native-release handoff, check whether completed
 test-service namespaces still hold resources needed by the next setup. Through
@@ -97,6 +118,10 @@ leave active and unrelated services intact.
 Carry the tested dependency closure, resolved tools and launchers, PATH, worker
 settings, and relevant service/environment configuration from push validation
 into native release setup through the repository's supported configuration.
+Compare the actual producer and consumer launchers, including symlinked versus
+resolved Python prefixes and installed console-script shebangs. Repair placement
+normalization in the owning runner before costly validation; do not edit signed
+receipts or treat equal package versions as equal installed bytes.
 For a retained environment with an editable/local project install, prepare that
 project's installed metadata for the final source before its first full gate.
 Source imports can already reflect a new checkout while installed metadata
@@ -117,6 +142,13 @@ inputs. Invoke the canonical gate normally and let its authenticated receipt
 checks decide reuse. Avoid a separate full-suite preparation run when the native
 command already owns that validation; retain runs required at other publication
 or integration boundaries. Intentional input changes require fresh validation.
+After a failure, inspect the authenticated passing group results before choosing
+the next run. Preserve those results and rerun only what current inputs actually
+invalidate. If an old monolithic failed run lacks the necessary group evidence,
+say so before starting the one-time seed; do not promise retroactive reuse or
+queue an automatic whole-suite retry. A proof-input mismatch is a diagnostic
+result: use the real consumer's checker and distinguish changed inputs from a
+failed inspection before repeating expensive work.
 Keep receipt verification and normalization in the repo-owned runner. Do not
 copy or edit receipts to force reuse.
 

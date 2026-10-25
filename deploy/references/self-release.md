@@ -115,8 +115,14 @@ the same SHA should reuse it through the release command. Keep reusable result
 and download caches outside disposable source trees, with their existing input
 and ownership checks. Do not share a writable editable virtualenv or compiler
 cache between different concurrent source trees merely to save disk.
-At task completion, retain the commit ref and required release/recovery evidence,
-then review the exact owned tree for retirement through its native lifecycle.
+At task completion, use `reconcile` and `branch-triage` to integrate useful work
+into the primary branch and publish through its real gates before retiring the
+task branch and checkout. Keeping a commit ref is preservation, not completion.
+When a concrete external prerequisite prevents integration, retain only the
+minimum existing ref or required data, with its owner and release condition;
+that does not justify retaining a redundant source checkout. Keep required
+release/recovery evidence in its existing canonical artifact location.
+Review the exact owned tree for retirement through its native lifecycle.
 Check tracked, untracked and ignored files, active processes and mounts, and
 other worktrees' dependency symlinks into it. A clean Git status, old timestamp
 or merged branch alone does not clear its generated evidence or consumers.

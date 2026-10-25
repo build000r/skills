@@ -143,6 +143,7 @@ class RouteContractTests(unittest.TestCase):
             (checkout / ".env-manager").mkdir()
             (checkout / ".env-manager" / "manage.py").write_text("")
             (scripts / "route_ladders.py").write_text("")
+            (scripts / "route_ntm_ready.py").write_text("")
             adapter = scripts / "route_ntm_spawn.sh"
             adapter.write_text("#!/bin/sh\nexit 99\n")
             adapter.chmod(0o700)
@@ -237,7 +238,7 @@ class RouteContractTests(unittest.TestCase):
 
         claim = self.dispatch.index('br update "$ISSUE_ID" --claim --json')
         envelope = self.dispatch.index("NTM_WORK_BINDING_V1")
-        send = self.dispatch.index('ntm send "$WAVE_SESSION"')
+        send = self.dispatch.index('"$NTM_BIN" send "$WAVE_SESSION"')
         history = self.dispatch.index('post "$NTM_BIN"')
         self.assertLess(claim, envelope)
         self.assertLess(envelope, send)
@@ -571,7 +572,7 @@ class BindingProducerTests(unittest.TestCase):
         ).group(1)
 
     def run_producer(self, decision, *, validator_status=0, approved=None,
-                     acknowledgment=None, pane_index=2, send_status=0):
+                     acknowledgment=None, pane_index=2, send_status=0, readiness_status=0):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             approved = approved if approved is not None else [
@@ -594,6 +595,13 @@ class BindingProducerTests(unittest.TestCase):
                 "(root / 'approved.json').read_text()):\n"
                 "    sys.exit(2)\n"
                 "print(json.dumps(decision))\n",
+                encoding="utf-8",
+            )
+            (root / "route_ntm_ready.py").write_text(
+                "import json, pathlib, sys\n"
+                "root = pathlib.Path(__file__).parent\n"
+                "(root / 'readiness-call.json').write_text(json.dumps(sys.argv[1:]))\n"
+                f"sys.exit({readiness_status})\n",
                 encoding="utf-8",
             )
             ntm = root / "ntm"
@@ -621,7 +629,7 @@ class BindingProducerTests(unittest.TestCase):
             env = {
                 **os.environ, "PATH": f"{root}{os.pathsep}{os.environ['PATH']}",
                 "SBP_BIN": str(root / "sbp"), "SBP_HELPER_DIR": str(root),
-                "PYTHON_BIN": sys.executable,
+                "PYTHON_BIN": sys.executable, "NTM_BIN": str(ntm), "SESSION_CREATED": "123",
                 "RETAINED_FROM_ROUTE": raw, "WAVE_SESSION": "fixture-session",
                 "PANE_INDEX": str(pane_index), "PANE_ID": "%42", "ISSUE_ID": "fixture-1",
                 "EXPECTED_ASSIGNEE": "fixture-worker", "BASE_PROMPT_FILE": str(base),
@@ -637,6 +645,7 @@ class BindingProducerTests(unittest.TestCase):
             )
             return result, {
                 "validator_call": read_json("validator-call.json"),
+                "readiness_call": read_json("readiness-call.json"),
                 "send": read_json("send.json"),
                 "bound": bound.read_bytes() if bound.exists() else None,
                 "raw": raw,
@@ -653,6 +662,11 @@ class BindingProducerTests(unittest.TestCase):
                     ["--validate-decision-json", observed["raw"]],
                     observed["validator_call"],
                 )
+                self.assertEqual(
+                    ["--decision-json", observed["raw"], "--session", "fixture-session",
+                     "--pane", "2", "--pane-id", "%42", "--session-created", "123"],
+                    observed["readiness_call"],
+                )
                 first, body = observed["bound"].split(b"\n", 1)
                 prefix = b"NTM_WORK_BINDING_V1 "
                 self.assertTrue(first.startswith(prefix))
@@ -668,6 +682,15 @@ class BindingProducerTests(unittest.TestCase):
                     "--force-non-interactive", "--json",
                 ], observed["send"])
                 self.assertNotIn("private fixture task body", result.stdout + result.stderr)
+
+    def test_readiness_refusal_stops_actual_producer_before_send(self) -> None:
+        for status in (1, 2):
+            with self.subTest(status=status):
+                result, observed = self.run_producer(self.LEGACY, readiness_status=status)
+                self.assertEqual(2, result.returncode, result.stderr)
+                self.assertIsNotNone(observed["readiness_call"])
+                self.assertIsNone(observed["send"])
+                self.assertFalse(observed["ack_accepted"])
 
     def test_official_string_recipient_acknowledgments_include_pane_zero(self) -> None:
         for pane in (0, 2):

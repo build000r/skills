@@ -108,6 +108,22 @@ gate. Do not lower the reserve merely to start an earlier stage. Retire only
 owned completed resources after preserving their still-needed artifacts and
 authenticated test evidence; never use a global prune to make room.
 
+Before allocating another worktree, inspect `git worktree list --porcelain`
+and reuse the current owned task worktree for its follow-up edits. A distinct
+clean exact-SHA release worktree still serves a different purpose; a retry at
+the same SHA should reuse it through the release command. Keep reusable result
+and download caches outside disposable source trees, with their existing input
+and ownership checks. Do not share a writable editable virtualenv or compiler
+cache between different concurrent source trees merely to save disk.
+At task completion, retain the commit ref and required release/recovery evidence,
+then review the exact owned tree for retirement through its native lifecycle.
+Check tracked, untracked and ignored files, active processes and mounts, and
+other worktrees' dependency symlinks into it. A clean Git status, old timestamp
+or merged branch alone does not clear its generated evidence or consumers.
+Retain uncertain or foreign trees; report their owner rather than duplicating
+them again or deleting their contents. Required evidence belongs in retained
+artifacts, not an indefinitely growing collection of task checkouts.
+
 At the source-validation to native-release handoff, check whether completed
 test-service namespaces still hold resources needed by the next setup. Through
 the repository's existing lifecycle, retire only namespaces whose ownership and

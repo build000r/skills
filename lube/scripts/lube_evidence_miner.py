@@ -236,19 +236,16 @@ def cass_search(
     command: str = DEFAULT_CASS_COMMAND,
 ) -> dict[str, object]:
     """Run one query through the sbp cass search backend and parse its JSON."""
-    argv = shlex.split(command) + [
-        term,
-        "--json",
-        "--limit",
-        str(limit),
-        "--fields",
-        "all",
-        "--timeout-seconds",
-        str(timeout_seconds),
-    ]
     # Backend honors --timeout-seconds only when healthy; a hung front door
     # (remote host, rebuild lock) needs a process-level kill as well.
-    code, output = run(argv, Path.cwd(), timeout_seconds=timeout_seconds + 15)
+    try:
+        argv = shlex.split(command) + [
+            term, "--json", "--limit", str(limit), "--fields", "all",
+            "--timeout-seconds", str(timeout_seconds),
+        ]
+        code, output = run(argv, Path.cwd(), timeout_seconds=timeout_seconds + 15)
+    except (OSError, ValueError) as error:
+        return {"error": f"backend unavailable: {_short(error)}"}
     if code != 0:
         return {"error": f"exit {code}: {_short(output)}"}
     try:
@@ -258,10 +255,22 @@ def cass_search(
     result = payload.get("result") if isinstance(payload, dict) else None
     if not isinstance(result, dict):
         return {"error": f"backend returned no result object: {_short(output)}"}
+    for envelope in (payload, result):
+        if (envelope.get("ok") is False or envelope.get("error") or envelope.get("lineage_lookup_failed")
+                or envelope.get("status") in ("error", "fail", "failed", "degraded", "partial")
+                or ("exit_code" in envelope and (type(envelope["exit_code"]) is not int or envelope["exit_code"] != 0))):
+            return {"error": f"backend reported an error: {_short(output)}"}
     hits = result.get("hits")
+    total_matches = result.get("total_matches")
+    if (not isinstance(hits, list) or any(not isinstance(hit, dict)
+                                        or (hit.get("line_number") is not None and type(hit["line_number"]) is not int)
+                                        for hit in hits)
+            or type(total_matches) is not int or total_matches < len(hits)):
+        return {"error": f"backend returned invalid hit/count fields: {_short(output)}"}
     return {
-        "hits": hits if isinstance(hits, list) else [],
-        "total_matches": int(result.get("total_matches") or 0),
+        "hits": hits,
+        "total_matches": total_matches,
+        "sample_may_be_capped": len(hits) >= limit or total_matches > len(hits),
     }
 
 
@@ -301,10 +310,12 @@ def aggregate_pattern(
     doc_echo_hits = 0
     sample_snippet = ""
     errors: list[str] = []
+    skipped = 0
     for search in searches:
         error = search.get("error")
         if error:
             errors.append(str(error))
+            skipped += bool(search.get("skipped"))
             continue
         total_matches += int(search.get("total_matches") or 0)
         for hit in search.get("hits") or []:
@@ -337,6 +348,11 @@ def aggregate_pattern(
         "session_ids": session_ids[:10],
         "sample_snippet": sample_snippet,
         "errors": errors,
+        "complete": not errors,
+        "query_counts": {"requested": len(searches), "attempted": len(searches) - skipped,
+                         "succeeded": len(searches) - len(errors),
+                         "failed": len(errors) - skipped, "skipped": skipped},
+        "possibly_capped_queries": sum(bool(search.get("sample_may_be_capped")) for search in searches),
     }
 
 
@@ -358,6 +374,27 @@ def parse_terms(value: str) -> list[str]:
 
 
 def run_frequency_mode(args: argparse.Namespace) -> int:
+    requested_window = args.since if args.since is not None else "all-history"
+    report = {
+        "mode": "frequency", "backend": args.cass_command,
+        "complete": False, "status": "unsupported_window",
+        "window": {"requested": requested_window, "effective": None,
+                   "defaulted": args.since is None, "date_filter_supported": False},
+        "monthly_acceptance_eligible": False,
+        "ranking_scope": "capped_returned_hit_sample",
+        "sampling": {"population_complete": False, "per_term_limit": args.per_term_limit,
+                     "possibly_capped_queries": 0, "total_matches_may_overlap": True},
+        "per_term_limit": args.per_term_limit,
+        "query_counts": dict.fromkeys(("requested", "attempted", "succeeded", "failed", "skipped"), 0),
+        "patterns": [],
+        "incomplete_patterns": [],
+    }
+    if requested_window != "all-history":
+        report["error"] = {"code": "unsupported_frequency_window",
+                           "message": "Frequency search supports all-history only; the backend has no date selector. No queries ran."}
+        print(json.dumps(report, indent=2))
+        return 2
+    report["window"]["effective"] = "all-history"
     patterns = frequency_patterns(parse_terms(args.terms))
     rows: list[dict[str, object]] = []
     consecutive_process_timeouts = 0
@@ -372,7 +409,7 @@ def run_frequency_mode(args: argparse.Namespace) -> int:
         for term in pattern["terms"]:
             if backend_circuit_open:
                 searches.append(
-                    {"error": "skipped: backend circuit open after repeated process timeouts"}
+                    {"error": "skipped: backend circuit open after repeated process timeouts", "skipped": True}
                 )
                 continue
             result = cass_search(
@@ -394,16 +431,15 @@ def run_frequency_mode(args: argparse.Namespace) -> int:
             searches.append(result)
         rows.append(aggregate_pattern(pattern, searches))
     rows.sort(key=lambda row: (-int(row["score"]), -int(row["total_matches"])))
-    report = {
-        "mode": "frequency",
-        "backend": args.cass_command,
-        "per_term_limit": args.per_term_limit,
-        "patterns": rows[: args.top],
-    }
+    complete = all(row["complete"] for row in rows)
+    report.update(complete=complete, status="complete" if complete else "partial", patterns=rows[: args.top])
+    report["incomplete_patterns"] = [{"pattern": row["pattern"], "errors": row["errors"]}
+                                     for row in rows if not row["complete"]]
+    report["query_counts"] = {key: sum(row["query_counts"][key] for row in rows)
+                              for key in report["query_counts"]}
+    report["sampling"]["possibly_capped_queries"] = sum(row["possibly_capped_queries"] for row in rows)
     print(json.dumps(report, indent=2))
-    if all(row["errors"] and not row["session_count"] for row in rows):
-        return 2
-    return 0
+    return 0 if complete else 2
 
 
 def main() -> int:
@@ -421,7 +457,8 @@ def main() -> int:
         default=os.environ.get("LUBE_SKILLS", "cass,skill-issue,lube"),
         help="Comma-separated skills to review after the portfolio scan.",
     )
-    parser.add_argument("--since", default="month", help="Review window, e.g. week or month.")
+    parser.add_argument("--since", default=None,
+                        help="Evidence review window (default: month). Frequency supports only all-history (default); dated windows are refused.")
     parser.add_argument("--source", default="both", choices=("claude", "codex", "both", "all"))
     parser.add_argument("--limit", type=int, default=50, help="Per-skill invocation limit.")
     parser.add_argument(
@@ -461,7 +498,12 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.mode == "frequency":
+        if args.per_term_limit <= 0 or args.top <= 0 or args.timeout_seconds <= 0:
+            parser.error("frequency --per-term-limit, --top and --timeout-seconds must be positive")
         return run_frequency_mode(args)
+
+    if args.since is None:
+        args.since = "month"
 
     skill_issue_root = args.skill_issue_root.expanduser().resolve()
     portfolio_script = skill_issue_root / "scripts" / "generate_skill_portfolio_opportunities.py"

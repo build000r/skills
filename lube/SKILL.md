@@ -74,22 +74,45 @@ For "mine cass for repeated agent pain" requests, do not hand-roll 10+
 `sbp cass search` calls; run the frequency mode instead:
 
 ```bash
-python3 scripts/lube_evidence_miner.py --mode frequency --top 5
+python3 scripts/lube_evidence_miner.py --mode frequency --since all-history --top 5
 ```
 
 It batch-searches a curated friction-signal list through the `sbp cass search`
-backend, aggregates hits per pattern across sessions, ranks by
-session-frequency × approximate matched tokens, and emits ranked JSON with
+backend, aggregates returned hits per pattern across sessions, ranks the capped
+sample by observed session count × approximate matched tokens, and emits JSON with
 `pattern`, `score`, `session_ids`, `sample_snippet`, and a suggested
 `lube_target` classification ready for bead creation. Add ad-hoc signals with
 `--terms "signal one, signal two"`; override the backend with `--cass-command`
 or `LUBE_CASS_COMMAND` (used by tests to mock the backend).
 
+Frequency mode defaults to **all indexed history**, not the evidence mode's
+default month. Its `window` reports the requested/effective scope and whether
+that default was used. The current search backend has no date selector:
+frequency `--since month`, `--since week`, or any value other than `all-history`
+returns structured `unsupported_window` JSON and exit 2 before running a query.
+A backend command override does not establish date support. Do not substitute
+an all-history run for a requested monthly cohort.
+
+The returned-hit cap applies separately to each term. `sampling` records the
+limit and possibly capped queries; `total_matches` can overlap across terms,
+and scores are sample heuristics, not exhaustive event frequencies or comparable
+monthly rates. Every frequency report has `monthly_acceptance_eligible: false`.
+`complete: true` means all requested queries succeeded, including empty results;
+it does not mean the indexed history, friction population or sample is exhaustive.
+
 The miner enforces a process-level kill per search (`--timeout-seconds` + 15s
 grace) and opens a circuit breaker after 2 consecutive process timeouts,
-skipping remaining searches and emitting partial JSON. Exit 2 means every
-search errored with zero sessions found. Preserve that evidence limit and
-any partial results; one bounded `sbp cass status --json --timeout-seconds 15`
+skipping remaining searches and emitting partial JSON. Any failed or skipped
+query makes the whole report `complete: false`, `status: partial`, and exit 2,
+even when useful hits exist or the affected pattern falls outside `--top`.
+Declared backend or lineage-lookup failures also count as incomplete, even when
+the backend process exits 0.
+`query_counts` covers all requested terms, with attempted/succeeded/failed/skipped
+counts; each returned pattern also carries completeness. Exit 0 means every
+query succeeded; successful zero-hit searches are valid empty evidence.
+`incomplete_patterns` retains failure details even when `--top` omits that row.
+Preserve that evidence limit and any partial results; one bounded
+`sbp cass status --json --timeout-seconds 15`
 may identify the failing stage. Follow the current Cass skill's central route;
 do not substitute local transcript scans or rebuild the index because a query
 failed or returned no hits. Continue fixes supported by the current session

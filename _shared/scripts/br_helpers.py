@@ -517,6 +517,26 @@ def _split_ids(value: Optional[str]) -> list[str]:
     return [part.strip() for part in re.split(r"[,\s]+", str(value)) if part.strip()]
 
 
+def _root_run_dir_policy(notes: Optional[str]) -> Optional[str]:
+    """Accept one explicit root scalar, never silently ignore malformed policy."""
+    lines = (notes or "").splitlines()
+    entries = [
+        index for index, line in enumerate(lines)
+        if re.match(r"^[ \t]*(?:-[ \t]+)?[\"']?run_dir_policy[\"']?(?=$|[\s:=])", line)
+    ]
+    if not entries:
+        return None
+    if len(entries) != 1:
+        raise ValueError("duplicate run_dir_policy")
+    index = entries[0]
+    if re.fullmatch(r"run_dir_policy:[ \t]*retained-client[ \t]*", lines[index]) is None:
+        raise ValueError("malformed or unknown run_dir_policy")
+    following = next((line for line in lines[index + 1:] if line.strip()), "")
+    if following and following[0].isspace():
+        raise ValueError("run_dir_policy must be a single-line scalar")
+    return "retained-client"
+
+
 def _plan_node_view(issue: dict) -> dict:
     """Project one Beads issue onto the canonical plan vocabulary."""
     labels = _labels(issue)
@@ -533,6 +553,11 @@ def _plan_node_view(issue: dict) -> dict:
     }
     for key in (*PLAN_NOTE_SCALARS, *PLAN_ROOT_NOTE_SCALARS):
         view[key] = _parse_scalar(notes, key)
+    if PLAN_ROOT_ROLE in view["roles"]:
+        try:
+            view["run_dir_policy"] = _root_run_dir_policy(notes)
+        except ValueError:
+            view["run_dir_policy_invalid"] = True
     return view
 
 
@@ -1026,7 +1051,9 @@ def _internal_run_dir_rejection(issue_id: str, contract: dict) -> Optional[dict]
     return None
 
 
-def _run_dir_rejection(issue_id: str, contract: dict, context: dict) -> Optional[dict]:
+def _run_dir_rejection(
+    issue_id: str, contract: dict, context: dict, *, require_retained_client: bool = False,
+) -> Optional[dict]:
     labels = contract.get("labels")
     route_labels = (
         [item for item in labels if isinstance(item, str) and item.startswith("route:")]
@@ -1047,16 +1074,17 @@ def _run_dir_rejection(issue_id: str, contract: dict, context: dict) -> Optional
             return _rejection(issue_id, "route_contract_mismatch",
                               "internal route label and model route disagree",
                               "bind one exact internal route label and matching model route")
-        raw = contract.get("run_dir")
-        if isinstance(raw, str) and Path(raw).is_relative_to(INTERNAL_ARTIFACT_ROOT):
-            return _internal_run_dir_rejection(issue_id, contract)
-        temporary, rejection = _temporary_run_dir_rejection(issue_id, contract)
-        return rejection if temporary else _internal_run_dir_rejection(issue_id, contract)
+        if not require_retained_client:
+            raw = contract.get("run_dir")
+            if isinstance(raw, str) and Path(raw).is_relative_to(INTERNAL_ARTIFACT_ROOT):
+                return _internal_run_dir_rejection(issue_id, contract)
+            temporary, rejection = _temporary_run_dir_rejection(issue_id, contract)
+            return rejection if temporary else _internal_run_dir_rejection(issue_id, contract)
 
     raw, client_dir = contract.get("run_dir"), context.get("client_dir")
     retained_path = (isinstance(raw, str) and isinstance(client_dir, str)
                      and Path(raw).is_relative_to(Path(client_dir) / "invocations"))
-    if not retained_path:
+    if not require_retained_client and not retained_path:
         temporary, rejection = _temporary_run_dir_rejection(issue_id, contract)
         if temporary:
             return rejection
@@ -1066,6 +1094,7 @@ def _run_dir_rejection(issue_id: str, contract: dict, context: dict) -> Optional
     if not isinstance(raw, str) or not isinstance(repo_raw, str) or not isinstance(client_dir, str):
         return _rejection(issue_id, "invocation_root_unresolved",
                           "active client invocation root could not be resolved",
+                          "resolve the required retained @client root" if require_retained_client else
                           "use an existing temporary run directory, or resolve an explicitly retained @client root")
     path = Path(raw)
     if not path.is_absolute() or ".." in path.parts:
@@ -1097,6 +1126,7 @@ def _run_dir_rejection(issue_id: str, contract: dict, context: dict) -> Optional
         or run.is_relative_to(Path("/tmp"))
         or path.is_relative_to(Path("/tmp"))
         or Path(raw).is_relative_to(Path("/tmp"))
+        or any(part in {".dac", ".ntm"} for part in source_parts)
         or any(part in {".dac", ".ntm"} for part in run.parts)
         or any(part in {".dac", ".ntm"} for part in path.parts)
     ):
@@ -1108,7 +1138,9 @@ def _run_dir_rejection(issue_id: str, contract: dict, context: dict) -> Optional
     return None
 
 
-def _admit_plan_node(view: dict, *, context: Optional[dict] = None) -> tuple[Optional[dict], Optional[dict]]:
+def _admit_plan_node(
+    view: dict, *, context: Optional[dict] = None, require_retained_client: bool = False,
+) -> tuple[Optional[dict], Optional[dict]]:
     """Return (admitted_contract, rejection) for one ready plan node.
 
     Role filtering uses OR semantics here in helper code rather than repeated
@@ -1198,12 +1230,16 @@ def _admit_plan_node(view: dict, *, context: Optional[dict] = None) -> tuple[Opt
     policy_rejection = _writer_policy_rejection(issue_id, contract)
     if policy_rejection is not None:
         return None, policy_rejection
-    run_rejection = _run_dir_rejection(issue_id, contract, context)
+    run_rejection = _run_dir_rejection(
+        issue_id, contract, context, require_retained_client=require_retained_client,
+    )
     if run_rejection is not None:
         return None, run_rejection
 
     admitted = dict(contract)
     admitted["plan_role"] = role
+    if require_retained_client:
+        admitted["run_dir_policy"] = "retained-client"
     for key in PLAN_NOTE_SCALARS:
         admitted[key] = view.get(key)
     return admitted, None
@@ -1289,6 +1325,7 @@ def plan_admission(
         "root": None,
         "plan_state": None,
         "handoff_ready": False,
+        "run_dir_policy": None,
         "admitted": [],
         "deferred": [],
         "serialization_edges": [],
@@ -1343,6 +1380,15 @@ def plan_admission(
         result["root"] = root
         result["plan_state"] = root.get("plan_state")
         result["handoff_ready"] = root.get("plan_state") == PLAN_HANDOFF_STATE
+        if root.get("run_dir_policy_invalid"):
+            result["rejected"].append(_rejection(
+                root["id"], "run_dir_policy_invalid",
+                "root run_dir_policy is duplicate, malformed, or unknown",
+                "use one root notes line: run_dir_policy: retained-client; "
+                "omit the field only when the plan permits default scratch storage",
+            ))
+            return result
+        result["run_dir_policy"] = root.get("run_dir_policy")
         if require_handoff_ready and not result["handoff_ready"]:
             result["rejected"].append(_rejection(
                 root["id"],
@@ -1382,7 +1428,10 @@ def plan_admission(
                 "plan_evidence": view.get("plan_evidence"),
             })
             continue
-        node, rejection = _admit_plan_node(view, context=context)
+        node, rejection = _admit_plan_node(
+            view, context=context,
+            require_retained_client=result["run_dir_policy"] == "retained-client",
+        )
         if rejection is not None:
             result["rejected"].append(rejection)
             continue

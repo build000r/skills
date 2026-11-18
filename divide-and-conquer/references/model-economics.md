@@ -28,11 +28,19 @@ retries, and acceptance rate. Subscription quota is not an API bill.
 
 ## Approved dispatch policy
 
-| Work tier | Primary | Availability backups, in order |
+The following preference profile is a proposal pending routing integration,
+not a description of the current executable ladder. Check the effective route
+decision before allocating work; this table does not authorize a fallback.
+
+| Work tier | Proposed primary | Proposed availability backups, in order |
 | --- | --- | --- |
 | `low`: bounded execution and NTM coordination | Grok 4.7 native `xhigh` | GPT-6 Luna Codex `max`; Grok 4.7 Cursor `xhigh` |
-| `med`: ordinary implementation | GPT-6.1 Sol Codex `high` | Claude Opus 5.5 Cursor `medium` |
-| `high`: planning and final authority | GPT-6 Astra Codex `medium` | Claude Opus 5.5 Cursor `xhigh` |
+| `med`: ordinary implementation | GPT-6.1 Sol Codex `xhigh` | Claude Opus 5.5 native Claude Code `high` |
+| `high`: planning and final authority | GPT-6 Astra Codex `high` | Claude Opus 5.5 native Claude Code `high` |
+
+The proposal prefers Opus 5.5 `high`, GPT-6 Astra `high`, and GPT-6.1 Sol
+`xhigh`, with native Claude Code for the Opus backup. It does not establish
+current provider availability or change the installed routing configuration.
 
 SBP's effective route configuration owns executable IDs and availability
 checks. Keep the exact decision returned by `sbp route <tier> --refresh --json`

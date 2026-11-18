@@ -395,10 +395,15 @@ Explicit user effort requests take precedence; pass supported `--effort` overrid
 
 SBP's tier ladder owns every approved availability backup. Run
 `sbp route <low|med|high> --refresh --json` once per new allocation and retain
-its exact nine-field decision. For `low`, SBP tries native Grok 4.7 `xhigh`,
-Codex Luna `max`, then Cursor Grok 4.7 `xhigh`; `med` tries Codex GPT-6.1 Sol `high`,
-then Cursor Opus 5.5 `medium`; `high` tries Codex Astra `medium`, then Cursor
-Opus 5.5 `xhigh`. A runnable backup is already authorized by the tier policy.
+its exact nine-field decision. The effective route configuration determines
+the current candidates, efforts and backup order; do not infer them from a
+static model table. The [proposed preference profile](references/model-economics.md)
+is pending routing integration and is not executable allocation authority.
+An explicit user model or effort request still takes precedence through the
+supported launch contract. A different live tuple may reflect configuration,
+availability or release differences; inspect its provenance rather than assuming
+an older installation. Keep the retained decision intact and never hand-edit its
+fields. A runnable backup is already authorized by the tier policy.
 Do not request a separate `MODEL_CHANGE` for it, or re-pick a different lane
 outside the tier list.
 

@@ -74,6 +74,7 @@ client:
             ref_policy: origin/main
             transport: provider_cli
             credential_probe: npx wrangler whoami
+            access_runbook: <private-operator-access-runbook>
             build_identity_path: /build-meta.json
             manifest_dir: /var/tmp/your-frontend-release/manifests
             break_glass_workflow: .github/workflows/deploy-pages.yml
@@ -146,6 +147,8 @@ Common keys:
   `release.behavior_proof`, `release.state_proof`, `release.rollback`
 - local self-release keys: `release.command`, `release.gate`,
   `release.ref_policy`, `release.transport`, `release.credential_probe`,
+  `release.access_runbook` (optional private access/issuer instructions, emitted
+  as `MODE_RELEASE_ACCESS_RUNBOOK`),
   `release.manifest_dir`, `release.remote_manifest_dir`,
   `release.build_identity_path`, `release.break_glass_workflow`
 - Pages/edge target keys: `project`, `pages_origin`, `production_branch`,

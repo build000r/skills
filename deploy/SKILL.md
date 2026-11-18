@@ -142,18 +142,21 @@ For auth, env, or schema changes, explicitly answer:
 ### Release Credential And Fallback Parity
 
 The local release credential is authoritative for self-release. Before removing
-an existing automatic deploy trigger, prove that credential from the release
-host and complete one real local release with behavior and state receipts.
+an automatic deploy trigger, prove it from the release host with the overlay's
+credential probe, a dry run where supported, and a real local release with
+behavior and state receipts.
 
-For Cloudflare Workers or Pages, the minimum local proof is:
+For example, start with the overlay's identity probe:
+```bash
+npx wrangler whoami
+```
 
-1. Run the overlay's credential probe, for example:
-   ```bash
-   npx wrangler whoami
-   ```
-2. Confirm the reported account and project match the intended target.
-3. Run a dry run or preview when supported.
-4. Complete the live local release before changing the hosted trigger.
+For Cloudflare, read `MODE_RELEASE_ACCESS_RUNBOOK` (`release.access_runbook`;
+expand `~`) or the matched config repo's access docs before asking for access.
+Reuse a scoped child; the documented token issuer can mint one within existing
+authorization. Never deploy with the issuer. Follow the
+[Cloudflare access preflight](references/self-release.md#cloudflare-access-preflight)
+before expensive builds: `whoami` alone does not prove Worker access.
 
 If the local proof fails, keep the existing deploy trigger and leave the local
 lane ready-but-not-cut-over. If a manual hosted fallback remains, inspect its

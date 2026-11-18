@@ -260,6 +260,34 @@ existing deploy trigger intact. Build the local lane as ready-but-not-cut-over
 and report the exact credential gap. This prevents cost work from accidentally
 creating a zero-deploy system.
 
+### Cloudflare Access Preflight
+
+Read the overlay's `release.access_runbook` first (emitted as
+`MODE_RELEASE_ACCESS_RUNBOOK`; expand `~` in filesystem paths). If unconfigured,
+inspect the matched configuration repo's tracked access documentation before
+declaring access missing or asking the operator for a token.
+
+Reuse a suitable scoped child token first. If missing or insufficient, follow
+the private runbook to use an existing token issuer within the already
+authorized release scope. Issuer access does not expand authorization. Keep
+the issuer in its approved store and use it only for issuance, never as a
+deploy bearer. Limit the child's permissions to required operations and exact
+account/zones, without token-creation access. Bearer values stay out of output
+and tracked files; overlays carry only nonsecret store/runbook references.
+
+Before expensive builds or gates, verify activity, scopes and target binding
+using the same credential as the release. Run the overlay's credential probe,
+such as `npx wrangler whoami`, then read the actual deployment resources:
+
+- Workers: `npx wrangler deployments list --name "$WORKER_NAME" --json` for
+  each declared Worker.
+- Pages: `npx wrangler pages deployment list --project-name "$PAGES_PROJECT"`
+  for the intended project.
+
+`whoami` alone does not prove Worker access; successful reads do not prove
+deploy write access. Preserve dry-runs, the authorized live release, and fresh
+rollback-version reads immediately before activation.
+
 ## Optional Automatic Trigger
 
 Start with an explicit operator or agent command. If automatic deploy-on-main is

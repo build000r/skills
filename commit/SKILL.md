@@ -157,6 +157,18 @@ collection, or another open-source repo inside the local `opensource/` workspace
 - If adding `.gitignore` rules, keep them generic and publishable.
 - If a new file includes internal names, customer data, proprietary URLs, or machine-local paths, scrub or exclude it.
 
+### OSS test addresses
+
+Use [RFC 5737](https://www.rfc-editor.org/rfc/rfc5737.html) documentation ranges
+(`192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24`) for illustrative IPv4
+addresses. Both `100.64.1.8` and `100.100.x.x` fall within the shared
+`100.64.0.0/10` range defined by [RFC 6598](https://www.rfc-editor.org/rfc/rfc6598.html);
+neither is a documentation-reserved placeholder. Keep synthetic shared-range
+fixtures when the tested behavior requires them, with their purpose explicit.
+Check that fixtures do not copy real operator infrastructure addresses; an
+address's range alone does not establish a privacy violation. Keep live network
+tests bound to their declared isolated endpoints, not documentation addresses.
+
 ## Step 5: Batch and commit
 
 Ordinary commits use Git's native index and ref locks. Do not require a remote
@@ -247,6 +259,7 @@ commit with `git log --grep=<id>`.
   `Refs <bead-id>` (or `Closes <bead-id>`), e.g. `Refs bd-hot-path-index-3f9d`. When a
   single bead owns the commit, naming it in the `type(scope):` subject is also fine.
 - One commit may reference several IDs (one per line) when it legitimately spans them.
+- When the commit includes Beads JSONL, stage the tracker file (`.beads/issues.jsonl` or the repo's equivalent) and leave `.beads/*.db` out. Do not make a new commit whose only change is a Beads hit already on origin.
 
 Why it matters: a closed bead/issue with **no** commit referencing its ID cannot be
 verified from the git log, so an audit has to trust the close note alone. If a commit

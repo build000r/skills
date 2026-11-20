@@ -135,7 +135,7 @@ At the end, report:
   check with `/codex:status` and `/codex:result`.
 
 ```
-/codex:rescue --background --model gpt-5.4 --effort high \
+/codex:rescue --background --model gpt-6.2-sol --effort high \
   <implementation prompt from template above>
 ```
 

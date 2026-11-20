@@ -594,7 +594,7 @@ python3 ~/.claude/skills/_shared/scripts/br_helpers.py mint-node \
   --writes 'src/domain/{slice}/**' --writes 'tests/{slice}/**' \
   --done-when '{binary completion check}' \
   --validate '{repo-native test command}' \
-  --model-route '{Grok 4.6 NTM orchestrator|Codex gpt-5.6-sol medium|Codex gpt-5.6-sol max escalation|Codex gpt-5.6-terra ultra fallback|Grok 4.6 design/UX|Grok 4.6 task-runner|Grok dispatcher|Grok CLI sidecar}' \
+  --model-route '{Grok 4.6 NTM orchestrator|Codex gpt-6.2-sol medium|Codex gpt-6.2-sol max escalation|Codex gpt-6.2-astra ultra fallback|Grok 4.6 design/UX|Grok 4.6 task-runner|Grok dispatcher|Grok CLI sidecar}' \
   --risk {none|human|external} \
   --depends-on {parent-issue-id}  # repeat for each dependency
 ```
@@ -609,21 +609,21 @@ Rules per node:
 - `--model-route` is required before handoff:
   - use `Grok 4.6 NTM orchestrator` only for accepted-frontier dispatch,
     tending, harvest, and convergence; it never edits this plan
-  - use `Codex gpt-5.6-sol medium` for ordinary no-ragrets bead composition, domain-planner
+  - use `Codex gpt-6.2-sol medium` for ordinary no-ragrets bead composition, domain-planner
     follow-up, decomposition/synthesis, system design, architecture,
     high-impact code, integration review, commit acceptance, and final-say
-    nodes; use `Codex gpt-5.6-sol max escalation` for pivotal planning or when
+    nodes; use `Codex gpt-6.2-sol max escalation` for pivotal planning or when
     another model is struggling; if SOL is unavailable use
-    `Codex gpt-5.6-terra ultra fallback`
+    `Codex gpt-6.2-astra ultra fallback`
   - use `Grok 4.6 design/UX` for UI/UX, visual design, design systems,
     CSS/tokens, screenshot parity, and fresh-eyes design review; use `Codex
-    gpt-5.6-sol max` for pivotal route-blocker triage; ordinary authority stays
+    gpt-6.2-sol max` for pivotal route-blocker triage; ordinary authority stays
     on SOL medium
   - prefer `Grok 4.6 task-runner` for bounded scripting, docs,
     fixtures, generated-command cleanup, classification artifacts,
     deterministic codemods, or `$commit` nodes with exact write scope or a
-    read-only artifact, validation, stop rules, Codex `gpt-5.6-sol` final review,
-    and final authority (Terra ultra fallback when SOL is unavailable);
+    read-only artifact, validation, stop rules, Codex `gpt-6.2-sol` final review,
+    and final authority (Astra ultra fallback when SOL is unavailable);
     escalate to Codex if the runner stalls, drifts, or cannot validate
   - use `Grok dispatcher` or `Grok CLI sidecar` only for routing/preflight or
     read-only evidence artifacts

@@ -28,7 +28,7 @@ Usage:
     # Set explicit model/effort/prefix
     python3 scripts/run.py launch \
         --task "..." --cd ~/repos/myapp \
-        --prefix dac-review --model gpt-5.6-sol --reasoning-effort medium
+        --prefix dac-review --model gpt-6.2-sol --reasoning-effort medium
 """
 
 from __future__ import annotations
@@ -42,9 +42,13 @@ from datetime import datetime
 from pathlib import Path
 from textwrap import dedent
 
-DEFAULT_MODEL = "gpt-5.6-sol"
+DEFAULT_MODEL = "gpt-6.2-sol"
 ALLOWED_MODELS = [
     DEFAULT_MODEL,
+    "gpt-6.2-astra",
+    "gpt-6-luna",
+    # Existing callers can still request these models explicitly.
+    "gpt-5.6-sol",
     "gpt-5.6-terra",
     "gpt-5.4",
     "gpt-5.4-mini",

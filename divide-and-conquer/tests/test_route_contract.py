@@ -552,7 +552,7 @@ class BindingProducerTests(unittest.TestCase):
 
     LEGACY = {
         "lane": "sol", "model_family": "sol", "quota_surface": "codex",
-        "runner": "codex", "runner_model": "gpt-6.1-sol", "effort": "high",
+        "runner": "codex", "runner_model": "gpt-6.2-sol", "effort": "high",
         "runnable": True, "reason": "headroom", "fallback_depth": 0,
     }
     ACCOUNT = {

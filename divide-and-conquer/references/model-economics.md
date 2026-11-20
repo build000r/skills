@@ -35,10 +35,10 @@ decision before allocating work; this table does not authorize a fallback.
 | Work tier | Proposed primary | Proposed availability backups, in order |
 | --- | --- | --- |
 | `low`: bounded execution and NTM coordination | Grok 4.7 native `xhigh` | GPT-6 Luna Codex `max`; Grok 4.7 Cursor `xhigh` |
-| `med`: ordinary implementation | GPT-6.1 Sol Codex `xhigh` | Claude Opus 5.5 native Claude Code `high` |
-| `high`: planning and final authority | GPT-6 Astra Codex `high` | Claude Opus 5.5 native Claude Code `high` |
+| `med`: ordinary implementation | GPT-6.2 Sol Codex `xhigh` | Claude Opus 5.5 native Claude Code `high` |
+| `high`: planning and final authority | GPT-6.2 Astra Codex `high` | Claude Opus 5.5 native Claude Code `high` |
 
-The proposal prefers Opus 5.5 `high`, GPT-6 Astra `high`, and GPT-6.1 Sol
+The proposal prefers Opus 5.5 `high`, GPT-6.2 Astra `high`, and GPT-6.2 Sol
 `xhigh`, with native Claude Code for the Opus backup. It does not establish
 current provider availability or change the installed routing configuration.
 

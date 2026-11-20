@@ -25,13 +25,13 @@ def capture_status(args) -> tuple[int, dict, str]:
 
 
 class ParseArgsModelPolicyTests(unittest.TestCase):
-    def test_default_model_is_gpt_5_6_sol(self) -> None:
+    def test_default_model_is_gpt_6_2_sol(self) -> None:
         args = run.parse_args(["launch", "--task", "noop", "--cd", "/tmp"])
 
-        self.assertEqual(args.model, "gpt-5.6-sol")
+        self.assertEqual(args.model, "gpt-6.2-sol")
         self.assertEqual(args.reasoning_effort, "medium")
 
-    def test_terra_ultra_fallback_is_allowed(self) -> None:
+    def test_astra_ultra_fallback_is_allowed(self) -> None:
         args = run.parse_args(
             [
                 "launch",
@@ -40,13 +40,13 @@ class ParseArgsModelPolicyTests(unittest.TestCase):
                 "--cd",
                 "/tmp",
                 "--model",
-                "gpt-5.6-terra",
+                "gpt-6.2-astra",
                 "--reasoning-effort",
                 "ultra",
             ]
         )
 
-        self.assertEqual(args.model, "gpt-5.6-terra")
+        self.assertEqual(args.model, "gpt-6.2-astra")
         self.assertEqual(args.reasoning_effort, "ultra")
 
     def test_gpt_5_4_is_allowed(self) -> None:
@@ -96,7 +96,7 @@ class CodexCommandTests(unittest.TestCase):
         command = run._build_codex_command(
             prompt="noop",
             repo="/tmp/repo",
-            model="gpt-5.6-sol",
+            model="gpt-6.2-sol",
             reasoning_effort="high",
             codex_bin="codex",
         )
@@ -185,10 +185,10 @@ class SkillDocModelPolicyTests(unittest.TestCase):
     def test_skill_docs_only_list_codex_native_models(self) -> None:
         skill_doc = (Path(__file__).resolve().parents[1] / "SKILL.md").read_text()
 
-        self.assertIn("`gpt-5.6-sol`", skill_doc)
-        self.assertIn("`gpt-5.4`", skill_doc)
-        self.assertIn("`gpt-5.4-mini`", skill_doc)
-        self.assertIn("`codex-mini-latest`", skill_doc)
+        self.assertIn("`gpt-6.2-sol`", skill_doc)
+        self.assertIn("`gpt-6.2-astra`", skill_doc)
+        self.assertIn("`gpt-6-luna`", skill_doc)
+        self.assertNotIn("`codex-mini-latest`", skill_doc)
         self.assertNotIn("OpenRouter", skill_doc)
         self.assertNotIn("stepfun/step-3.5-flash:free", skill_doc)
 

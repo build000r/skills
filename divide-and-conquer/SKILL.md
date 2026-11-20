@@ -444,8 +444,7 @@ allocation preserves its exact decision until safe continuation is complete.
 
 ### Non-default Model-Change Gate
 
-Terra is not a route-v2 lane or fallback. Every Terra reference is
-non-default and may be acted on only when all three receipts already exist:
+A model outside the returned route decision requires all three receipts:
 
 - the exact retained `high` tier decision is typed `runnable:false` with
   `reason:"no-route"`, null executable fields, and null `fallback_depth`
@@ -454,9 +453,8 @@ non-default and may be acted on only when all three receipts already exist:
 - a `MODEL_CHANGE` receipt records the exact `high` tier decision, authority source,
   new runner, `runner_model`, and effort before execution
 
-Only then may the separately authorized procedure select
-`gpt-5.6-terra:ultra`. This skill never fabricates a Terra route-v2 decision or
-derives a Terra spawn from prose. If the authority does not name the executable
+Use the exact runner, model, and effort named by the separately authorized
+procedure. If the authority does not name the executable
 model-change procedure, or any prerequisite above is absent, stop. Otherwise,
 continue only under that named procedure. A rate limit, worker failure,
 provider name, nonzero fallback depth, or Grok result is not this authority.

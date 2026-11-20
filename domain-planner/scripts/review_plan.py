@@ -2,7 +2,7 @@
 """
 Critical review of a domain plan before sign-off.
 
-Launches a Codex worker (gpt-5.6-sol, medium reasoning by default) to review all 6 plan
+Launches a Codex worker (gpt-6.2-sol, medium reasoning by default) to review all 6 plan
 files against the plan quality rubric, sibling slices, and mode context.
 Produces a REVIEW.md with per-dimension scores, concerns, and suggested upgrades.
 
@@ -14,10 +14,10 @@ Usage:
     python3 scripts/review_plan.py --slice agent_billing --execute
 
     # Override model/effort
-    python3 scripts/review_plan.py --slice agent_billing --execute --model gpt-5.6-sol --reasoning-effort medium
+    python3 scripts/review_plan.py --slice agent_billing --execute --model gpt-6.2-sol --reasoning-effort medium
 
     # SOL-unavailable fallback
-    python3 scripts/review_plan.py --slice agent_billing --execute --model gpt-5.6-terra --reasoning-effort ultra
+    python3 scripts/review_plan.py --slice agent_billing --execute --model gpt-6.2-astra --reasoning-effort ultra
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ from textwrap import dedent
 
 DEFAULT_PLAN_ROOT = None  # Set via --plan-root or mode config (plan_root)
 DEFAULT_PLAN_INDEX = None  # Set via --plan-index or mode config (plan_index)
-DEFAULT_MODEL = "gpt-5.6-sol"
+DEFAULT_MODEL = "gpt-6.2-sol"
 DEFAULT_REASONING_EFFORT = "medium"
 
 PLAN_FILES = ["plan.md", "shared.md", "backend.md", "frontend.md", "flows.md", "schema.mmd"]

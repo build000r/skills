@@ -78,7 +78,10 @@ PLAN_NOTE_SCALARS = ("planning_parent", "supports", "local_criteria", "produces"
 PLAN_ROOT_NOTE_SCALARS = ("synthesis_receipt", "plan_score", "hard_gate_result")
 INTERNAL_ARTIFACT_ROOT = Path("/srv/skillbox/artifacts")
 INTERNAL_ROUTE_LABEL = "route:internal-astra-medium"
-INTERNAL_MODEL_ROUTE_PREFIX = "operator-authorized internal gpt-6-astra medium priority"
+INTERNAL_MODEL_ROUTE_PREFIXES = (
+    "operator-authorized internal gpt-6.2-astra medium priority",
+    "operator-authorized internal gpt-6-astra medium priority",  # Existing Beads.
+)
 WRITER_POLICY_FILE = ".commit-writer-session.json"
 WRITER_POLICY_SCHEMA = "commit-writer-session-policy/v1"
 WRITER_POLICY_ATOMIC_CONTRACT = (
@@ -1064,9 +1067,9 @@ def _run_dir_rejection(
     model_route = contract.get("model_route")
     internal_model = (
         isinstance(model_route, str)
-        and (
-            model_route == INTERNAL_MODEL_ROUTE_PREFIX
-            or model_route.startswith(INTERNAL_MODEL_ROUTE_PREFIX + ";")
+        and any(
+            model_route == prefix or model_route.startswith(prefix + ";")
+            for prefix in INTERNAL_MODEL_ROUTE_PREFIXES
         )
     )
     if internal_label_present or internal_model:

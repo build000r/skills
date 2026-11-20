@@ -191,8 +191,9 @@ traversal, symlink escapes, repository descendants and `.dac`/`.ntm` paths.
 Temporary storage does not relax model-route validation. For explicitly retained
 evidence, external routes can use an existing descendant of the active client's
 `@client/invocations` directory.
-`route:internal-astra-medium` plus the matching operator-authorized internal
-model route may use an existing descendant of `/srv/skillbox/artifacts` for
+`route:internal-astra-medium` plus the model route
+`operator-authorized internal gpt-6.2-astra medium priority` may use an existing
+descendant of `/srv/skillbox/artifacts` for
 local Codex review evidence. A label without the matching model route, or the
 model route without the label, is rejected. Permanent roots retain their
 existing containment checks. All branches reject repository directories,

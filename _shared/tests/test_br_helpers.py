@@ -1656,11 +1656,12 @@ class PlanArtifactBoundaryTests(unittest.TestCase):
                 "repo_path": str(repo),
                 "run_dir": str(run),
                 "labels": ["route:internal-astra-medium"],
-                "model_route": "operator-authorized internal gpt-6-astra medium priority",
             }
-            with mock.patch.object(MODULE, "INTERNAL_ARTIFACT_ROOT", root, create=True):
-                self.assertIsNone(MODULE._run_dir_rejection("review", contract, {}))
-            self.assertEqual(contract["run_dir"], str(run.resolve()))
+            for model in ("gpt-6.2-astra", "gpt-6-astra"):
+                with self.subTest(model=model), mock.patch.object(MODULE, "INTERNAL_ARTIFACT_ROOT", root):
+                    routed = {**contract, "model_route": f"operator-authorized internal {model} medium priority"}
+                    self.assertIsNone(MODULE._run_dir_rejection("review", routed, {}))
+                    self.assertEqual(routed["run_dir"], str(run.resolve()))
 
     def test_internal_codex_route_rejects_wrong_authority_and_path_escape(self) -> None:
         with tempfile.TemporaryDirectory(dir="/var/tmp") as tmpdir:
